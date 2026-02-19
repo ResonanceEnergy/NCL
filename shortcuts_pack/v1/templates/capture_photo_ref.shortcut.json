@@ -1,0 +1,18 @@
+{
+  "name": "NCL — Capture Photo Reference",
+  "description": "Capture a photo, store in Files, emit an event that references the photo URI (no raw image leaves device).",
+  "event_template": {
+    "event_type": "ncl.note.photo_ref",
+    "ingestion_method": "shortcut",
+    "permission": { "granted": true },
+    "retention_tier": "short",
+    "privacy_level": "personal",
+    "provenance": { "source": "Shortcut" },
+    "payload": {
+      "recorded_at": "{{CURRENT_DATETIME}}",
+      "photo_ref": "file://NCL/events/photos/{{UUID}}.jpg",
+      "session_id": "{{UUID}}"
+    }
+  },
+  "usage": "Take Photo → Save to Files → Emit JSON referencing the saved path"
+}

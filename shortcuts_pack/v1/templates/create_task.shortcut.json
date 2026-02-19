@@ -1,0 +1,19 @@
+{
+  "name": "NCL — Create Task",
+  "description": "Create a task from captured text and emit an event referencing the task id.",
+  "event_template": {
+    "event_type": "ncl.task.created",
+    "ingestion_method": "shortcut",
+    "permission": { "granted": true },
+    "retention_tier": "short",
+    "privacy_level": "personal",
+    "provenance": { "source": "Shortcut" },
+    "payload": {
+      "created_at": "{{CURRENT_DATETIME}}",
+      "task_id": "task-{{UUID}}",
+      "title": "{{INPUT_TEXT}}",
+      "due": "{{DUE_DATE}}"
+    }
+  },
+  "usage": "Fill title/due fields → Save JSON to NCL/events/"
+}

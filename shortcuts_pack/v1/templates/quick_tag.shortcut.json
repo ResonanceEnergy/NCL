@@ -1,0 +1,18 @@
+{
+  "name": "NCL — Quick Tag",
+  "description": "Add a quick tag to the latest unprocessed event in the inbox.",
+  "event_template": {
+    "event_type": "ncl.event.tag",
+    "ingestion_method": "shortcut",
+    "permission": { "granted": true },
+    "retention_tier": "short",
+    "privacy_level": "personal",
+    "provenance": { "source": "Shortcut" },
+    "payload": {
+      "tagged_at": "{{CURRENT_DATETIME}}",
+      "target_event_id": "{{TARGET_EVENT_ID}}",
+      "tag": "{{TAG}}"
+    }
+  },
+  "usage": "Provide TAG and TARGET_EVENT_ID (can be last_event_id) → write tag event"
+}

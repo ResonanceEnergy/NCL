@@ -1,0 +1,19 @@
+{
+  "name": "NCL — Capture Voice Label",
+  "description": "Record a short voice label, store only a label/metadata (no audio in event).",
+  "event_template": {
+    "event_type": "ncl.note.voice_label",
+    "ingestion_method": "shortcut",
+    "permission": { "granted": true },
+    "retention_tier": "short",
+    "privacy_level": "metadata_only",
+    "provenance": { "source": "Shortcut" },
+    "payload": {
+      "recorded_at": "{{CURRENT_DATETIME}}",
+      "label": "{{VOICE_TRANSCRIPTION}}",
+      "confidence": 0.92,
+      "session_id": "{{UUID}}"
+    }
+  },
+  "usage": "Record Audio (use local transcription) → emit label-only payload"
+}

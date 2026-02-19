@@ -1,0 +1,18 @@
+{
+  "name": "NCL — Start Review",
+  "description": "Trigger a weekly review run; emits a lightweight "event" signaling review start.",
+  "event_template": {
+    "event_type": "ncl.review.start",
+    "ingestion_method": "shortcut",
+    "permission": { "granted": true },
+    "retention_tier": "short",
+    "privacy_level": "personal",
+    "provenance": { "source": "Shortcut" },
+    "payload": {
+      "started_at": "{{CURRENT_DATETIME}}",
+      "session_id": "{{UUID}}",
+      "focus": "weekly_review"
+    }
+  },
+  "usage": "Run this shortcut to create a review session event that the app will surface in the Review Queue."
+}

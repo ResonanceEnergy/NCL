@@ -1,0 +1,18 @@
+{
+  "name": "NCL — Capture Text",
+  "description": "Shortcut that captures a text note and writes an NCL envelope JSON to Files (NCL/events)",
+  "event_template": {
+    "event_type": "ncl.note.captured",
+    "ingestion_method": "shortcut",
+    "permission": { "granted": true },
+    "retention_tier": "short",
+    "privacy_level": "personal",
+    "provenance": { "source": "Shortcut" },
+    "payload": {
+      "recorded_at": "{{CURRENT_DATETIME}}",
+      "text": "{{INPUT_TEXT}}",
+      "session_id": "{{UUID}}"
+    }
+  },
+  "usage": "Use Text action → Fill `INPUT_TEXT` → Save File to iCloud/Files in folder NCL/events/"
+}
