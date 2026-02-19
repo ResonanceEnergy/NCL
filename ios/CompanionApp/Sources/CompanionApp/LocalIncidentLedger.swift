@@ -58,4 +58,12 @@ public final class LocalIncidentLedger: IncidentLedgerProtocol {
             }
         }
     }
+
+    // Export full ledger as a JSON array to `toURL` (overwrites if exists)
+    public func exportAsJSONArray(to toURL: URL) throws {
+        let entries = readAll()
+        let data = try JSONSerialization.data(withJSONObject: entries, options: [.prettyPrinted])
+        try data.write(to: toURL, options: [.atomic])
+    }
 }
+
