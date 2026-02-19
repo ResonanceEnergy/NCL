@@ -1,0 +1,14 @@
+{
+  "id": "golden_0001",
+  "name": "Summarize daily inbox",
+  "input": {
+    "events": [
+      { "id": "e1", "text": "Call Alice about meeting" },
+      { "id": "e2", "text": "Buy milk" }
+    ]
+  },
+  "expected": {
+    "summary": "Call Alice about meeting; Buy milk"
+  },
+  "failure_conditions": ["missing_core_fact", "hallucinated_item"]
+}
