@@ -1,0 +1,46 @@
+name: PolicyKernel + Golden Tasks Gate
+
+on:
+  pull_request:
+    paths:
+      - 'ios/CompanionApp/**'
+      - 'tools/**'
+      - 'docs/**'
+
+jobs:
+  policy-kernel-check:
+    name: PolicyKernel test existence check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for PolicyKernel tests
+        run: |
+          if grep -R --line-number "PolicyKernel" ios/CompanionApp/Tests >/dev/null 2>&1; then
+            echo "PolicyKernel tests found.";
+            exit 0;
+          else
+            echo "Error: No PolicyKernel tests detected under ios/CompanionApp/Tests.";
+            echo "Please add unit tests that cover PolicyKernel (e.g., testAuthorize_*).";
+            exit 1;
+          fi
+
+  golden-task-check:
+    name: Golden task presence check (light)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Look for golden tasks harness
+        run: |
+          if [ -d "evaluation/golden_tasks" ] || [ -d "tools/golden_tasks" ]; then
+            echo "Golden tasks directory exists — ensure tests are present.";
+            if grep -R --line-number "golden" ios/CompanionApp/Tests >/dev/null 2>&1; then
+              echo "Golden tests found.";
+              exit 0;
+            else
+              echo "Error: golden tasks present but no tests found under ios/CompanionApp/Tests.";
+              exit 1;
+            fi
+          else
+            echo "No golden tasks directory detected — skipping golden-task gate.";
+            exit 0;
+          fi
