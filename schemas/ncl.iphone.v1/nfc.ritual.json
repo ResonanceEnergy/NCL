@@ -1,0 +1,25 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/nfc.ritual.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "NFC Ritual Event",
+  "description": "Event emitted when an NFC tag ritual is triggered (tag hash only, no payload content).",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.nfc.ritual" },
+        "payload": {
+          "type": "object",
+          "required": ["timestamp","tag_hash","ritual_id"],
+          "properties": {
+            "timestamp": { "type": "string", "format": "date-time" },
+            "tag_hash": { "type": "string" },
+            "ritual_id": { "type": "string" },
+            "location_hint": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

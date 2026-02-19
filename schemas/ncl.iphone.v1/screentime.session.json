@@ -1,0 +1,25 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/screentime.session.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Screen Time — Session",
+  "description": "Single Screen Time session record (start/end/top app hash).",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.screentime.session" },
+        "payload": {
+          "type": "object",
+          "required": ["start","end","duration_s"],
+          "properties": {
+            "start": { "type": "string", "format": "date-time" },
+            "end": { "type": "string", "format": "date-time" },
+            "duration_s": { "type": "integer", "minimum": 0 },
+            "top_app_hash": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

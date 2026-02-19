@@ -1,0 +1,26 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/system.focus_change.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Focus Mode Change",
+  "description": "Event emitted when the system Focus mode changes (activated/deactivated).",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.system.focus_change" },
+        "payload": {
+          "type": "object",
+          "required": ["timestamp","focus_name","action"],
+          "properties": {
+            "timestamp": { "type": "string", "format": "date-time" },
+            "focus_name": { "type": "string" },
+            "action": { "type": "string", "enum": ["activated","deactivated"] },
+            "trigger": { "type": "string", "enum": ["manual","schedule","automation","shortcut" ] },
+            "previous_focus": { "type": ["string","null"] }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

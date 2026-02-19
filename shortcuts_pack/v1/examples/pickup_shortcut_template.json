@@ -1,0 +1,13 @@
+{
+  "event_type": "ncl.device.pickup",
+  "ingestion_method": "shortcut",
+  "permission": { "granted": true },
+  "retention_tier": "short",
+  "privacy_level": "metadata_only",
+  "provenance": { "source": "Shortcut" },
+  "payload": {
+    "recorded_at": "{{CURRENT_DATETIME}}",
+    "unlock_method": "face_id",
+    "session_id": "{{UUID}}"
+  }
+}

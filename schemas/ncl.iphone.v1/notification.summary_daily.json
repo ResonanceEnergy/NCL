@@ -1,0 +1,24 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/notification.summary_daily.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Notifications — Daily Summary",
+  "description": "Daily totals for notifications (metadata-only).",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.notification.summary_daily" },
+        "payload": {
+          "type": "object",
+          "required": ["date","total_count"],
+          "properties": {
+            "date": { "type": "string", "format": "date" },
+            "total_count": { "type": "integer", "minimum": 0 },
+            "by_category": { "type": "object" }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

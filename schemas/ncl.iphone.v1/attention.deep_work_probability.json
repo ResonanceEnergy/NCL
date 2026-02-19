@@ -1,0 +1,24 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/attention.deep_work_probability.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Deep Work Probability",
+  "description": "Probability (0.0-1.0) that a session is deep work.",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.attention.deep_work_probability" },
+        "payload": {
+          "type": "object",
+          "required": ["session_id","probability"],
+          "properties": {
+            "session_id": { "type": "string" },
+            "probability": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+            "factors": { "type": "object" }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

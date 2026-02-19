@@ -1,0 +1,25 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/attention.context_switch_proxy.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Context-Switch Proxy",
+  "description": "Proxy metric estimating context switches in a time window.",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.attention.context_switch_proxy" },
+        "payload": {
+          "type": "object",
+          "required": ["window_start","window_end","switch_count"],
+          "properties": {
+            "window_start": { "type": "string", "format": "date-time" },
+            "window_end": { "type": "string", "format": "date-time" },
+            "switch_count": { "type": "integer", "minimum": 0 },
+            "proxy_score": { "type": "number", "minimum": 0.0, "maximum": 1.0 }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

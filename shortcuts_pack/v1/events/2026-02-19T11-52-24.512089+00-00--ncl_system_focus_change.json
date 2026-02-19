@@ -1,0 +1,22 @@
+{
+  "event_type": "ncl.system.focus_change",
+  "ingestion_method": "shortcut",
+  "permission": {
+    "granted": true
+  },
+  "retention_tier": "short",
+  "privacy_level": "metadata_only",
+  "provenance": {
+    "source": "Shortcut"
+  },
+  "payload": {
+    "timestamp": "2026-02-19T09:00:00Z",
+    "focus_name": "Work",
+    "action": "activated",
+    "trigger": "schedule",
+    "previous_focus": null
+  },
+  "event_id": "f5fe13fa-d018-4e63-9268-850d8fab656c",
+  "timestamp": "2026-02-19T11:52:24.512089+00:00",
+  "schema_version": "ncl.iphone.v1"
+}

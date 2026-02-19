@@ -1,0 +1,34 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/notification.by_app.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Notifications — By App",
+  "description": "Counts of notifications per app (store app hashes only).",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.notification.by_app" },
+        "payload": {
+          "type": "object",
+          "required": ["date","apps"],
+          "properties": {
+            "date": { "type": "string", "format": "date" },
+            "apps": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["app_hash","count"],
+                "properties": {
+                  "app_hash": { "type": "string" },
+                  "count": { "type": "integer", "minimum": 0 }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

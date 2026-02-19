@@ -1,0 +1,5 @@
+{
+  "python.defaultInterpreterPath": "python",
+  "editor.formatOnSave": true,
+  "files.eol": "\n"
+}

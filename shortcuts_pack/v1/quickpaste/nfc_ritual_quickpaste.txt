@@ -1,0 +1,16 @@
+{
+  "event_type": "ncl.nfc.ritual",
+  "schema_version": "ncl.iphone.v1",
+  "timestamp": "{{CURRENT_DATETIME}}",
+  "ingestion_method": "shortcut",
+  "permission": { "granted": true },
+  "retention_tier": "short",
+  "privacy_level": "metadata_only",
+  "provenance": { "source": "Shortcut" },
+  "payload": {
+    "timestamp": "{{CURRENT_DATETIME}}",
+    "tag_hash": "{{TAG_HASH}}",
+    "ritual_id": "{{RITUAL_ID}}",
+    "location_hint": "{{LOCATION_HINT}}"
+  }
+}

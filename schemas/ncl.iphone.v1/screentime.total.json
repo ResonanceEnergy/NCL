@@ -1,0 +1,24 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/screentime.total.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Screen Time — Total (daily/weekly)",
+  "description": "Aggregate total screen time for a day/week.",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.screentime.total" },
+        "payload": {
+          "type": "object",
+          "required": ["date","total_seconds"],
+          "properties": {
+            "date": { "type": "string", "format": "date" },
+            "total_seconds": { "type": "integer", "minimum": 0 },
+            "weekly_seconds": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

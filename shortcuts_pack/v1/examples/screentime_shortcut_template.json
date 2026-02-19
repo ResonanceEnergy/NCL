@@ -1,0 +1,14 @@
+{
+  "event_type": "ncl.screentime.session",
+  "ingestion_method": "shortcut",
+  "permission": { "granted": true },
+  "retention_tier": "short",
+  "privacy_level": "metadata_only",
+  "provenance": { "source": "Shortcut" },
+  "payload": {
+    "start": "2026-02-19T08:00:00Z",
+    "end": "2026-02-19T08:45:00Z",
+    "duration_s": 2700,
+    "top_app_hash": "sha256:abcd1234"
+  }
+}

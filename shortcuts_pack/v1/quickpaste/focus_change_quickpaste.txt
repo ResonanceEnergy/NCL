@@ -1,0 +1,17 @@
+{
+  "event_type": "ncl.system.focus_change",
+  "schema_version": "ncl.iphone.v1",
+  "timestamp": "{{CURRENT_DATETIME}}",
+  "ingestion_method": "shortcut",
+  "permission": { "granted": true },
+  "retention_tier": "short",
+  "privacy_level": "metadata_only",
+  "provenance": { "source": "Shortcut" },
+  "payload": {
+    "timestamp": "{{CURRENT_DATETIME}}",
+    "focus_name": "{{FOCUS_NAME}}",
+    "action": "{{activated|deactivated}}",
+    "trigger": "{{manual|schedule|automation|shortcut}}",
+    "previous_focus": null
+  }
+}

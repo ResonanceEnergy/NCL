@@ -1,0 +1,24 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/weekly_habit_drift.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Weekly Habit Drift",
+  "description": "Week-over-week drift score for top signal categories.",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.attention.weekly_habit_drift" },
+        "payload": {
+          "type": "object",
+          "required": ["week_start","drift_score"],
+          "properties": {
+            "week_start": { "type": "string", "format": "date" },
+            "drift_score": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+            "top_changes": { "type": "array", "items": { "type": "string" } }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

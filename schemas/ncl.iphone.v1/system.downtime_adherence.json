@@ -1,0 +1,25 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/system.downtime_adherence.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Downtime Configuration & Adherence",
+  "description": "User's configured downtime periods and adherence metrics.",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.system.downtime_adherence" },
+        "payload": {
+          "type": "object",
+          "required": ["period_start","period_end","adherence_pct"],
+          "properties": {
+            "period_start": { "type": "string", "format": "time" },
+            "period_end": { "type": "string", "format": "time" },
+            "adherence_pct": { "type": "number", "minimum": 0.0, "maximum": 100.0 },
+            "violations": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

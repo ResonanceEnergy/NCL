@@ -1,0 +1,14 @@
+{
+  "event_type": "ncl.nfc.ritual",
+  "ingestion_method": "shortcut",
+  "permission": { "granted": true },
+  "retention_tier": "short",
+  "privacy_level": "metadata_only",
+  "provenance": { "source": "Shortcut" },
+  "payload": {
+    "timestamp": "2026-02-19T08:00:00Z",
+    "tag_hash": "sha256:taghash123",
+    "ritual_id": "desk_checkin",
+    "location_hint": "desk"
+  }
+}

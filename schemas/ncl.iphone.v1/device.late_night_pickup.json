@@ -1,0 +1,24 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/device.late_night_pickup.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Late-night Pickup",
+  "description": "Pickup events that occur after user-configured cutoff (sleep disruption).",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.device.late_night_pickup" },
+        "payload": {
+          "type": "object",
+          "required": ["recorded_at","is_after_cutoff"],
+          "properties": {
+            "recorded_at": { "type": "string", "format": "date-time" },
+            "is_after_cutoff": { "type": "boolean" },
+            "cutoff_time": { "type": "string", "format": "time" }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,902 @@
+[
+  {
+    "id": 1,
+    "tag": "C",
+    "title": "Total Screen Time (daily/weekly)",
+    "description": "Baseline attention load; trend over time."
+  },
+  {
+    "id": 2,
+    "tag": "C",
+    "title": "Screen Time by category",
+    "description": "Social vs productivity vs entertainment distribution."
+  },
+  {
+    "id": 3,
+    "tag": "C",
+    "title": "Top apps by usage time",
+    "description": "Top 5/10 apps drive habit loops."
+  },
+  {
+    "id": 4,
+    "tag": "C",
+    "title": "Pickups count",
+    "description": "Compulsion/habit proxy."
+  },
+  {
+    "id": 5,
+    "tag": "C",
+    "title": "Notifications total/day",
+    "description": "Interruption pressure."
+  },
+  {
+    "id": 6,
+    "tag": "C",
+    "title": "Notifications by app",
+    "description": "Identify top interrupters."
+  },
+  {
+    "id": 7,
+    "tag": "D",
+    "title": "Reaction Mode score",
+    "description": "Derived from notifications + pickups + short sessions."
+  },
+  {
+    "id": 8,
+    "tag": "D",
+    "title": "Deep Work probability",
+    "description": "Low pickups + long uninterrupted intervals."
+  },
+  {
+    "id": 9,
+    "tag": "U",
+    "title": "First unlock time vs planned wake",
+    "description": "Routine integrity marker."
+  },
+  {
+    "id": 10,
+    "tag": "U",
+    "title": "Late-night pickups",
+    "description": "Sleep sabotage risk indicator."
+  },
+  {
+    "id": 11,
+    "tag": "U",
+    "title": "First app opened after wake",
+    "description": "Dopamine-hook fingerprint."
+  },
+  {
+    "id": 12,
+    "tag": "C",
+    "title": "Downtime configuration & adherence",
+    "description": "Self-control boundary compliance."
+  },
+  {
+    "id": 13,
+    "tag": "C",
+    "title": "App Limit hits",
+    "description": "Which apps trigger limits and when."
+  },
+  {
+    "id": 14,
+    "tag": "D",
+    "title": "Distraction Index",
+    "description": "(pickups/hr) × (notifications/hr)."
+  },
+  {
+    "id": 15,
+    "tag": "U",
+    "title": "Screen-distance/strain alerts (if enabled)",
+    "description": "Potential eye strain / posture marker."
+  },
+  {
+    "id": 16,
+    "tag": "D",
+    "title": "Attention fragmentation",
+    "description": "Count of short sessions (<2 min)."
+  },
+  {
+    "id": 17,
+    "tag": "D",
+    "title": "Context-switch proxy",
+    "description": "Approx from Screen Time session segmentation."
+  },
+  {
+    "id": 18,
+    "tag": "U",
+    "title": "Notification burst events",
+    "description": "10+ notifications in 5 minutes as stressors."
+  },
+  {
+    "id": 19,
+    "tag": "D",
+    "title": "Protect-sleep compliance",
+    "description": "No pickups after cutoff time."
+  },
+  {
+    "id": 20,
+    "tag": "D",
+    "title": "Weekly habit drift",
+    "description": "Week-over-week category shift."
+  },
+  {
+    "id": 21,
+    "tag": "C",
+    "title": "Sleep duration",
+    "description": "Nightly sleep totals from Health/Vitals."
+  },
+  {
+    "id": 22,
+    "tag": "C",
+    "title": "Overnight heart rate",
+    "description": "Baseline/outliers while asleep."
+  },
+  {
+    "id": 23,
+    "tag": "C",
+    "title": "Respiratory rate",
+    "description": "Recovery/illness signal."
+  },
+  {
+    "id": 24,
+    "tag": "C",
+    "title": "Wrist temperature deviation",
+    "description": "Outlier detection vs baseline."
+  },
+  {
+    "id": 25,
+    "tag": "C",
+    "title": "Blood oxygen (if supported)",
+    "description": "Respiration proxy."
+  },
+  {
+    "id": 26,
+    "tag": "C",
+    "title": "HRV trend",
+    "description": "Nervous system load indicator."
+  },
+  {
+    "id": 27,
+    "tag": "C",
+    "title": "Resting HR trend",
+    "description": "Overtraining/illness hints."
+  },
+  {
+    "id": 28,
+    "tag": "C",
+    "title": "Steps & active minutes",
+    "description": "Movement baseline."
+  },
+  {
+    "id": 29,
+    "tag": "C",
+    "title": "Workouts: type + duration",
+    "description": "Training inputs and load."
+  },
+  {
+    "id": 30,
+    "tag": "D",
+    "title": "Recovery Debt",
+    "description": "Sleep shortfall + HRV down + outliers up."
+  },
+  {
+    "id": 31,
+    "tag": "D",
+    "title": "Overtraining suspicion",
+    "description": "High load + HRV suppression pattern."
+  },
+  {
+    "id": 32,
+    "tag": "U",
+    "title": "Vitals outlier count",
+    "description": "Single readiness flag for the morning."
+  },
+  {
+    "id": 33,
+    "tag": "C",
+    "title": "Medication/health confound tags (manual)",
+    "description": "Tag alcohol, meds, illness to explain outliers."
+  },
+  {
+    "id": 34,
+    "tag": "D",
+    "title": "Energy forecast",
+    "description": "Next-day energy from 7-day patterns."
+  },
+  {
+    "id": 35,
+    "tag": "U",
+    "title": "Illness onset detector",
+    "description": "Temp deviation + RHR up + sleep disruption."
+  },
+  {
+    "id": 36,
+    "tag": "C",
+    "title": "Health data change handling",
+    "description": "HealthKit data can be edited/deleted; respect updates."
+  },
+  {
+    "id": 37,
+    "tag": "U",
+    "title": "Automated Health export pipeline",
+    "description": "Optional: export HealthKit to JSON/REST for local DB."
+  },
+  {
+    "id": 38,
+    "tag": "D",
+    "title": "Sleep regularity score",
+    "description": "Bedtime variance across 14 days."
+  },
+  {
+    "id": 39,
+    "tag": "D",
+    "title": "Work capacity estimate",
+    "description": "Recovery state × schedule load."
+  },
+  {
+    "id": 40,
+    "tag": "D",
+    "title": "Health vs output correlation",
+    "description": "Identify conditions that produce your best work."
+  },
+  {
+    "id": 41,
+    "tag": "C",
+    "title": "Calendar event count/day",
+    "description": "Meeting density indicator."
+  },
+  {
+    "id": 42,
+    "tag": "C",
+    "title": "Scheduled hours/day",
+    "description": "Overcommitment detection."
+  },
+  {
+    "id": 43,
+    "tag": "U",
+    "title": "Same-day new events",
+    "description": "Volatility score for schedule churn."
+  },
+  {
+    "id": 44,
+    "tag": "D",
+    "title": "Plan adherence",
+    "description": "Calendar focus blocks vs reaction signals."
+  },
+  {
+    "id": 45,
+    "tag": "C",
+    "title": "Reminders completion rate",
+    "description": "Execution reliability."
+  },
+  {
+    "id": 46,
+    "tag": "U",
+    "title": "Delay patterns",
+    "description": "Postponements/overdue accumulation."
+  },
+  {
+    "id": 47,
+    "tag": "D",
+    "title": "Decision debt",
+    "description": "Reschedules + overdue tasks + late nights."
+  },
+  {
+    "id": 48,
+    "tag": "U",
+    "title": "Focus Mode schedule as intent",
+    "description": "Focus schedule is explicit intent signal."
+  },
+  {
+    "id": 49,
+    "tag": "D",
+    "title": "Intent/Outcome delta",
+    "description": "From AM/MID/PM check-ins vs actual day summary."
+  },
+  {
+    "id": 50,
+    "tag": "U",
+    "title": "Travel blocks inferred",
+    "description": "Location state changes + calendar windows."
+  },
+  {
+    "id": 51,
+    "tag": "D",
+    "title": "Buffer deficit",
+    "description": "Scheduled hours – protected time budget."
+  },
+  {
+    "id": 52,
+    "tag": "D",
+    "title": "Meeting spillover score",
+    "description": "Late events + notification/pickup spikes."
+  },
+  {
+    "id": 53,
+    "tag": "U",
+    "title": "Time-to-first-work after wake",
+    "description": "Routine stability / ramp time."
+  },
+  {
+    "id": 54,
+    "tag": "D",
+    "title": "Weekly rhythm profile",
+    "description": "Peak output days from patterns."
+  },
+  {
+    "id": 55,
+    "tag": "D",
+    "title": "Seasonal behavior drift",
+    "description": "Long-horizon aggregate changes."
+  },
+  {
+    "id": 56,
+    "tag": "C",
+    "title": "Significant location changes",
+    "description": "Coarse context shift without GPS trails."
+  },
+  {
+    "id": 57,
+    "tag": "D",
+    "title": "Place-type fingerprint",
+    "description": "Home/work/else classification from location states."
+  },
+  {
+    "id": 58,
+    "tag": "U",
+    "title": "Commute load proxy",
+    "description": "Travel time + pickups during transit."
+  },
+  {
+    "id": 59,
+    "tag": "U",
+    "title": "Car Bluetooth connection events",
+    "description": "Drive-mode detection."
+  },
+  {
+    "id": 60,
+    "tag": "U",
+    "title": "Wi‑Fi SSID change (hashed)",
+    "description": "Coarse place changes; store hashes only."
+  },
+  {
+    "id": 61,
+    "tag": "U",
+    "title": "BLE device proximity counts (non-ID)",
+    "description": "Density proxy; store counts/strength bands only."
+  },
+  {
+    "id": 62,
+    "tag": "D",
+    "title": "Social density estimate",
+    "description": "RF node count + speech_presence label."
+  },
+  {
+    "id": 63,
+    "tag": "C",
+    "title": "Weather/daylight context (external API)",
+    "description": "Interpret energy/sleep variations."
+  },
+  {
+    "id": 64,
+    "tag": "U",
+    "title": "Outdoor exposure proxy",
+    "description": "Light/daylight minutes or outdoor time proxies."
+  },
+  {
+    "id": 65,
+    "tag": "U",
+    "title": "Noise band labels",
+    "description": "Quiet/moderate/loud derived locally (no content)."
+  },
+  {
+    "id": 66,
+    "tag": "U",
+    "title": "Speech present labels",
+    "description": "Boolean presence only (no transcript stored)."
+  },
+  {
+    "id": 67,
+    "tag": "D",
+    "title": "Interruption bursts",
+    "description": "Noise spikes per hour."
+  },
+  {
+    "id": 68,
+    "tag": "D",
+    "title": "Silence blocks",
+    "description": "Minutes/hour of silence for deep work."
+  },
+  {
+    "id": 69,
+    "tag": "D",
+    "title": "Environment class",
+    "description": "Home/office/car/outdoor inferred by fusion."
+  },
+  {
+    "id": 70,
+    "tag": "D",
+    "title": "Context mismatch flag",
+    "description": "Trying to focus in loud/social environment."
+  },
+  {
+    "id": 71,
+    "tag": "C",
+    "title": "Call count + duration (metadata)",
+    "description": "No content; just volumes and time."
+  },
+  {
+    "id": 72,
+    "tag": "D",
+    "title": "Inbound/outbound ratio",
+    "description": "Reactive vs proactive social posture."
+  },
+  {
+    "id": 73,
+    "tag": "U",
+    "title": "Top contact hashes",
+    "description": "Pattern-only relationship intensity."
+  },
+  {
+    "id": 74,
+    "tag": "C",
+    "title": "Email sent/received counts",
+    "description": "Via metadata export or Graph (least privilege)."
+  },
+  {
+    "id": 75,
+    "tag": "D",
+    "title": "Email response latency (median)",
+    "description": "Time-to-reply metric."
+  },
+  {
+    "id": 76,
+    "tag": "D",
+    "title": "After-hours email activity",
+    "description": "Burnout marker."
+  },
+  {
+    "id": 77,
+    "tag": "U",
+    "title": "Messaging volume trend (counts)",
+    "description": "Counts only, no content stored."
+  },
+  {
+    "id": 78,
+    "tag": "U",
+    "title": "Reply latency trend (metadata)",
+    "description": "From export timestamps where available."
+  },
+  {
+    "id": 79,
+    "tag": "D",
+    "title": "Comms load score",
+    "description": "Calls + email + messages + notifications."
+  },
+  {
+    "id": 80,
+    "tag": "D",
+    "title": "Social saturation flag",
+    "description": "High social load + low recovery = risk."
+  },
+  {
+    "id": 81,
+    "tag": "U",
+    "title": "Meeting vs messaging substitution",
+    "description": "Meetings drop while messaging spikes."
+  },
+  {
+    "id": 82,
+    "tag": "D",
+    "title": "VIP cadence",
+    "description": "Contact frequency bands (hashed)."
+  },
+  {
+    "id": 83,
+    "tag": "C",
+    "title": "Least privilege for API access",
+    "description": "Use delegated permissions and scoping."
+  },
+  {
+    "id": 84,
+    "tag": "D",
+    "title": "Communication friction index",
+    "description": "Interruptions × response obligations."
+  },
+  {
+    "id": 85,
+    "tag": "D",
+    "title": "Comms vs output correlation",
+    "description": "Quantify communication tax."
+  },
+  {
+    "id": 86,
+    "tag": "C",
+    "title": "Daily spend total (exports)",
+    "description": "Read-only transaction totals."
+  },
+  {
+    "id": 87,
+    "tag": "C",
+    "title": "Spend by category (enriched)",
+    "description": "Prefer enrichment; MCC alone is weak."
+  },
+  {
+    "id": 88,
+    "tag": "C",
+    "title": "Subscription detection",
+    "description": "Recurring charge identification."
+  },
+  {
+    "id": 89,
+    "tag": "D",
+    "title": "Burn rate vs output",
+    "description": "Runway lens and efficiency."
+  },
+  {
+    "id": 90,
+    "tag": "C",
+    "title": "No screen scraping for banking",
+    "description": "Avoid credentials sharing; export/read-only only."
+  },
+  {
+    "id": 91,
+    "tag": "C",
+    "title": "Digital footprint themes",
+    "description": "Domain/topic clusters, avoid raw query retention."
+  },
+  {
+    "id": 92,
+    "tag": "D",
+    "title": "Learning index",
+    "description": "Reading/research domains vs entertainment."
+  },
+  {
+    "id": 93,
+    "tag": "U",
+    "title": "Router/DNS aggregates you control",
+    "description": "High-level browsing aggregates (privacy-safe)."
+  },
+  {
+    "id": 94,
+    "tag": "D",
+    "title": "Security posture events (manual)",
+    "description": "2FA prompts/unusual logins as user-noted events."
+  },
+  {
+    "id": 95,
+    "tag": "U",
+    "title": "Place fingerprint via Wi‑Fi hash",
+    "description": "Routine drift detection without identity."
+  },
+  {
+    "id": 96,
+    "tag": "D",
+    "title": "Routine stability score",
+    "description": "Place fingerprints + sleep regularity."
+  },
+  {
+    "id": 97,
+    "tag": "D",
+    "title": "Anomaly day detector",
+    "description": "Outlier combo across health+attention+mobility."
+  },
+  {
+    "id": 98,
+    "tag": "U",
+    "title": "Shortcuts as event emitters",
+    "description": "Automations emit structured NCL events."
+  },
+  {
+    "id": 99,
+    "tag": "D",
+    "title": "Personal machine autopilot proposals",
+    "description": "NCL proposes system tweaks on anomalies."
+  },
+  {
+    "id": 100,
+    "tag": "D",
+    "title": "Symbiosis metric",
+    "description": "% days NCL predicted drift early and corrected course."
+  },
+  {
+    "id": 101,
+    "tag": "U",
+    "title": "NFC tag rituals",
+    "description": "Use iPhone NFC automation tags at key locations (desk, gym bag) to emit NCL state transitions."
+  },
+  {
+    "id": 102,
+    "tag": "U",
+    "title": "Focus Filter deltas as “role shifts”",
+    "description": "Treat Focus Filters (work/personal) toggles as explicit mode changes; log every switch."
+  },
+  {
+    "id": 103,
+    "tag": "U",
+    "title": "Live Activity interaction counts",
+    "description": "Use Live Activities (timers, rides, deliveries) as micro-commitments; log start/stop & frequency."
+  },
+  {
+    "id": 104,
+    "tag": "U",
+    "title": "Lock-screen widget taps (self-reported)",
+    "description": "Use a minimal NCL widget and log taps as “check-in impulses” without storing content."
+  },
+  {
+    "id": 105,
+    "tag": "U",
+    "title": "Home Screen page/habit mapping (manual)",
+    "description": "Track which page you open first after wake; map page to intent (work vs leisure)."
+  },
+  {
+    "id": 106,
+    "tag": "U",
+    "title": "Ringer/Silent state as social availability",
+    "description": "Ringer on = open to interruptions; silent = protect focus; log transitions and durations."
+  },
+  {
+    "id": 107,
+    "tag": "U",
+    "title": "AirPods in-ear + transparency mode events",
+    "description": "Use headphone connection and transparency/noise control states as attention and environment proxies."
+  },
+  {
+    "id": 108,
+    "tag": "U",
+    "title": "CarPlay connect/disconnect",
+    "description": "Use CarPlay events to mark commute segments and reduce false productivity attributions."
+  },
+  {
+    "id": 109,
+    "tag": "U",
+    "title": "Battery “low power mode” as scarcity trigger",
+    "description": "Low Power Mode toggles correlate with survival-mode behavior; treat as state transition."
+  },
+  {
+    "id": 110,
+    "tag": "U",
+    "title": "Charging geography (where you charge)",
+    "description": "Identify recurring charge locations (bedside/desk/car) to infer routines and boundaries."
+  },
+  {
+    "id": 111,
+    "tag": "U",
+    "title": "Device temperature/thermal warnings (if surfaced)",
+    "description": "Thermal events can indicate heavy compute, hot environments, or prolonged use; log as stressors."
+  },
+  {
+    "id": 112,
+    "tag": "U",
+    "title": "Camera “usage event” without media retention",
+    "description": "Log camera app open/close counts (not photos/videos) as environment documentation impulses."
+  },
+  {
+    "id": 113,
+    "tag": "U",
+    "title": "Microphone permission prompts as “privacy tension”",
+    "description": "Log when apps request mic access; treat as governance events for audit review."
+  },
+  {
+    "id": 114,
+    "tag": "U",
+    "title": "Clipboard access prompts as “risk markers”",
+    "description": "If iOS shows clipboard access prompts, log the app/time as potential privacy risk event."
+  },
+  {
+    "id": 115,
+    "tag": "U",
+    "title": "App privacy report snapshots (manual)",
+    "description": "Periodically export iOS app privacy report (if used) and ingest counts of network/permission use."
+  },
+  {
+    "id": 116,
+    "tag": "U",
+    "title": "Keyboard language switches as cognitive context",
+    "description": "Switching keyboard languages can indicate role/context shifts; log as a high-level marker."
+  },
+  {
+    "id": 117,
+    "tag": "U",
+    "title": "Dictation usage frequency",
+    "description": "Increased dictation may correlate with mobility or fatigue; log dictation activation counts."
+  },
+  {
+    "id": 118,
+    "tag": "U",
+    "title": "Shortcuts “voice note to JSON” pipeline",
+    "description": "Use a Shortcut that captures a voice note, immediately extracts only metadata/tags, then deletes audio."
+  },
+  {
+    "id": 119,
+    "tag": "U",
+    "title": "“Arrive/Leave” geofence automations",
+    "description": "Use geofence automations (home, office, school) to timestamp context shifts without GPS trails."
+  },
+  {
+    "id": 120,
+    "tag": "U",
+    "title": "Bluetooth device class presence",
+    "description": "Log categories of nearby connected devices (car, headset, watch) as context without device IDs."
+  },
+  {
+    "id": 121,
+    "tag": "U",
+    "title": "Wi‑Fi “captive portal” events",
+    "description": "Captive portal prompts mark travel/public spaces; log as environment transitions."
+  },
+  {
+    "id": 122,
+    "tag": "U",
+    "title": "Signal strength bands (cell/Wi‑Fi) as friction",
+    "description": "Low signal correlates with user frustration and delays; log signal band changes (coarse)."
+  },
+  {
+    "id": 123,
+    "tag": "U",
+    "title": "Do Not Disturb bypass events",
+    "description": "When someone bypasses DND, log the event as high priority social interruption (no identity stored)."
+  },
+  {
+    "id": 124,
+    "tag": "U",
+    "title": "Notification summary scheduling as discipline",
+    "description": "Use notification summary windows as commitment boundaries; log adherence and breakages."
+  },
+  {
+    "id": 125,
+    "tag": "U",
+    "title": "Screen brightness pattern (manual/auto changes)",
+    "description": "Sudden brightness changes can indicate moving indoors/outdoors; log brightness band changes."
+  },
+  {
+    "id": 126,
+    "tag": "U",
+    "title": "Rotation lock toggles as activity proxy",
+    "description": "Rotation lock changes can correlate with reading vs movement; log toggles."
+  },
+  {
+    "id": 127,
+    "tag": "U",
+    "title": "Accessibility toggles as stress signal",
+    "description": "VoiceOver/Zoom/Reduce White Point toggles can reflect fatigue or environment; log toggles if used."
+  },
+  {
+    "id": 128,
+    "tag": "U",
+    "title": "Emergency alerts / severe weather notifications",
+    "description": "Treat public alert notifications as exogenous shocks; tag timeline automatically."
+  },
+  {
+    "id": 129,
+    "tag": "U",
+    "title": "Shazam / music ID usage",
+    "description": "Music-ID usage can correlate with leisure/outings; log events as social context markers."
+  },
+  {
+    "id": 130,
+    "tag": "U",
+    "title": "Wallet boarding passes & transit cards (metadata)",
+    "description": "Log presence of boarding pass activation windows (no destinations stored) to mark travel epochs."
+  },
+  {
+    "id": 131,
+    "tag": "U",
+    "title": "Apple Pay transaction notifications (metadata only)",
+    "description": "If bank notifications show amount/category, ingest as finance events without account details."
+  },
+  {
+    "id": 132,
+    "tag": "U",
+    "title": "Screen Time “Most pickups app” shift",
+    "description": "Day-to-day change in most-picked-up app is a strong drift indicator; treat as anomaly."
+  },
+  {
+    "id": 133,
+    "tag": "U",
+    "title": "Notification “permission grant moments”",
+    "description": "Log first-time notification permissions as app adoption/commitment moments."
+  },
+  {
+    "id": 134,
+    "tag": "U",
+    "title": "Health “State of Mind” / mindfulness entries (if used)",
+    "description": "Use mood/mindfulness check-ins as self-report anchors for model calibration."
+  },
+  {
+    "id": 135,
+    "tag": "U",
+    "title": "Photos “people/places” counts (local-only, no faces)",
+    "description": "If allowed, use aggregate counts (photos/day, new locations/day) without storing image content."
+  },
+  {
+    "id": 136,
+    "tag": "U",
+    "title": "Daily “screenshot count” as confusion marker",
+    "description": "High screenshot count can indicate troubleshooting/learning; log count only."
+  },
+  {
+    "id": 137,
+    "tag": "U",
+    "title": "Safari Reading List additions (count only)",
+    "description": "Additions indicate research intent; store domains/categories, not full URLs."
+  },
+  {
+    "id": 138,
+    "tag": "U",
+    "title": "Files app “new/edited docs” counts",
+    "description": "Document creation/edit counts reflect output; store metadata only."
+  },
+  {
+    "id": 139,
+    "tag": "U",
+    "title": "App Store update bursts",
+    "description": "Update bursts can correlate with system maintenance vs avoidance; log occurrences."
+  },
+  {
+    "id": 140,
+    "tag": "U",
+    "title": "Calendar “declined events” ratio",
+    "description": "High decline rate signals overload/boundary setting; log counts."
+  },
+  {
+    "id": 141,
+    "tag": "U",
+    "title": "Reminder “snooze” frequency",
+    "description": "Snooze frequency indicates avoidance or overcommitment; log counts."
+  },
+  {
+    "id": 142,
+    "tag": "U",
+    "title": "Typing intensity proxy via 3rd-party keyboard? (avoid content)",
+    "description": "Only if user opts in: store keystrokes/min aggregate (no characters) via permitted APIs/tools."
+  },
+  {
+    "id": 143,
+    "tag": "U",
+    "title": "Sleep Focus activation timing",
+    "description": "Track Sleep Focus start/end as a strong boundary signal; correlate with late pickups."
+  },
+  {
+    "id": 144,
+    "tag": "U",
+    "title": "Workout “route present” boolean",
+    "description": "If route exists, store only yes/no and duration, not the map."
+  },
+  {
+    "id": 145,
+    "tag": "U",
+    "title": "AirDrop usage count",
+    "description": "AirDrop events indicate collaboration/sharing; store count only."
+  },
+  {
+    "id": 146,
+    "tag": "U",
+    "title": "Hotspot tethering on/off",
+    "description": "Hotspot toggles mark travel/fieldwork; log state changes."
+  },
+  {
+    "id": 147,
+    "tag": "U",
+    "title": "VPN on/off events",
+    "description": "VPN usage indicates security posture or travel/public networks; log toggles."
+  },
+  {
+    "id": 148,
+    "tag": "U",
+    "title": "Time-to-respond after notification",
+    "description": "Estimate “interrupt cost” by measuring delay between notification and screen unlock (coarse)."
+  },
+  {
+    "id": 149,
+    "tag": "U",
+    "title": "Micro-pauses between pickups",
+    "description": "High-frequency pickups with micro-pauses indicate anxiety loops; model as compulsion signature."
+  },
+  {
+    "id": 150,
+    "tag": "U",
+    "title": "Weekly “signal diet” experiments",
+    "description": "Run controlled weeks: disable one notification class and measure coherence/output delta."
+  }
+]

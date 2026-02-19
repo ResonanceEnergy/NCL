@@ -1,0 +1,32 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/screentime.by_category.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Screen Time — By Category",
+  "description": "Screen time broken down by category (social/productivity/entertainment).",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.screentime.by_category" },
+        "payload": {
+          "type": "object",
+          "required": ["date","categories"],
+          "properties": {
+            "date": { "type": "string", "format": "date" },
+            "categories": {
+              "type": "object",
+              "properties": {
+                "social": { "type": "integer", "minimum": 0 },
+                "productivity": { "type": "integer", "minimum": 0 },
+                "entertainment": { "type": "integer", "minimum": 0 },
+                "other": { "type": "integer", "minimum": 0 }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "event_type": "ncl.notification.summary_daily",
+  "ingestion_method": "shortcut",
+  "permission": {
+    "granted": true
+  },
+  "retention_tier": "short",
+  "privacy_level": "metadata_only",
+  "provenance": {
+    "source": "Shortcut"
+  },
+  "payload": {
+    "date": "2026-02-19",
+    "total_count": 42,
+    "by_category": {
+      "social": 20,
+      "work": 10,
+      "other": 12
+    }
+  },
+  "event_id": "d1f796b4-f45f-4067-bada-d728e7848b29",
+  "timestamp": "2026-02-19T11:52:24.317307+00:00",
+  "schema_version": "ncl.iphone.v1"
+}

@@ -1,0 +1,24 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/device.screen_distance_alert.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Screen-distance / Strain Alert",
+  "description": "On-device screen distance / posture alert (if enabled).",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.device.screen_distance_alert" },
+        "payload": {
+          "type": "object",
+          "required": ["recorded_at","distance_cm","level"],
+          "properties": {
+            "recorded_at": { "type": "string", "format": "date-time" },
+            "distance_cm": { "type": "number", "minimum": 0 },
+            "level": { "type": "string", "enum": ["info","warning","critical"] }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

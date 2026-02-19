@@ -1,0 +1,23 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/app.first_open_after_wake.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "First App Open After Wake",
+  "description": "Which app is opened first after wake (hash only).",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.app.first_open_after_wake" },
+        "payload": {
+          "type": "object",
+          "required": ["timestamp","app_hash"],
+          "properties": {
+            "timestamp": { "type": "string", "format": "date-time" },
+            "app_hash": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

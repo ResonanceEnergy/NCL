@@ -1,0 +1,43 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/envelope.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "NCL iPhone Event Envelope v1",
+  "description": "Common event envelope for all iPhone-origin events (NCL).",
+  "type": "object",
+  "required": [
+    "event_id",
+    "event_type",
+    "schema_version",
+    "timestamp",
+    "ingestion_method",
+    "privacy_level",
+    "retention_tier",
+    "payload"
+  ],
+  "properties": {
+    "event_id": { "type": "string", "format": "uuid" },
+    "event_type": { "type": "string" },
+    "schema_version": { "type": "string", "const": "ncl.iphone.v1" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "ingestion_method": { "type": "string", "enum": ["shortcut", "manual_export", "companion_app", "healthkit"] },
+    "permission": {
+      "type": "object",
+      "properties": {
+        "granted": { "type": "boolean" },
+        "scope": { "type": "string" },
+        "granted_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "retention_tier": { "type": "string", "enum": ["ephemeral", "short", "medium", "long"] },
+    "privacy_level": { "type": "string", "enum": ["metadata_only", "derived", "sensitive"] },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "source": { "type": "string" },
+        "device_hash": { "type": "string" }
+      }
+    },
+    "payload": { "type": "object" }
+  },
+  "additionalProperties": false
+}

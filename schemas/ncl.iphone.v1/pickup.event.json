@@ -1,0 +1,24 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/pickup.event.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Device Pickup / Unlock Event",
+  "description": "Single pickup/unlock event (metadata only).",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.device.pickup" },
+        "payload": {
+          "type": "object",
+          "required": ["recorded_at"],
+          "properties": {
+            "recorded_at": { "type": "string", "format": "date-time" },
+            "unlock_method": { "type": "string", "enum": ["face_id","passcode","other"] },
+            "session_id": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

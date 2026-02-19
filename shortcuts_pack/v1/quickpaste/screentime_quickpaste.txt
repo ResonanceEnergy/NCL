@@ -1,0 +1,16 @@
+{
+  "event_type": "ncl.screentime.session",
+  "schema_version": "ncl.iphone.v1",
+  "timestamp": "{{CURRENT_DATETIME}}",
+  "ingestion_method": "shortcut",
+  "permission": { "granted": true },
+  "retention_tier": "short",
+  "privacy_level": "metadata_only",
+  "provenance": { "source": "Shortcut" },
+  "payload": {
+    "start": "{{SESSION_START_ISO}}",
+    "end": "{{SESSION_END_ISO}}",
+    "duration_s": {{DURATION_SECONDS}},
+    "top_app_hash": "{{TOP_APP_HASH}}"
+  }
+}

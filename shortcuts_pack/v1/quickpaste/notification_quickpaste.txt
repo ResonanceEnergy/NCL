@@ -1,0 +1,19 @@
+{
+  "event_type": "ncl.notification.summary_daily",
+  "schema_version": "ncl.iphone.v1",
+  "timestamp": "{{CURRENT_DATETIME}}",
+  "ingestion_method": "shortcut",
+  "permission": { "granted": true },
+  "retention_tier": "short",
+  "privacy_level": "metadata_only",
+  "provenance": { "source": "Shortcut" },
+  "payload": {
+    "date": "{{DATE_YYYY_MM_DD}}",
+    "total_count": {{TOTAL_NOTIFICATIONS}},
+    "by_category": {
+      "social": {{SOCIAL_COUNT}},
+      "work": {{WORK_COUNT}},
+      "other": {{OTHER_COUNT}}
+    }
+  }
+}

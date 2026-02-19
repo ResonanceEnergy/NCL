@@ -1,0 +1,24 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/attention.distraction_index.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Distraction Index",
+  "description": "Computed distraction index — normalized (0.0 - 1.0).",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.attention.distraction_index" },
+        "payload": {
+          "type": "object",
+          "required": ["timestamp","index"],
+          "properties": {
+            "timestamp": { "type": "string", "format": "date-time" },
+            "index": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+            "components": { "type": "object" }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

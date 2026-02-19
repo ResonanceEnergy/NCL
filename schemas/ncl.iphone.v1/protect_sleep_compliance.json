@@ -1,0 +1,24 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/protect_sleep_compliance.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Protect-Sleep Compliance",
+  "description": "Whether the user respected Sleep/Protect boundaries for a night.",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.sleep.protect_sleep_compliance" },
+        "payload": {
+          "type": "object",
+          "required": ["date","compliant"],
+          "properties": {
+            "date": { "type": "string", "format": "date" },
+            "compliant": { "type": "boolean" },
+            "pickups_after_cutoff": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

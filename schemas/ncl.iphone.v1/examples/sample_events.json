@@ -1,0 +1,38 @@
+[
+  {
+    "event_id": "00000000-0000-4000-8000-000000000001",
+    "event_type": "ncl.screentime.session",
+    "schema_version": "ncl.iphone.v1",
+    "timestamp": "2026-02-19T08:45:00Z",
+    "ingestion_method": "shortcut",
+    "permission": { "granted": true, "scope": "screen_time:read", "granted_at": "2026-02-01T12:00:00Z" },
+    "retention_tier": "short",
+    "privacy_level": "metadata_only",
+    "provenance": { "source": "Shortcut" },
+    "payload": { "start": "2026-02-19T08:00:00Z", "end": "2026-02-19T08:45:00Z", "duration_s": 2700, "top_app_hash": "sha256:abcd..." }
+  },
+  {
+    "event_id": "00000000-0000-4000-8000-000000000002",
+    "event_type": "ncl.device.pickup",
+    "schema_version": "ncl.iphone.v1",
+    "timestamp": "2026-02-19T08:04:12Z",
+    "ingestion_method": "shortcut",
+    "permission": { "granted": true },
+    "retention_tier": "short",
+    "privacy_level": "metadata_only",
+    "provenance": { "source": "Shortcut" },
+    "payload": { "recorded_at": "2026-02-19T08:04:12Z", "unlock_method": "face_id", "session_id": "sess-1234" }
+  },
+  {
+    "event_id": "00000000-0000-4000-8000-000000000003",
+    "event_type": "ncl.attention.reaction_mode",
+    "schema_version": "ncl.iphone.v1",
+    "timestamp": "2026-02-19T09:00:00Z",
+    "ingestion_method": "companion_app",
+    "permission": { "granted": true, "scope": "analytics:derived" },
+    "retention_tier": "medium",
+    "privacy_level": "derived",
+    "provenance": { "source": "LocalModel" },
+    "payload": { "timestamp": "2026-02-19T09:00:00Z", "score": 0.72 }
+  }
+]

@@ -1,0 +1,24 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/app.limit_hit.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "App Limit Hit",
+  "description": "Event emitted when an app-limit is hit (Screen Time limit).",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.app.limit_hit" },
+        "payload": {
+          "type": "object",
+          "required": ["app_hash","limit_seconds","hit_at"],
+          "properties": {
+            "app_hash": { "type": "string" },
+            "limit_seconds": { "type": "integer", "minimum": 0 },
+            "hit_at": { "type": "string", "format": "date-time" }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

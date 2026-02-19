@@ -1,0 +1,168 @@
+# NCL Doctrine — iPhone Glass Brick Exploitation (GBX)
+
+**Doctrine ID:** NCL-DOX-GBX-001
+**Revision:** 1.0
+
+## Purpose
+Use the iPhone as NCL’s primary **UI + router + sensor hub**, capturing **high-signal, low-invasion** data streams via **consent, metadata-first collection, and event extraction**, enabling a local-first path toward symbiosis.
+
+## Non‑Negotiables
+- Local-first default; cloud optional.
+- Metadata-first; avoid content capture.
+- Event extraction > raw streams.
+- No keylogging/screen recording by default.
+- If audio is used: label-only sensing and speech-filtering posture.
+- Consent registry + kill switch + retention tiers.
+
+## The 150 Insights
+
+1. **(C) Total Screen Time (daily/weekly)** — Baseline attention load; trend over time.
+2. **(C) Screen Time by category** — Social vs productivity vs entertainment distribution.
+3. **(C) Top apps by usage time** — Top 5/10 apps drive habit loops.
+4. **(C) Pickups count** — Compulsion/habit proxy.
+5. **(C) Notifications total/day** — Interruption pressure.
+6. **(C) Notifications by app** — Identify top interrupters.
+7. **(D) Reaction Mode score** — Derived from notifications + pickups + short sessions.
+8. **(D) Deep Work probability** — Low pickups + long uninterrupted intervals.
+9. **(U) First unlock time vs planned wake** — Routine integrity marker.
+10. **(U) Late-night pickups** — Sleep sabotage risk indicator.
+11. **(U) First app opened after wake** — Dopamine-hook fingerprint.
+12. **(C) Downtime configuration & adherence** — Self-control boundary compliance.
+13. **(C) App Limit hits** — Which apps trigger limits and when.
+14. **(D) Distraction Index** — (pickups/hr) × (notifications/hr).
+15. **(U) Screen-distance/strain alerts (if enabled)** — Potential eye strain / posture marker.
+16. **(D) Attention fragmentation** — Count of short sessions (<2 min).
+17. **(D) Context-switch proxy** — Approx from Screen Time session segmentation.
+18. **(U) Notification burst events** — 10+ notifications in 5 minutes as stressors.
+19. **(D) Protect-sleep compliance** — No pickups after cutoff time.
+20. **(D) Weekly habit drift** — Week-over-week category shift.
+21. **(C) Sleep duration** — Nightly sleep totals from Health/Vitals.
+22. **(C) Overnight heart rate** — Baseline/outliers while asleep.
+23. **(C) Respiratory rate** — Recovery/illness signal.
+24. **(C) Wrist temperature deviation** — Outlier detection vs baseline.
+25. **(C) Blood oxygen (if supported)** — Respiration proxy.
+26. **(C) HRV trend** — Nervous system load indicator.
+27. **(C) Resting HR trend** — Overtraining/illness hints.
+28. **(C) Steps & active minutes** — Movement baseline.
+29. **(C) Workouts: type + duration** — Training inputs and load.
+30. **(D) Recovery Debt** — Sleep shortfall + HRV down + outliers up.
+31. **(D) Overtraining suspicion** — High load + HRV suppression pattern.
+32. **(U) Vitals outlier count** — Single readiness flag for the morning.
+33. **(C) Medication/health confound tags (manual)** — Tag alcohol, meds, illness to explain outliers.
+34. **(D) Energy forecast** — Next-day energy from 7-day patterns.
+35. **(U) Illness onset detector** — Temp deviation + RHR up + sleep disruption.
+36. **(C) Health data change handling** — HealthKit data can be edited/deleted; respect updates.
+37. **(U) Automated Health export pipeline** — Optional: export HealthKit to JSON/REST for local DB.
+38. **(D) Sleep regularity score** — Bedtime variance across 14 days.
+39. **(D) Work capacity estimate** — Recovery state × schedule load.
+40. **(D) Health vs output correlation** — Identify conditions that produce your best work.
+41. **(C) Calendar event count/day** — Meeting density indicator.
+42. **(C) Scheduled hours/day** — Overcommitment detection.
+43. **(U) Same-day new events** — Volatility score for schedule churn.
+44. **(D) Plan adherence** — Calendar focus blocks vs reaction signals.
+45. **(C) Reminders completion rate** — Execution reliability.
+46. **(U) Delay patterns** — Postponements/overdue accumulation.
+47. **(D) Decision debt** — Reschedules + overdue tasks + late nights.
+48. **(U) Focus Mode schedule as intent** — Focus schedule is explicit intent signal.
+49. **(D) Intent/Outcome delta** — From AM/MID/PM check-ins vs actual day summary.
+50. **(U) Travel blocks inferred** — Location state changes + calendar windows.
+51. **(D) Buffer deficit** — Scheduled hours – protected time budget.
+52. **(D) Meeting spillover score** — Late events + notification/pickup spikes.
+53. **(U) Time-to-first-work after wake** — Routine stability / ramp time.
+54. **(D) Weekly rhythm profile** — Peak output days from patterns.
+55. **(D) Seasonal behavior drift** — Long-horizon aggregate changes.
+56. **(C) Significant location changes** — Coarse context shift without GPS trails.
+57. **(D) Place-type fingerprint** — Home/work/else classification from location states.
+58. **(U) Commute load proxy** — Travel time + pickups during transit.
+59. **(U) Car Bluetooth connection events** — Drive-mode detection.
+60. **(U) Wi‑Fi SSID change (hashed)** — Coarse place changes; store hashes only.
+61. **(U) BLE device proximity counts (non-ID)** — Density proxy; store counts/strength bands only.
+62. **(D) Social density estimate** — RF node count + speech_presence label.
+63. **(C) Weather/daylight context (external API)** — Interpret energy/sleep variations.
+64. **(U) Outdoor exposure proxy** — Light/daylight minutes or outdoor time proxies.
+65. **(U) Noise band labels** — Quiet/moderate/loud derived locally (no content).
+66. **(U) Speech present labels** — Boolean presence only (no transcript stored).
+67. **(D) Interruption bursts** — Noise spikes per hour.
+68. **(D) Silence blocks** — Minutes/hour of silence for deep work.
+69. **(D) Environment class** — Home/office/car/outdoor inferred by fusion.
+70. **(D) Context mismatch flag** — Trying to focus in loud/social environment.
+71. **(C) Call count + duration (metadata)** — No content; just volumes and time.
+72. **(D) Inbound/outbound ratio** — Reactive vs proactive social posture.
+73. **(U) Top contact hashes** — Pattern-only relationship intensity.
+74. **(C) Email sent/received counts** — Via metadata export or Graph (least privilege).
+75. **(D) Email response latency (median)** — Time-to-reply metric.
+76. **(D) After-hours email activity** — Burnout marker.
+77. **(U) Messaging volume trend (counts)** — Counts only, no content stored.
+78. **(U) Reply latency trend (metadata)** — From export timestamps where available.
+79. **(D) Comms load score** — Calls + email + messages + notifications.
+80. **(D) Social saturation flag** — High social load + low recovery = risk.
+81. **(U) Meeting vs messaging substitution** — Meetings drop while messaging spikes.
+82. **(D) VIP cadence** — Contact frequency bands (hashed).
+83. **(C) Least privilege for API access** — Use delegated permissions and scoping.
+84. **(D) Communication friction index** — Interruptions × response obligations.
+85. **(D) Comms vs output correlation** — Quantify communication tax.
+86. **(C) Daily spend total (exports)** — Read-only transaction totals.
+87. **(C) Spend by category (enriched)** — Prefer enrichment; MCC alone is weak.
+88. **(C) Subscription detection** — Recurring charge identification.
+89. **(D) Burn rate vs output** — Runway lens and efficiency.
+90. **(C) No screen scraping for banking** — Avoid credentials sharing; export/read-only only.
+91. **(C) Digital footprint themes** — Domain/topic clusters, avoid raw query retention.
+92. **(D) Learning index** — Reading/research domains vs entertainment.
+93. **(U) Router/DNS aggregates you control** — High-level browsing aggregates (privacy-safe).
+94. **(D) Security posture events (manual)** — 2FA prompts/unusual logins as user-noted events.
+95. **(U) Place fingerprint via Wi‑Fi hash** — Routine drift detection without identity.
+96. **(D) Routine stability score** — Place fingerprints + sleep regularity.
+97. **(D) Anomaly day detector** — Outlier combo across health+attention+mobility.
+98. **(U) Shortcuts as event emitters** — Automations emit structured NCL events.
+99. **(D) Personal machine autopilot proposals** — NCL proposes system tweaks on anomalies.
+100. **(D) Symbiosis metric** — % days NCL predicted drift early and corrected course.
+101. **(U) NFC tag rituals** — Use iPhone NFC automation tags at key locations (desk, gym bag) to emit NCL state transitions.
+102. **(U) Focus Filter deltas as “role shifts”** — Treat Focus Filters (work/personal) toggles as explicit mode changes; log every switch.
+103. **(U) Live Activity interaction counts** — Use Live Activities (timers, rides, deliveries) as micro-commitments; log start/stop & frequency.
+104. **(U) Lock-screen widget taps (self-reported)** — Use a minimal NCL widget and log taps as “check-in impulses” without storing content.
+105. **(U) Home Screen page/habit mapping (manual)** — Track which page you open first after wake; map page to intent (work vs leisure).
+106. **(U) Ringer/Silent state as social availability** — Ringer on = open to interruptions; silent = protect focus; log transitions and durations.
+107. **(U) AirPods in-ear + transparency mode events** — Use headphone connection and transparency/noise control states as attention and environment proxies.
+108. **(U) CarPlay connect/disconnect** — Use CarPlay events to mark commute segments and reduce false productivity attributions.
+109. **(U) Battery “low power mode” as scarcity trigger** — Low Power Mode toggles correlate with survival-mode behavior; treat as state transition.
+110. **(U) Charging geography (where you charge)** — Identify recurring charge locations (bedside/desk/car) to infer routines and boundaries.
+111. **(U) Device temperature/thermal warnings (if surfaced)** — Thermal events can indicate heavy compute, hot environments, or prolonged use; log as stressors.
+112. **(U) Camera “usage event” without media retention** — Log camera app open/close counts (not photos/videos) as environment documentation impulses.
+113. **(U) Microphone permission prompts as “privacy tension”** — Log when apps request mic access; treat as governance events for audit review.
+114. **(U) Clipboard access prompts as “risk markers”** — If iOS shows clipboard access prompts, log the app/time as potential privacy risk event.
+115. **(U) App privacy report snapshots (manual)** — Periodically export iOS app privacy report (if used) and ingest counts of network/permission use.
+116. **(U) Keyboard language switches as cognitive context** — Switching keyboard languages can indicate role/context shifts; log as a high-level marker.
+117. **(U) Dictation usage frequency** — Increased dictation may correlate with mobility or fatigue; log dictation activation counts.
+118. **(U) Shortcuts “voice note to JSON” pipeline** — Use a Shortcut that captures a voice note, immediately extracts only metadata/tags, then deletes audio.
+119. **(U) “Arrive/Leave” geofence automations** — Use geofence automations (home, office, school) to timestamp context shifts without GPS trails.
+120. **(U) Bluetooth device class presence** — Log categories of nearby connected devices (car, headset, watch) as context without device IDs.
+121. **(U) Wi‑Fi “captive portal” events** — Captive portal prompts mark travel/public spaces; log as environment transitions.
+122. **(U) Signal strength bands (cell/Wi‑Fi) as friction** — Low signal correlates with user frustration and delays; log signal band changes (coarse).
+123. **(U) Do Not Disturb bypass events** — When someone bypasses DND, log the event as high priority social interruption (no identity stored).
+124. **(U) Notification summary scheduling as discipline** — Use notification summary windows as commitment boundaries; log adherence and breakages.
+125. **(U) Screen brightness pattern (manual/auto changes)** — Sudden brightness changes can indicate moving indoors/outdoors; log brightness band changes.
+126. **(U) Rotation lock toggles as activity proxy** — Rotation lock changes can correlate with reading vs movement; log toggles.
+127. **(U) Accessibility toggles as stress signal** — VoiceOver/Zoom/Reduce White Point toggles can reflect fatigue or environment; log toggles if used.
+128. **(U) Emergency alerts / severe weather notifications** — Treat public alert notifications as exogenous shocks; tag timeline automatically.
+129. **(U) Shazam / music ID usage** — Music-ID usage can correlate with leisure/outings; log events as social context markers.
+130. **(U) Wallet boarding passes & transit cards (metadata)** — Log presence of boarding pass activation windows (no destinations stored) to mark travel epochs.
+131. **(U) Apple Pay transaction notifications (metadata only)** — If bank notifications show amount/category, ingest as finance events without account details.
+132. **(U) Screen Time “Most pickups app” shift** — Day-to-day change in most-picked-up app is a strong drift indicator; treat as anomaly.
+133. **(U) Notification “permission grant moments”** — Log first-time notification permissions as app adoption/commitment moments.
+134. **(U) Health “State of Mind” / mindfulness entries (if used)** — Use mood/mindfulness check-ins as self-report anchors for model calibration.
+135. **(U) Photos “people/places” counts (local-only, no faces)** — If allowed, use aggregate counts (photos/day, new locations/day) without storing image content.
+136. **(U) Daily “screenshot count” as confusion marker** — High screenshot count can indicate troubleshooting/learning; log count only.
+137. **(U) Safari Reading List additions (count only)** — Additions indicate research intent; store domains/categories, not full URLs.
+138. **(U) Files app “new/edited docs” counts** — Document creation/edit counts reflect output; store metadata only.
+139. **(U) App Store update bursts** — Update bursts can correlate with system maintenance vs avoidance; log occurrences.
+140. **(U) Calendar “declined events” ratio** — High decline rate signals overload/boundary setting; log counts.
+141. **(U) Reminder “snooze” frequency** — Snooze frequency indicates avoidance or overcommitment; log counts.
+142. **(U) Typing intensity proxy via 3rd-party keyboard? (avoid content)** — Only if user opts in: store keystrokes/min aggregate (no characters) via permitted APIs/tools.
+143. **(U) Sleep Focus activation timing** — Track Sleep Focus start/end as a strong boundary signal; correlate with late pickups.
+144. **(U) Workout “route present” boolean** — If route exists, store only yes/no and duration, not the map.
+145. **(U) AirDrop usage count** — AirDrop events indicate collaboration/sharing; store count only.
+146. **(U) Hotspot tethering on/off** — Hotspot toggles mark travel/fieldwork; log state changes.
+147. **(U) VPN on/off events** — VPN usage indicates security posture or travel/public networks; log toggles.
+148. **(U) Time-to-respond after notification** — Estimate “interrupt cost” by measuring delay between notification and screen unlock (coarse).
+149. **(U) Micro-pauses between pickups** — High-frequency pickups with micro-pauses indicate anxiety loops; model as compulsion signature.
+150. **(U) Weekly “signal diet” experiments** — Run controlled weeks: disable one notification class and measure coherence/output delta.

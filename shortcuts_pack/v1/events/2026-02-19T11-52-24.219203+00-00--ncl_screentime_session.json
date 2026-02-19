@@ -1,0 +1,21 @@
+{
+  "event_type": "ncl.screentime.session",
+  "ingestion_method": "shortcut",
+  "permission": {
+    "granted": true
+  },
+  "retention_tier": "short",
+  "privacy_level": "metadata_only",
+  "provenance": {
+    "source": "Shortcut"
+  },
+  "payload": {
+    "start": "2026-02-19T08:00:00Z",
+    "end": "2026-02-19T08:45:00Z",
+    "duration_s": 2700,
+    "top_app_hash": "sha256:abcd1234"
+  },
+  "event_id": "8ccc697d-988c-4e70-8d23-79cc459ec453",
+  "timestamp": "2026-02-19T11:52:24.219203+00:00",
+  "schema_version": "ncl.iphone.v1"
+}

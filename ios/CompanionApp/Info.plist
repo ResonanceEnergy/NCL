@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDisplayName</key>
+    <string>NCL Companion (prototype)</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.resonance.ncl.companion</string>
+    <key>NSHealthShareUsageDescription</key>
+    <string>NCL uses Health data to generate local, private insights (metadata/derived only).</string>
+    <key>NSHealthUpdateUsageDescription</key>
+    <string>NCL may read HealthKit data for local analysis. No raw health data is sent off-device by default.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Microphone used only for on-device presence-only labeling (optional and opt-in).</string>
+</dict>
+</plist>

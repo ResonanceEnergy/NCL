@@ -1,0 +1,36 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/app.usage.top_apps.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Top Apps by Usage Time",
+  "description": "Top-N apps for a day or window (hashes only).",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.app.usage.top_apps" },
+        "payload": {
+          "type": "object",
+          "required": ["date","apps"],
+          "properties": {
+            "date": { "type": "string", "format": "date" },
+            "apps": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["app_hash","seconds"],
+                "properties": {
+                  "app_hash": { "type": "string" },
+                  "seconds": { "type": "integer", "minimum": 0 },
+                  "rank": { "type": "integer", "minimum": 1 }
+                },
+                "additionalProperties": false
+              },
+              "minItems": 1
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

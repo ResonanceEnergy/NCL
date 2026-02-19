@@ -1,0 +1,24 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/device.first_unlock.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "First Unlock Time vs Planned Wake",
+  "description": "First unlock after wake and comparison to planned wake time.",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.device.first_unlock" },
+        "payload": {
+          "type": "object",
+          "required": ["unlock_time","planned_wake_time","delta_minutes"],
+          "properties": {
+            "unlock_time": { "type": "string", "format": "date-time" },
+            "planned_wake_time": { "type": "string", "format": "date-time" },
+            "delta_minutes": { "type": "integer" }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

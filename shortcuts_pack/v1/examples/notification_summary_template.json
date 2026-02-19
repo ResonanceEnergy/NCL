@@ -1,0 +1,17 @@
+{
+  "event_type": "ncl.notification.summary_daily",
+  "ingestion_method": "shortcut",
+  "permission": { "granted": true },
+  "retention_tier": "short",
+  "privacy_level": "metadata_only",
+  "provenance": { "source": "Shortcut" },
+  "payload": {
+    "date": "2026-02-19",
+    "total_count": 42,
+    "by_category": {
+      "social": 20,
+      "work": 10,
+      "other": 12
+    }
+  }
+}

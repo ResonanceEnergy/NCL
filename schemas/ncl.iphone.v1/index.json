@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "NCL iPhone v1 schema catalog",
+  "generated_at": "2026-02-19T00:00:00Z",
+  "schemas": {
+    "ncl.iphone.v1.envelope": "./envelope.json",
+    "ncl.screentime.total": "./screentime.total.json",
+    "ncl.screentime.by_category": "./screentime.by_category.json",
+    "ncl.screentime.session": "./screentime.session.json",
+    "ncl.app.usage.top_apps": "./app.usage.top_apps.json",
+    "ncl.device.pickup": "./pickup.event.json",
+    "ncl.notification.summary_daily": "./notification.summary_daily.json",
+    "ncl.notification.by_app": "./notification.by_app.json",
+    "ncl.attention.reaction_mode": "./attention.reaction_mode.json",
+    "ncl.attention.deep_work_probability": "./attention.deep_work_probability.json",
+    "ncl.device.first_unlock": "./device.first_unlock.json",
+    "ncl.device.late_night_pickup": "./device.late_night_pickup.json",
+    "ncl.app.first_open_after_wake": "./app.first_open_after_wake.json",
+    "ncl.system.downtime_adherence": "./system.downtime_adherence.json",
+    "ncl.app.limit_hit": "./app.limit_hit.json",
+    "ncl.attention.distraction_index": "./attention.distraction_index.json",
+    "ncl.device.screen_distance_alert": "./device.screen_distance_alert.json",
+    "ncl.attention.fragmentation": "./attention.fragmentation.json",
+    "ncl.attention.context_switch_proxy": "./attention.context_switch_proxy.json",
+    "ncl.notification.burst_event": "./notification.burst_event.json",
+    "ncl.sleep.protect_sleep_compliance": "./protect_sleep_compliance.json",
+    "ncl.attention.weekly_habit_drift": "./weekly_habit_drift.json",
+    "ncl.system.focus_change": "./system.focus_change.json",
+    "ncl.nfc.ritual": "./nfc.ritual.json"
+  }
+}

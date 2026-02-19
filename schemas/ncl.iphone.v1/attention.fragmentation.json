@@ -1,0 +1,25 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/attention.fragmentation.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Attention Fragmentation",
+  "description": "Counts / summary of short sessions and fragmentation score.",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.attention.fragmentation" },
+        "payload": {
+          "type": "object",
+          "required": ["window_start","window_end","short_sessions_count","fragmentation_score"],
+          "properties": {
+            "window_start": { "type": "string", "format": "date-time" },
+            "window_end": { "type": "string", "format": "date-time" },
+            "short_sessions_count": { "type": "integer", "minimum": 0 },
+            "fragmentation_score": { "type": "number", "minimum": 0.0, "maximum": 1.0 }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

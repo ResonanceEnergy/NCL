@@ -1,0 +1,25 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/notification.burst_event.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Notification Burst Event",
+  "description": "High-frequency notification burst (metadata only).",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.notification.burst_event" },
+        "payload": {
+          "type": "object",
+          "required": ["start","end","notification_count"],
+          "properties": {
+            "start": { "type": "string", "format": "date-time" },
+            "end": { "type": "string", "format": "date-time" },
+            "notification_count": { "type": "integer", "minimum": 1 },
+            "dominant_apps_count": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}
