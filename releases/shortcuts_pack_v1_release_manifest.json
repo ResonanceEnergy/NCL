@@ -10,6 +10,13 @@
   ],
   "shortcut_binaries": {
     "status": "pending",
+    "files": [
+      {
+        "name": "capture_text.shortcut",
+        "status": "placeholder",
+        "note": "placeholder file in shortcuts_pack/v1/releases; replace with exported .shortcut from macOS"
+      }
+    ],
     "note": "Export `.shortcut` files on macOS and add them to release assets. Filenames should be `ncl-{shortcut-id}.shortcut`."
   },
   "zip_manifest_placeholder": "releases/shortcuts_pack_v1_zip_manifest.json",
