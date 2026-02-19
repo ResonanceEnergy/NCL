@@ -1,0 +1,24 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/health.recovery_debt.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Recovery Debt",
+  "description": "Derived recovery debt score combining sleep shortfall and HRV suppression.",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.health.recovery_debt" },
+        "payload": {
+          "type": "object",
+          "required": ["date","recovery_score"],
+          "properties": {
+            "date": { "type": "string", "format": "date" },
+            "recovery_score": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+            "components": { "type": "object" }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

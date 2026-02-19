@@ -1,0 +1,24 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/activity.steps.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Steps & Active Minutes",
+  "description": "Daily steps and active minutes aggregates.",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.activity.steps" },
+        "payload": {
+          "type": "object",
+          "required": ["date","steps","active_minutes"],
+          "properties": {
+            "date": { "type": "string", "format": "date" },
+            "steps": { "type": "integer", "minimum": 0 },
+            "active_minutes": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

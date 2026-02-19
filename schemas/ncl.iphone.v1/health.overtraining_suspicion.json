@@ -1,0 +1,24 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/health.overtraining_suspicion.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Overtraining Suspicion",
+  "description": "Derived flag/suspicion score for possible overtraining (aggregated signals).",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.health.overtraining_suspicion" },
+        "payload": {
+          "type": "object",
+          "required": ["date","suspicion_score"],
+          "properties": {
+            "date": { "type": "string", "format": "date" },
+            "suspicion_score": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+            "reason_codes": { "type": "array", "items": { "type": "string" } }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

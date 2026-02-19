@@ -1,0 +1,18 @@
+{
+  "zip_name": "ncl-shortcuts-pack-v1.zip",
+  "version": "0.1.0",
+  "include": [
+    "shortcuts_pack/v1/recipes/*",
+    "shortcuts_pack/v1/examples/*",
+    "shortcuts_pack/v1/quickpaste/*",
+    "shortcuts_pack/v1/manifest.json"
+  ],
+  "expected_shortcut_files": [
+    "ncl-pickup.shortcut",
+    "ncl-screentime_snapshot.shortcut",
+    "ncl-notification_snapshot.shortcut",
+    "ncl-nfc_ritual.shortcut",
+    "ncl-focus_change.shortcut"
+  ],
+  "note": "Place exported `.shortcut` files in the top-level of the ZIP before publishing. Checksums should be added after export."
+}

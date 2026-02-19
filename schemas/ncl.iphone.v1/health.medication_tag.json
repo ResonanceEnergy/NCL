@@ -1,0 +1,24 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/health.medication_tag.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Medication / Health Confound Tag (manual)",
+  "description": "User-provided manual tag to annotate health/confounders (alcohol, meds, illness).",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.health.medication_tag" },
+        "payload": {
+          "type": "object",
+          "required": ["timestamp","tag","notes"],
+          "properties": {
+            "timestamp": { "type": "string", "format": "date-time" },
+            "tag": { "type": "string" },
+            "notes": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

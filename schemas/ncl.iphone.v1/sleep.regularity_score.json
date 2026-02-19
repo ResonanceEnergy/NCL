@@ -1,0 +1,24 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/sleep.regularity_score.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Sleep Regularity Score",
+  "description": "Sleep regularity metric computed over a period (e.g., 14 days).",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.sleep.regularity_score" },
+        "payload": {
+          "type": "object",
+          "required": ["window_start","window_end","regularity_score"],
+          "properties": {
+            "window_start": { "type": "string", "format": "date" },
+            "window_end": { "type": "string", "format": "date" },
+            "regularity_score": { "type": "number", "minimum": 0.0, "maximum": 1.0 }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

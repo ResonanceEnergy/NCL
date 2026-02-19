@@ -1,0 +1,25 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/health.hrv_trend.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "HRV Trend",
+  "description": "Heart-rate-variability (HRV) trend over a window (rmssd or SDNN).",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.health.hrv_trend" },
+        "payload": {
+          "type": "object",
+          "required": ["window_start","window_end","mean_hrv"],
+          "properties": {
+            "window_start": { "type": "string", "format": "date-time" },
+            "window_end": { "type": "string", "format": "date-time" },
+            "mean_hrv": { "type": "number" },
+            "trend_direction": { "type": "string", "enum": ["up","down","flat"] }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

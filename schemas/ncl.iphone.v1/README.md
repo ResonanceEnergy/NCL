@@ -22,4 +22,4 @@ Notes
 - All schemas are intentionally metadata-first (no content fields).  
 - `privacy_level` and `retention_tier` are required at the envelope level.
 - A CI validator was added: `tools/validate_events.py` + GitHub Actions workflow `.github/workflows/validate-events.yml` — it validates example events and Shortcuts-emitted JSON on PRs.  
-- If you want additional stream schemas generated (top-50), tell me which ones and I’ll add them.
+- Schemas for insights 1–40 have been added (envelope + top‑40 streams). If you want additional stream schemas generated (top‑50), tell me which ones and I’ll add them.

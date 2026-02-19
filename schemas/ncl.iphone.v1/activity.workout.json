@@ -1,0 +1,26 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/activity.workout.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Workout Event",
+  "description": "Workout metadata: type, duration, optional route-present flag.",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.activity.workout" },
+        "payload": {
+          "type": "object",
+          "required": ["start","end","type","duration_s"],
+          "properties": {
+            "start": { "type": "string", "format": "date-time" },
+            "end": { "type": "string", "format": "date-time" },
+            "type": { "type": "string" },
+            "duration_s": { "type": "integer", "minimum": 0 },
+            "route_present": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

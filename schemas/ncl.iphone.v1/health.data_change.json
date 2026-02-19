@@ -1,0 +1,25 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/health.data_change.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Health Data Change (audit)",
+  "description": "Audit event emitted when HealthKit data is edited or deleted by the user.",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.health.data_change" },
+        "payload": {
+          "type": "object",
+          "required": ["timestamp","change_type","affected_types"],
+          "properties": {
+            "timestamp": { "type": "string", "format": "date-time" },
+            "change_type": { "type": "string", "enum": ["edited","deleted","imported"] },
+            "affected_types": { "type": "array", "items": { "type": "string" } },
+            "notes": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

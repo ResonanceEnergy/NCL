@@ -1,0 +1,25 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/sleep.duration.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Sleep Duration",
+  "description": "Total sleep duration for a night (from HealthKit or Sleep Focus).",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.sleep.duration" },
+        "payload": {
+          "type": "object",
+          "required": ["date","sleep_seconds"],
+          "properties": {
+            "date": { "type": "string", "format": "date" },
+            "sleep_seconds": { "type": "integer", "minimum": 0 },
+            "in_bed_seconds": { "type": "integer", "minimum": 0 },
+            "source": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

@@ -26,6 +26,26 @@
     "ncl.sleep.protect_sleep_compliance": "./protect_sleep_compliance.json",
     "ncl.attention.weekly_habit_drift": "./weekly_habit_drift.json",
     "ncl.system.focus_change": "./system.focus_change.json",
-    "ncl.nfc.ritual": "./nfc.ritual.json"
+    "ncl.nfc.ritual": "./nfc.ritual.json",
+    "ncl.sleep.duration": "./sleep.duration.json",
+    "ncl.health.overnight_heart_rate": "./health.overnight_heart_rate.json",
+    "ncl.health.respiratory_rate": "./health.respiratory_rate.json",
+    "ncl.health.wrist_temperature": "./health.wrist_temperature.json",
+    "ncl.health.blood_oxygen": "./health.blood_oxygen.json",
+    "ncl.health.hrv_trend": "./health.hrv_trend.json",
+    "ncl.health.resting_hr_trend": "./health.resting_hr_trend.json",
+    "ncl.activity.steps": "./activity.steps.json",
+    "ncl.activity.workout": "./activity.workout.json",
+    "ncl.health.recovery_debt": "./health.recovery_debt.json",
+    "ncl.health.overtraining_suspicion": "./health.overtraining_suspicion.json",
+    "ncl.health.vitals_outlier_count": "./health.vitals_outlier_count.json",
+    "ncl.health.medication_tag": "./health.medication_tag.json",
+    "ncl.health.energy_forecast": "./health.energy_forecast.json",
+    "ncl.health.illness_onset": "./health.illness_onset.json",
+    "ncl.health.data_change": "./health.data_change.json",
+    "ncl.health.export_pipeline": "./health.export_pipeline.json",
+    "ncl.sleep.regularity_score": "./sleep.regularity_score.json",
+    "ncl.health.work_capacity_estimate": "./health.work_capacity_estimate.json",
+    "ncl.health.vs_output_correlation": "./health.vs_output_correlation.json"
   }
 }

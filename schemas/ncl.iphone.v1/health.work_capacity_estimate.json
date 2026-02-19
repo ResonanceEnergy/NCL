@@ -1,0 +1,24 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/health.work_capacity_estimate.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Work Capacity Estimate",
+  "description": "Estimated work capacity score for user based on recovery and schedule.",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.health.work_capacity_estimate" },
+        "payload": {
+          "type": "object",
+          "required": ["date","capacity_score"],
+          "properties": {
+            "date": { "type": "string", "format": "date" },
+            "capacity_score": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+            "explanation": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

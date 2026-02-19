@@ -1,0 +1,17 @@
+{
+  "name": "NCL Shortcuts Pack v1",
+  "version": "0.1.0",
+  "created_at": "2026-02-19T00:00:00Z",
+  "files_included": [
+    "quickpaste/*.txt",
+    "recipes/*.md",
+    "examples/*.json",
+    "emulator.py"
+  ],
+  "shortcut_binaries": {
+    "status": "pending",
+    "note": "Export `.shortcut` files on macOS and add them to release assets. Filenames should be `ncl-{shortcut-id}.shortcut`."
+  },
+  "zip_manifest_placeholder": "releases/shortcuts_pack_v1_zip_manifest.json",
+  "release_notes": "See releases/release_notes_shortcuts_v1.md"
+}

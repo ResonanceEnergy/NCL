@@ -1,0 +1,26 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/health.overnight_heart_rate.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Overnight Heart Rate",
+  "description": "Overnight/bedtime heart rate aggregates (min/median/max).",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.health.overnight_heart_rate" },
+        "payload": {
+          "type": "object",
+          "required": ["date","min_bpm","median_bpm","max_bpm"],
+          "properties": {
+            "date": { "type": "string", "format": "date" },
+            "min_bpm": { "type": "number" },
+            "median_bpm": { "type": "number" },
+            "max_bpm": { "type": "number" },
+            "sample_count": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

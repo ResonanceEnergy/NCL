@@ -1,0 +1,25 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/health.wrist_temperature.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Wrist Temperature Deviation",
+  "description": "Wrist temperature deviation event (degrees Celsius) and deviation from baseline.",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.health.wrist_temperature" },
+        "payload": {
+          "type": "object",
+          "required": ["recorded_at","temp_c","deviation_c"],
+          "properties": {
+            "recorded_at": { "type": "string", "format": "date-time" },
+            "temp_c": { "type": "number" },
+            "deviation_c": { "type": "number" },
+            "baseline_window_days": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

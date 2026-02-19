@@ -1,0 +1,25 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/health.export_pipeline.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Automated Health Export Pipeline",
+  "description": "Status/metadata event for HealthKit export pipeline operations.",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.health.export_pipeline" },
+        "payload": {
+          "type": "object",
+          "required": ["timestamp","status"],
+          "properties": {
+            "timestamp": { "type": "string", "format": "date-time" },
+            "status": { "type": "string", "enum": ["started","completed","failed"] },
+            "export_size_bytes": { "type": "integer", "minimum": 0 },
+            "error": { "type": ["null","string"] }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

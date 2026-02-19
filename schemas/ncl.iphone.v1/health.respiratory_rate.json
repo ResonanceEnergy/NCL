@@ -1,0 +1,24 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/health.respiratory_rate.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Respiratory Rate",
+  "description": "Respiratory rate sample or aggregated value (breaths per minute).",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.health.respiratory_rate" },
+        "payload": {
+          "type": "object",
+          "required": ["recorded_at","value_bpm"],
+          "properties": {
+            "recorded_at": { "type": "string", "format": "date-time" },
+            "value_bpm": { "type": "number" },
+            "device": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/health.blood_oxygen.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Blood Oxygen (SpO2)",
+  "description": "Blood oxygen reading (percent).",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.health.blood_oxygen" },
+        "payload": {
+          "type": "object",
+          "required": ["recorded_at","spo2_pct"],
+          "properties": {
+            "recorded_at": { "type": "string", "format": "date-time" },
+            "spo2_pct": { "type": "number", "minimum": 0, "maximum": 100 },
+            "device": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

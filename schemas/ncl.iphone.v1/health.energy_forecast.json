@@ -1,0 +1,24 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/health.energy_forecast.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Energy Forecast",
+  "description": "Predicted next-day energy level (0.0 - 1.0) derived from prior patterns.",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.health.energy_forecast" },
+        "payload": {
+          "type": "object",
+          "required": ["forecast_date","energy_score"],
+          "properties": {
+            "forecast_date": { "type": "string", "format": "date" },
+            "energy_score": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+            "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}
