@@ -1,0 +1,36 @@
+# ResonanceEnergy Portfolio Registry
+{
+  "north_star": "./NORTH_STAR.md",
+  "generated": "2026-02-19T00:00:00+00:00",
+  "org": "ResonanceEnergy",
+  "policies": {
+    "autonomy_default": "L1",
+    "cloud_usage": "opt-in with redaction & consent",
+    "incident_escalation": "Notify Nathan then AZ (digital COO)"
+  },
+  "repositories": [
+    {"name":"NATEBJONES","visibility":"public","tier":"TBD","autonomy_level":"L1","risk_tier":"TBD"},
+    {"name":"NCL","visibility":"public","tier":"TBD","autonomy_level":"L1","risk_tier":"TBD"},
+    {"name":"TESLACALLS2026","visibility":"public","tier":"TBD","autonomy_level":"L1","risk_tier":"TBD"},
+    {"name":"future-predictor-council","visibility":"public","tier":"TBD","autonomy_level":"L1","risk_tier":"TBD"},
+    {"name":"AAC","visibility":"public","tier":"TBD","autonomy_level":"L1","risk_tier":"TBD"},
+    {"name":"ADVENTUREHEROAUTO","visibility":"public","tier":"TBD","autonomy_level":"L1","risk_tier":"TBD"},
+    {"name":"Crimson-Compass","visibility":"public","tier":"TBD","autonomy_level":"L1","risk_tier":"TBD"},
+    {"name":"YOUTUBEDROP","visibility":"public","tier":"TBD","autonomy_level":"L1","risk_tier":"TBD"},
+    {"name":"CIVIL-FORGE-TECHNOLOGIES-","visibility":"public","tier":"TBD","autonomy_level":"L1","risk_tier":"TBD"},
+    {"name":"GEET-PLASMA-PROJECT","visibility":"public","tier":"TBD","autonomy_level":"L1","risk_tier":"TBD"},
+    {"name":"TESLA-TECH","visibility":"public","tier":"TBD","autonomy_level":"L1","risk_tier":"TBD"},
+    {"name":"ELECTRIC-UNIVERSE","visibility":"public","tier":"TBD","autonomy_level":"L1","risk_tier":"TBD"},
+    {"name":"VORTEX-HUNTER","visibility":"public","tier":"TBD","autonomy_level":"L1","risk_tier":"TBD"},
+    {"name":"MircoHydro","visibility":"public","tier":"TBD","autonomy_level":"L1","risk_tier":"TBD"},
+    {"name":"electric-ice","visibility":"public","tier":"TBD","autonomy_level":"L1","risk_tier":"TBD"},
+    {"name":"SUPERSTONK-TRADER","visibility":"public","tier":"TBD","autonomy_level":"L1","risk_tier":"TBD"},
+    {"name":"HUMAN-HEALTH","visibility":"public","tier":"TBD","autonomy_level":"L1","risk_tier":"TBD"},
+    {"name":"Adventure-Hero-Chronicles-Of-Glory","visibility":"private","tier":"TBD","autonomy_level":"L1","risk_tier":"TBD"},
+    {"name":"QDFG1","visibility":"public","tier":"TBD","autonomy_level":"L1","risk_tier":"TBD"},
+    {"name":"NCC-Doctrine","visibility":"public","tier":"TBD","autonomy_level":"L1","risk_tier":"TBD"},
+    {"name":"NCC","visibility":"public","tier":"TBD","autonomy_level":"L1","risk_tier":"TBD"},
+    {"name":"resonance-uy-py","visibility":"private","tier":"TBD","autonomy_level":"L1","risk_tier":"TBD"},
+    {"name":"perpetual-flow-cube","visibility":"private","tier":"TBD","autonomy_level":"L1","risk_tier":"TBD"}
+  ]
+}
