@@ -1,7 +1,13 @@
 import os
+import sys
 import json
 import tempfile
 from pathlib import Path
+
+# allow tests to import agents package: add repo root and agents folder
+root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.append(root)
+sys.path.append(os.path.join(root, "agents"))
 
 import pytest
 
@@ -11,6 +17,7 @@ import agents.common as common
 def test_categorize_file():
     assert common.categorize_file("README.md") == "docs"
     assert common.categorize_file("src/main.py") == "code"
+    # should classify path in tests directory as tests
     assert common.categorize_file("tests/test_example.py") == "tests"
     assert common.categorize_file(".ncl/mandate.yaml") == "ncl"
     assert common.categorize_file("foo.NCL/whatever") == "code"  # not folder

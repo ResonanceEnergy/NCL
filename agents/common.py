@@ -65,7 +65,8 @@ def categorize_file(fn: str) -> str:
     fnl = fn.lower()
     if fnl.startswith(".ncl/") or "/.ncl/" in fnl:
         return "ncl"
-    if any(seg in fnl for seg in ["/tests/", "/test/", "_test.", ".spec."]):
+    # detect test paths: either start with tests/ or contain /tests/
+    if fnl.startswith("tests/") or any(seg in fnl for seg in ["/tests/", "/test/", "_test.", ".spec."]):
         return "tests"
     if any(fnl.endswith(ext) for ext in [".md", ".rst", ".txt"]):
         return "docs"

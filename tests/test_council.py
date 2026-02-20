@@ -1,5 +1,12 @@
+import os
+import sys
 import json
 import uuid
+
+# allow importing agents package and common module
+root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.append(root)
+sys.path.append(os.path.join(root, "agents"))
 
 import agents.council as council
 
@@ -15,8 +22,10 @@ def test_evaluate_unknown_repo(monkeypatch):
     assert "Unknown repo" in d["reason"]
 
 
-def test_evaluate_invalid_autonomy():
-    p = make_proposal(autonomy="BAD")
+def test_evaluate_invalid_autonomy(monkeypatch):
+    # need a known repo to reach autonomy validation
+    monkeypatch.setattr(council, "PORTFOLIO", {"repositories": [{"name": "X"}]})
+    p = make_proposal(repo="X", autonomy="BAD")
     d = council.evaluate(p)
     assert not d["approved"]
     assert "Invalid autonomy level" in d["reason"]
