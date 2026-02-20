@@ -52,6 +52,13 @@ def evaluate(proposal: dict) -> dict:
 
     action_class = proposal.get("action", "")
     repo_root = Path(CONFIG["repos_base"]) / repo["name"]
+
+    # business rule: any financial action always forces human review
+    if action_class == "financial_actions":
+        decision["reason"].append("Financial actions always require human review")
+        decision["requires_human"] = True
+        return decision
+
     if require_consent_for(action_class):
         if not has_valid_consent(repo_root, action_class):
             decision["reason"].append("Missing valid consent receipt for sensitive action")
