@@ -30,6 +30,7 @@
     {"name":"NCC-Doctrine","visibility":"public","tier":"TBD","autonomy_level":"L1","risk_tier":"TBD"},
     {"name":"NCC","visibility":"public","tier":"TBD","autonomy_level":"L1","risk_tier":"TBD"},
     {"name":"resonance-uy-py","visibility":"private","tier":"TBD","autonomy_level":"L1","risk_tier":"TBD"},
-    {"name":"perpetual-flow-cube","visibility":"private","tier":"TBD","autonomy_level":"L1","risk_tier":"TBD"}
+    {"name":"perpetual-flow-cube","visibility":"private","tier":"TBD","autonomy_level":"L1","risk_tier":"TBD"},
+    {"name":"demo","visibility":"private","tier":"TBD","autonomy_level":"L1","risk_tier":"TBD"}
   ]
 }
