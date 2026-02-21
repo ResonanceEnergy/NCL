@@ -509,5 +509,4 @@ if __name__ == "__main__":
     history = storage.get_doctrine_history()
     print(f"Doctrine versions: {len(history)}")
 
-    print("✅ Doctrine Preservation System test complete!")</content>
-<parameter name="filePath">c:\Users\gripa\OneDrive - Grip and Ripp\Super Agency\Super-Agency\doctrine_preservation_system.py
+    print("✅ Doctrine Preservation System test complete!")
