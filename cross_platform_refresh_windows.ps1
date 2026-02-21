@@ -23,13 +23,16 @@ try {
 
     # Run the Python refresh script
     $pythonPath = Join-Path $PSScriptRoot "cross_platform_refresh.py"
-    $process = Start-Process -FilePath "python" -ArgumentList $pythonPath -Wait -PassThru -NoNewWindow
+    # quote path to handle spaces
+    $escapedPath = "`"$pythonPath`""
+    $process = Start-Process -FilePath "python" -ArgumentList $escapedPath -Wait -PassThru -NoNewWindow
 
     if ($process.ExitCode -eq 0) {
         $successMsg = "[$timestamp] Refresh completed successfully"
         Add-Content -Path $LogFile -Value $successMsg
         Write-Host $successMsg -ForegroundColor Green
-    } else {
+    }
+    else {
         $errorMsg = "[$timestamp] Refresh failed with exit code: $($process.ExitCode)"
         Add-Content -Path $LogFile -Value $errorMsg
         Write-Host $errorMsg -ForegroundColor Red
@@ -45,5 +48,4 @@ $completeMsg = "[$timestamp] Cross-Platform Refresh cycle complete"
 Add-Content -Path $LogFile -Value $completeMsg
 Add-Content -Path $LogFile -Value ""  # Empty line for readability
 
-Write-Host $completeMsg -ForegroundColor Cyan</content>
-<parameter name="filePath">/Users/gripandripphdd/Library/CloudStorage/OneDrive-GripandRipp(2)/SuperAgency-Shared/cross_platform_refresh_windows.ps1
+Write-Host $completeMsg -ForegroundColor Cyan
