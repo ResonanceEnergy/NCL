@@ -20,7 +20,6 @@ torch>=1.13.0
 sentence-transformers>=2.2.0
 
 ## Database
-sqlite3 (built-in)
 sqlalchemy>=1.4.0
 
 ## Development

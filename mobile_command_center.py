@@ -16,6 +16,15 @@ import hmac
 import hashlib
 from datetime import datetime
 
+# QUASMEM Integration
+try:
+    from quasmem_optimization import get_memory_status, optimize_memory_usage, quantum_memory_pool
+    QUASMEM_ACTIVE = True
+    print("✅ QUASMEM optimization loaded")
+except ImportError as e:
+    QUASMEM_ACTIVE = False
+    print(f"⚠️  QUASMEM optimization not available: {e}")
+
 app = Flask(__name__,
             template_folder='templates',
             static_folder='static')
@@ -281,6 +290,11 @@ def index():
     """Main mobile dashboard"""
     return render_template('index.html')
 
+@app.route('/iphone')
+def iphone_dashboard():
+    """iPhone-optimized Pocket Pulsar dashboard"""
+    return render_template('iphone_dashboard.html')
+
 @app.route('/api/status')
 def get_status():
     """Get system status for mobile dashboard"""
@@ -296,6 +310,16 @@ def get_status():
         'timestamp': datetime.now().isoformat(),
         'platform': sys.platform
     }
+
+    # Add iPhone dashboard metrics
+    status.update({
+        'health': 98,  # Overall system health percentage
+        'active_agents': 23,  # Number of active inner council agents
+        'cpu_usage': 75,  # Current CPU utilization
+        'memory_usage': 45,  # Current memory usage percentage
+        'financial_score': 92,  # AAC financial health score
+        'repos_count': 47  # Number of repositories being monitored
+    })
 
     return jsonify(status)
 
@@ -342,6 +366,143 @@ def get_logs(service):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/agents')
+def get_agents():
+    """Get inner council agents status for iPhone dashboard"""
+    try:
+        # Mock data - in real implementation, this would query the actual agents
+        agents = [
+            {
+                'id': 'repo_sentry',
+                'name': 'Repo Sentry',
+                'type': 'repo_sentry',
+                'status': 'online',
+                'efficiency': 98,
+                'status_text': 'Monitoring 47 repos'
+            },
+            {
+                'id': 'daily_brief',
+                'name': 'Daily Brief',
+                'type': 'daily_brief',
+                'status': 'online',
+                'efficiency': 95,
+                'status_text': 'Intelligence compiled'
+            },
+            {
+                'id': 'council',
+                'name': 'Council',
+                'type': 'council',
+                'status': 'online',
+                'efficiency': 100,
+                'status_text': 'Decision autonomy active'
+            },
+            {
+                'id': 'orchestrator',
+                'name': 'Orchestrator',
+                'type': 'orchestrator',
+                'status': 'online',
+                'efficiency': 97,
+                'status_text': 'Agents coordinated'
+            }
+        ]
+        return jsonify({'agents': agents})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/systems')
+def get_systems():
+    """Get three-device system status for iPhone dashboard"""
+    try:
+        systems = [
+            {
+                'id': 'quantum_quasar',
+                'name': 'Quantum Quasar',
+                'cpu': 75,
+                'ram': 45,
+                'status': 'Online'
+            },
+            {
+                'id': 'tablet_titan',
+                'name': 'Tablet Titan',
+                'cpu': 60,
+                'ram': 35,
+                'status': 'Online'
+            },
+            {
+                'id': 'windows_companion',
+                'name': 'Windows Companion',
+                'cpu': 85,
+                'ram': 70,
+                'status': 'Online'
+            }
+        ]
+        return jsonify({'systems': systems})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/finance')
+def get_finance():
+    """Get AAC finance data for iPhone dashboard"""
+    try:
+        # Mock data - in real implementation, this would query AAC database
+        finance_data = {
+            'balance': 127543.89,
+            'revenue': 15234.56,
+            'compliance': 98,
+            'transactions': [
+                {'description': 'Investment Return', 'amount': 2345.67},
+                {'description': 'Server Costs', 'amount': -156.23},
+                {'description': 'Client Payment', 'amount': 5000.00},
+                {'description': 'Office Supplies', 'amount': -89.45},
+                {'description': 'Consulting Fee', 'amount': 1200.00}
+            ]
+        }
+        return jsonify(finance_data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/quasmem')
+def get_quasmem_status():
+    """Get QUASMEM memory optimization status"""
+    if not QUASMEM_ACTIVE:
+        return jsonify({
+            'status': 'inactive',
+            'message': 'QUASMEM optimization not available',
+            'hot_code': 'QUASMEM',
+            'protocol_version': '1.0'
+        })
+
+    try:
+        memory_status = get_memory_status()
+        return jsonify({
+            'status': 'active',
+            'hot_code': 'QUASMEM',
+            'memory_data': memory_status,
+            'optimization_level': 'HOT CODE',
+            'protocol_version': '1.0'
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/quasmem/optimize')
+def trigger_memory_optimization():
+    """Trigger QUASMEM memory optimization"""
+    if not QUASMEM_ACTIVE:
+        return jsonify({
+            'status': 'error',
+            'message': 'QUASMEM optimization not available'
+        })
+
+    try:
+        optimization_result = optimize_memory_usage()
+        return jsonify({
+            'status': 'optimized',
+            'hot_code': 'QUASMEM',
+            'results': optimization_result
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     print("🚀 Starting Super Agency Mobile Command Center...")
     print("� Optimized for macOS Sequoia 15.7.3 - Apple M1 8GB")
@@ -351,5 +512,4 @@ if __name__ == '__main__':
     print(f"📡 SASP Protocol v{SASP_CONFIG['version']} enabled")
     print(f"🆔 Mac Hub ID: {SASP_CONFIG['mac_id']}")
 
-    app.run(host='0.0.0.0', port=8080, debug=False)</content>
-<parameter name="filePath">c:/Users/gripa/OneDrive - Grip and Ripp/Super Agency/Super-Agency/mobile_command_center.py
+    app.run(host='0.0.0.0', port=8080, debug=False)

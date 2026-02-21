@@ -30,7 +30,7 @@ async def test_ncc_components():
         command = CommandRecord(
             id="test_cmd_1",
             type="test_operation",
-            prioricreate_command_rum",
+            priority="create_command_run",
             payload={"test": "data"},
             requester="test_script",
             description="Test command"

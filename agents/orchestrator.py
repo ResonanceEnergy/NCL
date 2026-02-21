@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import subprocess, sys
-from common import ROOT, Log
+from .common import ROOT, Log
 
 SENTRY = ROOT/"agents"/"repo_sentry.py"
 DAILY = ROOT/"agents"/"daily_brief.py"
