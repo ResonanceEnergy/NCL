@@ -10,6 +10,7 @@
 ✅ Memory Doctrine System: Operational
 ✅ Git Repository: Synchronized
 ✅ Health Checks: All passing
+✅ Mobile Command Center: Running on port 8081
 
 🔗 Connection Details:
 - SASP Protocol: v1.0 (RSA-based security)
@@ -17,11 +18,23 @@
 - Heartbeat: 30-second intervals expected
 - Security Level: Standard (RSA + HMAC)
 
+📱 Mobile Device Access:
+- Pocket Pulsar (iPhone): http://192.168.1.151:8081/iphone
+- Tablet Titan (iPad): http://192.168.1.151:8081/ipad
+- Desktop Dashboard: http://192.168.1.151:8081/desktop
+- Local Network: 192.168.1.0/24
+
 💡 Next Steps for QFORGE:
 1. Run: sync_to_windows.ps1 -MacIP <quantum_quasar_ip>
 2. Establish SASP connection on port 8888
 3. Exchange cross-platform status
 4. Begin synchronized operations
+
+💡 Mobile Device Setup:
+1. Connect devices to WiFi network (192.168.1.x)
+2. Open Safari and navigate to device-specific URLs above
+3. Add to home screen for PWA experience
+4. Launch Pocket Pulsar or Tablet Titan from home screen
 
 🚀 Quantum Quasar is standing by for QFORGE connection!
 
