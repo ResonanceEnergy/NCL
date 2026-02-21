@@ -80,6 +80,19 @@ class MessageBus:
         """Send a message to the bus"""
         self.message_queue.put(message)
 
+    def broadcast(self, message_dict: Dict[str, Any]):
+        """Broadcast a message to all agents"""
+        message = AgentMessage(
+            message_id=str(uuid.uuid4()),
+            sender=message_dict.get("sender", "system"),
+            recipient="broadcast",
+            message_type=message_dict.get("type", "broadcast"),
+            payload=message_dict.get("payload", {}),
+            timestamp=datetime.now(),
+            priority=message_dict.get("priority", "normal")
+        )
+        self.send_message(message)
+
     def start(self):
         """Start the message processing thread"""
         self.running = True
@@ -93,6 +106,14 @@ class MessageBus:
         if self.thread:
             self.thread.join(timeout=5)
         logger.info("Message bus stopped")
+
+    def get_status(self) -> Dict[str, Any]:
+        """Return current status of the message bus for monitoring"""
+        return {
+            "running": self.running,
+            "registered_agents": list(self.agents.keys()),
+            "queue_size": self.message_queue.qsize(),
+        }
 
     def _process_messages(self):
         """Process messages from the queue"""

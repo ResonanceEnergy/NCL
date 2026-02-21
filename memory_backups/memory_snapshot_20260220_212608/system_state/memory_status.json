@@ -1,0 +1,91 @@
+{
+  "layers": {
+    "ephemeral": {
+      "name": "ephemeral",
+      "max_size": 4096,
+      "retention_policy": "session",
+      "created_at": "2026-02-20T21:26:08.398131",
+      "last_accessed": "2026-02-20T21:26:08.398163",
+      "access_count": 0
+    },
+    "session": {
+      "name": "session",
+      "max_size": 65536,
+      "retention_policy": "24_hours",
+      "created_at": "2026-02-20T21:26:08.398186",
+      "last_accessed": "2026-02-20T21:26:08.398187",
+      "access_count": 0
+    },
+    "persistent": {
+      "name": "persistent",
+      "max_size": 1000000,
+      "retention_policy": "indefinite",
+      "created_at": "2026-02-20T21:26:08.398874",
+      "last_accessed": "2026-02-20T21:26:08.398877",
+      "access_count": 0
+    }
+  },
+  "health": {
+    "current_health": {
+      "timestamp": "2026-02-20T21:26:08.432830",
+      "blanks_detected": [],
+      "consolidation_results": {},
+      "layer_stats": {
+        "ephemeral": {
+          "name": "ephemeral",
+          "max_size": 4096,
+          "retention_policy": "session",
+          "created_at": "2026-02-20T21:26:08.398131",
+          "last_accessed": "2026-02-20T21:26:08.398163",
+          "access_count": 0
+        },
+        "session": {
+          "name": "session",
+          "max_size": 65536,
+          "retention_policy": "24_hours",
+          "created_at": "2026-02-20T21:26:08.398186",
+          "last_accessed": "2026-02-20T21:26:08.398187",
+          "access_count": 0
+        },
+        "persistent": {
+          "name": "persistent",
+          "max_size": 1000000,
+          "retention_policy": "indefinite",
+          "created_at": "2026-02-20T21:26:08.398874",
+          "last_accessed": "2026-02-20T21:26:08.398877",
+          "access_count": 0
+        }
+      },
+      "recommendations": []
+    },
+    "blank_trends": {
+      "total_blanks_last_10_checks": 0,
+      "critical_blanks": 0,
+      "blank_types": []
+    },
+    "layer_performance": {
+      "ephemeral": {
+        "access_count": 0,
+        "max_size": 4096,
+        "retention_policy": "session"
+      },
+      "session": {
+        "access_count": 0,
+        "max_size": 65536,
+        "retention_policy": "24_hours"
+      },
+      "persistent": {
+        "access_count": 0,
+        "max_size": 1000000,
+        "retention_policy": "indefinite"
+      }
+    },
+    "recommendations": []
+  },
+  "bus_messages": 0,
+  "blank_prevention": {
+    "active": true,
+    "last_check": "2026-02-20T21:26:08.433118",
+    "total_blanks_detected": 0
+  }
+}

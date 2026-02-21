@@ -17,13 +17,13 @@ from .adapters.ncl_adapter import NCCNCLAdapter
 from .adapters.council_52_adapter import NCCCouncil52Adapter
 from .adapters.api_management_adapter import NCCAPIManagementAdapter
 from .cio_intelligence_leadership import cio_intelligence_leadership
-from ..ceo_command_authority import ceo_authority
-from ..crisis_management_framework import CrisisManagementFramework
-from ..executive_briefings_system import ExecutiveBriefingsSystem
-from ..emergency_override_mechanisms import EmergencyOverrideMechanisms
-from ..executive_development_framework import ExecutiveDevelopmentFramework
-from ..succession_planning_framework import SuccessionPlanningFramework
-from ..advanced_executive_intelligence import AdvancedExecutiveIntelligence
+from ceo_command_authority import ceo_authority
+from crisis_management_framework import CrisisManagementFramework
+from executive_briefings_system import ExecutiveBriefingsSystem
+from emergency_override_mechanisms import EmergencyOverrideMechanisms
+from executive_development_framework import ExecutiveDevelopmentFramework
+from succession_planning_framework import SuccessionPlanningFramework
+from advanced_executive_intelligence import AdvancedExecutiveIntelligence
 
 class NCCOrchestrator:
     """

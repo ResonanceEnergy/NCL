@@ -30,63 +30,39 @@ def create_all_agents() -> Dict[str, Any]:
             print(f"Error creating agent {name}: {e}")
     return agents
 
-# Import all agent modules
-from lex_fridman_agent import *
-from tom_bilyeu_agent import *
-from andrew_huberman_agent import *
-from tim_ferriss_agent import *
-from peter_attia_agent import *
-from naval_ravikant_agent import *
-from sam_harris_agent import *
-from joe_rogan_agent import *
-from elon_musk_agent import *
-from vitalik_buterin_agent import *
-from demis_hassabis_agent import *
-from yann_lecun_agent import *
-from geoffrey_hinton_agent import *
-from shane_parrish_agent import *
-from bret_weinstein_agent import *
-from jordan_peterson_agent import *
-from daniel_schmachtenberger_agent import *
-from niall_ferguson_agent import *
-from tyler_cowen_agent import *
-from marc_andreessen_agent import *
-from ben_shapiro_agent import *
-from russell_brand_agent import *
-from dave_rubin_agent import *
-from candace_owens_agent import *
-from tucker_carlson_agent import *
-from the_joe_rogan_experience_agent import *
-from lex_fridman_podcast_agent import *
-from impact_theory_agent import *
+# Dynamic import of agent modules
+import pkgutil, importlib
+from pathlib import Path
+
+from inner_council.agents.base_agent import BaseCouncilAgent
 
 
-# Register all agents
-register_agent(LexFridmanAgent)
-register_agent(TomBilyeuAgent)
-register_agent(AndrewHubermanAgent)
-register_agent(TimFerrissAgent)
-register_agent(PeterAttiaAgent)
-register_agent(NavalRavikantAgent)
-register_agent(SamHarrisAgent)
-register_agent(JoeRoganAgent)
-register_agent(ElonMuskAgent)
-register_agent(VitalikButerinAgent)
-register_agent(DemisHassabisAgent)
-register_agent(YannLecunAgent)
-register_agent(GeoffreyHintonAgent)
-register_agent(ShaneParrishAgent)
-register_agent(BretWeinsteinAgent)
-register_agent(JordanPetersonAgent)
-register_agent(DanielSchmachtenbergerAgent)
-register_agent(NiallFergusonAgent)
-register_agent(TylerCowenAgent)
-register_agent(MarcAndreessenAgent)
-register_agent(BenShapiroAgent)
-register_agent(RussellBrandAgent)
-register_agent(DaveRubinAgent)
-register_agent(CandaceOwensAgent)
-register_agent(TuckerCarlsonAgent)
-register_agent(TheJoeRoganExperienceAgent)
-register_agent(LexFridmanPodcastAgent)
-register_agent(ImpactTheoryAgent)
+def discover_and_register_agents(package: str = "inner_council.agents"):
+    """Discover agent classes in the given package and register them"""
+    try:
+        pkg = importlib.import_module(package)
+    except ImportError:
+        return
+    package_path = Path(pkg.__file__).parent
+    for finder, name, ispkg in pkgutil.iter_modules([str(package_path)]):
+        if name.endswith("_agent"):
+            module_name = f"{package}.{name}"
+            try:
+                module = importlib.import_module(module_name)
+            except Exception:
+                continue
+            for attr in dir(module):
+                obj = getattr(module, attr)
+                if isinstance(obj, type) and issubclass(obj, BaseCouncilAgent) and obj is not BaseCouncilAgent:
+                    register_agent(obj)
+
+
+# run discovery at import time
+discover_and_register_agents()
+
+# ensure the meta coordinator is always available
+try:
+    from meta_coordinator import MetaCoordinator
+    register_agent(MetaCoordinator)
+except ImportError:
+    pass

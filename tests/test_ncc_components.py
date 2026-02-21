@@ -1,7 +1,12 @@
 """
 Simple NCC Component Test
 Tests individual NCC components without full integration
+(This suite is skipped by default in this repo since NCC modules may be missing.)
 """
+
+import pytest
+# NCC components should be installed on CI; skip removed
+
 
 import asyncio
 import sys
@@ -11,6 +16,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+@pytest.mark.asyncio
 async def test_ncc_components():
     """Test individual NCC components"""
     print("🧠 Testing NCC Components...")
@@ -30,7 +36,7 @@ async def test_ncc_components():
         command = CommandRecord(
             id="test_cmd_1",
             type="test_operation",
-            priority="create_command_run",
+            priority="medium",
             payload={"test": "data"},
             requester="test_script",
             description="Test command"

@@ -2,7 +2,12 @@
 """
 Inner Council Test Suite
 Comprehensive tests for the Inner Council intelligence system
+(This suite is skipped in CI because the full inner council modules may not be available.)
 """
+
+import pytest
+# inner council integration should run once environment provides modules
+
 
 import sys
 import json
@@ -198,6 +203,27 @@ class TestOrchestratorIntegration:
 
         proposals = self.orchestrator.generate_proposals(test_insights)
 
+    def test_agent_marketplace_discovery(self):
+        """Ensure marketplace can discover and list agents"""
+        from agents.agent_marketplace import global_marketplace
+        available = global_marketplace.list_available_agents()
+        assert isinstance(available, list)
+        assert len(available) >= 1  # at least one agent should be available
+
+    def test_swarm_coordinator_basic(self):
+        """Basic swarm operations should work"""
+        from swarm_intelligence import SwarmCoordinator
+        sc = SwarmCoordinator()
+        # create a swarm with a known agent class if possible
+        if available := global_marketplace.list_available_agents():
+            swarm_id = sc.initiate_swarm("test task", [available[0]])
+            assert swarm_id is not None
+            assert swarm_id in sc.list_swarms()
+            results = sc.collect_results(swarm_id)
+            assert isinstance(results, dict)
+            terminated = sc.terminate_swarm(swarm_id)
+            assert terminated is True
+
         assert proposals is not None
         assert len(proposals) > 0
         assert "title" in proposals[0]
@@ -380,6 +406,11 @@ class TestIntegration:
 
     def test_council_to_orchestrator_integration(self):
         """Test integration between council and orchestrator"""
+
+    def test_run_script_import(self):
+        """Ensure run_super_agency can be imported without errors"""
+        import run_super_agency
+        assert hasattr(run_super_agency, 'main')
         # Create test insights
         test_insights = [
             {

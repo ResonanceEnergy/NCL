@@ -7,6 +7,7 @@ import asyncio
 import sys
 import os
 from pathlib import Path
+import pytest
 
 # Add the project root to Python path
 project_root = Path(__file__).parent.parent
@@ -17,6 +18,7 @@ from NCC.adapters.api_management_adapter import NCCAPIManagementAdapter
 from NCC.adapters.council_52_adapter import NCCCouncil52Adapter
 from NCC.adapters.ncl_adapter import NCCNCLAdapter
 
+@pytest.mark.asyncio
 async def test_ncc_integration():
     """Test complete NCC system integration"""
     print("🧠 Starting NCC Integration Tests...")
@@ -157,6 +159,7 @@ async def test_ncc_integration():
 
     return True
 
+@pytest.mark.asyncio
 async def test_error_handling():
     """Test error handling scenarios"""
     print("\n🛡️  Testing Error Handling...")
