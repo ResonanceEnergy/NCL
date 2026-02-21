@@ -1,0 +1,83 @@
+🔗 Mobile Device Connection Guide
+📅 Date: February 21, 2026
+⏰ Time: $(date)
+
+🚀 **Quantum Quasar Mobile Access Points**
+
+📍 **Local Network IP**: 192.168.1.151
+🌐 **Server Status**: ACTIVE on port 8081
+
+---
+
+## 📱 **Pocket Pulsar (iPhone)**
+**URL**: http://192.168.1.151:8081/iphone
+**Device**: iPhone 15 / iPhone 15 Pro / iPhone 15 Pro Max
+**Features**:
+- Real-time command interface
+- SASP protocol monitoring
+- Memory doctrine status
+- Emergency override controls
+- PWA installation support
+
+**Access Instructions**:
+1. Open Safari on iPhone
+2. Navigate to: http://192.168.1.151:8081/iphone
+3. Tap "Share" → "Add to Home Screen"
+4. Launch "Pocket Pulsar" from home screen
+
+---
+
+## 📱 **Tablet Titan (iPad Pro)**
+**URL**: http://192.168.1.151:8081/ipad
+**Device**: iPad Pro 12.9" / iPad Pro 11"
+**Features**:
+- Extended visualization dashboard
+- Matrix monitor integration
+- Cross-platform status display
+- Advanced command controls
+- Multi-touch gesture support
+
+**Access Instructions**:
+1. Open Safari on iPad
+2. Navigate to: http://192.168.1.151:8081/ipad
+3. Add to home screen for PWA experience
+4. Launch "Tablet Titan" from home screen
+
+---
+
+## 💻 **Desktop Dashboard**
+**URL**: http://192.168.1.151:8081/desktop
+**Browser**: Chrome/Safari/Firefox
+**Features**:
+- Full desktop interface
+- Administrative controls
+- System monitoring
+- Configuration management
+
+---
+
+## 🔧 **Troubleshooting**
+
+**If devices can't connect**:
+1. Ensure devices are on same WiFi network (192.168.1.x)
+2. Check firewall settings on MacBook
+3. Verify server is running: `lsof -i :8081`
+4. Try accessing from Mac first: http://localhost:8081
+
+**Network Discovery**:
+- **Hostname**: MacBookAir.lan
+- **IP Range**: 192.168.1.0/24
+- **DNS**: Automatic via router
+
+**Security Note**:
+- Connections use local network only
+- No external internet access required
+- SASP protocol handles secure communication
+
+---
+
+**Status**: 🟢 **SERVERS ACTIVE** - Pulsar and Titan can now connect!
+
+Super Agency Mobile Operations
+Quantum Quasar Hub</content>
+<parameter name="filePath">/Users/gripandripphdd/Library/CloudStorage/OneDrive-GripandRipp(2)/SuperAgency-Shared/mobile_connection_guide.txt
