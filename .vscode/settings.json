@@ -1,3 +1,118 @@
 {
-    "python-envs.pythonProjects": []
+    // Cross-Platform Super Agency VS Code Settings
+    // Optimized for macOS (Quantum Quasar) ↔ Windows (QUANTUM FORGE)
+
+    // Python Configuration
+    "python.defaultInterpreterPath": "./.venv/bin/python",
+    "python.terminal.activateEnvironment": true,
+    "python.linting.enabled": true,
+    "python.linting.pylintEnabled": true,
+    "python.formatting.provider": "black",
+    "python.formatting.blackArgs": ["--line-length", "88"],
+    "python.sortImports.args": ["--profile", "black"],
+
+    // Editor Configuration
+    "editor.formatOnSave": true,
+    "editor.formatOnType": true,
+    "editor.codeActionsOnSave": {
+        "source.organizeImports": true,
+        "source.fixAll.eslint": true
+    },
+    "editor.tabSize": 4,
+    "editor.insertSpaces": true,
+    "editor.detectIndentation": false,
+    "editor.trimAutoWhitespace": true,
+    "files.trimTrailingWhitespace": true,
+    "files.insertFinalNewline": true,
+
+    // File Associations
+    "files.associations": {
+        "*.py": "python",
+        "*.html": "html",
+        "*.css": "css",
+        "*.js": "javascript",
+        "*.json": "json",
+        "*.md": "markdown",
+        "*.sh": "shellscript",
+        "*.bat": "batch",
+        "*.ps1": "powershell"
+    },
+
+    // Exclude Files from Explorer
+    "files.exclude": {
+        "**/.git": true,
+        "**/.DS_Store": true,
+        "**/Thumbs.db": true,
+        "**/__pycache__": true,
+        "**/.pytest_cache": true,
+        "**/node_modules": true,
+        "**/.venv": true,
+        "**/venv": true,
+        "**/ENV": true,
+        "**/*.pyc": true,
+        "**/*.pyo": true,
+        "**/*.pyd": true
+    },
+
+    // Search Configuration
+    "search.exclude": {
+        "**/node_modules": true,
+        "**/.venv": true,
+        "**/venv": true,
+        "**/__pycache__": true,
+        "**/.git": true,
+        "**/*.log": true
+    },
+
+    // Git Configuration
+    "git.autofetch": true,
+    "git.enableSmartCommit": true,
+    "git.confirmSync": false,
+
+    // Live Server (for testing web interfaces)
+    "liveServer.settings.port": 5500,
+    "liveServer.settings.root": "/",
+
+    // Extensions Recommendations
+    "extensions.ignoreRecommendations": false,
+
+    // Terminal Configuration
+    "terminal.integrated.shell.osx": "/bin/zsh",
+    "terminal.integrated.shell.windows": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+
+    // Workspace-specific settings
+    "python.analysis.extraPaths": [
+        "./agents",
+        "./static",
+        "./templates"
+    ],
+
+    // Testing Configuration
+    "python.testing.pytestEnabled": true,
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestArgs": [
+        "tests"
+    ],
+
+    // Remote Development (for cross-platform testing)
+    "remote.SSH.configFile": "~/.ssh/config",
+
+    // Custom settings for Super Agency development
+    "editor.tokenColorCustomizations": {
+        "comments": "#6A9955",
+        "strings": "#CE9178",
+        "keywords": "#569CD6",
+        "functions": "#DCDCAA"
+    },
+
+    // File nesting for better organization
+    "explorer.fileNesting.enabled": true,
+    "explorer.fileNesting.expand": false,
+    "explorer.fileNesting.patterns": {
+        "*.py": "${capture}.pyi,${capture}.pyc",
+        "*.js": "${capture}.js.map,${capture}.min.js",
+        "*.css": "${capture}.css.map,${capture}.min.css",
+        "requirements*.txt": "requirements*.txt",
+        "package*.json": "package*.json,yarn.lock"
+    }
 }

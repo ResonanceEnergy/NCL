@@ -1,0 +1,140 @@
+# Cross-Platform Super Agency .gitignore
+# Optimized for macOS (Quantum Quasar) ↔ Windows (QUANTUM FORGE) development
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments (keep local to each system)
+.venv/
+venv/
+ENV/
+env/
+.ENV/
+.env/
+
+# IDEs and Editors
+.vscode/settings.json
+.vscode/launch.json
+.idea/
+*.swp
+*.swo
+*~
+
+# OS-specific files
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*.stackdump
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Node.js (if used)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.yarn-integrity
+
+# Testing
+.coverage
+.pytest_cache/
+.tox/
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# Logs
+*.log
+logs/
+ncc_logs/
+oversight_logs/
+inner_council_intelligence.log
+youtube_intelligence.log
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# Local development
+.env.local
+.env.development
+.env.test
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# OneDrive sync
+*.sync
+*.conflict
+
+# Git
+.git/
+*.orig
+*.rej
+
+# Documentation builds
+docs/_build/
+*.pdf
+*.docx
+
+# Archives
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# Screenshots and media
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.mp4
+*.mov
+
+# API keys and secrets (never commit)
+secrets.json
+config/secrets.json
+.env
+.env.*

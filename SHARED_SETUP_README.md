@@ -1,0 +1,139 @@
+# 🚀 Super Agency - Cross-Platform Development Setup
+
+## 📁 Shared Repository Location
+**Path:** `OneDrive/SuperAgency-Shared/`
+
+This repository is optimized for **cross-platform development** between:
+- **macOS (Quantum Quasar)** - Primary development system
+- **Windows (QUANTUM FORGE)** - Secondary development system
+
+## 🔄 OneDrive Sync Setup
+
+### On macOS (Quantum Quasar):
+- Files are in: `/Users/[username]/Library/CloudStorage/OneDrive-GripandRipp(2)/SuperAgency-Shared/`
+- OneDrive automatically syncs changes to the cloud
+
+### On Windows (QUANTUM FORGE):
+- Files will appear in: `C:\Users\[username]\OneDrive\SuperAgency-Shared\`
+- OneDrive automatically syncs changes from the cloud
+
+## 🛠️ Initial Setup
+
+### 1. Clone/Open Repository
+```bash
+# On macOS:
+cd "/Users/[username]/Library/CloudStorage/OneDrive-GripandRipp(2)/SuperAgency-Shared"
+
+# On Windows:
+cd "C:\Users\[username]\OneDrive\SuperAgency-Shared"
+```
+
+### 2. Install Recommended VS Code Extensions
+- Open VS Code
+- Go to Extensions (Ctrl+Shift+X / Cmd+Shift+X)
+- Install all recommended extensions from `.vscode/extensions.json`
+
+### 3. Set Up Python Environment (Local to Each System)
+```bash
+# macOS
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+# Windows
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+### 4. Test Setup
+```bash
+# Run basic tests
+python -m pytest tests/ -v
+
+# Test MATRIX MAXIMIZER
+python matrix_maximizer.py
+```
+
+## 📋 Development Guidelines
+
+### 🔄 Sync Best Practices
+- **Always pull before starting work:** `git pull origin main`
+- **Commit frequently:** `git add . && git commit -m "description"`
+- **Push regularly:** `git push origin main`
+- **Monitor OneDrive sync status** in system tray
+
+### 🚫 What NOT to Sync
+- Virtual environments (`.venv/`, `venv/`)
+- IDE settings (`.vscode/settings.json` - use workspace settings)
+- OS-specific files (`.DS_Store`, `Thumbs.db`)
+- Logs and temporary files
+
+### ✅ What TO Sync
+- Source code (`.py`, `.html`, `.css`, `.js`)
+- Configuration files (shared settings)
+- Documentation (`.md` files)
+- Test files
+- Git repository (`.git/`)
+
+## 🧠 Key Components
+
+### MATRIX MAXIMIZER System
+- **`matrix_maximizer.py`** - Flask backend with real-time monitoring
+- **`templates/matrix_maximizer.html`** - Advanced UI interface
+- **`static/css/matrix_maximizer.css`** - Comprehensive styling
+- **`static/js/matrix_maximizer.js`** - Interactive functionality
+
+### Mobile Command Center
+- **`mobile_command_center_simple.py`** - Unified command interface
+- **Access at:** `http://localhost:8080/matrix`
+
+### Memory Doctrine System
+- **`unified_memory_doctrine_system.py`** - Cross-session memory management
+- **`unified_memory_doctrine.json`** - Persistent memory storage
+
+## 🔧 VS Code Live Share
+
+For real-time collaborative coding:
+
+1. Install "Live Share" extension on both systems
+2. One developer starts a session: `Ctrl+Shift+P` → "Live Share: Start Collaboration Session"
+3. Share the link with the other developer
+4. Both can edit the same files simultaneously
+
+## 🚀 Deployment
+
+### Local Development
+```bash
+# Start Mobile Command Center
+python mobile_command_center_simple.py
+
+# Access interfaces:
+# - Main: http://localhost:8080
+# - MATRIX MAXIMIZER: http://localhost:8080/matrix
+```
+
+### Cross-Platform Testing
+- Test on both macOS and Windows
+- Verify OneDrive sync works correctly
+- Check that all dependencies install on both systems
+
+## 📞 Support
+
+- **GitHub Repository:** https://github.com/ResonanceEnergy/Super-Agency
+- **OneDrive Sync Issues:** Check OneDrive system tray icon
+- **VS Code Issues:** Verify extensions are installed and settings are applied
+
+## 📊 System Status
+
+- **macOS (Quantum Quasar):** ✅ Primary development system
+- **Windows (QUANTUM FORGE):** ✅ Secondary development system
+- **OneDrive Sync:** ✅ Active and tested
+- **Git Integration:** ✅ Working across platforms
+- **MATRIX MAXIMIZER:** ✅ Fully implemented and operational
+
+---
+
+**Last Updated:** February 21, 2026
+**Platform:** Cross-platform (macOS ↔ Windows)
+**Status:** 🟢 Active Development
