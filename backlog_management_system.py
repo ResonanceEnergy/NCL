@@ -17,7 +17,7 @@ class BacklogItem:
     """Represents a single backlog item"""
 
     def __init__(self, title: str, description: str = "", category: str = "general",
-                 priority: str = "medium", effort: str = "medium", created_by: str = "system"):
+                 priority: str = "medium", effort: str = "medium", created_by: str = "system", **kwargs):
         self.id = str(uuid.uuid4())
         self.title = title
         self.description = description
@@ -31,7 +31,7 @@ class BacklogItem:
         self.assigned_to = None
         self.due_date = None
         self.dependencies = []  # List of other backlog item IDs
-        self.tags = []
+        self.tags = kwargs.get('tags', [])
         self.doctrine_alignment = {}  # How this aligns with doctrine principles
         self.ai_insights = {}  # AI-generated insights and suggestions
         self.progress_notes = []
@@ -575,5 +575,4 @@ if __name__ == "__main__":
     stats = manager.get_stats()
     print(f"Backlog Stats: {stats}")
 
-    print("✅ Backlog Management System test complete!")</content>
-<parameter name="filePath">c:\Users\gripa\OneDrive - Grip and Ripp\Super Agency\Super-Agency\backlog_management_system.py
+    print("✅ Backlog Management System test complete!")

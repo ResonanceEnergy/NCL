@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.superagency.crossplatformrefresh</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>/Users/gripandripphdd/Library/CloudStorage/OneDrive-GripandRipp(2)/SuperAgency-Shared/cross_platform_refresh.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/gripandripphdd/Library/CloudStorage/OneDrive-GripandRipp(2)/SuperAgency-Shared</string>
+
+    <key>StartInterval</key>
+    <integer>300</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/gripandripphdd/Library/CloudStorage/OneDrive-GripandRipp(2)/SuperAgency-Shared/logs/refresh_stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/gripandripphdd/Library/CloudStorage/OneDrive-GripandRipp(2)/SuperAgency-Shared/logs/refresh_stderr.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>PYTHONPATH</key>
+        <string>/Users/gripandripphdd/Library/CloudStorage/OneDrive-GripandRipp(2)/SuperAgency-Shared</string>
+    </dict>
+</dict>
+</plist></content>
+<parameter name="filePath">/Users/gripandripphdd/Library/CloudStorage/OneDrive-GripandRipp(2)/SuperAgency-Shared/com.superagency.crossplatformrefresh.plist

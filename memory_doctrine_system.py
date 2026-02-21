@@ -441,5 +441,4 @@ if __name__ == "__main__":
     stats = memory_stats()
     print("Memory Stats:", json.dumps(stats, indent=2, default=str))
 
-    print("✅ Memory Doctrine System test complete!")</content>
-<parameter name="filePath">c:\Users\gripa\OneDrive - Grip and Ripp\Super Agency\Super-Agency\memory_doctrine_system.py
+    print("✅ Memory Doctrine System test complete!")
