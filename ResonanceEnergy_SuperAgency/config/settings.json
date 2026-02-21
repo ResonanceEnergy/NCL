@@ -1,0 +1,16 @@
+{
+  "org": "ResonanceEnergy",
+  "repos_base": "./repos",
+  "reports_dir": "./reports",
+  "decisions_dir": "./decisions",
+  "daily_brief_hour_local": 8,
+  "timezone_hint": "local",
+  "require_consent_for": [
+    "external_api_calls",
+    "financial_actions",
+    "data_sharing_outside_device"
+  ],
+  "autonomy_defaults": {
+    "default": "L1"
+  }
+}

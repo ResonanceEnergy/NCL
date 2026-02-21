@@ -1,0 +1,20 @@
+2026-02-20 12:43:17,693 - __main__ - WARNING - No YouTube API key found. Set YOUTUBE_API_KEY environment variable or add to config.
+2026-02-20 12:43:17,700 - __main__ - INFO - Starting daily Inner Council intelligence session
+2026-02-20 12:43:17,701 - __main__ - INFO - Conducting Inner Council intelligence session...
+2026-02-20 12:43:17,702 - __main__ - INFO - Gathering intelligence from J Bravo (intelligence_coordinator)
+2026-02-20 12:43:17,702 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:43:17,702 - __main__ - WARNING - No videos found for council member: j_bravo
+2026-02-20 12:43:17,703 - __main__ - INFO - Gathering intelligence from Tom Bilyeu (business_strategy)
+2026-02-20 12:43:17,703 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:43:17,703 - __main__ - WARNING - No videos found for council member: tom_bilyeu
+2026-02-20 12:43:17,704 - __main__ - INFO - Gathering intelligence from Lex Fridman (ai_technology)
+2026-02-20 12:43:17,705 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:43:17,706 - __main__ - WARNING - No videos found for council member: lexfridman
+2026-02-20 12:43:17,707 - __main__ - INFO - Gathering intelligence from Joe Rogan (cultural_intelligence)
+2026-02-20 12:43:17,708 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:43:17,708 - __main__ - WARNING - No videos found for council member: joe_rogan
+2026-02-20 12:43:17,708 - __main__ - INFO - Gathering intelligence from Chris Willx (personal_development)
+2026-02-20 12:43:17,709 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:43:17,709 - __main__ - WARNING - No videos found for council member: chris_willx
+2026-02-20 12:43:17,710 - __main__ - INFO - Gathering intelligence from Brighter with Herbert (consciousness_explorer)
+2026-02-20 12:43:17,711 - __main__ - WARNING - No API key available, skipping YouTube API calls

@@ -1,0 +1,84 @@
+2026-02-20 12:38:53,732 - __main__ - WARNING - No YouTube API key found. Set YOUTUBE_API_KEY environment variable or add to config.
+2026-02-20 12:38:53,733 - __main__ - INFO - Starting YouTube intelligence monitoring cycle
+2026-02-20 12:38:53,733 - __main__ - INFO - Starting YouTube intelligence monitoring...
+2026-02-20 12:38:53,733 - __main__ - INFO - Monitoring channel: Lex Fridman
+2026-02-20 12:38:53,734 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:38:53,734 - __main__ - WARNING - No videos found for channel: lex_fridman
+2026-02-20 12:38:53,734 - __main__ - INFO - Monitoring channel: Tesla
+2026-02-20 12:38:53,734 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:38:53,734 - __main__ - WARNING - No videos found for channel: elon_musk
+2026-02-20 12:38:53,734 - __main__ - INFO - Monitoring channel: DeepMind
+2026-02-20 12:38:53,734 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:38:53,735 - __main__ - WARNING - No videos found for channel: demis_hassabis
+2026-02-20 12:38:53,735 - __main__ - INFO - Monitoring channel: Yann LeCun
+2026-02-20 12:38:53,735 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:38:53,735 - __main__ - WARNING - No videos found for channel: yann_lecun
+2026-02-20 12:38:53,735 - __main__ - INFO - Monitoring channel: Geoffrey Hinton
+2026-02-20 12:38:53,735 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:38:53,735 - __main__ - WARNING - No videos found for channel: geoffrey_hinton
+2026-02-20 12:38:53,735 - __main__ - INFO - Monitoring channel: Marc Andreessen
+2026-02-20 12:38:53,735 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:38:53,735 - __main__ - WARNING - No videos found for channel: marc_andreessen
+2026-02-20 12:38:53,736 - __main__ - INFO - Monitoring channel: Tom Bilyeu
+2026-02-20 12:38:53,736 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:38:53,736 - __main__ - WARNING - No videos found for channel: tom_bilyeu
+2026-02-20 12:38:53,736 - __main__ - INFO - Monitoring channel: Tim Ferriss
+2026-02-20 12:38:53,736 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:38:53,736 - __main__ - WARNING - No videos found for channel: tim_ferriss
+2026-02-20 12:38:53,736 - __main__ - INFO - Monitoring channel: Naval Ravikant
+2026-02-20 12:38:53,736 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:38:53,737 - __main__ - WARNING - No videos found for channel: naval_ravikant
+2026-02-20 12:38:53,737 - __main__ - INFO - Monitoring channel: Impact Theory
+2026-02-20 12:38:53,737 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:38:53,737 - __main__ - WARNING - No videos found for channel: impact_theory
+2026-02-20 12:38:53,737 - __main__ - INFO - Monitoring channel: Andrew Huberman
+2026-02-20 12:38:53,737 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:38:53,737 - __main__ - WARNING - No videos found for channel: andrew_huberman
+2026-02-20 12:38:53,738 - __main__ - INFO - Monitoring channel: Peter Attia
+2026-02-20 12:38:53,738 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:38:53,738 - __main__ - WARNING - No videos found for channel: peter_attia
+2026-02-20 12:38:53,738 - __main__ - INFO - Monitoring channel: Bret Weinstein
+2026-02-20 12:38:53,738 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:38:53,738 - __main__ - WARNING - No videos found for channel: bret_weinstein
+2026-02-20 12:38:53,738 - __main__ - INFO - Monitoring channel: Sam Harris
+2026-02-20 12:38:53,738 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:38:53,739 - __main__ - WARNING - No videos found for channel: sam_harris
+2026-02-20 12:38:53,739 - __main__ - INFO - Monitoring channel: Jordan Peterson
+2026-02-20 12:38:53,739 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:38:53,739 - __main__ - WARNING - No videos found for channel: jordan_peterson
+2026-02-20 12:38:53,739 - __main__ - INFO - Monitoring channel: Daniel Schmachtenberger
+2026-02-20 12:38:53,739 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:38:53,739 - __main__ - WARNING - No videos found for channel: daniel_schmachtenberger
+2026-02-20 12:38:53,739 - __main__ - INFO - Monitoring channel: Russell Brand
+2026-02-20 12:38:53,739 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:38:53,740 - __main__ - WARNING - No videos found for channel: russell_brand
+2026-02-20 12:38:53,740 - __main__ - INFO - Monitoring channel: Ben Shapiro
+2026-02-20 12:38:53,740 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:38:53,740 - __main__ - WARNING - No videos found for channel: ben_shapiro
+2026-02-20 12:38:53,740 - __main__ - INFO - Monitoring channel: Dave Rubin
+2026-02-20 12:38:53,740 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:38:53,741 - __main__ - WARNING - No videos found for channel: dave_rubin
+2026-02-20 12:38:53,741 - __main__ - INFO - Monitoring channel: Candace Owens
+2026-02-20 12:38:53,741 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:38:53,741 - __main__ - WARNING - No videos found for channel: candace_owens
+2026-02-20 12:38:53,741 - __main__ - INFO - Monitoring channel: Tucker Carlson
+2026-02-20 12:38:53,741 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:38:53,741 - __main__ - WARNING - No videos found for channel: tucker_carlson
+2026-02-20 12:38:53,742 - __main__ - INFO - Monitoring channel: Joe Rogan
+2026-02-20 12:38:53,742 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:38:53,742 - __main__ - WARNING - No videos found for channel: joe_rogan
+2026-02-20 12:38:53,742 - __main__ - INFO - Monitoring channel: Vitalik Buterin
+2026-02-20 12:38:53,742 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:38:53,742 - __main__ - WARNING - No videos found for channel: vitalik_buterin
+2026-02-20 12:38:53,742 - __main__ - INFO - Monitoring channel: Shane Parrish
+2026-02-20 12:38:53,743 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:38:53,743 - __main__ - WARNING - No videos found for channel: shane_parrish
+2026-02-20 12:38:53,743 - __main__ - INFO - Monitoring channel: Niall Ferguson
+2026-02-20 12:38:53,743 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:38:53,743 - __main__ - WARNING - No videos found for channel: niall_ferguson
+2026-02-20 12:38:53,743 - __main__ - INFO - Monitoring channel: Tyler Cowen
+2026-02-20 12:38:53,743 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:38:53,744 - __main__ - WARNING - No videos found for channel: tyler_cowen
+2026-02-20 12:38:53,744 - __main__ - INFO - Processed 0 videos from 0 channels
+2026-02-20 12:38:53,745 - __main__ - INFO - Intelligence data saved to: youtube_intelligence_data/report_20260220_123853.json
+2026-02-20 12:38:53,745 - __main__ - INFO - Intelligence report saved to: youtube_intelligence_data/report_20260220_123853.md

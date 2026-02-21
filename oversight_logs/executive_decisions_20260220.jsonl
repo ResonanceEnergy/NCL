@@ -1,0 +1,24 @@
+{"executive": "CIO", "decision_type": "intelligence_approval", "ethical_assessment": {"transparency": 0.9, "fairness": 0.8, "accountability": 1.0, "privacy": 0.7, "beneficence": 0.9}, "ethical_score": 0.8600000000000001, "timestamp": "2026-02-20T13:44:47.118289"}
+{"executive": "CIO", "decision_type": "intelligence_approval", "ethical_assessment": {"transparency": 0.9, "fairness": 0.8, "accountability": 1.0, "privacy": 0.7, "beneficence": 0.9}, "ethical_score": 0.8600000000000001, "timestamp": "2026-02-20T13:45:00.716392"}
+{"executive": "CEO", "decision_type": "strategy_decision", "ethical_assessment": {"transparency": 1.0, "fairness": 0.9, "accountability": 0.95, "privacy": 0.8, "beneficence": 0.85}, "ethical_score": 0.8999999999999998, "timestamp": "2026-02-20T13:45:00.717061"}
+{"executive": "CIO", "decision_type": "intelligence_approval", "ethical_assessment": {"transparency": 0.9, "fairness": 0.8, "accountability": 1.0, "privacy": 0.7, "beneficence": 0.9}, "ethical_score": 0.8600000000000001, "timestamp": "2026-02-20T13:45:20.105596"}
+{"executive": "CEO", "decision_type": "strategy_decision", "ethical_assessment": {"transparency": 1.0, "fairness": 0.9, "accountability": 0.95, "privacy": 0.8, "beneficence": 0.85}, "ethical_score": 0.8999999999999998, "timestamp": "2026-02-20T13:45:20.106316"}
+{"executive": "CTO", "decision_type": "technology_investment", "ethical_assessment": {"transparency": 0.85, "fairness": 0.75, "accountability": 0.9, "privacy": 0.95, "beneficence": 0.8}, "ethical_score": 0.85, "timestamp": "2026-02-20T13:45:20.107063"}
+{"executive": "COO", "decision_type": "decision_submission_strategic", "ethical_assessment": {"transparency": 0.9, "fairness": 0.8, "accountability": 1.0}, "ethical_score": 0.54, "timestamp": "2026-02-20T13:51:13.624695"}
+{"executive": "test_agent", "decision_type": "decision_submission_strategic", "ethical_assessment": {}, "ethical_score": 0.0, "timestamp": "2026-02-20T13:52:00.475246"}
+{"executive": "test_agent", "decision_type": "decision_submission_strategic", "ethical_assessment": {}, "ethical_score": 0.0, "timestamp": "2026-02-20T13:52:09.121150"}
+{"executive": "test_agent", "decision_type": "decision_submission_strategic", "ethical_assessment": {}, "ethical_score": 0.0, "timestamp": "2026-02-20T13:52:15.479575"}
+{"executive": "test_agent", "decision_type": "decision_submission_strategic", "ethical_assessment": {"compliance": 0.9, "transparency": 0.8}, "ethical_score": 0.16, "timestamp": "2026-02-20T13:52:15.480542"}
+{"executive": "test_agent", "decision_type": "decision_submission_operational", "ethical_assessment": {}, "ethical_score": 0.0, "timestamp": "2026-02-20T13:52:38.997772"}
+{"executive": "test_agent", "decision_type": "decision_submission_strategic", "ethical_assessment": {}, "ethical_score": 0.0, "timestamp": "2026-02-20T13:52:38.998710"}
+{"executive": "test_agent", "decision_type": "decision_submission_financial", "ethical_assessment": {}, "ethical_score": 0.0, "timestamp": "2026-02-20T13:52:38.999576"}
+{"executive": "test_agent", "decision_type": "decision_submission_operational", "ethical_assessment": {}, "ethical_score": 0.0, "timestamp": "2026-02-20T13:52:45.464543"}
+{"executive": "test_agent", "decision_type": "decision_submission_strategic", "ethical_assessment": {}, "ethical_score": 0.0, "timestamp": "2026-02-20T13:52:45.465707"}
+{"executive": "test_agent", "decision_type": "decision_submission_financial", "ethical_assessment": {}, "ethical_score": 0.0, "timestamp": "2026-02-20T13:52:45.466692"}
+{"executive": "test_agent", "decision_type": "decision_submission_operational", "ethical_assessment": {}, "ethical_score": 0.0, "timestamp": "2026-02-20T13:52:52.287980"}
+{"executive": "test_agent", "decision_type": "decision_submission_strategic", "ethical_assessment": {}, "ethical_score": 0.0, "timestamp": "2026-02-20T13:52:52.289307"}
+{"executive": "test_agent", "decision_type": "decision_submission_financial", "ethical_assessment": {}, "ethical_score": 0.0, "timestamp": "2026-02-20T13:52:52.290696"}
+{"executive": "test_agent", "decision_type": "decision_submission_operational", "ethical_assessment": {}, "ethical_score": 0.0, "timestamp": "2026-02-20T13:52:59.429833"}
+{"executive": "test_agent", "decision_type": "decision_submission_strategic", "ethical_assessment": {}, "ethical_score": 0.0, "timestamp": "2026-02-20T13:52:59.430863"}
+{"executive": "test_agent", "decision_type": "decision_submission_financial", "ethical_assessment": {}, "ethical_score": 0.0, "timestamp": "2026-02-20T13:52:59.431726"}
+{"executive": "crisis_management_system", "decision_type": "decision_submission_crisis", "ethical_assessment": {"urgency": 1.0, "transparency": 0.9}, "ethical_score": 0.18, "timestamp": "2026-02-20T13:56:29.054355"}

@@ -1,0 +1,179 @@
+# Golden Path for YouTube Drop + Second Brain Integration
+URL ?= https://www.youtube.com/watch?v=0TpON5T-Sw4
+VID ?= $(shell python3 -c "import re,sys;print(re.search(r'v=([^&]+)', '$(URL)').group(1))" 2>/dev/null || echo "unknown")
+BASE_DIR := knowledge/secondbrain/$(shell date +%Y/%m)/$(VID)
+REPO_ROOT := $(shell cd .. && pwd)
+PYTHON := python3
+
+.PHONY: all ingest enrich commit brief clean
+
+all: ingest enrich commit brief
+
+ingest:
+	@echo "=== INGEST: $(URL) ==="
+	@mkdir -p $(BASE_DIR)
+	# Fetch transcript using YouTube transcript API
+	$(PYTHON) tools/youtubedrop/fetch.py "$(URL)" --out "$(BASE_DIR)"
+	@test -f "$(BASE_DIR)/raw.txt" || (echo "ERROR: Transcript missing"; exit 1)
+	@echo "✓ Ingest complete: $(BASE_DIR)"
+
+enrich:
+	@echo "=== ENRICH: $(VID) ==="
+	# Use local LLM for enrichment (Ollama, etc.)
+	$(PYTHON) -c "
+import json, os, requests
+from datetime import datetime
+from pathlib import Path
+
+vid = '$(VID)'
+base_dir = Path('$(BASE_DIR)')
+
+# Read transcript
+transcript_file = base_dir / 'raw.txt'
+if not transcript_file.exists():
+    print('ERROR: Transcript file not found')
+    exit(1)
+
+with open(transcript_file, 'r', encoding='utf-8') as f:
+    transcript = f.read()
+
+# Local LLM enrichment via Ollama (default) or other local API
+llm_url = os.environ.get('LOCAL_LLM_URL', 'http://localhost:11434/api/generate')
+model = os.environ.get('LOCAL_LLM_MODEL', 'llama2')
+
+# Truncate transcript if too long (keep first 10k chars for summary)
+max_chars = 10000
+if len(transcript) > max_chars:
+    transcript = transcript[:max_chars] + '...'
+
+prompt = f'''Analyze this YouTube video transcript and provide a structured enrichment. Focus on the Resonance Energy principles: Local-first, Consent & Control, Provenance-first, Unit Economics, Resilience, Ethical Rails, Council Governance, Do Less Go Deeper.
+
+Transcript:
+{transcript}
+
+Provide a JSON response with:
+- abstract_120w: 120-word summary
+- key_insights: array of key insights
+- claims: array of claims made
+- entities: array of named entities
+- action_items: array of actionable items
+- confidence: low/medium/high
+- doctrine_map: {{principles: [...], themes: [...]}}
+- provenance: {{ingested_at: timestamp, initiator: 'Super Agency Pipeline'}}
+
+JSON only, no markdown:
+'''
+
+try:
+    response = requests.post(llm_url, json={
+        'model': model,
+        'prompt': prompt,
+        'stream': False
+    }, timeout=60)
+    
+    if response.status_code == 200:
+        result = response.json()
+        # Extract JSON from LLM response
+        llm_text = result.get('response', '')
+        # Try to parse JSON from the response
+        try:
+            # Find JSON in the response (LLMs might add extra text)
+            start = llm_text.find('{')
+            end = llm_text.rfind('}') + 1
+            if start >= 0 and end > start:
+                json_str = llm_text[start:end]
+                enrich_data = json.loads(json_str)
+            else:
+                raise ValueError('No JSON found in response')
+        except:
+            # Fallback enrichment if JSON parsing fails
+            enrich_data = {
+                'video_id': vid,
+                'source_url': '$(URL)',
+                'abstract_120w': f'Enrichment failed to parse. Raw transcript length: {len(transcript)} chars.',
+                'key_insights': ['LLM enrichment completed'],
+                'claims': [],
+                'entities': [],
+                'action_items': ['Review enrichment output'],
+                'confidence': 'low',
+                'doctrine_map': {
+                    'principles': ['Local-first'],
+                    'themes': ['Automation']
+                },
+                'provenance': {
+                    'ingested_at': datetime.now().isoformat(),
+                    'initiator': 'Super Agency Pipeline'
+                }
+            }
+    else:
+        raise Exception(f'LLM API error: {response.status_code}')
+
+except Exception as e:
+    print(f'Warning: LLM enrichment failed ({e}), using fallback')
+    enrich_data = {
+        'video_id': vid,
+        'source_url': '$(URL)',
+        'abstract_120w': f'Local LLM enrichment failed. Transcript length: {len(transcript)} chars.',
+        'key_insights': ['Transcript ingested successfully'],
+        'claims': [],
+        'entities': [],
+        'action_items': ['Review LLM configuration'],
+        'confidence': 'low',
+        'doctrine_map': {
+            'principles': ['Local-first', 'Resilience'],
+            'themes': ['Second Brain', 'Knowledge Management']
+        },
+        'provenance': {
+            'ingested_at': datetime.now().isoformat(),
+            'initiator': 'Super Agency Pipeline'
+        }
+    }
+
+# Write enrichment files
+with open(base_dir / 'enrich.json', 'w') as f:
+    json.dump(enrich_data, f, indent=2)
+
+with open(base_dir / 'enrich.md', 'w') as f:
+    f.write(f'# {vid} - Second Brain Enrichment\\n\\n')
+    f.write(f'**Abstract:** {enrich_data.get(\"abstract_120w\", \"\")}\\n\\n')
+    if enrich_data.get('key_insights'):
+        f.write('**Key Insights:**\\n')
+        for insight in enrich_data['key_insights']:
+            f.write(f'- {insight}\\n')
+        f.write('\\n')
+    if enrich_data.get('action_items'):
+        f.write('**Action Items:**\\n')
+        for action in enrich_data['action_items']:
+            f.write(f'- {action}\\n')
+        f.write('\\n')
+    f.write(f'**Confidence:** {enrich_data.get(\"confidence\", \"unknown\")}\\n')
+    f.write(f'**Processed:** {enrich_data[\"provenance\"][\"ingested_at\"]}\\n')
+
+print('✓ Enrichment complete')
+	"
+
+commit:
+	@echo "=== CATALOG COMMIT: $(VID) ==="
+	# Index into NCL Catalog + create graph edges
+	$(PYTHON) agents/ncl_catalog.py "$(BASE_DIR)/enrich.json"
+	@echo "✓ Catalog commit complete"
+
+brief:
+	@echo "=== OPS BRIEF: $(VID) ==="
+	# Register in tomorrow's Ops Brief tile
+	$(PYTHON) -c "
+from agents.daily_brief import queue_for_brief
+from pathlib import Path
+result = queue_for_brief(Path('$(BASE_DIR)/enrich.json'))
+print('✓ Queued for ops brief' if result else '✗ Failed to queue for ops brief')
+	"
+
+clean:
+	@echo "Cleaning $(BASE_DIR)..."
+	@rm -rf $(BASE_DIR)
+
+status:
+	@echo "Video ID: $(VID)"
+	@echo "Base dir: $(BASE_DIR)"
+	@echo "Files present:"
+	@ls -la $(BASE_DIR) 2>/dev/null || echo "  (directory not created yet)"

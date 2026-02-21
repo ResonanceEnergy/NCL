@@ -1,0 +1,565 @@
+2026-02-20 12:43:17,693 - __main__ - WARNING - No YouTube API key found. Set YOUTUBE_API_KEY environment variable or add to config.
+2026-02-20 12:43:17,700 - __main__ - INFO - Starting daily Inner Council intelligence session
+2026-02-20 12:43:17,701 - __main__ - INFO - Conducting Inner Council intelligence session...
+2026-02-20 12:43:17,702 - __main__ - INFO - Gathering intelligence from J Bravo (intelligence_coordinator)
+2026-02-20 12:43:17,702 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:43:17,702 - __main__ - WARNING - No videos found for council member: j_bravo
+2026-02-20 12:43:17,703 - __main__ - INFO - Gathering intelligence from Tom Bilyeu (business_strategy)
+2026-02-20 12:43:17,703 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:43:17,703 - __main__ - WARNING - No videos found for council member: tom_bilyeu
+2026-02-20 12:43:17,704 - __main__ - INFO - Gathering intelligence from Lex Fridman (ai_technology)
+2026-02-20 12:43:17,705 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:43:17,706 - __main__ - WARNING - No videos found for council member: lexfridman
+2026-02-20 12:43:17,707 - __main__ - INFO - Gathering intelligence from Joe Rogan (cultural_intelligence)
+2026-02-20 12:43:17,708 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:43:17,708 - __main__ - WARNING - No videos found for council member: joe_rogan
+2026-02-20 12:43:17,708 - __main__ - INFO - Gathering intelligence from Chris Willx (personal_development)
+2026-02-20 12:43:17,709 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:43:17,709 - __main__ - WARNING - No videos found for council member: chris_willx
+2026-02-20 12:43:17,710 - __main__ - INFO - Gathering intelligence from Brighter with Herbert (consciousness_explorer)
+2026-02-20 12:43:17,711 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:43:17,711 - __main__ - WARNING - No videos found for council member: brighter_with_herbert
+2026-02-20 12:43:17,712 - __main__ - INFO - Gathering intelligence from Nate B Jones (financial_intelligence)
+2026-02-20 12:43:17,712 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:43:17,712 - __main__ - WARNING - No videos found for council member: nate_b_jones
+2026-02-20 12:43:17,713 - __main__ - INFO - Gathering intelligence from Stripe (fintech_innovation)
+2026-02-20 12:43:17,713 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:43:17,713 - __main__ - WARNING - No videos found for council member: stripe
+2026-02-20 12:43:17,714 - __main__ - INFO - Gathering intelligence from Spencer Gatten (operations_expert)
+2026-02-20 12:43:17,714 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:43:17,714 - __main__ - WARNING - No videos found for council member: spencer_gatten
+2026-02-20 12:43:17,715 - __main__ - INFO - Gathering intelligence from Stefan Burns (tech_innovation)
+2026-02-20 12:43:17,715 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:43:17,716 - __main__ - WARNING - No videos found for council member: stefan_burns
+2026-02-20 12:43:17,717 - __main__ - INFO - Gathering intelligence from FARZAD FM (market_analyst)
+2026-02-20 12:43:17,717 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:43:17,717 - __main__ - WARNING - No videos found for council member: farzad_fm
+2026-02-20 12:43:17,718 - __main__ - INFO - Gathering intelligence from Ian Carroll Show (economic_analyst)
+2026-02-20 12:43:17,718 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:43:17,718 - __main__ - WARNING - No videos found for council member: ian_carroll_show
+2026-02-20 12:43:17,719 - __main__ - INFO - Gathering intelligence from Eurodollar University (financial_education)
+2026-02-20 12:43:17,719 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:43:17,719 - __main__ - WARNING - No videos found for council member: eurodollar_university
+2026-02-20 12:43:17,721 - __main__ - INFO - Gathering intelligence from Andrei Jikh (startup_strategy)
+2026-02-20 12:43:17,721 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:43:17,723 - __main__ - WARNING - No videos found for council member: andrei_jikh
+2026-02-20 12:43:17,724 - __main__ - INFO - Gathering intelligence from Dan Winter Fractal Field (physics_consciousness)
+2026-02-20 12:43:17,725 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:43:17,726 - __main__ - WARNING - No videos found for council member: dan_winter_fractal_field
+2026-02-20 12:43:17,726 - __main__ - INFO - Gathering intelligence from The AI Grid (ai_development)
+2026-02-20 12:43:17,727 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:43:17,728 - __main__ - WARNING - No videos found for council member: the_ai_grid
+2026-02-20 12:43:17,728 - __main__ - INFO - Gathering intelligence from The Diary Of A CEO (ceo_insights)
+2026-02-20 12:43:17,729 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:43:17,729 - __main__ - WARNING - No videos found for council member: the_diary_of_a_ceo
+2026-02-20 12:43:17,730 - __main__ - INFO - Gathering intelligence from Space Weather News (space_intelligence)
+2026-02-20 12:43:17,730 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:43:17,731 - __main__ - WARNING - No videos found for council member: space_weather_news
+2026-02-20 12:43:17,731 - __main__ - INFO - Gathering intelligence from Energi Media (energy_analyst)
+2026-02-20 12:43:17,732 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:43:17,732 - __main__ - WARNING - No videos found for council member: energi_media
+2026-02-20 12:43:17,732 - __main__ - INFO - Gathering intelligence from The Inner Operator (operations_strategy)
+2026-02-20 12:43:17,733 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:43:17,733 - __main__ - WARNING - No videos found for council member: the_inner_operator
+2026-02-20 12:43:17,734 - __main__ - INFO - Gathering intelligence from Alex Hormozi (business_scaling)
+2026-02-20 12:43:17,734 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:43:17,734 - __main__ - WARNING - No videos found for council member: alex_hormozi
+2026-02-20 12:43:17,735 - __main__ - INFO - Gathering intelligence from Restitutor Orbis (global_systems)
+2026-02-20 12:43:17,735 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:43:17,737 - __main__ - WARNING - No videos found for council member: restitutor_orbis
+2026-02-20 12:43:17,738 - __main__ - INFO - Gathering intelligence from Ben Wehrman (marketing_strategy)
+2026-02-20 12:43:17,738 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:43:17,739 - __main__ - WARNING - No videos found for council member: ben_wehrman
+2026-02-20 12:43:17,739 - __main__ - INFO - Gathering intelligence from Nomad Capitalist (global_citizenship)
+2026-02-20 12:43:17,740 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:43:17,740 - __main__ - WARNING - No videos found for council member: nomad_capitalist
+2026-02-20 12:43:17,740 - __main__ - INFO - Gathering intelligence from Principles by Ray Dalio (economic_principles)
+2026-02-20 12:43:17,741 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:43:17,741 - __main__ - WARNING - No videos found for council member: principles_by_ray_dalio
+2026-02-20 12:43:17,741 - __main__ - INFO - Gathering intelligence from Instead of Working (passive_income)
+2026-02-20 12:43:17,741 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:43:17,742 - __main__ - WARNING - No videos found for council member: instead_of_working
+2026-02-20 12:43:17,742 - __main__ - INFO - Gathering intelligence from Tom Scryleus (geopolitical_analyst)
+2026-02-20 12:43:17,743 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:43:17,743 - __main__ - WARNING - No videos found for council member: tom_scryleus
+2026-02-20 12:43:17,745 - __main__ - INFO - Gathering intelligence from Thunderbolts Project (plasma_physics)
+2026-02-20 12:43:17,746 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:43:17,746 - __main__ - WARNING - No videos found for council member: thunderbolts_project
+2026-02-20 12:43:17,747 - __main__ - INFO - Intelligence session completed. Generated 0 directives
+2026-02-20 12:43:17,749 - __main__ - INFO - Council intelligence saved to: inner_council_intelligence/directives_20260220_124317.json
+2026-02-20 12:43:17,749 - __main__ - INFO - Policy adjustments saved to: daily_policy_directives/adjustments_20260220_124317.json
+2026-02-20 12:43:17,750 - __main__ - INFO - Daily council session completed. Report saved to: inner_council_intelligence/daily_report_20260220_124317.md
+2026-02-20 12:46:28,335 - __main__ - WARNING - No YouTube API key found. Set YOUTUBE_API_KEY environment variable or add to config.
+2026-02-20 12:46:28,337 - __main__ - INFO - Starting daily Inner Council intelligence session
+2026-02-20 12:46:28,337 - __main__ - INFO - Conducting Inner Council intelligence session...
+2026-02-20 12:46:28,338 - __main__ - INFO - Gathering intelligence from J Bravo (intelligence_coordinator)
+2026-02-20 12:46:28,338 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,338 - __main__ - WARNING - No videos found for council member: j_bravo
+2026-02-20 12:46:28,338 - __main__ - INFO - Gathering intelligence from Tom Bilyeu (business_strategy)
+2026-02-20 12:46:28,338 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,338 - __main__ - WARNING - No videos found for council member: tom_bilyeu
+2026-02-20 12:46:28,339 - __main__ - INFO - Gathering intelligence from Lex Fridman (ai_technology)
+2026-02-20 12:46:28,339 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,339 - __main__ - WARNING - No videos found for council member: lexfridman
+2026-02-20 12:46:28,339 - __main__ - INFO - Gathering intelligence from Joe Rogan (cultural_intelligence)
+2026-02-20 12:46:28,339 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,339 - __main__ - WARNING - No videos found for council member: joe_rogan
+2026-02-20 12:46:28,340 - __main__ - INFO - Gathering intelligence from Chris Willx (personal_development)
+2026-02-20 12:46:28,340 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,340 - __main__ - WARNING - No videos found for council member: chris_willx
+2026-02-20 12:46:28,340 - __main__ - INFO - Gathering intelligence from Brighter with Herbert (consciousness_explorer)
+2026-02-20 12:46:28,340 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,340 - __main__ - WARNING - No videos found for council member: brighter_with_herbert
+2026-02-20 12:46:28,341 - __main__ - INFO - Gathering intelligence from Nate B Jones (financial_intelligence)
+2026-02-20 12:46:28,341 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,341 - __main__ - WARNING - No videos found for council member: nate_b_jones
+2026-02-20 12:46:28,341 - __main__ - INFO - Gathering intelligence from Stripe (fintech_innovation)
+2026-02-20 12:46:28,341 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,341 - __main__ - WARNING - No videos found for council member: stripe
+2026-02-20 12:46:28,341 - __main__ - INFO - Gathering intelligence from Spencer Gatten (operations_expert)
+2026-02-20 12:46:28,341 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,342 - __main__ - WARNING - No videos found for council member: spencer_gatten
+2026-02-20 12:46:28,342 - __main__ - INFO - Gathering intelligence from Stefan Burns (tech_innovation)
+2026-02-20 12:46:28,342 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,342 - __main__ - WARNING - No videos found for council member: stefan_burns
+2026-02-20 12:46:28,342 - __main__ - INFO - Gathering intelligence from FARZAD FM (market_analyst)
+2026-02-20 12:46:28,342 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,343 - __main__ - WARNING - No videos found for council member: farzad_fm
+2026-02-20 12:46:28,343 - __main__ - INFO - Gathering intelligence from Ian Carroll Show (economic_analyst)
+2026-02-20 12:46:28,343 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,343 - __main__ - WARNING - No videos found for council member: ian_carroll_show
+2026-02-20 12:46:28,343 - __main__ - INFO - Gathering intelligence from Eurodollar University (financial_education)
+2026-02-20 12:46:28,343 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,343 - __main__ - WARNING - No videos found for council member: eurodollar_university
+2026-02-20 12:46:28,344 - __main__ - INFO - Gathering intelligence from Andrei Jikh (startup_strategy)
+2026-02-20 12:46:28,344 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,344 - __main__ - WARNING - No videos found for council member: andrei_jikh
+2026-02-20 12:46:28,344 - __main__ - INFO - Gathering intelligence from Dan Winter Fractal Field (physics_consciousness)
+2026-02-20 12:46:28,344 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,344 - __main__ - WARNING - No videos found for council member: dan_winter_fractal_field
+2026-02-20 12:46:28,345 - __main__ - INFO - Gathering intelligence from The AI Grid (ai_development)
+2026-02-20 12:46:28,345 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,345 - __main__ - WARNING - No videos found for council member: the_ai_grid
+2026-02-20 12:46:28,345 - __main__ - INFO - Gathering intelligence from The Diary Of A CEO (ceo_insights)
+2026-02-20 12:46:28,345 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,345 - __main__ - WARNING - No videos found for council member: the_diary_of_a_ceo
+2026-02-20 12:46:28,346 - __main__ - INFO - Gathering intelligence from Space Weather News (space_intelligence)
+2026-02-20 12:46:28,346 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,346 - __main__ - WARNING - No videos found for council member: space_weather_news
+2026-02-20 12:46:28,346 - __main__ - INFO - Gathering intelligence from Energi Media (energy_analyst)
+2026-02-20 12:46:28,346 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,346 - __main__ - WARNING - No videos found for council member: energi_media
+2026-02-20 12:46:28,346 - __main__ - INFO - Gathering intelligence from The Inner Operator (operations_strategy)
+2026-02-20 12:46:28,347 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,347 - __main__ - WARNING - No videos found for council member: the_inner_operator
+2026-02-20 12:46:28,347 - __main__ - INFO - Gathering intelligence from Alex Hormozi (business_scaling)
+2026-02-20 12:46:28,347 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,347 - __main__ - WARNING - No videos found for council member: alex_hormozi
+2026-02-20 12:46:28,347 - __main__ - INFO - Gathering intelligence from Restitutor Orbis (global_systems)
+2026-02-20 12:46:28,348 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,348 - __main__ - WARNING - No videos found for council member: restitutor_orbis
+2026-02-20 12:46:28,348 - __main__ - INFO - Gathering intelligence from Ben Wehrman (marketing_strategy)
+2026-02-20 12:46:28,348 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,348 - __main__ - WARNING - No videos found for council member: ben_wehrman
+2026-02-20 12:46:28,349 - __main__ - INFO - Gathering intelligence from Nomad Capitalist (global_citizenship)
+2026-02-20 12:46:28,349 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,349 - __main__ - WARNING - No videos found for council member: nomad_capitalist
+2026-02-20 12:46:28,349 - __main__ - INFO - Gathering intelligence from Principles by Ray Dalio (economic_principles)
+2026-02-20 12:46:28,349 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,349 - __main__ - WARNING - No videos found for council member: principles_by_ray_dalio
+2026-02-20 12:46:28,350 - __main__ - INFO - Gathering intelligence from Instead of Working (passive_income)
+2026-02-20 12:46:28,350 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,350 - __main__ - WARNING - No videos found for council member: instead_of_working
+2026-02-20 12:46:28,350 - __main__ - INFO - Gathering intelligence from Tom Scryleus (geopolitical_analyst)
+2026-02-20 12:46:28,350 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,350 - __main__ - WARNING - No videos found for council member: tom_scryleus
+2026-02-20 12:46:28,351 - __main__ - INFO - Gathering intelligence from Thunderbolts Project (plasma_physics)
+2026-02-20 12:46:28,351 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,351 - __main__ - WARNING - No videos found for council member: thunderbolts_project
+2026-02-20 12:46:28,351 - __main__ - INFO - Gathering intelligence from CNN (news_mainstream)
+2026-02-20 12:46:28,351 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,351 - __main__ - WARNING - No videos found for council member: cnn
+2026-02-20 12:46:28,351 - __main__ - INFO - Gathering intelligence from BBC (news_mainstream)
+2026-02-20 12:46:28,352 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,352 - __main__ - WARNING - No videos found for council member: bbc
+2026-02-20 12:46:28,352 - __main__ - INFO - Gathering intelligence from Reuters (news_mainstream)
+2026-02-20 12:46:28,352 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,352 - __main__ - WARNING - No videos found for council member: reuters
+2026-02-20 12:46:28,352 - __main__ - INFO - Gathering intelligence from AP News (news_mainstream)
+2026-02-20 12:46:28,353 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,353 - __main__ - WARNING - No videos found for council member: ap_news
+2026-02-20 12:46:28,353 - __main__ - INFO - Gathering intelligence from Bloomberg (financial_news)
+2026-02-20 12:46:28,353 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,353 - __main__ - WARNING - No videos found for council member: bloomberg
+2026-02-20 12:46:28,353 - __main__ - INFO - Gathering intelligence from CNBC (financial_news)
+2026-02-20 12:46:28,353 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,354 - __main__ - WARNING - No videos found for council member: cnbc
+2026-02-20 12:46:28,354 - __main__ - INFO - Gathering intelligence from Financial Times (financial_news)
+2026-02-20 12:46:28,354 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,354 - __main__ - WARNING - No videos found for council member: financial_times
+2026-02-20 12:46:28,354 - __main__ - INFO - Gathering intelligence from Wall Street Journal (financial_news)
+2026-02-20 12:46:28,354 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,355 - __main__ - WARNING - No videos found for council member: wall_street_journal
+2026-02-20 12:46:28,355 - __main__ - INFO - Gathering intelligence from TechCrunch (tech_news)
+2026-02-20 12:46:28,355 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,355 - __main__ - WARNING - No videos found for council member: techcrunch
+2026-02-20 12:46:28,355 - __main__ - INFO - Gathering intelligence from The Verge (tech_news)
+2026-02-20 12:46:28,355 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,355 - __main__ - WARNING - No videos found for council member: the_verge
+2026-02-20 12:46:28,356 - __main__ - INFO - Gathering intelligence from Wired (tech_news)
+2026-02-20 12:46:28,356 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,356 - __main__ - WARNING - No videos found for council member: wired
+2026-02-20 12:46:28,356 - __main__ - INFO - Gathering intelligence from Ars Technica (tech_news)
+2026-02-20 12:46:28,356 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,356 - __main__ - WARNING - No videos found for council member: ars_technica
+2026-02-20 12:46:28,357 - __main__ - INFO - Gathering intelligence from PBS Space Time (science_education)
+2026-02-20 12:46:28,357 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,357 - __main__ - WARNING - No videos found for council member: pbs_space_time
+2026-02-20 12:46:28,357 - __main__ - INFO - Gathering intelligence from Vsauce (science_education)
+2026-02-20 12:46:28,357 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,357 - __main__ - WARNING - No videos found for council member: vsauce
+2026-02-20 12:46:28,358 - __main__ - INFO - Gathering intelligence from Kurzgesagt (science_education)
+2026-02-20 12:46:28,358 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,358 - __main__ - WARNING - No videos found for council member: kurzgesagt
+2026-02-20 12:46:28,358 - __main__ - INFO - Gathering intelligence from SciShow (science_education)
+2026-02-20 12:46:28,358 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,358 - __main__ - WARNING - No videos found for council member: scishow
+2026-02-20 12:46:28,358 - __main__ - INFO - Gathering intelligence from Harvard Business Review (business_insights)
+2026-02-20 12:46:28,359 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,359 - __main__ - WARNING - No videos found for council member: harvard_business_review
+2026-02-20 12:46:28,359 - __main__ - INFO - Gathering intelligence from TED (business_insights)
+2026-02-20 12:46:28,359 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,359 - __main__ - WARNING - No videos found for council member: ted
+2026-02-20 12:46:28,359 - __main__ - INFO - Gathering intelligence from Inc. Magazine (business_insights)
+2026-02-20 12:46:28,360 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:46:28,360 - __main__ - WARNING - No videos found for council member: inc_magazine
+2026-02-20 12:46:28,360 - __main__ - INFO - Intelligence session completed. Generated 0 directives
+2026-02-20 12:46:28,362 - __main__ - INFO - Council intelligence saved to: inner_council_intelligence/directives_20260220_124628.json
+2026-02-20 12:46:28,362 - __main__ - INFO - Policy adjustments saved to: daily_policy_directives/adjustments_20260220_124628.json
+2026-02-20 12:46:28,363 - __main__ - INFO - Daily council session completed. Report saved to: inner_council_intelligence/daily_report_20260220_124628.md
+2026-02-20 12:48:18,628 - __main__ - WARNING - No YouTube API key found. Set YOUTUBE_API_KEY environment variable or add to config.
+2026-02-20 12:48:18,630 - __main__ - INFO - Starting daily Inner Council intelligence session
+2026-02-20 12:48:18,630 - __main__ - INFO - Conducting Inner Council intelligence session...
+2026-02-20 12:48:18,630 - __main__ - INFO - Gathering intelligence from J Bravo (intelligence_coordinator)
+2026-02-20 12:48:18,631 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,631 - __main__ - WARNING - No videos found for council member: j_bravo
+2026-02-20 12:48:18,631 - __main__ - INFO - Gathering intelligence from Tom Bilyeu (business_strategy)
+2026-02-20 12:48:18,631 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,631 - __main__ - WARNING - No videos found for council member: tom_bilyeu
+2026-02-20 12:48:18,631 - __main__ - INFO - Gathering intelligence from Lex Fridman (ai_technology)
+2026-02-20 12:48:18,631 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,632 - __main__ - WARNING - No videos found for council member: lexfridman
+2026-02-20 12:48:18,632 - __main__ - INFO - Gathering intelligence from Joe Rogan (cultural_intelligence)
+2026-02-20 12:48:18,632 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,632 - __main__ - WARNING - No videos found for council member: joe_rogan
+2026-02-20 12:48:18,632 - __main__ - INFO - Gathering intelligence from Chris Willx (personal_development)
+2026-02-20 12:48:18,632 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,632 - __main__ - WARNING - No videos found for council member: chris_willx
+2026-02-20 12:48:18,633 - __main__ - INFO - Gathering intelligence from Brighter with Herbert (consciousness_explorer)
+2026-02-20 12:48:18,633 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,633 - __main__ - WARNING - No videos found for council member: brighter_with_herbert
+2026-02-20 12:48:18,633 - __main__ - INFO - Gathering intelligence from Nate B Jones (financial_intelligence)
+2026-02-20 12:48:18,633 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,633 - __main__ - WARNING - No videos found for council member: nate_b_jones
+2026-02-20 12:48:18,633 - __main__ - INFO - Gathering intelligence from Stripe (fintech_innovation)
+2026-02-20 12:48:18,634 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,634 - __main__ - WARNING - No videos found for council member: stripe
+2026-02-20 12:48:18,634 - __main__ - INFO - Gathering intelligence from Spencer Gatten (operations_expert)
+2026-02-20 12:48:18,634 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,634 - __main__ - WARNING - No videos found for council member: spencer_gatten
+2026-02-20 12:48:18,635 - __main__ - INFO - Gathering intelligence from Stefan Burns (tech_innovation)
+2026-02-20 12:48:18,635 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,635 - __main__ - WARNING - No videos found for council member: stefan_burns
+2026-02-20 12:48:18,635 - __main__ - INFO - Gathering intelligence from FARZAD FM (market_analyst)
+2026-02-20 12:48:18,636 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,636 - __main__ - WARNING - No videos found for council member: farzad_fm
+2026-02-20 12:48:18,636 - __main__ - INFO - Gathering intelligence from Ian Carroll Show (economic_analyst)
+2026-02-20 12:48:18,636 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,637 - __main__ - WARNING - No videos found for council member: ian_carroll_show
+2026-02-20 12:48:18,637 - __main__ - INFO - Gathering intelligence from Eurodollar University (financial_education)
+2026-02-20 12:48:18,637 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,637 - __main__ - WARNING - No videos found for council member: eurodollar_university
+2026-02-20 12:48:18,637 - __main__ - INFO - Gathering intelligence from Andrei Jikh (startup_strategy)
+2026-02-20 12:48:18,638 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,638 - __main__ - WARNING - No videos found for council member: andrei_jikh
+2026-02-20 12:48:18,638 - __main__ - INFO - Gathering intelligence from Dan Winter Fractal Field (physics_consciousness)
+2026-02-20 12:48:18,638 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,638 - __main__ - WARNING - No videos found for council member: dan_winter_fractal_field
+2026-02-20 12:48:18,639 - __main__ - INFO - Gathering intelligence from The AI Grid (ai_development)
+2026-02-20 12:48:18,639 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,639 - __main__ - WARNING - No videos found for council member: the_ai_grid
+2026-02-20 12:48:18,639 - __main__ - INFO - Gathering intelligence from The Diary Of A CEO (ceo_insights)
+2026-02-20 12:48:18,639 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,639 - __main__ - WARNING - No videos found for council member: the_diary_of_a_ceo
+2026-02-20 12:48:18,640 - __main__ - INFO - Gathering intelligence from Space Weather News (space_intelligence)
+2026-02-20 12:48:18,640 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,640 - __main__ - WARNING - No videos found for council member: space_weather_news
+2026-02-20 12:48:18,640 - __main__ - INFO - Gathering intelligence from Energi Media (energy_analyst)
+2026-02-20 12:48:18,640 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,640 - __main__ - WARNING - No videos found for council member: energi_media
+2026-02-20 12:48:18,640 - __main__ - INFO - Gathering intelligence from The Inner Operator (operations_strategy)
+2026-02-20 12:48:18,641 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,641 - __main__ - WARNING - No videos found for council member: the_inner_operator
+2026-02-20 12:48:18,641 - __main__ - INFO - Gathering intelligence from Alex Hormozi (business_scaling)
+2026-02-20 12:48:18,641 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,641 - __main__ - WARNING - No videos found for council member: alex_hormozi
+2026-02-20 12:48:18,641 - __main__ - INFO - Gathering intelligence from Restitutor Orbis (global_systems)
+2026-02-20 12:48:18,641 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,642 - __main__ - WARNING - No videos found for council member: restitutor_orbis
+2026-02-20 12:48:18,642 - __main__ - INFO - Gathering intelligence from Ben Wehrman (marketing_strategy)
+2026-02-20 12:48:18,642 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,642 - __main__ - WARNING - No videos found for council member: ben_wehrman
+2026-02-20 12:48:18,642 - __main__ - INFO - Gathering intelligence from Nomad Capitalist (global_citizenship)
+2026-02-20 12:48:18,642 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,642 - __main__ - WARNING - No videos found for council member: nomad_capitalist
+2026-02-20 12:48:18,643 - __main__ - INFO - Gathering intelligence from Principles by Ray Dalio (economic_principles)
+2026-02-20 12:48:18,643 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,643 - __main__ - WARNING - No videos found for council member: principles_by_ray_dalio
+2026-02-20 12:48:18,643 - __main__ - INFO - Gathering intelligence from Instead of Working (passive_income)
+2026-02-20 12:48:18,643 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,643 - __main__ - WARNING - No videos found for council member: instead_of_working
+2026-02-20 12:48:18,643 - __main__ - INFO - Gathering intelligence from Tom Scryleus (geopolitical_analyst)
+2026-02-20 12:48:18,644 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,644 - __main__ - WARNING - No videos found for council member: tom_scryleus
+2026-02-20 12:48:18,644 - __main__ - INFO - Gathering intelligence from Thunderbolts Project (plasma_physics)
+2026-02-20 12:48:18,644 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,644 - __main__ - WARNING - No videos found for council member: thunderbolts_project
+2026-02-20 12:48:18,644 - __main__ - INFO - Gathering intelligence from CNN (news_mainstream)
+2026-02-20 12:48:18,645 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,645 - __main__ - WARNING - No videos found for council member: cnn
+2026-02-20 12:48:18,645 - __main__ - INFO - Gathering intelligence from BBC (news_mainstream)
+2026-02-20 12:48:18,645 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,645 - __main__ - WARNING - No videos found for council member: bbc
+2026-02-20 12:48:18,645 - __main__ - INFO - Gathering intelligence from Reuters (news_mainstream)
+2026-02-20 12:48:18,646 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,646 - __main__ - WARNING - No videos found for council member: reuters
+2026-02-20 12:48:18,646 - __main__ - INFO - Gathering intelligence from AP News (news_mainstream)
+2026-02-20 12:48:18,646 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,646 - __main__ - WARNING - No videos found for council member: ap_news
+2026-02-20 12:48:18,646 - __main__ - INFO - Gathering intelligence from Bloomberg (financial_news)
+2026-02-20 12:48:18,646 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,647 - __main__ - WARNING - No videos found for council member: bloomberg
+2026-02-20 12:48:18,647 - __main__ - INFO - Gathering intelligence from CNBC (financial_news)
+2026-02-20 12:48:18,647 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,647 - __main__ - WARNING - No videos found for council member: cnbc
+2026-02-20 12:48:18,647 - __main__ - INFO - Gathering intelligence from Financial Times (financial_news)
+2026-02-20 12:48:18,647 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,647 - __main__ - WARNING - No videos found for council member: financial_times
+2026-02-20 12:48:18,648 - __main__ - INFO - Gathering intelligence from Wall Street Journal (financial_news)
+2026-02-20 12:48:18,648 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,648 - __main__ - WARNING - No videos found for council member: wall_street_journal
+2026-02-20 12:48:18,648 - __main__ - INFO - Gathering intelligence from TechCrunch (tech_news)
+2026-02-20 12:48:18,648 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,648 - __main__ - WARNING - No videos found for council member: techcrunch
+2026-02-20 12:48:18,648 - __main__ - INFO - Gathering intelligence from The Verge (tech_news)
+2026-02-20 12:48:18,648 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,649 - __main__ - WARNING - No videos found for council member: the_verge
+2026-02-20 12:48:18,649 - __main__ - INFO - Gathering intelligence from Wired (tech_news)
+2026-02-20 12:48:18,649 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,649 - __main__ - WARNING - No videos found for council member: wired
+2026-02-20 12:48:18,649 - __main__ - INFO - Gathering intelligence from Ars Technica (tech_news)
+2026-02-20 12:48:18,649 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,649 - __main__ - WARNING - No videos found for council member: ars_technica
+2026-02-20 12:48:18,650 - __main__ - INFO - Gathering intelligence from PBS Space Time (science_education)
+2026-02-20 12:48:18,650 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,650 - __main__ - WARNING - No videos found for council member: pbs_space_time
+2026-02-20 12:48:18,650 - __main__ - INFO - Gathering intelligence from Vsauce (science_education)
+2026-02-20 12:48:18,650 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,650 - __main__ - WARNING - No videos found for council member: vsauce
+2026-02-20 12:48:18,650 - __main__ - INFO - Gathering intelligence from Kurzgesagt (science_education)
+2026-02-20 12:48:18,651 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,651 - __main__ - WARNING - No videos found for council member: kurzgesagt
+2026-02-20 12:48:18,651 - __main__ - INFO - Gathering intelligence from SciShow (science_education)
+2026-02-20 12:48:18,651 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,651 - __main__ - WARNING - No videos found for council member: scishow
+2026-02-20 12:48:18,651 - __main__ - INFO - Gathering intelligence from Harvard Business Review (business_insights)
+2026-02-20 12:48:18,652 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,652 - __main__ - WARNING - No videos found for council member: harvard_business_review
+2026-02-20 12:48:18,652 - __main__ - INFO - Gathering intelligence from TED (business_insights)
+2026-02-20 12:48:18,652 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,652 - __main__ - WARNING - No videos found for council member: ted
+2026-02-20 12:48:18,652 - __main__ - INFO - Gathering intelligence from Inc. Magazine (business_insights)
+2026-02-20 12:48:18,653 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,653 - __main__ - WARNING - No videos found for council member: inc_magazine
+2026-02-20 12:48:18,653 - __main__ - INFO - Gathering intelligence from Elon Musk Emulation Agent (strategic_visionary)
+2026-02-20 12:48:18,653 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,653 - __main__ - WARNING - No videos found for council member: elon_musk_emulation
+2026-02-20 12:48:18,653 - __main__ - INFO - Gathering intelligence from Jamie Dimon Emulation Agent (financial_leadership)
+2026-02-20 12:48:18,653 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,654 - __main__ - WARNING - No videos found for council member: jamie_dimon_emulation
+2026-02-20 12:48:18,654 - __main__ - INFO - Gathering intelligence from Warren Buffett Emulation Agent (value_investing)
+2026-02-20 12:48:18,654 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,654 - __main__ - WARNING - No videos found for council member: warren_buffett_emulation
+2026-02-20 12:48:18,654 - __main__ - INFO - Gathering intelligence from Ryan Cohen Emulation Agent (retail_investing)
+2026-02-20 12:48:18,654 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,655 - __main__ - WARNING - No videos found for council member: ryan_cohen_emulation
+2026-02-20 12:48:18,655 - __main__ - INFO - Gathering intelligence from Agent AZ - Chairman of Council of 33 (council_chairman)
+2026-02-20 12:48:18,655 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:48:18,655 - __main__ - WARNING - No videos found for council member: agent_az_emulation
+2026-02-20 12:48:18,655 - __main__ - INFO - Intelligence session completed. Generated 0 directives
+2026-02-20 12:48:18,657 - __main__ - INFO - Council intelligence saved to: inner_council_intelligence/directives_20260220_124818.json
+2026-02-20 12:48:18,657 - __main__ - INFO - Policy adjustments saved to: daily_policy_directives/adjustments_20260220_124818.json
+2026-02-20 12:48:18,657 - __main__ - INFO - Daily council session completed. Report saved to: inner_council_intelligence/daily_report_20260220_124818.md
+2026-02-20 12:50:23,118 - __main__ - WARNING - No YouTube API key found. Set YOUTUBE_API_KEY environment variable or add to config.
+2026-02-20 12:50:23,120 - __main__ - INFO - Starting daily Inner Council intelligence session
+2026-02-20 12:50:23,120 - __main__ - INFO - Conducting Inner Council intelligence session...
+2026-02-20 12:50:23,120 - __main__ - INFO - Gathering intelligence from J Bravo (intelligence_coordinator)
+2026-02-20 12:50:23,120 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,120 - __main__ - WARNING - No videos found for council member: j_bravo
+2026-02-20 12:50:23,120 - __main__ - INFO - Gathering intelligence from Tom Bilyeu (business_strategy)
+2026-02-20 12:50:23,120 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,121 - __main__ - WARNING - No videos found for council member: tom_bilyeu
+2026-02-20 12:50:23,121 - __main__ - INFO - Gathering intelligence from Lex Fridman (ai_technology)
+2026-02-20 12:50:23,121 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,121 - __main__ - WARNING - No videos found for council member: lexfridman
+2026-02-20 12:50:23,121 - __main__ - INFO - Gathering intelligence from Joe Rogan (cultural_intelligence)
+2026-02-20 12:50:23,122 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,122 - __main__ - WARNING - No videos found for council member: joe_rogan
+2026-02-20 12:50:23,122 - __main__ - INFO - Gathering intelligence from Chris Willx (personal_development)
+2026-02-20 12:50:23,122 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,122 - __main__ - WARNING - No videos found for council member: chris_willx
+2026-02-20 12:50:23,122 - __main__ - INFO - Gathering intelligence from Brighter with Herbert (consciousness_explorer)
+2026-02-20 12:50:23,123 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,123 - __main__ - WARNING - No videos found for council member: brighter_with_herbert
+2026-02-20 12:50:23,123 - __main__ - INFO - Gathering intelligence from Nate B Jones (financial_intelligence)
+2026-02-20 12:50:23,123 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,123 - __main__ - WARNING - No videos found for council member: nate_b_jones
+2026-02-20 12:50:23,123 - __main__ - INFO - Gathering intelligence from Stripe (fintech_innovation)
+2026-02-20 12:50:23,123 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,124 - __main__ - WARNING - No videos found for council member: stripe
+2026-02-20 12:50:23,124 - __main__ - INFO - Gathering intelligence from Spencer Gatten (operations_expert)
+2026-02-20 12:50:23,124 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,124 - __main__ - WARNING - No videos found for council member: spencer_gatten
+2026-02-20 12:50:23,124 - __main__ - INFO - Gathering intelligence from Stefan Burns (tech_innovation)
+2026-02-20 12:50:23,124 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,124 - __main__ - WARNING - No videos found for council member: stefan_burns
+2026-02-20 12:50:23,124 - __main__ - INFO - Gathering intelligence from FARZAD FM (market_analyst)
+2026-02-20 12:50:23,125 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,125 - __main__ - WARNING - No videos found for council member: farzad_fm
+2026-02-20 12:50:23,125 - __main__ - INFO - Gathering intelligence from Ian Carroll Show (economic_analyst)
+2026-02-20 12:50:23,125 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,125 - __main__ - WARNING - No videos found for council member: ian_carroll_show
+2026-02-20 12:50:23,125 - __main__ - INFO - Gathering intelligence from Eurodollar University (financial_education)
+2026-02-20 12:50:23,125 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,125 - __main__ - WARNING - No videos found for council member: eurodollar_university
+2026-02-20 12:50:23,126 - __main__ - INFO - Gathering intelligence from Andrei Jikh (startup_strategy)
+2026-02-20 12:50:23,126 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,126 - __main__ - WARNING - No videos found for council member: andrei_jikh
+2026-02-20 12:50:23,126 - __main__ - INFO - Gathering intelligence from Dan Winter Fractal Field (physics_consciousness)
+2026-02-20 12:50:23,126 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,126 - __main__ - WARNING - No videos found for council member: dan_winter_fractal_field
+2026-02-20 12:50:23,126 - __main__ - INFO - Gathering intelligence from The AI Grid (ai_development)
+2026-02-20 12:50:23,126 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,126 - __main__ - WARNING - No videos found for council member: the_ai_grid
+2026-02-20 12:50:23,126 - __main__ - INFO - Gathering intelligence from The Diary Of A CEO (ceo_insights)
+2026-02-20 12:50:23,127 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,127 - __main__ - WARNING - No videos found for council member: the_diary_of_a_ceo
+2026-02-20 12:50:23,127 - __main__ - INFO - Gathering intelligence from Space Weather News (space_intelligence)
+2026-02-20 12:50:23,127 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,127 - __main__ - WARNING - No videos found for council member: space_weather_news
+2026-02-20 12:50:23,127 - __main__ - INFO - Gathering intelligence from Energi Media (energy_analyst)
+2026-02-20 12:50:23,127 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,127 - __main__ - WARNING - No videos found for council member: energi_media
+2026-02-20 12:50:23,127 - __main__ - INFO - Gathering intelligence from The Inner Operator (operations_strategy)
+2026-02-20 12:50:23,127 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,127 - __main__ - WARNING - No videos found for council member: the_inner_operator
+2026-02-20 12:50:23,128 - __main__ - INFO - Gathering intelligence from Alex Hormozi (business_scaling)
+2026-02-20 12:50:23,128 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,128 - __main__ - WARNING - No videos found for council member: alex_hormozi
+2026-02-20 12:50:23,128 - __main__ - INFO - Gathering intelligence from Restitutor Orbis (global_systems)
+2026-02-20 12:50:23,128 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,128 - __main__ - WARNING - No videos found for council member: restitutor_orbis
+2026-02-20 12:50:23,128 - __main__ - INFO - Gathering intelligence from Ben Wehrman (marketing_strategy)
+2026-02-20 12:50:23,128 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,128 - __main__ - WARNING - No videos found for council member: ben_wehrman
+2026-02-20 12:50:23,128 - __main__ - INFO - Gathering intelligence from Nomad Capitalist (global_citizenship)
+2026-02-20 12:50:23,129 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,129 - __main__ - WARNING - No videos found for council member: nomad_capitalist
+2026-02-20 12:50:23,129 - __main__ - INFO - Gathering intelligence from Principles by Ray Dalio (economic_principles)
+2026-02-20 12:50:23,129 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,129 - __main__ - WARNING - No videos found for council member: principles_by_ray_dalio
+2026-02-20 12:50:23,129 - __main__ - INFO - Gathering intelligence from Instead of Working (passive_income)
+2026-02-20 12:50:23,129 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,129 - __main__ - WARNING - No videos found for council member: instead_of_working
+2026-02-20 12:50:23,129 - __main__ - INFO - Gathering intelligence from Tom Scryleus (geopolitical_analyst)
+2026-02-20 12:50:23,129 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,129 - __main__ - WARNING - No videos found for council member: tom_scryleus
+2026-02-20 12:50:23,130 - __main__ - INFO - Gathering intelligence from Thunderbolts Project (plasma_physics)
+2026-02-20 12:50:23,130 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,130 - __main__ - WARNING - No videos found for council member: thunderbolts_project
+2026-02-20 12:50:23,130 - __main__ - INFO - Gathering intelligence from CNN (news_mainstream)
+2026-02-20 12:50:23,130 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,130 - __main__ - WARNING - No videos found for council member: cnn
+2026-02-20 12:50:23,130 - __main__ - INFO - Gathering intelligence from BBC (news_mainstream)
+2026-02-20 12:50:23,130 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,130 - __main__ - WARNING - No videos found for council member: bbc
+2026-02-20 12:50:23,130 - __main__ - INFO - Gathering intelligence from Reuters (news_mainstream)
+2026-02-20 12:50:23,131 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,131 - __main__ - WARNING - No videos found for council member: reuters
+2026-02-20 12:50:23,131 - __main__ - INFO - Gathering intelligence from AP News (news_mainstream)
+2026-02-20 12:50:23,131 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,131 - __main__ - WARNING - No videos found for council member: ap_news
+2026-02-20 12:50:23,131 - __main__ - INFO - Gathering intelligence from Bloomberg (financial_news)
+2026-02-20 12:50:23,131 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,131 - __main__ - WARNING - No videos found for council member: bloomberg
+2026-02-20 12:50:23,131 - __main__ - INFO - Gathering intelligence from CNBC (financial_news)
+2026-02-20 12:50:23,132 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,132 - __main__ - WARNING - No videos found for council member: cnbc
+2026-02-20 12:50:23,132 - __main__ - INFO - Gathering intelligence from Financial Times (financial_news)
+2026-02-20 12:50:23,132 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,132 - __main__ - WARNING - No videos found for council member: financial_times
+2026-02-20 12:50:23,132 - __main__ - INFO - Gathering intelligence from Wall Street Journal (financial_news)
+2026-02-20 12:50:23,132 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,132 - __main__ - WARNING - No videos found for council member: wall_street_journal
+2026-02-20 12:50:23,132 - __main__ - INFO - Gathering intelligence from TechCrunch (tech_news)
+2026-02-20 12:50:23,133 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,133 - __main__ - WARNING - No videos found for council member: techcrunch
+2026-02-20 12:50:23,133 - __main__ - INFO - Gathering intelligence from The Verge (tech_news)
+2026-02-20 12:50:23,133 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,133 - __main__ - WARNING - No videos found for council member: the_verge
+2026-02-20 12:50:23,133 - __main__ - INFO - Gathering intelligence from Wired (tech_news)
+2026-02-20 12:50:23,133 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,133 - __main__ - WARNING - No videos found for council member: wired
+2026-02-20 12:50:23,133 - __main__ - INFO - Gathering intelligence from Ars Technica (tech_news)
+2026-02-20 12:50:23,133 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,134 - __main__ - WARNING - No videos found for council member: ars_technica
+2026-02-20 12:50:23,134 - __main__ - INFO - Gathering intelligence from PBS Space Time (science_education)
+2026-02-20 12:50:23,134 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,134 - __main__ - WARNING - No videos found for council member: pbs_space_time
+2026-02-20 12:50:23,134 - __main__ - INFO - Gathering intelligence from Vsauce (science_education)
+2026-02-20 12:50:23,134 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,134 - __main__ - WARNING - No videos found for council member: vsauce
+2026-02-20 12:50:23,134 - __main__ - INFO - Gathering intelligence from Kurzgesagt (science_education)
+2026-02-20 12:50:23,134 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,134 - __main__ - WARNING - No videos found for council member: kurzgesagt
+2026-02-20 12:50:23,135 - __main__ - INFO - Gathering intelligence from SciShow (science_education)
+2026-02-20 12:50:23,135 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,135 - __main__ - WARNING - No videos found for council member: scishow
+2026-02-20 12:50:23,135 - __main__ - INFO - Gathering intelligence from Harvard Business Review (business_insights)
+2026-02-20 12:50:23,135 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,135 - __main__ - WARNING - No videos found for council member: harvard_business_review
+2026-02-20 12:50:23,135 - __main__ - INFO - Gathering intelligence from TED (business_insights)
+2026-02-20 12:50:23,135 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,135 - __main__ - WARNING - No videos found for council member: ted
+2026-02-20 12:50:23,135 - __main__ - INFO - Gathering intelligence from Inc. Magazine (business_insights)
+2026-02-20 12:50:23,135 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,136 - __main__ - WARNING - No videos found for council member: inc_magazine
+2026-02-20 12:50:23,136 - __main__ - INFO - Gathering intelligence from Elon Musk Emulation Agent (strategic_visionary)
+2026-02-20 12:50:23,136 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,136 - __main__ - WARNING - No videos found for council member: elon_musk_emulation
+2026-02-20 12:50:23,136 - __main__ - INFO - Gathering intelligence from Jamie Dimon Emulation Agent (financial_leadership)
+2026-02-20 12:50:23,136 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,136 - __main__ - WARNING - No videos found for council member: jamie_dimon_emulation
+2026-02-20 12:50:23,136 - __main__ - INFO - Gathering intelligence from Warren Buffett Emulation Agent (value_investing)
+2026-02-20 12:50:23,136 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,136 - __main__ - WARNING - No videos found for council member: warren_buffett_emulation
+2026-02-20 12:50:23,137 - __main__ - INFO - Gathering intelligence from Ryan Cohen Emulation Agent (retail_investing)
+2026-02-20 12:50:23,137 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,137 - __main__ - WARNING - No videos found for council member: ryan_cohen_emulation
+2026-02-20 12:50:23,137 - __main__ - INFO - Gathering intelligence from Agent AZ - Chairman of Council of 33 (council_chairman)
+2026-02-20 12:50:23,137 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 12:50:23,137 - __main__ - WARNING - No videos found for council member: agent_az_emulation
+2026-02-20 12:50:23,137 - __main__ - INFO - Intelligence session completed. Generated 0 directives
+2026-02-20 12:50:23,140 - __main__ - INFO - Council intelligence saved to: inner_council_intelligence/directives_20260220_125023.json
+2026-02-20 12:50:23,140 - __main__ - INFO - Policy adjustments saved to: daily_policy_directives/adjustments_20260220_125023.json
+2026-02-20 12:50:23,141 - __main__ - INFO - Daily council session completed. Report saved to: inner_council_intelligence/daily_report_20260220_125023.md

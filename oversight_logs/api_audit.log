@@ -1,0 +1,283 @@
+2026-02-20 13:27:09,542 - SuperAgency.API - INFO - API Call: {"timestamp": "2026-02-20T13:27:09.542237", "api_name": "youtube", "endpoint": "/channels", "response_time": 1.2, "success": true, "error_details": null}
+2026-02-20 13:27:09,542 - SuperAgency.API - INFO - API Call: {"timestamp": "2026-02-20T13:27:09.542743", "api_name": "youtube", "endpoint": "/videos", "response_time": 0.8, "success": false, "error_details": "Rate limit exceeded"}
+2026-02-20 13:27:09,543 - SuperAgency.Security - INFO - Account Change: {"timestamp": "2026-02-20T13:27:09.542972", "account_type": "microsoft", "action": "create", "account_id": "195fe608fc08fa50", "changed_by": "admin", "details": {"role": "intelligence"}}
+2026-02-20 13:27:09,543 - SuperAgency.Oversight - INFO - Intelligence Operation: {"timestamp": "2026-02-20T13:27:09.543857", "operation_type": "youtube_monitoring", "source": "Tom Bilyeu", "data_quality_score": 0.85, "ethical_compliance": true}
+2026-02-20 13:28:24,200 - __main__ - WARNING - No YouTube API key found. Set YOUTUBE_API_KEY environment variable or add to config.
+2026-02-20 13:28:24,203 - __main__ - INFO - Starting daily Inner Council intelligence session
+2026-02-20 13:28:24,204 - __main__ - INFO - Conducting Inner Council intelligence session...
+2026-02-20 13:28:24,204 - __main__ - INFO - Gathering intelligence from J Bravo (intelligence_coordinator)
+2026-02-20 13:28:24,204 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,205 - __main__ - WARNING - No videos found for council member: j_bravo
+2026-02-20 13:28:24,205 - __main__ - INFO - Gathering intelligence from Tom Bilyeu (business_strategy)
+2026-02-20 13:28:24,205 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,205 - __main__ - WARNING - No videos found for council member: tom_bilyeu
+2026-02-20 13:28:24,206 - __main__ - INFO - Gathering intelligence from Lex Fridman (ai_technology)
+2026-02-20 13:28:24,206 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,206 - __main__ - WARNING - No videos found for council member: lexfridman
+2026-02-20 13:28:24,206 - __main__ - INFO - Gathering intelligence from Joe Rogan (cultural_intelligence)
+2026-02-20 13:28:24,206 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,207 - __main__ - WARNING - No videos found for council member: joe_rogan
+2026-02-20 13:28:24,207 - __main__ - INFO - Gathering intelligence from Chris Willx (personal_development)
+2026-02-20 13:28:24,207 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,207 - __main__ - WARNING - No videos found for council member: chris_willx
+2026-02-20 13:28:24,207 - __main__ - INFO - Gathering intelligence from Brighter with Herbert (consciousness_explorer)
+2026-02-20 13:28:24,208 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,208 - __main__ - WARNING - No videos found for council member: brighter_with_herbert
+2026-02-20 13:28:24,208 - __main__ - INFO - Gathering intelligence from Nate B Jones (financial_intelligence)
+2026-02-20 13:28:24,208 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,209 - __main__ - WARNING - No videos found for council member: nate_b_jones
+2026-02-20 13:28:24,209 - __main__ - INFO - Gathering intelligence from Stripe (fintech_innovation)
+2026-02-20 13:28:24,209 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,209 - __main__ - WARNING - No videos found for council member: stripe
+2026-02-20 13:28:24,210 - __main__ - INFO - Gathering intelligence from Spencer Gatten (operations_expert)
+2026-02-20 13:28:24,210 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,210 - __main__ - WARNING - No videos found for council member: spencer_gatten
+2026-02-20 13:28:24,210 - __main__ - INFO - Gathering intelligence from Stefan Burns (tech_innovation)
+2026-02-20 13:28:24,211 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,211 - __main__ - WARNING - No videos found for council member: stefan_burns
+2026-02-20 13:28:24,211 - __main__ - INFO - Gathering intelligence from FARZAD FM (market_analyst)
+2026-02-20 13:28:24,212 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,212 - __main__ - WARNING - No videos found for council member: farzad_fm
+2026-02-20 13:28:24,212 - __main__ - INFO - Gathering intelligence from Ian Carroll Show (economic_analyst)
+2026-02-20 13:28:24,213 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,213 - __main__ - WARNING - No videos found for council member: ian_carroll_show
+2026-02-20 13:28:24,213 - __main__ - INFO - Gathering intelligence from Eurodollar University (financial_education)
+2026-02-20 13:28:24,213 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,214 - __main__ - WARNING - No videos found for council member: eurodollar_university
+2026-02-20 13:28:24,214 - __main__ - INFO - Gathering intelligence from Andrei Jikh (startup_strategy)
+2026-02-20 13:28:24,214 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,214 - __main__ - WARNING - No videos found for council member: andrei_jikh
+2026-02-20 13:28:24,215 - __main__ - INFO - Gathering intelligence from Dan Winter Fractal Field (physics_consciousness)
+2026-02-20 13:28:24,215 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,215 - __main__ - WARNING - No videos found for council member: dan_winter_fractal_field
+2026-02-20 13:28:24,215 - __main__ - INFO - Gathering intelligence from The AI Grid (ai_development)
+2026-02-20 13:28:24,216 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,216 - __main__ - WARNING - No videos found for council member: the_ai_grid
+2026-02-20 13:28:24,216 - __main__ - INFO - Gathering intelligence from The Diary Of A CEO (ceo_insights)
+2026-02-20 13:28:24,217 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,218 - __main__ - WARNING - No videos found for council member: the_diary_of_a_ceo
+2026-02-20 13:28:24,218 - __main__ - INFO - Gathering intelligence from Space Weather News (space_intelligence)
+2026-02-20 13:28:24,218 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,219 - __main__ - WARNING - No videos found for council member: space_weather_news
+2026-02-20 13:28:24,219 - __main__ - INFO - Gathering intelligence from Energi Media (energy_analyst)
+2026-02-20 13:28:24,219 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,219 - __main__ - WARNING - No videos found for council member: energi_media
+2026-02-20 13:28:24,220 - __main__ - INFO - Gathering intelligence from The Inner Operator (operations_strategy)
+2026-02-20 13:28:24,220 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,220 - __main__ - WARNING - No videos found for council member: the_inner_operator
+2026-02-20 13:28:24,221 - __main__ - INFO - Gathering intelligence from Alex Hormozi (business_scaling)
+2026-02-20 13:28:24,221 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,221 - __main__ - WARNING - No videos found for council member: alex_hormozi
+2026-02-20 13:28:24,222 - __main__ - INFO - Gathering intelligence from Restitutor Orbis (global_systems)
+2026-02-20 13:28:24,222 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,222 - __main__ - WARNING - No videos found for council member: restitutor_orbis
+2026-02-20 13:28:24,223 - __main__ - INFO - Gathering intelligence from Ben Wehrman (marketing_strategy)
+2026-02-20 13:28:24,223 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,223 - __main__ - WARNING - No videos found for council member: ben_wehrman
+2026-02-20 13:28:24,224 - __main__ - INFO - Gathering intelligence from Nomad Capitalist (global_citizenship)
+2026-02-20 13:28:24,224 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,224 - __main__ - WARNING - No videos found for council member: nomad_capitalist
+2026-02-20 13:28:24,225 - __main__ - INFO - Gathering intelligence from Principles by Ray Dalio (economic_principles)
+2026-02-20 13:28:24,225 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,225 - __main__ - WARNING - No videos found for council member: principles_by_ray_dalio
+2026-02-20 13:28:24,225 - __main__ - INFO - Gathering intelligence from Instead of Working (passive_income)
+2026-02-20 13:28:24,226 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,226 - __main__ - WARNING - No videos found for council member: instead_of_working
+2026-02-20 13:28:24,226 - __main__ - INFO - Gathering intelligence from Tom Scryleus (geopolitical_analyst)
+2026-02-20 13:28:24,226 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,227 - __main__ - WARNING - No videos found for council member: tom_scryleus
+2026-02-20 13:28:24,227 - __main__ - INFO - Gathering intelligence from Thunderbolts Project (plasma_physics)
+2026-02-20 13:28:24,227 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,227 - __main__ - WARNING - No videos found for council member: thunderbolts_project
+2026-02-20 13:28:24,228 - __main__ - INFO - Gathering intelligence from CNN (news_mainstream)
+2026-02-20 13:28:24,228 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,228 - __main__ - WARNING - No videos found for council member: cnn
+2026-02-20 13:28:24,228 - __main__ - INFO - Gathering intelligence from BBC (news_mainstream)
+2026-02-20 13:28:24,229 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,229 - __main__ - WARNING - No videos found for council member: bbc
+2026-02-20 13:28:24,229 - __main__ - INFO - Gathering intelligence from Reuters (news_mainstream)
+2026-02-20 13:28:24,229 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,230 - __main__ - WARNING - No videos found for council member: reuters
+2026-02-20 13:28:24,230 - __main__ - INFO - Gathering intelligence from AP News (news_mainstream)
+2026-02-20 13:28:24,230 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,231 - __main__ - WARNING - No videos found for council member: ap_news
+2026-02-20 13:28:24,231 - __main__ - INFO - Gathering intelligence from Bloomberg (financial_news)
+2026-02-20 13:28:24,231 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,231 - __main__ - WARNING - No videos found for council member: bloomberg
+2026-02-20 13:28:24,232 - __main__ - INFO - Gathering intelligence from CNBC (financial_news)
+2026-02-20 13:28:24,232 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,236 - __main__ - WARNING - No videos found for council member: cnbc
+2026-02-20 13:28:24,237 - __main__ - INFO - Gathering intelligence from Financial Times (financial_news)
+2026-02-20 13:28:24,237 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,238 - __main__ - WARNING - No videos found for council member: financial_times
+2026-02-20 13:28:24,238 - __main__ - INFO - Gathering intelligence from Wall Street Journal (financial_news)
+2026-02-20 13:28:24,238 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,239 - __main__ - WARNING - No videos found for council member: wall_street_journal
+2026-02-20 13:28:24,239 - __main__ - INFO - Gathering intelligence from TechCrunch (tech_news)
+2026-02-20 13:28:24,239 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,240 - __main__ - WARNING - No videos found for council member: techcrunch
+2026-02-20 13:28:24,240 - __main__ - INFO - Gathering intelligence from The Verge (tech_news)
+2026-02-20 13:28:24,240 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,241 - __main__ - WARNING - No videos found for council member: the_verge
+2026-02-20 13:28:24,241 - __main__ - INFO - Gathering intelligence from Wired (tech_news)
+2026-02-20 13:28:24,241 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,241 - __main__ - WARNING - No videos found for council member: wired
+2026-02-20 13:28:24,242 - __main__ - INFO - Gathering intelligence from Ars Technica (tech_news)
+2026-02-20 13:28:24,242 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,242 - __main__ - WARNING - No videos found for council member: ars_technica
+2026-02-20 13:28:24,242 - __main__ - INFO - Gathering intelligence from PBS Space Time (science_education)
+2026-02-20 13:28:24,243 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,243 - __main__ - WARNING - No videos found for council member: pbs_space_time
+2026-02-20 13:28:24,243 - __main__ - INFO - Gathering intelligence from Vsauce (science_education)
+2026-02-20 13:28:24,243 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,244 - __main__ - WARNING - No videos found for council member: vsauce
+2026-02-20 13:28:24,244 - __main__ - INFO - Gathering intelligence from Kurzgesagt (science_education)
+2026-02-20 13:28:24,244 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,245 - __main__ - WARNING - No videos found for council member: kurzgesagt
+2026-02-20 13:28:24,245 - __main__ - INFO - Gathering intelligence from SciShow (science_education)
+2026-02-20 13:28:24,245 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,245 - __main__ - WARNING - No videos found for council member: scishow
+2026-02-20 13:28:24,246 - __main__ - INFO - Gathering intelligence from Harvard Business Review (business_insights)
+2026-02-20 13:28:24,246 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,246 - __main__ - WARNING - No videos found for council member: harvard_business_review
+2026-02-20 13:28:24,247 - __main__ - INFO - Gathering intelligence from TED (business_insights)
+2026-02-20 13:28:24,247 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,248 - __main__ - WARNING - No videos found for council member: ted
+2026-02-20 13:28:24,248 - __main__ - INFO - Gathering intelligence from Inc. Magazine (business_insights)
+2026-02-20 13:28:24,248 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,249 - __main__ - WARNING - No videos found for council member: inc_magazine
+2026-02-20 13:28:24,249 - __main__ - INFO - Gathering intelligence from Elon Musk Emulation Agent (strategic_visionary)
+2026-02-20 13:28:24,249 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,250 - __main__ - WARNING - No videos found for council member: elon_musk_emulation
+2026-02-20 13:28:24,251 - __main__ - INFO - Gathering intelligence from Jamie Dimon Emulation Agent (financial_leadership)
+2026-02-20 13:28:24,252 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,252 - __main__ - WARNING - No videos found for council member: jamie_dimon_emulation
+2026-02-20 13:28:24,253 - __main__ - INFO - Gathering intelligence from Warren Buffett Emulation Agent (value_investing)
+2026-02-20 13:28:24,254 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,254 - __main__ - WARNING - No videos found for council member: warren_buffett_emulation
+2026-02-20 13:28:24,254 - __main__ - INFO - Gathering intelligence from Ryan Cohen Emulation Agent (retail_investing)
+2026-02-20 13:28:24,255 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,255 - __main__ - WARNING - No videos found for council member: ryan_cohen_emulation
+2026-02-20 13:28:24,255 - __main__ - INFO - Gathering intelligence from Agent AZ - Chairman of Council of 33 (council_chairman)
+2026-02-20 13:28:24,256 - __main__ - WARNING - No API key available, skipping YouTube API calls
+2026-02-20 13:28:24,256 - __main__ - WARNING - No videos found for council member: agent_az_emulation
+2026-02-20 13:28:24,256 - __main__ - INFO - Intelligence session completed. Generated 0 directives
+2026-02-20 13:28:24,259 - __main__ - INFO - Council intelligence saved to: inner_council_intelligence/directives_20260220_132824.json
+2026-02-20 13:28:24,260 - __main__ - INFO - Policy adjustments saved to: daily_policy_directives/adjustments_20260220_132824.json
+2026-02-20 13:28:24,261 - __main__ - INFO - Daily council session completed. Report saved to: inner_council_intelligence/daily_report_20260220_132824.md
+2026-02-20 13:44:47,098 - SuperAgency.Oversight - INFO - Executive Decision Audit: CIO - intelligence_approval - Score: 0.8600000000000001
+2026-02-20 13:51:13,624 - SuperAgency.Oversight - INFO - Executive Decision Audit: COO - decision_submission_strategic - Score: 0.54
+2026-02-20 13:51:13,625 - CEO-Authority - INFO - Decision submitted: fda0a52c4fbdf4ea - Market Expansion Initiative - Authority: ceo_consultation
+2026-02-20 13:52:00,474 - SuperAgency.Oversight - INFO - Executive Decision Audit: test_agent - decision_submission_strategic - Score: 0.0
+2026-02-20 13:52:00,475 - CEO-Authority - INFO - Decision submitted: d11c97ac195436aa - Test Strategic Investment - Authority: ceo_consultation
+2026-02-20 13:52:09,120 - SuperAgency.Oversight - INFO - Executive Decision Audit: test_agent - decision_submission_strategic - Score: 0.0
+2026-02-20 13:52:09,121 - CEO-Authority - INFO - Decision submitted: a09e18ab72ece6da - Test Strategic Investment - Authority: ceo_consultation
+2026-02-20 13:52:15,479 - SuperAgency.Oversight - INFO - Executive Decision Audit: test_agent - decision_submission_strategic - Score: 0.0
+2026-02-20 13:52:15,480 - CEO-Authority - INFO - Decision submitted: bddc871e3e11904b - Test Strategic Investment - Authority: ceo_consultation
+2026-02-20 13:52:15,480 - SuperAgency.Oversight - INFO - Executive Decision Audit: test_agent - decision_submission_strategic - Score: 0.16
+2026-02-20 13:52:15,480 - CEO-Authority - INFO - Decision submitted: 6d513a394db22f5a - Test CEO Decision - Authority: ceo_approval
+2026-02-20 13:52:27,026 - CEO-Authority - WARNING - Override blocked: Low ethical compliance rate
+2026-02-20 13:52:38,997 - SuperAgency.Oversight - INFO - Executive Decision Audit: test_agent - decision_submission_operational - Score: 0.0
+2026-02-20 13:52:38,998 - CEO-Authority - INFO - Decision submitted: f7593e27c40a138f - Test Operational Decision - Authority: ceo_consultation
+2026-02-20 13:52:38,998 - SuperAgency.Oversight - INFO - Executive Decision Audit: test_agent - decision_submission_strategic - Score: 0.0
+2026-02-20 13:52:38,999 - CEO-Authority - INFO - Decision submitted: dbb2f3cbb7bf6256 - Test Strategic Decision - Authority: ceo_consultation
+2026-02-20 13:52:38,999 - SuperAgency.Oversight - INFO - Executive Decision Audit: test_agent - decision_submission_financial - Score: 0.0
+2026-02-20 13:52:38,999 - CEO-Authority - INFO - Decision submitted: 82f28903035a88e8 - Test Financial Decision - Authority: ceo_consultation
+2026-02-20 13:52:45,464 - SuperAgency.Oversight - INFO - Executive Decision Audit: test_agent - decision_submission_operational - Score: 0.0
+2026-02-20 13:52:45,465 - CEO-Authority - INFO - Decision submitted: a7a0bd24111b6855 - Test Operational Decision - Authority: ceo_consultation
+2026-02-20 13:52:45,465 - SuperAgency.Oversight - INFO - Executive Decision Audit: test_agent - decision_submission_strategic - Score: 0.0
+2026-02-20 13:52:45,466 - CEO-Authority - INFO - Decision submitted: 47ab66997baca92f - Test Strategic Decision - Authority: ceo_consultation
+2026-02-20 13:52:45,466 - SuperAgency.Oversight - INFO - Executive Decision Audit: test_agent - decision_submission_financial - Score: 0.0
+2026-02-20 13:52:45,467 - CEO-Authority - INFO - Decision submitted: ce73406419d73121 - Test Financial Decision - Authority: ceo_consultation
+2026-02-20 13:52:52,287 - SuperAgency.Oversight - INFO - Executive Decision Audit: test_agent - decision_submission_operational - Score: 0.0
+2026-02-20 13:52:52,288 - CEO-Authority - INFO - Decision submitted: 3e56d1983d0bbc44 - Test Operational Decision - Authority: ceo_consultation
+2026-02-20 13:52:52,289 - SuperAgency.Oversight - INFO - Executive Decision Audit: test_agent - decision_submission_strategic - Score: 0.0
+2026-02-20 13:52:52,289 - CEO-Authority - INFO - Decision submitted: 2376b95ae6ddeec2 - Test Strategic Decision - Authority: ceo_consultation
+2026-02-20 13:52:52,290 - SuperAgency.Oversight - INFO - Executive Decision Audit: test_agent - decision_submission_financial - Score: 0.0
+2026-02-20 13:52:52,291 - CEO-Authority - INFO - Decision submitted: ec60971833a2d73a - Test Financial Decision - Authority: ceo_consultation
+2026-02-20 13:52:59,429 - SuperAgency.Oversight - INFO - Executive Decision Audit: test_agent - decision_submission_operational - Score: 0.0
+2026-02-20 13:52:59,430 - CEO-Authority - INFO - Decision submitted: 798970ebe225f05f - Test Operational Decision - Authority: ceo_consultation
+2026-02-20 13:52:59,430 - SuperAgency.Oversight - INFO - Executive Decision Audit: test_agent - decision_submission_strategic - Score: 0.0
+2026-02-20 13:52:59,431 - CEO-Authority - INFO - Decision submitted: f3fc55e7030fcc0b - Test Strategic Decision - Authority: ceo_consultation
+2026-02-20 13:52:59,431 - SuperAgency.Oversight - INFO - Executive Decision Audit: test_agent - decision_submission_financial - Score: 0.0
+2026-02-20 13:52:59,432 - CEO-Authority - INFO - Decision submitted: f69646e15d1a4e32 - Test Financial Decision - Authority: ceo_consultation
+2026-02-20 13:55:58,271 - crisis_management_framework - INFO - Crisis Management Framework initialized
+2026-02-20 13:55:58,273 - crisis_management_framework - INFO - Crisis Management Framework initialized
+2026-02-20 13:55:58,273 - executive_briefings_system - INFO - Executive Briefings System initialized
+2026-02-20 13:55:58,275 - crisis_management_framework - INFO - Crisis Management Framework initialized
+2026-02-20 13:55:58,276 - crisis_management_framework - INFO - Crisis Management Framework initialized
+2026-02-20 13:55:58,277 - executive_briefings_system - INFO - Executive Briefings System initialized
+2026-02-20 13:55:58,279 - emergency_override_mechanisms - INFO - Emergency Override Mechanisms initialized
+2026-02-20 13:56:12,720 - crisis_management_framework - INFO - Crisis Management Framework initialized
+2026-02-20 13:56:12,722 - crisis_management_framework - INFO - Crisis Management Framework initialized
+2026-02-20 13:56:12,723 - executive_briefings_system - INFO - Executive Briefings System initialized
+2026-02-20 13:56:12,724 - crisis_management_framework - INFO - Crisis Management Framework initialized
+2026-02-20 13:56:12,726 - crisis_management_framework - INFO - Crisis Management Framework initialized
+2026-02-20 13:56:12,727 - executive_briefings_system - INFO - Executive Briefings System initialized
+2026-02-20 13:56:12,728 - emergency_override_mechanisms - INFO - Emergency Override Mechanisms initialized
+2026-02-20 13:56:21,288 - crisis_management_framework - INFO - Crisis Management Framework initialized
+2026-02-20 13:56:21,322 - crisis_management_framework - INFO - Crisis Management Framework initialized
+2026-02-20 13:56:21,325 - executive_briefings_system - INFO - Executive Briefings System initialized
+2026-02-20 13:56:21,336 - crisis_management_framework - INFO - Crisis Management Framework initialized
+2026-02-20 13:56:21,339 - crisis_management_framework - INFO - Crisis Management Framework initialized
+2026-02-20 13:56:21,341 - executive_briefings_system - INFO - Executive Briefings System initialized
+2026-02-20 13:56:21,348 - emergency_override_mechanisms - INFO - Emergency Override Mechanisms initialized
+2026-02-20 13:56:21,353 - crisis_management_framework - INFO - Executing immediate actions for crisis crisis_20260220_135621
+2026-02-20 13:56:21,357 - crisis_management_framework - INFO - Action: Assess situation
+2026-02-20 13:56:21,358 - crisis_management_framework - INFO - Action: Notify relevant teams
+2026-02-20 13:56:21,359 - crisis_management_framework - INFO - Action: Begin impact analysis
+2026-02-20 13:56:21,359 - crisis_management_framework - INFO - Escalating crisis crisis_20260220_135621 via: ['notify_ceo', 'a', 'v', 't', 'r', 'c', 'y', 'm', 'activate_crisis_team', 'e', 'i', 'n', '_', 's', 'o', 'u', 'f']
+2026-02-20 13:56:21,360 - crisis_management_framework - WARNING - CEO notification for crisis crisis_20260220_135621
+2026-02-20 13:56:21,361 - crisis_management_framework - INFO - Executive briefing generated: briefing_20260220_135621 - CEO Alert: Test Security Breach
+2026-02-20 13:56:21,363 - crisis_management_framework - INFO - Activating crisis response team for crisis_20260220_135621
+2026-02-20 13:56:21,364 - crisis_management_framework - WARNING - Crisis detected: crisis_20260220_135621 - Test Security Breach (Severity: high)
+2026-02-20 13:56:21,366 - executive_briefings_system - INFO - Delivering briefing immediate_20260220_135621 via immediate_notification
+2026-02-20 13:56:21,366 - executive_briefings_system - INFO - Briefing delivered: {
+  "briefing_id": "immediate_20260220_135621",
+  "title": "Immediate Briefing: Emerging Cybersecurity Threat",
+  "priority": "critical",
+  "delivered_at": "2026-02-20T13:56:21.366734",
+  "method": "immediate_notification"
+}
+2026-02-20 13:56:21,367 - executive_briefings_system - WARNING - Immediate briefing generated: immediate_20260220_135621 - Immediate Briefing: Emerging Cybersecurity Threat
+2026-02-20 13:56:21,367 - executive_briefings_system - INFO - Intelligence collected: intel_20260220_135621 - Emerging Cybersecurity Threat (Source: cyber_intelligence)
+2026-02-20 13:56:21,368 - executive_briefings_system - INFO - Delivering briefing daily_20260220 via secure_dashboard
+2026-02-20 13:56:21,368 - executive_briefings_system - INFO - Briefing delivered: {
+  "briefing_id": "daily_20260220",
+  "title": "Daily Executive Intelligence Briefing - 2026-02-20",
+  "priority": "routine",
+  "delivered_at": "2026-02-20T13:56:21.368654",
+  "method": "secure_dashboard"
+}
+2026-02-20 13:56:21,369 - executive_briefings_system - INFO - Daily executive briefing generated: daily_20260220
+2026-02-20 13:56:21,369 - emergency_override_mechanisms - ERROR - Safeguard Ethical Compliance Check cannot be bypassed
+2026-02-20 13:56:21,370 - crisis_management_framework - INFO - Crisis crisis_20260220_135621 resolved: Security breach contained. Systems isolated and forensics completed. No data exfiltration detected.
+2026-02-20 13:56:21,371 - crisis_management_framework - INFO - Executive briefing generated: briefing_20260220_135621 - Crisis Resolved: Test Security Breach
+2026-02-20 13:56:29,038 - crisis_management_framework - INFO - Crisis Management Framework initialized
+2026-02-20 13:56:29,041 - crisis_management_framework - INFO - Crisis Management Framework initialized
+2026-02-20 13:56:29,042 - executive_briefings_system - INFO - Executive Briefings System initialized
+2026-02-20 13:56:29,044 - crisis_management_framework - INFO - Crisis Management Framework initialized
+2026-02-20 13:56:29,047 - crisis_management_framework - INFO - Crisis Management Framework initialized
+2026-02-20 13:56:29,048 - executive_briefings_system - INFO - Executive Briefings System initialized
+2026-02-20 13:56:29,050 - emergency_override_mechanisms - INFO - Emergency Override Mechanisms initialized
+2026-02-20 13:56:29,051 - crisis_management_framework - INFO - Executing immediate actions for crisis crisis_20260220_135629
+2026-02-20 13:56:29,051 - crisis_management_framework - INFO - Action: Assess situation
+2026-02-20 13:56:29,051 - crisis_management_framework - INFO - Action: Notify relevant teams
+2026-02-20 13:56:29,052 - crisis_management_framework - INFO - Action: Begin impact analysis
+2026-02-20 13:56:29,052 - crisis_management_framework - INFO - Escalating crisis crisis_20260220_135629 via: ['notify_executive_team']
+2026-02-20 13:56:29,052 - crisis_management_framework - INFO - Notifying executive team of crisis crisis_20260220_135629
+2026-02-20 13:56:29,052 - crisis_management_framework - INFO - Executive briefing generated: briefing_20260220_135629 - Crisis Alert: Phase 3 Validation Crisis
+2026-02-20 13:56:29,054 - SuperAgency.Oversight - INFO - Executive Decision Audit: crisis_management_system - decision_submission_crisis - Score: 0.18
+2026-02-20 13:56:29,055 - CEO-Authority - INFO - Decision submitted: ac9e59f8ca3eb00e - Crisis Response: Phase 3 Validation Crisis - Authority: ceo_approval
+2026-02-20 13:56:29,055 - crisis_management_framework - WARNING - Crisis detected: crisis_20260220_135629 - Phase 3 Validation Crisis (Severity: medium)
+2026-02-20 13:56:29,056 - executive_briefings_system - INFO - Delivering briefing immediate_20260220_135629 via immediate_notification
+2026-02-20 13:56:29,057 - executive_briefings_system - INFO - Briefing delivered: {
+  "briefing_id": "immediate_20260220_135629",
+  "title": "Immediate Briefing: Phase 3 Intelligence Test",
+  "priority": "existential",
+  "delivered_at": "2026-02-20T13:56:29.057189",
+  "method": "immediate_notification"
+}
+2026-02-20 13:56:29,057 - executive_briefings_system - WARNING - Immediate briefing generated: immediate_20260220_135629 - Immediate Briefing: Phase 3 Intelligence Test
+2026-02-20 13:56:29,058 - executive_briefings_system - INFO - Intelligence collected: intel_20260220_135629 - Phase 3 Intelligence Test (Source: internal_monitoring)
+2026-02-20 13:56:29,058 - emergency_override_mechanisms - ERROR - Severity severe not allowed for emergency_mode

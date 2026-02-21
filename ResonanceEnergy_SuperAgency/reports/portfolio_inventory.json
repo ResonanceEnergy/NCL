@@ -1,0 +1,78 @@
+{
+  "generated": "2026-02-20T12:00:00+00:00",
+  "repos_base": "./repos",
+  "inventory": [
+    {
+      "repo": "AAC",
+      "readme": {
+        "exists": true,
+        "size": 138,
+        "headings": ["AAC - Automated Accounting Center", "Super Agency Repository", "Description", "Core Features", "Architecture", "Status"]
+      },
+      "mandate_present": false,
+      "mandate": null,
+      "agents_present": false,
+      "agents": {},
+      "goals_signals": ["Automated Accounting Center (AAC) - Comprehensive financial management and compliance system"]
+    },
+    {
+      "repo": "NCC",
+      "readme": {
+        "exists": false,
+        "size": 0,
+        "headings": []
+      },
+      "mandate_present": false,
+      "mandate": null,
+      "agents_present": false,
+      "agents": {},
+      "goals_signals": []
+    },
+    {
+      "repo": "NCL",
+      "readme": {
+        "exists": false,
+        "size": 0,
+        "headings": []
+      },
+      "mandate_present": false,
+      "mandate": null,
+      "agents_present": false,
+      "agents": {},
+      "goals_signals": []
+    },
+    {
+      "repo": "demo",
+      "readme": {
+        "exists": false,
+        "size": 0,
+        "headings": []
+      },
+      "mandate_present": false,
+      "mandate": null,
+      "agents_present": false,
+      "agents": {},
+      "goals_signals": []
+    },
+    {
+      "repo": "NCC-Doctrine",
+      "readme": {
+        "exists": true,
+        "size": 2456,
+        "headings": ["NCC Doctrine Repository", "Executive Summary", "Core Principles", "Implementation Framework", "Integration Status", "Next Steps"]
+      },
+      "mandate_present": true,
+      "mandate": {
+        "tier": "EXECUTIVE",
+        "autonomy": {"default_level": "L3"},
+        "risk_tier": "LOW",
+        "integration_status": "READY_FOR_INTEGRATION",
+        "executive_sponsor": "CEO",
+        "category": "doctrine"
+      },
+      "agents_present": false,
+      "agents": {},
+      "goals_signals": ["NCC Doctrine - Neural Cognitive Control framework for autonomous system governance"]
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+# Electric Ice - Patent Clearing Requirements
+
+## Core Dependencies
+requests>=2.28.0
+pandas>=1.5.0
+numpy>=1.21.0
+scikit-learn>=1.2.0
+beautifulsoup4>=4.11.0
+lxml>=4.9.0
+selenium>=4.5.0
+openpyxl>=3.0.10
+
+## API Integrations
+google-api-python-client>=2.70.0
+uspto-opendata-python>=0.1.0
+
+## Data Processing
+transformers>=4.21.0
+torch>=1.13.0
+sentence-transformers>=2.2.0
+
+## Database
+sqlite3 (built-in)
+sqlalchemy>=1.4.0
+
+## Development
+pytest>=7.2.0
+black>=22.0.0
+flake8>=5.0.0
+
+## Deployment
+fastapi>=0.85.0
+uvicorn>=0.18.0

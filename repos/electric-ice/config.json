@@ -1,0 +1,37 @@
+{
+  "uspto_api_key": "",
+  "google_patents_api_key": "",
+  "database_path": "patent_database.db",
+  "search_depth": 1000,
+  "similarity_threshold": 0.85,
+  "target_technologies": [
+    "electric vehicles",
+    "battery technology",
+    "lithium-ion batteries",
+    "power electronics",
+    "charging systems",
+    "energy storage",
+    "wireless power transfer",
+    "motor controllers",
+    "thermal management",
+    "battery management systems"
+  ],
+  "search_sources": [
+    "uspto",
+    "google_patents",
+    "wipo",
+    "epo"
+  ],
+  "analysis_focus": [
+    "blocking_patents",
+    "prior_art_gaps",
+    "licensing_opportunities",
+    "design_around_options"
+  ],
+  "output_formats": [
+    "json",
+    "csv",
+    "html_report",
+    "executive_summary"
+  ]
+}

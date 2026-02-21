@@ -1,0 +1,19 @@
+{
+  "timestamp": "2026-02-20T13:27:09.544224",
+  "period": "last_24_hours",
+  "metrics": {
+    "api_calls": 2,
+    "errors": 1,
+    "security_events": 0,
+    "account_changes": 1
+  },
+  "alerts": [],
+  "system_health": {
+    "score": 95,
+    "status": "healthy",
+    "issues": 0
+  },
+  "recommendations": [
+    "System operating within normal parameters"
+  ]
+}

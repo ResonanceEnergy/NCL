@@ -61,6 +61,15 @@ def test_evaluate_consent(monkeypatch, tmp_path):
     assert "consent" in d["reason"][0].lower()
 
 
+def test_evaluate_financial_always_human(monkeypatch):
+    monkeypatch.setattr(council, "PORTFOLIO", {"repositories": [{"name": "X"}]})
+    p = make_proposal(repo="X", action="financial_actions")
+    d = council.evaluate(p)
+    assert not d["approved"]
+    assert d["requires_human"]
+    assert "financial" in d["reason"][0].lower()
+
+
 def test_evaluate_ok(monkeypatch):
     monkeypatch.setattr(council, "PORTFOLIO", {"repositories": [{"name": "X"}]})
     p = make_proposal(repo="X", action="foo", autonomy="L1", risk="MEDIUM")

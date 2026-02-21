@@ -1,0 +1,53 @@
+# Mandate
+repo: AAC
+visibility: public
+
+tier: L
+owner: Nathan
+
+mission: |
+  Automated Accounting Center - Comprehensive financial management and compliance system for Super Agency operations.
+
+scope:
+  includes:
+    - Financial transaction processing
+    - Automated bookkeeping and reporting
+    - Compliance monitoring and regulatory reporting
+    - Budget management and variance analysis
+    - Financial intelligence and forecasting
+  excludes:
+    - Manual accounting services
+    - Tax preparation (external service)
+    - Investment management
+
+guardrails:
+  ethics:
+    - No use of private/non-consented data
+    - Transparent financial reporting
+    - Ethical financial practices
+  security:
+    - No secrets in repo; use local keyring
+    - Encrypted financial data storage
+    - Secure API communications
+  privacy:
+    - Local-first; data egress requires consent receipt
+    - Financial data anonymization
+    - User consent for data sharing
+
+autonomy:
+  default_level: L2
+  consent_required:
+    - external_api_calls
+    - financial_actions
+    - data_sharing_outside_device
+
+kpis:
+  - name: transaction_accuracy
+    target: ">=99.9%"
+  - name: compliance_rate
+    target: "100%"
+  - name: reporting_timeliness
+    target: "<=24 hours"
+
+risk:
+  tier: MEDIUM
