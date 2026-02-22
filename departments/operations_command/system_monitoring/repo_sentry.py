@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 from pathlib import Path
-import json, datetime
-from .common import CONFIG, get_portfolio, Log, is_git_repo, get_head_commit, list_changed_files, categorize_file, ensure_dir, now_iso, load_mandate
+import json, datetime, sys
+sys.path.append(str(Path(__file__).resolve().parent.parent.parent.parent / "agents"))
+from common import CONFIG, get_portfolio, Log, is_git_repo, get_head_commit, list_changed_files, categorize_file, ensure_dir, now_iso, load_mandate
 
 REPOS_BASE = Path(CONFIG["repos_base"])
 

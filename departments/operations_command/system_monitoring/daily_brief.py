@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 from pathlib import Path
-import json, datetime
-from .common import CONFIG, get_portfolio, Log, ensure_dir
+import json, datetime, sys
+sys.path.append(str(Path(__file__).resolve().parent.parent.parent.parent / "agents"))
+from common import CONFIG, get_portfolio, Log, ensure_dir
 
 REPOS_BASE = Path(CONFIG["repos_base"])
 BRIEFS_DIR = Path(CONFIG["reports_dir"]) / "daily"

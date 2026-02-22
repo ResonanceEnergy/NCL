@@ -6,7 +6,7 @@ import subprocess
 import re
 from pathlib import Path
 from typing import Dict, Any, List, Tuple, Optional
-from autogen_agentchat.agents import AssistantAgent
+# from autogen import AssistantAgent  # Temporarily commented out due to import issues
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent

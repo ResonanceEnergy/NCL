@@ -260,8 +260,8 @@ def get_matrix_data():
             {
                 'type': 'agent',
                 'status': 'online',
-                'name': 'Repo Sentry',
-                'device': 'Agent',
+                'name': 'Operations Command - Repo Sentry',
+                'device': 'System Monitoring Agent',
                 'metrics': [
                     {'label': 'REPOS', 'value': '47'},
                     {'label': 'HEALTH', 'value': '98%'}
@@ -270,8 +270,8 @@ def get_matrix_data():
             {
                 'type': 'agent',
                 'status': 'online',
-                'name': 'Daily Brief',
-                'device': 'Agent',
+                'name': 'Operations Command - Daily Brief',
+                'device': 'System Monitoring Agent',
                 'metrics': [
                     {'label': 'REPORTS', 'value': '12'},
                     {'label': 'QUALITY', 'value': '95%'}
@@ -280,11 +280,11 @@ def get_matrix_data():
             {
                 'type': 'agent',
                 'status': 'online',
-                'name': 'Council',
-                'device': 'Agent',
+                'name': 'Executive Council - Agent AZ',
+                'device': 'Strategic Oversight Agent',
                 'metrics': [
                     {'label': 'DECISIONS', 'value': '23'},
-                    {'label': 'ACCURACY', 'value': '100%'}
+                    {'label': 'AUTHORITY', 'value': 'AZ_FINAL'}
                 ]
             },
             {

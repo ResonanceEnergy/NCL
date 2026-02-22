@@ -1,33 +1,33 @@
 # SUPER AGENCY
-## Distributed Intelligence & Financial Operations Platform
+## Departmental Matrix Intelligence & Operations Platform
 
-**STATUS: FULLY OPERATIONAL** | **VERSION: 2.0** | **DATE: February 20, 2026**
+**STATUS: FULLY OPERATIONAL** | **VERSION: 2.0** | **DATE: February 21, 2026**
 
-The Super Agency is a comprehensive autonomous system for distributed intelligence gathering, financial operations, and maximum computational processing across multiple repositories.
+The Super Agency is a comprehensive autonomous system organized in a **Departmental Matrix Structure** for distributed intelligence gathering, financial operations, and maximum computational processing across multiple repositories.
 
 ---
 
 ## 🚀 QUICK START
 
-### Maximum CPU Utilization (Recommended)
+### Departmental System Launch
 ```bash
-# Linux/macOS - Maximum overdrive for 5 minutes
-./max_cpu.sh maximum 5
+# Start all departmental systems (macOS)
+./mac_coordination_launcher.sh
 
-# Windows - Maximum overdrive for 5 minutes
-max_cpu.bat maximum 5
+# Start all departmental systems (Windows)
+.\windows_processing_launcher.ps1
 
-# Python direct - All systems simultaneously
-python cpu_control_center.py maximum --duration 5
+# Cross-platform refresh (every 5 minutes)
+python3 cross_platform_refresh.py
 ```
 
-### Core System Startup
+### Core Departmental Operations
 ```bash
-# Deploy Inner Council agents
-cd inner_council && python deploy_agents.py --mode deploy --duration 300
+# Run departmental operations orchestrator
+python3 departments/operations_command/system_monitoring/orchestrator.py
 
-# Start AAC financial system
-cd repos/AAC && python run_aac.py --web
+# Start departmental agent manager
+python3 departmental_agent_manager.py
 
 # Run daily operations
 ./bin/run_daily.sh
@@ -35,19 +35,55 @@ cd repos/AAC && python run_aac.py --web
 
 ---
 
-## 🧠 SYSTEM OVERVIEW
+## 🏗️ DEPARTMENTAL MATRIX STRUCTURE
 
-### Inner Council - Distributed Intelligence
-- **6 Autonomous Agents** for intelligence gathering and decision-making
-- **Real-time Repository Monitoring** across all portfolio systems
-- **Autonomous Decision Framework** with human oversight
-- **Continuous Intelligence Processing**
+### Executive Council (AZ_FINAL Authority)
+- **Agent AZ**: Strategic oversight and final authority decisions
+- **Crisis Management**: High-level intervention capabilities
+- **Doctrine Enforcement**: System-wide policy compliance
 
-### AAC - Automated Accounting Center
-- **Complete Financial Management** system with double-entry bookkeeping
-- **Automated Compliance Monitoring** and regulatory reporting
-- **Financial Intelligence** with market analysis and forecasting
-- **Web Dashboard** for financial oversight
+### Intelligence Operations (HIGH Authority)
+- **YouTube Intelligence Division**: Multi-agent content analysis
+- **Research Intelligence**: Academic and expert analysis
+- **Strategic Intelligence Coordination**: Cross-domain insights
+
+### Operations Command (HIGH Authority)
+- **System Monitoring**: Repository health and operations tracking
+- **Daily Brief Generation**: Automated operational reporting
+- **Orchestration Control**: Workflow coordination
+
+### Financial Operations (STANDARD Authority)
+- **Automated Accounting Center**: Complete financial management
+- **Compliance Monitoring**: Regulatory reporting and oversight
+- **Financial Intelligence**: Market analysis and forecasting
+
+### Technology Infrastructure (STANDARD Authority)
+- **Development Operations**: CI/CD and deployment management
+- **NCL Integration**: Neural Cognitive Layer processing
+- **Scalability Engineering**: Performance optimization
+
+---
+
+## 🔄 CROSS-PLATFORM ARCHITECTURE
+
+### Quantum Quasar (macOS Primary)
+- **Mobile Command Center**: Port 8081
+- **Operations API**: Port 5001
+- **Matrix Monitor**: Port 3000
+- **5-Minute Refresh**: Automated sync cycles
+
+### QUANTUM FORGE (Windows Secondary)
+- **Processing Node**: Remote execution capabilities
+- **Cross-Platform Sync**: OneDrive integration
+- **Task Scheduler**: Automated operations
+
+### Mobile Devices
+- **Pocket Pulsar (iPhone)**: Remote monitoring and control
+- **Tablet Titan (iPad Pro)**: Advanced visualization and command
+
+---
+
+## ⚙️ SYSTEM CAPABILITIES
 
 ### CPU Maximization System
 - **Multi-core Parallel Processing** across all systems
