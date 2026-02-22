@@ -94,6 +94,15 @@ class InnerCouncilDeployment:
             logger.info("▶️  Started message bus")
 
             logger.info("🎯 All agents and message bus started successfully")
+
+            # optional UI monitor
+            try:
+                from matrix_monitor import create_monitor
+                self.ui_monitor = create_monitor(self)
+                self.ui_monitor.start()
+            except Exception:
+                logger.warning("Matrix monitor unavailable")
+
             return True
 
         except Exception as e:
@@ -131,6 +140,13 @@ class InnerCouncilDeployment:
         """Stop all agents and clean up"""
         logger.info("🛑 Stopping Inner Council agents...")
 
+        # stop UI monitor if running
+        try:
+            if hasattr(self, 'ui_monitor') and self.ui_monitor:
+                self.ui_monitor.stop()
+        except Exception:
+            pass
+
         self.running = False
 
         # Stop message bus
@@ -158,7 +174,11 @@ class InnerCouncilDeployment:
             "system_running": self.running,
             "total_agents": len(self.agents),
             "active_threads": len([t for t in self.threads if t.is_alive()]),
-            "message_bus_status": self.message_bus.get_status(),
+            "message_bus_status": getattr(self.message_bus, "get_status", lambda: {
+                "running": self.message_bus.running,
+                "registered_agents": list(self.message_bus.agents.keys()),
+                "queue_size": self.message_bus.message_queue.qsize(),
+            })(),
             "agents": {}
         }
 
@@ -193,6 +213,24 @@ class InnerCouncilDeployment:
 
         except Exception as e:
             logger.error(f"❌ Error in coordination cycle: {e}")
+
+    # convenience wrappers for newly implemented features
+    def list_market_agents(self):
+        """Return list of agent classes available via marketplace"""
+        if self.marketplace:
+            return self.marketplace.list_available_agents()
+        return []
+
+    def initiate_swarm(self, task: str, agent_classes: List[str]) -> str:
+        """Create a new swarm using the swarm coordinator"""
+        if not self.swarm_coordinator:
+            raise RuntimeError("Swarm coordinator not available")
+        return self.swarm_coordinator.initiate_swarm(task, agent_classes)
+
+    def terminate_swarm(self, swarm_id: str) -> bool:
+        if not self.swarm_coordinator:
+            raise RuntimeError("Swarm coordinator not available")
+        return self.swarm_coordinator.terminate_swarm(swarm_id)
 
     def run_simulation_cycle(self):
         """Run a simulation cycle for testing"""

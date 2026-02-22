@@ -1,0 +1,68 @@
+{
+  "repo": "AAC",
+  "timestamp": "2026-02-21T17:49:48.371386-07:00",
+  "head": null,
+  "since": null,
+  "summary": {
+    "ncl": 0,
+    "tests": 0,
+    "docs": 0,
+    "code": 0
+  },
+  "changes": {
+    "ncl": [],
+    "tests": [],
+    "docs": [],
+    "code": []
+  },
+  "mandate_snapshot": {
+    "repo": "AAC",
+    "visibility": "public",
+    "tier": "MEDIUM",
+    "owner": "Nathan",
+    "mission": "|",
+    "scope": [
+      "Financial transaction processing",
+      "Automated bookkeeping and reporting",
+      "Compliance monitoring and regulatory reporting",
+      "Budget management and variance analysis",
+      "Financial intelligence and forecasting",
+      "Manual accounting services",
+      "Tax preparation (external service)",
+      "Investment management"
+    ],
+    "includes": "",
+    "excludes": "",
+    "guardrails": [
+      "No use of private/non-consented data",
+      "Transparent financial reporting",
+      "Ethical financial practices",
+      "No secrets in repo; use local keyring",
+      "Encrypted financial data storage",
+      "Secure API communications",
+      "Local-first; data egress requires consent receipt",
+      "Financial data anonymization",
+      "User consent for data sharing"
+    ],
+    "ethics": "",
+    "security": "",
+    "privacy": "",
+    "autonomy": [
+      "external_api_calls",
+      "financial_actions",
+      "data_sharing_outside_device"
+    ],
+    "default_level": "L2",
+    "consent_required": "",
+    "kpis": [
+      "name: transaction_accuracy",
+      "name: compliance_rate",
+      "name: reporting_timeliness"
+    ],
+    "target": "<=24 hours",
+    "risk": null
+  },
+  "next_actions": [
+    "Increase test coverage for modified code."
+  ]
+}

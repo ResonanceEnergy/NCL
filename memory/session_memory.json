@@ -1,8 +1,15 @@
 {
+<<<<<<< HEAD
+  "wm_test": {
+    "data": "Working memory updated with system status",
+    "metadata": {},
+    "stored_at": "2026-02-20 21:45:29.570900",
+=======
   "test_session": {
     "data": "Session-persistent data",
     "metadata": {},
     "stored_at": "2026-02-21 16:03:21.150332",
+>>>>>>> 6cc158a6f9635408f2baebe10260c50353f00ab1
     "access_count": 1
   }
 }

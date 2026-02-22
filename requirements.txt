@@ -1,0 +1,7 @@
+# Python dependencies for Super Agency
+numpy
+scikit-learn
+requests
+pytest
+pytest-asyncio
+azure-ai-openai
