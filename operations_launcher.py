@@ -88,7 +88,8 @@ def run_tests():
                 if response_type == 'operational_update':
                     print(f"  ✅ Success - {department}")
                 elif response_type == 'clarification_needed':
-                    print("  ℹ️  Clarification needed"                else:
+                    print("  ℹ️  Clarification needed")
+                else:
                     print(f"  ⚠️  {response_type}")
 
             except Exception as e:

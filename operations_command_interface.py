@@ -7,12 +7,11 @@ Enables real-time dialogue with department heads and operational updates
 
 import asyncio
 import json
+import os
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
 from pathlib import Path
 import re
-
-from common import CONFIG, PORTFOLIO, Log
 from agents.daily_brief import collect_repo_summary
 from agents.repo_sentry import check_repo_status
 
@@ -104,18 +103,23 @@ class OperationsCommandInterface:
         }
 
         # Add portfolio companies as departments
-        for repo in PORTFOLIO.get("repositories", []):
-            dept_key = repo["name"].lower().replace("-", "_")
-            departments[dept_key] = {
-                "name": repo["name"],
-                "head": f"{repo['name']} Operations Lead",
-                "systems": ["company_operations", "development", "integration"],
-                "capabilities": ["operational_execution", "development_progress", "integration_status"],
-                "data_sources": [f"companies/{repo['name']}/", f"repos/{repo['name']}/"],
-                "portfolio_company": True,
-                "tier": repo.get("tier", "TBD"),
-                "autonomy_level": repo.get("autonomy_level", "L1")
-            }
+        portfolio_file = Path(__file__).parent / "portfolio.json"
+        if portfolio_file.exists():
+            portfolio_data = json.loads(portfolio_file.read_text())
+            for repo in portfolio_data.get("repositories", []):
+                dept_key = repo["name"].lower().replace("-", "_")
+                # Don't override core departments
+                if dept_key not in departments:
+                    departments[dept_key] = {
+                        "name": repo["name"],
+                        "head": f"{repo['name']} Operations Lead",
+                        "systems": ["company_operations", "development", "integration"],
+                        "capabilities": ["operational_execution", "development_progress", "integration_status"],
+                        "data_sources": [f"companies/{repo['name']}/", f"repos/{repo['name']}/"],
+                        "portfolio_company": True,
+                        "tier": repo.get("tier", "TBD"),
+                        "autonomy_level": repo.get("autonomy_level", "L1")
+                    }
 
         return departments
 
@@ -183,9 +187,12 @@ class OperationsCommandInterface:
                 return dept_key, self._identify_intent(query_lower)
 
         # Check for portfolio company mentions
-        for repo in PORTFOLIO.get("repositories", []):
-            if repo["name"].lower() in query_lower:
-                return repo["name"].lower().replace("-", "_"), self._identify_intent(query_lower)
+        portfolio_file = Path(__file__).parent / "portfolio.json"
+        if portfolio_file.exists():
+            portfolio_data = json.loads(portfolio_file.read_text())
+            for repo in portfolio_data.get("repositories", []):
+                if repo["name"].lower() in query_lower:
+                    return repo["name"].lower().replace("-", "_"), self._identify_intent(query_lower)
 
         return None, "general_update"
 
@@ -239,11 +246,14 @@ class OperationsCommandInterface:
         """Get operational update for portfolio company"""
 
         # Find company in portfolio
+        portfolio_file = Path(__file__).parent / "portfolio.json"
         company = None
-        for repo in PORTFOLIO.get("repositories", []):
-            if repo["name"].lower().replace("-", "_") == company_key:
-                company = repo
-                break
+        if portfolio_file.exists():
+            portfolio_data = json.loads(portfolio_file.read_text())
+            for repo in portfolio_data.get("repositories", []):
+                if repo["name"].lower().replace("-", "_") == company_key:
+                    company = repo
+                    break
 
         if not company:
             return {"error": "Company not found in portfolio"}
@@ -315,9 +325,15 @@ class OperationsCommandInterface:
 
     async def _get_portfolio_status(self) -> Dict[str, Any]:
         """Get portfolio operations status"""
-        total_repos = len(PORTFOLIO.get("repositories", []))
-        active_repos = sum(1 for r in PORTFOLIO.get("repositories", [])
-                          if r.get("integration_status") == "READY_FOR_INTEGRATION")
+        portfolio_file = Path(__file__).parent / "portfolio.json"
+        if portfolio_file.exists():
+            portfolio_data = json.loads(portfolio_file.read_text())
+            total_repos = len(portfolio_data.get("repositories", []))
+            active_repos = sum(1 for r in portfolio_data.get("repositories", [])
+                              if r.get("integration_status") == "READY_FOR_INTEGRATION")
+        else:
+            total_repos = 0
+            active_repos = 0
 
         return {
             "total_companies": total_repos,
@@ -375,6 +391,8 @@ async def handle_operations_query(query: str, user_context: Dict = None) -> Dict
     Main entry point for operations queries
     Usage: Can be called from chat interfaces, APIs, or command line
     """
+    # Create a new instance for each call to avoid event loop issues
+    oci = OperationsCommandInterface()
     return await oci.process_query(query, user_context)
 
 if __name__ == "__main__":

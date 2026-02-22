@@ -147,23 +147,23 @@ launch_services() {
     log_info "Launching command center services..."
 
     # Launch Matrix Monitor
-    if [ -f "matrix_monitor.py" ] || [ -d "matrix_monitor" ]; then
-        log_info "Starting Matrix Monitor..."
-        python -m matrix_monitor &
+    if [ -f "matrix_maximizer.py" ]; then
+        log_info "Starting Matrix Maximizer..."
+        python3 matrix_maximizer.py &
         echo $! > .matrix_monitor.pid
     fi
 
     # Launch Operations Interface
-    if [ -f "operations_launcher.py" ]; then
-        log_info "Starting Operations Interface..."
-        python operations_launcher.py &
+    if [ -f "operations_api.py" ]; then
+        log_info "Starting Operations API..."
+        python3 operations_api.py &
         echo $! > .operations.pid
     fi
 
     # Launch Galactia Doctrine (if configured)
     if [ -f "galactia_config.json" ]; then
         log_info "Starting Galactia Doctrine..."
-        python -m galactia_integration &
+        python3 -m galactia_integration &
         echo $! > .galactia.pid
     fi
 

@@ -10,7 +10,10 @@ from typing import Dict, Any, List, Tuple, Optional
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 CONFIG = json.loads((ROOT / "config" / "settings.json").read_text(encoding="utf-8"))
-PORTFOLIO = json.loads((ROOT / "portfolio.json").read_text(encoding="utf-8"))
+# PORTFOLIO = json.loads((ROOT / "portfolio.json").read_text(encoding="utf-8"))  # Load lazily
+
+def get_portfolio():
+    return json.loads((ROOT / "portfolio.json").read_text(encoding="utf-8"))
 
 SENSITIVE_ACTIONS = set(CONFIG.get("require_consent_for", []))
 

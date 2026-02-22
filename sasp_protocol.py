@@ -66,10 +66,11 @@ class SASPCommunicationError(Exception):
 class SASPProtocol:
     """Core SASP protocol implementation"""
 
-    def __init__(self, node_id: str = None, storage_path: Path = None):
+    def __init__(self, node_id: str = None, storage_path: Path = None, security_level: SASPSecurityLevel = SASPSecurityLevel.STANDARD):
         self.node_id = node_id or str(uuid.uuid4())
         self.storage_path = storage_path or Path("./sasp/protocol.db")
         self.storage_path.parent.mkdir(parents=True, exist_ok=True)
+        self.security_level = security_level
 
         # Generate or load keys
         self.private_key, self.public_key = self._load_or_generate_keys()

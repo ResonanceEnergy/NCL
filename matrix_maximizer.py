@@ -279,6 +279,12 @@ class MatrixMaximizer:
             """Restart specific component"""
             return jsonify(self._restart_component(component))
 
+        @self.app.route('/api/az/approve', methods=['POST'])
+        def az_approve():
+            """Submit plan for AZ approval"""
+            data = request.get_json()
+            return jsonify(self._submit_az_approval(data))
+
         @self.app.route('/static/<path:filename>')
         def serve_static(filename):
             """Serve static files"""
@@ -388,6 +394,20 @@ class MatrixMaximizer:
                         {'label': 'AUTONOMY', 'value': 'L2'}
                     ],
                     'connections': ['quantum_quasar', 'orchestrator']
+                },
+                {
+                    'id': 'agent_az',
+                    'type': 'agent',
+                    'name': 'Agent AZ',
+                    'device': 'Supreme Authority',
+                    'status': 'active',
+                    'health': 100,
+                    'metrics': [
+                        {'label': 'APPROVALS', 'value': '47'},
+                        {'label': 'AUTHORITY', 'value': 'AZ_FINAL'},
+                        {'label': 'DOCTRINE', 'value': '100%'}
+                    ],
+                    'connections': ['council', 'orchestrator', 'quantum_quasar']
                 },
                 # System Components
                 {
@@ -529,6 +549,36 @@ class MatrixMaximizer:
         intervention['result'] = result
 
         return intervention
+
+    def _submit_az_approval(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Submit plan for AZ approval"""
+        try:
+            from agent_az_approval import AgentAZ
+
+            plan = data.get('plan', {})
+            if not plan:
+                return {
+                    'success': False,
+                    'message': 'No plan provided for approval'
+                }
+
+            # Initialize AZ
+            az = AgentAZ()
+
+            # Submit for approval
+            decision = az.approve_plan(plan)
+
+            return {
+                'success': True,
+                'decision': decision,
+                'message': f'Plan submitted for AZ approval. Verdict: {decision.get("verdict", "PENDING")}'
+            }
+
+        except Exception as e:
+            return {
+                'success': False,
+                'message': f'AZ approval failed: {str(e)}'
+            }
 
     def _restart_agent(self, agent_name: str) -> Dict[str, Any]:
         """Restart a specific agent"""
@@ -692,7 +742,7 @@ class MatrixMaximizer:
         monitoring_thread = threading.Thread(target=monitor_loop, daemon=True)
         monitoring_thread.start()
 
-    def run(self, host='0.0.0.0', port=8080, debug=False):
+    def run(self, host='0.0.0.0', port=3000, debug=False):
         """Run the MATRIX MAXIMIZER application"""
         logger.info(f"🚀 Starting MATRIX MAXIMIZER on {host}:{port}")
         logger.info("📊 Advanced monitoring and intervention platform active")

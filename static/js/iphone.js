@@ -29,8 +29,8 @@ class PocketPulsarUI {
     detectAppleIntelligence() {
         // Detect Apple Intelligence availability
         return navigator.userAgent.includes('iPhone') &&
-               window.CSS && window.CSS.supports &&
-               window.navigator.hardwareConcurrency >= 6; // A17 Pro has 6 cores
+            window.CSS && window.CSS.supports &&
+            window.navigator.hardwareConcurrency >= 6; // A17 Pro has 6 cores
     }
 
     init() {
@@ -116,7 +116,7 @@ class PocketPulsarUI {
                 endpoints.map(endpoint => this.apiCall(endpoint))
             );
 
-            this.updateDashboardMetrics(responses[0]);
+            await this.updateDashboardMetrics(responses[0]);
             this.updateAgentsList(responses[1]);
             this.updateSystemsStatus(responses[2]);
             this.updateFinanceData(responses[3]);
@@ -131,42 +131,34 @@ class PocketPulsarUI {
     async updateCriticalMetrics() {
         try {
             const status = await this.apiCall('/api/status');
-            this.updateDashboardMetrics(status);
+            await this.updateDashboardMetrics(status);
         } catch (error) {
             // Silent fail for critical updates
         }
     }
 
-    updateDashboardMetrics(data) {
+    async updateDashboardMetrics(data) {
         if (!data) return;
 
         // Update system health
         const healthElement = document.getElementById('system-health');
         if (healthElement) {
-            healthElement.textContent = `${data.health || 98}%`;
+            healthElement.textContent = `${Math.round(data.system_health || 98)}%`;
             this.animateValueChange(healthElement);
         }
 
-        // Update active agents
+        // Update active agents (online_nodes represents active components)
         const agentsElement = document.getElementById('active-agents');
         if (agentsElement) {
-            agentsElement.textContent = data.active_agents || 23;
+            agentsElement.textContent = data.online_nodes || 9;
             this.animateValueChange(agentsElement);
         }
 
-        // Update CPU usage
-        const cpuElement = document.getElementById('cpu-usage');
-        if (cpuElement) {
-            cpuElement.textContent = `${data.cpu_usage || 75}%`;
-            this.animateValueChange(cpuElement);
-        }
+        // Update CPU usage - get this from matrix data
+        await this.updateCPUUsage();
 
-        // Update memory usage
-        const memoryElement = document.getElementById('memory-usage');
-        if (memoryElement) {
-            memoryElement.textContent = `${data.memory_usage || 45}%`;
-            this.animateValueChange(memoryElement);
-        }
+        // Update memory usage - get this from matrix data
+        await this.updateMemoryUsage();
 
         // Update financial score
         const financeElement = document.getElementById('financial-score');
@@ -180,6 +172,50 @@ class PocketPulsarUI {
         if (reposElement) {
             reposElement.textContent = data.repos_count || 47;
             this.animateValueChange(reposElement);
+        }
+    }
+
+    async updateCPUUsage() {
+        try {
+            const matrixData = await this.apiCall('/api/matrix');
+            if (matrixData && matrixData.matrix) {
+                // Find Quantum Quasar (desktop) and get CPU metric
+                const quantumQuasar = matrixData.matrix.find(node => node.id === 'quantum_quasar');
+                if (quantumQuasar && quantumQuasar.metrics) {
+                    const cpuMetric = quantumQuasar.metrics.find(m => m.label === 'CPU');
+                    if (cpuMetric) {
+                        const cpuElement = document.getElementById('cpu-usage');
+                        if (cpuElement) {
+                            cpuElement.textContent = cpuMetric.value;
+                            this.animateValueChange(cpuElement);
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Failed to update CPU usage:', error);
+        }
+    }
+
+    async updateMemoryUsage() {
+        try {
+            const matrixData = await this.apiCall('/api/matrix');
+            if (matrixData && matrixData.matrix) {
+                // Find Quantum Quasar (desktop) and get MEM metric
+                const quantumQuasar = matrixData.matrix.find(node => node.id === 'quantum_quasar');
+                if (quantumQuasar && quantumQuasar.metrics) {
+                    const memMetric = quantumQuasar.metrics.find(m => m.label === 'MEM');
+                    if (memMetric) {
+                        const memoryElement = document.getElementById('memory-usage');
+                        if (memoryElement) {
+                            memoryElement.textContent = memMetric.value;
+                            this.animateValueChange(memoryElement);
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Failed to update memory usage:', error);
         }
     }
 
@@ -613,7 +649,7 @@ class PocketPulsarUI {
         if (healthElement) {
             healthElement.textContent = `${systemHealth}%`;
             healthElement.style.color = systemHealth >= 90 ? 'var(--success-color)' :
-                                      systemHealth >= 70 ? 'var(--warning-color)' : 'var(--error-color)';
+                systemHealth >= 70 ? 'var(--warning-color)' : 'var(--error-color)';
         }
     }
 
@@ -850,5 +886,5 @@ function toggleMatrixView(viewType) {
 
 // Make PocketPulsarUI globally available
 window.PocketPulsarUI = PocketPulsarUI;
-window.pocketPulsar = new PocketPulsarUI();</content>
-<parameter name="filePath">/Users/gripandripphdd/Library/CloudStorage/OneDrive-GripandRipp(2)/ELECTRIC ICE/Super-Agency/static/js/iphone.js
+window.pocketPulsar = new PocketPulsarUI();</content >
+    <parameter name="filePath">/Users/gripandripphdd/Library/CloudStorage/OneDrive-GripandRipp(2)/ELECTRIC ICE/Super-Agency/static/js/iphone.js

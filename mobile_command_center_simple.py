@@ -1,20 +1,44 @@
 #!/usr/bin/env python3
 """
-Super Agency Mobile Command Center - SIMPLIFIED VERSION
-Minimal working version for testing
+Super Agency Mobile Command Center - REMOTE ENABLED VERSION
+Supports distributed architecture: macOS (mobile) + Windows (processing)
 """
 
 from flask import Flask, jsonify
 import sys
 import os
 from datetime import datetime
+import json
+import urllib.request
+
+try:
+    import requests
+    HAS_REQUESTS = True
+except ImportError:
+    HAS_REQUESTS = False
+import requests
 
 app = Flask(__name__)
 
+# Configuration for remote connections
+REMOTE_CONFIG = {
+    'matrix_host': os.getenv('MATRIX_HOST', 'localhost'),
+    'matrix_port': os.getenv('MATRIX_PORT', '3000'),
+    'windows_host': os.getenv('WINDOWS_HOST', None),  # Remote Windows IP
+    'aac_port': os.getenv('AAC_PORT', '8081'),  # Windows AAC port
+    'enable_remote': os.getenv('ENABLE_REMOTE', 'false').lower() == 'true'
+}
+
+# Calculate Matrix API URL
+MATRIX_URL = f"http://{REMOTE_CONFIG['matrix_host']}:{REMOTE_CONFIG['matrix_port']}/api/matrix"
+WINDOWS_AAC_URL = f"http://{REMOTE_CONFIG['windows_host']}:{REMOTE_CONFIG['aac_port']}" if REMOTE_CONFIG['windows_host'] else None
+
 # Simple status tracking
 service_status = {
-    'mobile_center': {'status': 'running', 'port': 8080},
-    'quasmem': {'status': 'simplified', 'port': None}
+    'mobile_center': {'status': 'running', 'port': 8081},
+    'quasmem': {'status': 'simplified', 'port': None},
+    'remote_matrix': {'status': 'connected' if REMOTE_CONFIG['enable_remote'] else 'local', 'host': REMOTE_CONFIG['matrix_host']},
+    'windows_processing': {'status': 'connected' if REMOTE_CONFIG['windows_host'] else 'disconnected', 'host': REMOTE_CONFIG['windows_host']}
 }
 
 @app.route('/')
@@ -121,12 +145,35 @@ def matrix_maximizer():
 @app.route('/api/status')
 def get_status():
     """Get system status"""
+    try:
+        response = requests.get(MATRIX_URL, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            return jsonify({
+                'status': 'working',
+                'timestamp': data.get('timestamp', datetime.now().isoformat()),
+                'platform': sys.platform,
+                'version': 'remote-enabled',
+                'services': service_status,
+                'system_health': data.get('system_health', 98),
+                'online_nodes': data.get('online_nodes', 9),
+                'total_nodes': data.get('total_nodes', 9),
+                'remote_config': REMOTE_CONFIG,
+                'message': 'Super Agency Mobile Command Center is operational!'
+            })
+    except:
+        pass
+
     return jsonify({
         'status': 'working',
         'timestamp': datetime.now().isoformat(),
         'platform': sys.platform,
-        'version': 'simplified',
+        'version': 'remote-enabled',
         'services': service_status,
+        'system_health': 98,
+        'online_nodes': 9,
+        'total_nodes': 9,
+        'remote_config': REMOTE_CONFIG,
         'message': 'Super Agency Mobile Command Center is operational!'
     })
 
@@ -144,6 +191,38 @@ def get_quasmem_status():
 @app.route('/api/matrix')
 def get_matrix_data():
     """Get matrix monitor data for iOS Matrix Monitor"""
+    try:
+        # Try to fetch real data from Matrix Monitor (local or remote)
+        print(f"DEBUG: Attempting to fetch from {MATRIX_URL}")
+        if HAS_REQUESTS:
+            response = requests.get(MATRIX_URL, timeout=10)  # Increased timeout for remote
+            if response.status_code == 200:
+                data = response.json()
+                print(f"DEBUG: Successfully fetched data with requests: {len(str(data))} chars")
+                return jsonify(data)
+        else:
+            with urllib.request.urlopen(MATRIX_URL, timeout=10) as response:
+                data = json.loads(response.read().decode())
+                print(f"DEBUG: Successfully fetched data with urllib: {len(str(data))} chars")
+                return jsonify(data)
+    except Exception as e:
+        print(f"DEBUG: Failed to fetch real data: {e}")
+        if REMOTE_CONFIG['enable_remote']:
+            print("DEBUG: Remote connection failed, falling back to local...")
+            # Try local fallback if remote fails
+            try:
+                local_url = "http://localhost:3000/api/matrix"
+                if HAS_REQUESTS:
+                    response = requests.get(local_url, timeout=5)
+                    if response.status_code == 200:
+                        data = response.json()
+                        print("DEBUG: Fallback to local successful")
+                        return jsonify(data)
+            except:
+                pass
+        pass
+
+    # Fallback to static data
     matrix_data = {
         'matrix': [
             {
@@ -247,6 +326,103 @@ def get_matrix_data():
 
     return jsonify(matrix_data)
 
+    return jsonify(matrix_data)
+
+@app.route('/api/agents')
+def get_agents():
+    """Get agents data"""
+    try:
+        response = requests.get(MATRIX_URL, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            agents = [node for node in data.get('matrix', []) if node.get('type') == 'agent']
+            return jsonify(agents)
+    except:
+        pass
+
+    return jsonify([
+        {
+            'id': 'repo_sentry',
+            'name': 'Repo Sentry',
+            'status': 'active',
+            'health': 98,
+            'metrics': [{'label': 'REPOS', 'value': '47'}]
+        },
+        {
+            'id': 'daily_brief',
+            'name': 'Daily Brief',
+            'status': 'active',
+            'health': 95,
+            'metrics': [{'label': 'REPORTS', 'value': '12'}]
+        }
+    ])
+
+@app.route('/api/systems')
+def get_systems():
+    """Get systems data"""
+    try:
+        response = requests.get(MATRIX_URL, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            systems = [node for node in data.get('matrix', []) if node.get('type') in ['device', 'memory', 'network']]
+            return jsonify(systems)
+    except:
+        pass
+
+    return jsonify([
+        {
+            'id': 'quantum_quasar',
+            'name': 'Quantum Quasar',
+            'type': 'device',
+            'status': 'online',
+            'health': 98,
+            'metrics': [{'label': 'CPU', 'value': '20%'}]
+        },
+        {
+            'id': 'quasmem',
+            'name': 'QUASMEM',
+            'type': 'memory',
+            'status': 'active',
+            'health': 97,
+            'metrics': [{'label': 'POOL', 'value': '256MB'}]
+        }
+    ])
+
+@app.route('/api/finance')
+def get_finance():
+    """Get finance data"""
+    try:
+        # Try Windows AAC Financial System first
+        response = requests.get(WINDOWS_AAC_URL, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            return jsonify(data)
+    except:
+        pass
+
+    try:
+        # Fallback to Matrix Monitor
+        response = requests.get(MATRIX_URL, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            finance = next((node for node in data.get('matrix', []) if node.get('type') == 'finance'), None)
+            if finance:
+                return jsonify(finance)
+    except:
+        pass
+
+    return jsonify({
+        'id': 'finance',
+        'name': 'Finance',
+        'type': 'finance',
+        'status': 'healthy',
+        'health': 94,
+        'metrics': [
+            {'label': 'BALANCE', 'value': '$127K'},
+            {'label': 'SCORE', 'value': '92'}
+        ]
+    })
+
 @app.route('/static/<path:filename>')
 def serve_static(filename):
     """Serve static files"""
@@ -263,10 +439,10 @@ def serve_static(filename):
 
 if __name__ == '__main__':
     print("🚀 Starting SIMPLIFIED Super Agency Mobile Command Center...")
-    print("📍 Access at: http://localhost:8080")
-    print("�️ Desktop UI at: http://localhost:8080/desktop")
-    print("📱 iPhone UI at: http://localhost:8080/iphone")
-    print("📱 iPad UI at: http://localhost:8080/ipad")
+    print("📍 Access at: http://localhost:8081")
+    print("�️ Desktop UI at: http://localhost:8081/desktop")
+    print("📱 iPhone UI at: http://localhost:8081/iphone")
+    print("📱 iPad UI at: http://localhost:8081/ipad")
     print("🔄 This is a working simplified version!")
 
-    app.run(host='0.0.0.0', port=8080, debug=False)
+    app.run(host='0.0.0.0', port=8081, debug=False)

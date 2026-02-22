@@ -256,13 +256,13 @@ def main():
     try:
         result = maximizer.run_max_cpu_cycle()
 
-        print("
-📊 Cycle Summary:"        print(f"   Duration: {result['total_duration']:.2f}s")
+        print("\n📊 Cycle Summary:")
+        print(f"   Duration: {result['total_duration']:.2f}s")
         print(f"   CPU Cores Used: {result['cpu_cores_utilized']}")
         print(f"   Tasks Completed: {result['tasks_completed']}")
 
-        print("
-📈 Performance Metrics:"        for task_name, task_result in result['results'].items():
+        print("\n📈 Performance Metrics:")
+        for task_name, task_result in result['results'].items():
             if isinstance(task_result, dict) and "error" not in task_result:
                 print(f"   {task_name}: {len(task_result)} subtasks")
             else:

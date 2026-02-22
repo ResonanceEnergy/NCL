@@ -227,7 +227,7 @@ class MatrixMaximizer {
                             ticks: {
                                 color: '#8892a0',
                                 font: { size: 11 },
-                                callback: function(value) {
+                                callback: function (value) {
                                     return '$' + value.toLocaleString();
                                 }
                             }
@@ -299,7 +299,7 @@ class MatrixMaximizer {
 
     async loadInitialData() {
         try {
-            const response = await fetch('/api/metrics');
+            const response = await fetch('/api/matrix');
             const data = await response.json();
             this.updateDashboard(data);
         } catch (error) {
@@ -309,7 +309,7 @@ class MatrixMaximizer {
 
     async updateSystemMetrics() {
         try {
-            const response = await fetch('/api/system/metrics');
+            const response = await fetch('/api/system');
             const data = await response.json();
 
             // Update chart data
@@ -319,8 +319,8 @@ class MatrixMaximizer {
 
                 // Add new data point
                 chart.data.labels.push(now);
-                chart.data.datasets[0].data.push(data.cpu);
-                chart.data.datasets[1].data.push(data.memory);
+                chart.data.datasets[0].data.push(data.system.cpu_percent);
+                chart.data.datasets[1].data.push(data.system.memory.percent);
 
                 // Keep only last 20 points
                 if (chart.data.labels.length > 20) {
@@ -341,7 +341,7 @@ class MatrixMaximizer {
 
     async updateAgentStatus() {
         try {
-            const response = await fetch('/api/agents/status');
+            const response = await fetch('/api/agents');
             const data = await response.json();
 
             // Update agent cards
@@ -349,11 +349,18 @@ class MatrixMaximizer {
 
             // Update activity chart
             if (this.charts.agentActivity) {
+                // Calculate status counts from agent data
+                const agents = Object.values(data.agents || {});
+                const active = agents.filter(a => a.status === 'active').length;
+                const idle = agents.filter(a => a.status === 'idle').length;
+                const error = agents.filter(a => a.status === 'error').length;
+                const maintenance = agents.filter(a => a.status === 'maintenance').length;
+
                 this.charts.agentActivity.data.datasets[0].data = [
-                    data.active,
-                    data.idle,
-                    data.error,
-                    data.maintenance
+                    active,
+                    idle,
+                    error,
+                    maintenance
                 ];
                 this.charts.agentActivity.update('none');
             }
@@ -399,14 +406,69 @@ class MatrixMaximizer {
     }
 
     updateDashboard(data) {
-        // Update global metrics
-        this.updateGlobalMetrics(data.global);
+        // Update system health display
+        const healthElement = document.getElementById('system-health');
+        if (healthElement && data.system_health) {
+            healthElement.textContent = data.system_health.toFixed(1) + '%';
+        }
 
-        // Update activity feed
-        this.updateActivityFeed(data.activity);
+        // Update active agents count
+        const agentsElement = document.getElementById('active-agents');
+        if (agentsElement && data.online_nodes) {
+            agentsElement.textContent = data.online_nodes;
+        }
 
-        // Update alerts
-        this.updateAlertsDisplay(data.alerts);
+        // Update matrix visualization
+        this.updateMatrixVisualization(data.matrix);
+
+        // Update alerts (if available)
+        if (data.alerts) {
+            this.updateAlertsDisplay(data.alerts);
+        }
+    }
+
+    updateMatrixVisualization(matrixData) {
+        if (!matrixData) return;
+
+        const matrixContainer = document.querySelector('.matrix-visualization');
+        if (!matrixContainer) return;
+
+        // Create matrix nodes
+        const nodesHtml = matrixData.map(node => {
+            const statusClass = node.status === 'online' ? 'online' : 'offline';
+            const typeClass = node.type || 'unknown';
+
+            return `
+                <div class="matrix-node ${statusClass} ${typeClass}" data-node-id="${node.id}">
+                    <div class="node-header">
+                        <div class="node-icon">${this.getNodeIcon(node.type)}</div>
+                        <div class="node-status"></div>
+                    </div>
+                    <div class="node-info">
+                        <div class="node-name">${node.name}</div>
+                        <div class="node-health">${node.health}%</div>
+                    </div>
+                    <div class="node-metrics">
+                        ${node.metrics ? node.metrics.slice(0, 2).map(metric =>
+                `<div class="metric">${metric.label}: ${metric.value}</div>`
+            ).join('') : ''}
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        matrixContainer.innerHTML = nodesHtml;
+    }
+
+    getNodeIcon(type) {
+        const icons = {
+            'device': '💻',
+            'agent': '🤖',
+            'memory': '🧠',
+            'finance': '💰',
+            'network': '🌐'
+        };
+        return icons[type] || '⚡';
     }
 
     updateGlobalMetrics(metrics) {
@@ -488,9 +550,9 @@ class MatrixMaximizer {
         const memoryElement = document.querySelector('[data-metric="memory"] .metric-value');
         const diskElement = document.querySelector('[data-metric="disk"] .metric-value');
 
-        if (cpuElement) cpuElement.textContent = `${data.cpu}%`;
-        if (memoryElement) memoryElement.textContent = `${data.memory}%`;
-        if (diskElement) diskElement.textContent = `${data.disk}%`;
+        if (cpuElement) cpuElement.textContent = `${data.system.cpu_percent.toFixed(1)}%`;
+        if (memoryElement) memoryElement.textContent = `${data.system.memory.percent.toFixed(1)}%`;
+        if (diskElement) diskElement.textContent = `${data.system.disk.percent.toFixed(1)}%`;
     }
 
     updateAgentCards(agents) {

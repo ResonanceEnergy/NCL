@@ -4,13 +4,20 @@ Operations API Server
 REST API for programmatic access to Super Agency operations
 """
 
-from flask import Flask, request, jsonify
+from quart import Quart, request, jsonify
 import asyncio
 import json
+import sys
+import os
 from datetime import datetime
-from operations_command_interface import handle_operations_query
 
-app = Flask(__name__)
+# Add current directory to path for imports
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'agents'))
+
+# from operations_command_interface import handle_operations_query  # Move inside function
+
+app = Quart(__name__)
 
 @app.route('/api/v1/operations/query', methods=['POST'])
 async def operations_query():
@@ -19,7 +26,7 @@ async def operations_query():
     Body: {"query": "your natural language query", "user_context": {...}}
     """
     try:
-        data = request.get_json()
+        data = await request.get_json()
 
         if not data or 'query' not in data:
             return jsonify({
@@ -33,8 +40,16 @@ async def operations_query():
         query = data['query']
         user_context = data.get('user_context', {})
 
+        # Import here to avoid issues
+        from operations_command_interface import handle_operations_query
+        import asyncio
+
         # Process the query
         result = await handle_operations_query(query, user_context)
+
+        # Debug: print result type and content
+        print(f"Result type: {type(result)}")
+        print(f"Result: {result}")
 
         # Add API metadata
         result['api_version'] = 'v1'
@@ -139,12 +154,7 @@ if __name__ == '__main__':
     print("   GET  /api/v1/operations/departments - List all departments")
     print("   GET  /api/v1/operations/status    - System status")
     print("   GET  /api/v1/health               - Health check")
-    print("\n🌐 Server running on http://localhost:5000")
+    print("\n🌐 Server running on http://localhost:5001")
 
-    # Run with asyncio support
-    from hypercorn.asyncio import serve
-    from hypercorn.config import Config
-
-    config = Config()
-    config.bind = ["localhost:5000"]
-    asyncio.run(serve(app, config))
+    # Run with Quart (async Flask)
+    app.run(host='localhost', port=5001, debug=False)

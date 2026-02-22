@@ -1,0 +1,274 @@
+{
+  "organization": {
+    "name": "Super Agency",
+    "structure": "Departmental Matrix",
+    "version": "2.0",
+    "last_updated": "2026-02-21"
+  },
+  "departments": {
+    "executive_council": {
+      "name": "Executive Council",
+      "description": "Strategic oversight and high-level decision making",
+      "authority_level": "AZ_FINAL",
+      "head": "Agent AZ",
+      "members": [
+        {
+          "id": "agent_az",
+          "name": "Agent AZ",
+          "role": "Council Chairman",
+          "authority": "AZ_FINAL",
+          "specializations": ["strategic_decisions", "doctrine_enforcement", "crisis_management"]
+        }
+      ],
+      "responsibilities": [
+        "Strategic direction setting",
+        "Doctrine enforcement",
+        "Crisis management",
+        "Cross-departmental coordination",
+        "Final authority decisions"
+      ]
+    },
+    "intelligence_operations": {
+      "name": "Intelligence Operations Department",
+      "description": "Information gathering, analysis, and intelligence processing",
+      "authority_level": "HIGH",
+      "head": "Intelligence Director",
+      "subdepartments": {
+        "youtube_intelligence": {
+          "name": "YouTube Intelligence Division",
+          "agents": [
+            {
+              "id": "j_bravo_agent",
+              "name": "J Bravo Intelligence Agent",
+              "role": "Strategic Intelligence Coordinator",
+              "specializations": ["strategic_analysis", "intelligence_coordination"],
+              "priority": "critical"
+            },
+            {
+              "id": "tom_bilyeu_agent",
+              "name": "Tom Bilyeu Intelligence Agent",
+              "role": "Business Strategy Intelligence",
+              "specializations": ["business_strategy", "market_intelligence"],
+              "priority": "critical"
+            },
+            {
+              "id": "lex_fridman_agent",
+              "name": "Lex Fridman Intelligence Agent",
+              "role": "AI & Technology Intelligence",
+              "specializations": ["ai_research", "technology_trends"],
+              "priority": "critical"
+            },
+            {
+              "id": "joe_rogan_agent",
+              "name": "Joe Rogan Intelligence Agent",
+              "role": "Cultural Intelligence Analyst",
+              "specializations": ["cultural_trends", "intellectual_discourse"],
+              "priority": "critical"
+            },
+            {
+              "id": "chris_willx_agent",
+              "name": "Chris Willx Intelligence Agent",
+              "role": "Personal Development Intelligence",
+              "specializations": ["human_optimization", "personal_development"],
+              "priority": "high"
+            },
+            {
+              "id": "herbert_agent",
+              "name": "Herbert Intelligence Agent",
+              "role": "Consciousness & Human Potential",
+              "specializations": ["consciousness_studies", "human_potential"],
+              "priority": "high"
+            },
+            {
+              "id": "nate_jones_agent",
+              "name": "Nate B Jones Intelligence Agent",
+              "role": "Financial Markets Intelligence",
+              "specializations": ["financial_markets", "economic_analysis"],
+              "priority": "high"
+            }
+          ]
+        },
+        "research_intelligence": {
+          "name": "Research Intelligence Division",
+          "agents": [
+            {
+              "id": "andrew_huberman_agent",
+              "name": "Andrew Huberman Research Agent",
+              "role": "Neuroscience & Biology Research",
+              "specializations": ["neuroscience", "human_biology", "research_analysis"]
+            },
+            {
+              "id": "peter_attia_agent",
+              "name": "Peter Attia Research Agent",
+              "role": "Longevity & Health Research",
+              "specializations": ["longevity_research", "health_optimization"]
+            },
+            {
+              "id": "daniel_schmachtenberger_agent",
+              "name": "Daniel Schmachtenberger Research Agent",
+              "role": "Systems Thinking & Existential Risk",
+              "specializations": ["systems_thinking", "existential_risk", "complex_systems"]
+            },
+            {
+              "id": "geoffrey_hinton_agent",
+              "name": "Geoffrey Hinton Research Agent",
+              "role": "AI Research & Neural Networks",
+              "specializations": ["deep_learning", "neural_networks", "ai_research"]
+            },
+            {
+              "id": "demis_hassabis_agent",
+              "name": "Demis Hassabis Research Agent",
+              "role": "AI & Neuroscience Research",
+              "specializations": ["agi_research", "cognitive_ai", "neuroscience_ai"]
+            }
+          ]
+        }
+      }
+    },
+    "operations_command": {
+      "name": "Operations Command Department",
+      "description": "Day-to-day operations, monitoring, and execution",
+      "authority_level": "STANDARD",
+      "head": "Operations Commander",
+      "subdepartments": {
+        "system_monitoring": {
+          "name": "System Monitoring Division",
+          "agents": [
+            {
+              "id": "repo_sentry",
+              "name": "Repository Sentry",
+              "role": "Code Repository Monitor",
+              "specializations": ["code_analysis", "repository_monitoring", "change_detection"],
+              "metrics": ["repos_monitored", "changes_detected", "health_score"]
+            },
+            {
+              "id": "daily_brief",
+              "name": "Daily Operations Brief",
+              "role": "Operations Intelligence Compiler",
+              "specializations": ["operations_reporting", "intelligence_briefing", "status_updates"],
+              "metrics": ["reports_generated", "quality_score", "distribution_reach"]
+            }
+          ]
+        },
+        "orchestration_control": {
+          "name": "Orchestration Control Division",
+          "agents": [
+            {
+              "id": "orchestrator",
+              "name": "System Orchestrator",
+              "role": "Multi-system Coordination",
+              "specializations": ["system_integration", "process_orchestration", "workflow_management"]
+            },
+            {
+              "id": "council_agent",
+              "name": "Council Operations Agent",
+              "role": "Council Support & Coordination",
+              "specializations": ["council_operations", "decision_support", "coordination_tasks"],
+              "metrics": ["decisions_supported", "coordination_accuracy", "autonomy_level"]
+            }
+          ]
+        }
+      }
+    },
+    "financial_operations": {
+      "name": "Financial Operations Department",
+      "description": "Financial management, accounting, and economic operations",
+      "authority_level": "STANDARD",
+      "head": "Financial Director",
+      "subdepartments": {
+        "accounting_systems": {
+          "name": "Accounting Systems Division",
+          "description": "AAC Financial System operations",
+          "external_system": true,
+          "system_url": "http://localhost:5001",
+          "integration_points": ["financial_reporting", "budget_tracking", "economic_analysis"]
+        },
+        "market_intelligence": {
+          "name": "Market Intelligence Division",
+          "agents": [
+            {
+              "id": "market_analyst",
+              "name": "Market Intelligence Analyst",
+              "role": "Financial Market Analysis",
+              "specializations": ["market_trends", "investment_analysis", "economic_forecasting"]
+            }
+          ]
+        }
+      }
+    },
+    "technology_infrastructure": {
+      "name": "Technology Infrastructure Department",
+      "description": "System maintenance, development, and technical operations",
+      "authority_level": "STANDARD",
+      "head": "Chief Technology Officer",
+      "subdepartments": {
+        "development_operations": {
+          "name": "Development Operations Division",
+          "agents": [
+            {
+              "id": "ncl_processor",
+              "name": "NCL Second Brain Processor",
+              "role": "Natural Language Processing Engine",
+              "specializations": ["nlp_processing", "text_analysis", "knowledge_extraction"]
+            },
+            {
+              "id": "integration_cell",
+              "name": "Integration Cell Agent",
+              "role": "System Integration Specialist",
+              "specializations": ["api_integration", "system_connectivity", "data_flow_management"]
+            }
+          ]
+        },
+        "platform_engineering": {
+          "name": "Platform Engineering Division",
+          "description": "Infrastructure and platform maintenance",
+          "systems": ["matrix_monitor", "mobile_command_center", "operations_api", "sasp_protocol"]
+        }
+      }
+    }
+  },
+  "council_separation": {
+    "status": "separated",
+    "rationale": "Council serves as strategic oversight, not operational control",
+    "boundaries": [
+      "Council provides strategic direction only",
+      "Departments handle all operational execution",
+      "Council approval required for major structural changes",
+      "Daily operations autonomous within department authority levels"
+    ]
+  },
+  "authority_hierarchy": {
+    "AZ_FINAL": {
+      "level": 5,
+      "description": "Executive Council - Final Authority",
+      "approval_required": ["structural_changes", "doctrine_modifications", "crisis_responses"]
+    },
+    "HIGH": {
+      "level": 4,
+      "description": "Department Heads - High Authority",
+      "approval_required": ["departmental_changes", "resource_allocation", "policy_changes"]
+    },
+    "STANDARD": {
+      "level": 3,
+      "description": "Division Leads - Standard Authority",
+      "approval_required": ["operational_changes", "process_modifications"]
+    },
+    "BASIC": {
+      "level": 2,
+      "description": "Standard Agents - Basic Authority",
+      "approval_required": ["routine_operations"]
+    }
+  },
+  "communication_protocols": {
+    "inter_departmental": {
+      "protocol": "SASP",
+      "channels": ["matrix_updates", "status_reports", "coordination_requests"],
+      "frequency": "real-time"
+    },
+    "council_reporting": {
+      "protocol": "Structured Briefs",
+      "frequency": "daily/weekly",
+      "format": "Executive Summary + Key Metrics"
+    }
+  }
+}
