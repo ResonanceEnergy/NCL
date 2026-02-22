@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 from pathlib import Path
 import json, datetime
-from common import CONFIG, PORTFOLIO, Log, is_git_repo, get_head_commit, list_changed_files, categorize_file, ensure_dir, now_iso, load_mandate
+from .common import CONFIG, PORTFOLIO, Log, is_git_repo, get_head_commit, list_changed_files, categorize_file, ensure_dir, now_iso, load_mandate
+from typing import Dict, List, Any, Optional
+from autogen_agentchat.agents import AssistantAgent
+from autogen_agentchat.tools import AgentTool
 
 REPOS_BASE = Path(CONFIG["repos_base"])
 
@@ -74,7 +77,104 @@ def process_repo(repo_name: str):
     if head:
         last_file.write_text(head, encoding='utf-8')
 
-if __name__ == '__main__':
-    for repo in PORTFOLIO.get("repositories", []):
-        process_repo(repo["name"])
-    Log.info("Repo Sentry run complete.")
+    return plan
+
+class RepoSentryAgent:
+    """AI-powered agent for monitoring and analyzing repository changes"""
+
+    def __init__(self, model_client=None):
+        self.name = "RepoSentryAgent"
+        self.model_client = model_client
+        self.status = "initialized"
+
+        # Create AutoGen agent if model client is available
+        if self.model_client:
+            self.agent = AssistantAgent(
+                "repo_sentry_analyzer",
+                model_client=self.model_client,
+                system_message="""You are an expert repository analyst and change detection specialist.
+                Your role is to analyze repository changes, identify patterns, assess risks, and provide
+                actionable intelligence for autonomous operations.
+
+                Focus on:
+                - Code quality and security implications
+                - Testing coverage adequacy
+                - Documentation completeness
+                - Configuration and deployment changes
+                - Potential integration impacts
+
+                Provide clear, actionable insights with specific recommendations."""
+            )
+
+    def execute(self, task: str) -> Dict[str, Any]:
+        """Execute repository monitoring and analysis task"""
+        try:
+            # Process all repositories in portfolio
+            results = []
+            for repo in PORTFOLIO.get("repositories", []):
+                repo_result = process_repo(repo["name"])
+                if repo_result:
+                    results.append(repo_result)
+
+            if not results:
+                return {
+                    'task': task,
+                    'result': 'no repositories processed',
+                    'agent': self.name,
+                    'timestamp': now_iso(),
+                    'status': 'warning'
+                }
+
+            # If AI analysis is available, enhance the results
+            if self.model_client and self.agent:
+                analysis_prompt = f"""
+                Analyze the following repository changes and provide strategic insights:
+
+                {json.dumps(results, indent=2)}
+
+                Provide:
+                1. Risk assessment for each repository
+                2. Integration recommendations
+                3. Testing priorities
+                4. Documentation needs
+                5. Autonomy level recommendations
+                """
+
+                # Note: In a full implementation, we would run the agent here
+                # For now, return the processed data with AI-ready structure
+                ai_insights = {
+                    'risk_assessment': 'Analysis requires AI model',
+                    'integration_recommendations': 'AI analysis pending',
+                    'testing_priorities': 'AI analysis pending',
+                    'documentation_needs': 'AI analysis pending',
+                    'autonomy_recommendations': 'AI analysis pending'
+                }
+            else:
+                ai_insights = {
+                    'risk_assessment': 'AI analysis unavailable',
+                    'integration_recommendations': 'Manual review required',
+                    'testing_priorities': 'Check test coverage manually',
+                    'documentation_needs': 'Review documentation manually',
+                    'autonomy_recommendations': 'Manual assessment required'
+                }
+
+            return {
+                'task': task,
+                'result': 'repository analysis completed',
+                'agent': self.name,
+                'timestamp': now_iso(),
+                'repositories_processed': len(results),
+                'data': results,
+                'ai_insights': ai_insights,
+                'status': 'success'
+            }
+
+        except Exception as e:
+            Log.error(f"RepoSentryAgent execution failed: {e}")
+            return {
+                'task': task,
+                'result': f'error: {str(e)}',
+                'agent': self.name,
+                'timestamp': now_iso(),
+                'status': 'error'
+            }
