@@ -1,0 +1,445 @@
+# src/ncl/core/memory_system.py
+"""
+Memory System
+Persistent knowledge storage and retrieval for the NCL system
+"""
+
+import asyncio
+import json
+import logging
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Dict, List, Optional, Any, Union
+from dataclasses import dataclass, field
+import hashlib
+
+
+@dataclass
+class MemoryRecord:
+    """Represents a stored memory record"""
+    key: str
+    data: Any
+    timestamp: datetime = field(default_factory=datetime.now)
+    ttl: Optional[timedelta] = None
+    tags: List[str] = field(default_factory=list)
+    version: int = 1
+
+    def is_expired(self) -> bool:
+        """Check if the record has expired"""
+        if self.ttl is None:
+            return False
+        return datetime.now() - self.timestamp > self.ttl
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for storage"""
+        return {
+            'key': self.key,
+            'data': self.data,
+            'timestamp': self.timestamp.isoformat(),
+            'ttl': self.ttl.total_seconds() if self.ttl else None,
+            'tags': self.tags,
+            'version': self.version
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'MemoryRecord':
+        """Create from dictionary"""
+        return cls(
+            key=data['key'],
+            data=data['data'],
+            timestamp=datetime.fromisoformat(data['timestamp']),
+            ttl=timedelta(seconds=data['ttl']) if data.get('ttl') else None,
+            tags=data.get('tags', []),
+            version=data.get('version', 1)
+        )
+
+
+class MemorySystem:
+    """
+    Memory System - Persistent knowledge storage and retrieval
+
+    Implements the knowledge persistence layer for the NCL system,
+    supporting doctrine evolution, decision history, and system state.
+    """
+
+    def __init__(self, storage_path: str = "data/memory"):
+        self.logger = logging.getLogger(__name__)
+        self.storage_path = Path(storage_path)
+        self.memory_store: Dict[str, MemoryRecord] = {}
+
+        # Storage settings
+        self.compression_enabled = True
+        self.encryption_enabled = False  # Would be enabled in production
+        self.backup_interval = timedelta(hours=6)
+
+        # Cache settings
+        self.cache_size = 1000
+        self.cache: Dict[str, Any] = {}
+
+    async def initialize(self) -> bool:
+        """Initialize the memory system"""
+        try:
+            self.logger.info("🔄 Initializing Memory System...")
+
+            # Create storage directory
+            self.storage_path.mkdir(parents=True, exist_ok=True)
+
+            # Load existing memory
+            await self._load_memory_store()
+
+            # Start background tasks
+            asyncio.create_task(self._periodic_cleanup())
+            asyncio.create_task(self._periodic_backup())
+
+            self.logger.info(f"✅ Memory System initialized with {len(self.memory_store)} records")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"❌ Memory System initialization failed: {e}")
+            return False
+
+    async def _load_memory_store(self):
+        """Load memory records from persistent storage"""
+        memory_file = self.storage_path / "memory_store.json"
+
+        if memory_file.exists():
+            try:
+                with open(memory_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+
+                for record_data in data.get('records', []):
+                    record = MemoryRecord.from_dict(record_data)
+                    if not record.is_expired():
+                        self.memory_store[record.key] = record
+
+                self.logger.info(f"Loaded {len(self.memory_store)} memory records")
+
+            except Exception as e:
+                self.logger.error(f"Failed to load memory store: {e}")
+
+    async def store(self, key: str, data: Any, ttl: Optional[timedelta] = None,
+                   tags: List[str] = None) -> bool:
+        """Store data in memory"""
+        try:
+            # Create or update record
+            if key in self.memory_store:
+                record = self.memory_store[key]
+                record.data = data
+                record.timestamp = datetime.now()
+                record.ttl = ttl
+                if tags:
+                    record.tags.extend(tags)
+                    record.tags = list(set(record.tags))  # Remove duplicates
+                record.version += 1
+            else:
+                record = MemoryRecord(
+                    key=key,
+                    data=data,
+                    ttl=ttl,
+                    tags=tags or []
+                )
+
+            self.memory_store[key] = record
+
+            # Update cache
+            self._update_cache(key, data)
+
+            # Persist to disk
+            await self._persist_record(record)
+
+            return True
+
+        except Exception as e:
+            self.logger.error(f"❌ Failed to store data for key '{key}': {e}")
+            return False
+
+    async def retrieve(self, key: str) -> Optional[Any]:
+        """Retrieve data from memory"""
+        try:
+            # Check cache first
+            if key in self.cache:
+                return self.cache[key]
+
+            # Check memory store
+            if key in self.memory_store:
+                record = self.memory_store[key]
+
+                # Check if expired
+                if record.is_expired():
+                    await self.delete(key)
+                    return None
+
+                # Update cache
+                self._update_cache(key, record.data)
+
+                return record.data
+
+            return None
+
+        except Exception as e:
+            self.logger.error(f"❌ Failed to retrieve data for key '{key}': {e}")
+            return None
+
+    async def delete(self, key: str) -> bool:
+        """Delete data from memory"""
+        try:
+            if key in self.memory_store:
+                del self.memory_store[key]
+
+            if key in self.cache:
+                del self.cache[key]
+
+            # Remove from persistent storage
+            await self._remove_persistent_record(key)
+
+            return True
+
+        except Exception as e:
+            self.logger.error(f"❌ Failed to delete data for key '{key}': {e}")
+            return False
+
+    async def search(self, query: str, tags: List[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+        """Search memory records"""
+        try:
+            results = []
+
+            for record in self.memory_store.values():
+                if record.is_expired():
+                    continue
+
+                # Check text content
+                if query.lower() in json.dumps(record.data).lower():
+                    match = True
+                elif query.lower() in record.key.lower():
+                    match = True
+                else:
+                    match = False
+
+                # Check tags if specified
+                if match and tags:
+                    match = any(tag in record.tags for tag in tags)
+
+                if match:
+                    results.append({
+                        'key': record.key,
+                        'data': record.data,
+                        'timestamp': record.timestamp,
+                        'tags': record.tags,
+                        'version': record.version
+                    })
+
+                    if len(results) >= limit:
+                        break
+
+            return results
+
+        except Exception as e:
+            self.logger.error(f"❌ Search failed for query '{query}': {e}")
+            return []
+
+    async def get_by_tags(self, tags: List[str], limit: int = 50) -> List[Dict[str, Any]]:
+        """Get records by tags"""
+        try:
+            results = []
+
+            for record in self.memory_store.values():
+                if record.is_expired():
+                    continue
+
+                if any(tag in record.tags for tag in tags):
+                    results.append({
+                        'key': record.key,
+                        'data': record.data,
+                        'timestamp': record.timestamp,
+                        'tags': record.tags,
+                        'version': record.version
+                    })
+
+                    if len(results) >= limit:
+                        break
+
+            return results
+
+        except Exception as e:
+            self.logger.error(f"❌ Failed to get records by tags {tags}: {e}")
+            return []
+
+    async def get_stats(self) -> Dict[str, Any]:
+        """Get memory system statistics"""
+        try:
+            total_records = len(self.memory_store)
+            expired_records = sum(1 for r in self.memory_store.values() if r.is_expired())
+            active_records = total_records - expired_records
+
+            # Calculate storage size
+            storage_size = 0
+            for record in self.memory_store.values():
+                storage_size += len(json.dumps(record.to_dict()).encode('utf-8'))
+
+            # Tag statistics
+            all_tags = []
+            for record in self.memory_store.values():
+                all_tags.extend(record.tags)
+            unique_tags = set(all_tags)
+
+            return {
+                'total_records': total_records,
+                'active_records': active_records,
+                'expired_records': expired_records,
+                'storage_size_bytes': storage_size,
+                'cache_size': len(self.cache),
+                'unique_tags': len(unique_tags),
+                'tag_distribution': {tag: all_tags.count(tag) for tag in unique_tags}
+            }
+
+        except Exception as e:
+            self.logger.error(f"❌ Failed to get memory stats: {e}")
+            return {}
+
+    def _update_cache(self, key: str, data: Any):
+        """Update cache with new data"""
+        if len(self.cache) >= self.cache_size:
+            # Remove oldest item (simple LRU)
+            oldest_key = next(iter(self.cache))
+            del self.cache[oldest_key]
+
+        self.cache[key] = data
+
+    async def _persist_record(self, record: MemoryRecord):
+        """Persist a record to disk"""
+        try:
+            # Create records directory structure
+            records_dir = self.storage_path / "records"
+            records_dir.mkdir(exist_ok=True)
+
+            # Create hash-based filename for even distribution
+            key_hash = hashlib.md5(record.key.encode()).hexdigest()
+            record_file = records_dir / f"{key_hash}.json"
+
+            # Save record
+            with open(record_file, 'w', encoding='utf-8') as f:
+                json.dump(record.to_dict(), f, indent=2, default=str)
+
+        except Exception as e:
+            self.logger.error(f"❌ Failed to persist record {record.key}: {e}")
+
+    async def _remove_persistent_record(self, key: str):
+        """Remove a record from persistent storage"""
+        try:
+            key_hash = hashlib.md5(key.encode()).hexdigest()
+            record_file = self.storage_path / "records" / f"{key_hash}.json"
+
+            if record_file.exists():
+                record_file.unlink()
+
+        except Exception as e:
+            self.logger.error(f"❌ Failed to remove persistent record {key}: {e}")
+
+    async def _periodic_cleanup(self):
+        """Periodic cleanup of expired records"""
+        while True:
+            try:
+                await asyncio.sleep(3600)  # Clean up every hour
+
+                expired_keys = [
+                    key for key, record in self.memory_store.items()
+                    if record.is_expired()
+                ]
+
+                for key in expired_keys:
+                    await self.delete(key)
+
+                if expired_keys:
+                    self.logger.info(f"Cleaned up {len(expired_keys)} expired records")
+
+            except Exception as e:
+                self.logger.error(f"❌ Periodic cleanup failed: {e}")
+
+    async def _periodic_backup(self):
+        """Periodic backup of memory store"""
+        while True:
+            try:
+                await asyncio.sleep(self.backup_interval.total_seconds())
+
+                await self._create_backup()
+                self.logger.info("💾 Memory system backup completed")
+
+            except Exception as e:
+                self.logger.error(f"❌ Periodic backup failed: {e}")
+
+    async def _create_backup(self):
+        """Create a backup of the memory store"""
+        try:
+            backup_dir = self.storage_path / "backups"
+            backup_dir.mkdir(exist_ok=True)
+
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_file = backup_dir / f"memory_backup_{timestamp}.json"
+
+            # Collect all active records
+            records_data = {
+                'backup_timestamp': datetime.now().isoformat(),
+                'total_records': len(self.memory_store),
+                'records': [
+                    record.to_dict() for record in self.memory_store.values()
+                    if not record.is_expired()
+                ]
+            }
+
+            with open(backup_file, 'w', encoding='utf-8') as f:
+                json.dump(records_data, f, indent=2, default=str)
+
+            # Keep only last 10 backups
+            backup_files = sorted(backup_dir.glob("memory_backup_*.json"))
+            if len(backup_files) > 10:
+                for old_backup in backup_files[:-10]:
+                    old_backup.unlink()
+
+        except Exception as e:
+            self.logger.error(f"❌ Backup creation failed: {e}")
+
+    async def restore_from_backup(self, backup_file: str) -> bool:
+        """Restore memory from a backup file"""
+        try:
+            backup_path = self.storage_path / "backups" / backup_file
+
+            if not backup_path.exists():
+                self.logger.error(f"Backup file not found: {backup_file}")
+                return False
+
+            with open(backup_path, 'r', encoding='utf-8') as f:
+                backup_data = json.load(f)
+
+            # Clear current memory
+            self.memory_store.clear()
+            self.cache.clear()
+
+            # Restore records
+            for record_data in backup_data.get('records', []):
+                record = MemoryRecord.from_dict(record_data)
+                if not record.is_expired():
+                    self.memory_store[record.key] = record
+
+            self.logger.info(f"✅ Restored {len(self.memory_store)} records from backup")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"❌ Backup restoration failed: {e}")
+            return False
+
+    async def shutdown(self) -> bool:
+        """Shutdown the memory system"""
+        try:
+            self.logger.info("🛑 Shutting down Memory System")
+
+            # Final persistence
+            await self._create_backup()
+
+            # Clear cache
+            self.cache.clear()
+
+            return True
+
+        except Exception as e:
+            self.logger.error(f"❌ Memory System shutdown failed: {e}")
+            return False

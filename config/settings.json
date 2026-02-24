@@ -1,0 +1,9 @@
+{
+    "name": "NCL",
+    "version": "0.1.0",
+    "tier": "L",
+    "risk_tier": "LOW",
+    "autonomy_level": "L1",
+    "generated_by": "OPTIMUS REPO DEPOT v3.0",
+    "generated_at": "2026-02-23T21:32:37.222442"
+}

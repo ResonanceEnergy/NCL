@@ -1,0 +1,3 @@
+[console_scripts]
+ncl-monitor = ncl.monitoring.system_monitor:main
+ncl-orchestrate = ncl.core.ncc:main

@@ -1,0 +1,41 @@
+# src/ncl/integrations/microsoft_graph_integration.py
+"""
+Microsoft Graph Integration
+Calendar, email, and task management for NCL
+"""
+
+import logging
+from typing import Dict, List, Optional, Any
+
+class MicrosoftGraphIntegration:
+    """Microsoft Graph integration for productivity tools"""
+
+    def __init__(self, client_id: Optional[str] = None, tenant_id: Optional[str] = None):
+        self.logger = logging.getLogger(__name__)
+        self.client_id = client_id
+        self.tenant_id = tenant_id
+        self.is_connected = False
+
+    async def initialize(self) -> bool:
+        """Initialize Microsoft Graph integration"""
+        self.logger.info("📅 Initializing Microsoft Graph integration...")
+        self.is_connected = bool(self.client_id and self.tenant_id)
+        return True
+
+    async def get_calendar_events(self) -> List[Dict[str, Any]]:
+        """Get calendar events"""
+        if not self.is_connected:
+            return []
+        # Mock implementation
+        return [{"subject": "Mock Meeting", "start": "2024-01-01T10:00:00Z"}]
+
+    async def create_task(self, title: str, due_date: str) -> bool:
+        """Create a task in Microsoft To Do"""
+        if not self.is_connected:
+            return False
+        # Mock implementation
+        return True
+
+    async def shutdown(self) -> bool:
+        """Shutdown Microsoft Graph integration"""
+        return True

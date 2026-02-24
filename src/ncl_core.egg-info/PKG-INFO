@@ -1,0 +1,330 @@
+Metadata-Version: 2.4
+Name: ncl-core
+Version: 2.0.0
+Summary: Neural Control Language - Cyber-physical organism implementation
+Home-page: https://github.com/ResonanceEnergy/Super-Agency
+Author: NCC Development Team
+Author-email: ncc@superagency.ai
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Topic :: Scientific/Engineering :: Artificial Intelligence
+Classifier: Topic :: System :: Distributed Computing
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+Requires-Dist: asyncio-mqtt>=0.11.0
+Requires-Dist: pydantic>=2.0.0
+Requires-Dist: structlog>=23.0.0
+Requires-Dist: aiomqtt>=1.2.0
+Requires-Dist: cryptography>=41.0.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0.0; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.21.0; extra == "dev"
+Requires-Dist: black>=23.0.0; extra == "dev"
+Requires-Dist: isort>=5.12.0; extra == "dev"
+Requires-Dist: mypy>=1.0.0; extra == "dev"
+Requires-Dist: flake8>=6.0.0; extra == "dev"
+Provides-Extra: monitoring
+Requires-Dist: grafana-api>=1.0.3; extra == "monitoring"
+Requires-Dist: prometheus-client>=0.17.0; extra == "monitoring"
+Provides-Extra: security
+Requires-Dist: bcrypt>=4.0.0; extra == "security"
+Requires-Dist: pyjwt>=2.8.0; extra == "security"
+Dynamic: author
+Dynamic: author-email
+Dynamic: classifier
+Dynamic: description
+Dynamic: description-content-type
+Dynamic: home-page
+Dynamic: provides-extra
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary
+
+# Neural Control Language (NCL) - Implementation
+
+## Overview
+
+The Neural Control Language (NCL) is a cyber-physical organism implementing the Master Doctrine v2.0. This implementation transforms theoretical frameworks into actionable systems and processes for autonomous operation.
+
+## Architecture
+
+### Core Components
+
+```
+NCC (Neural Control Center)
+├── Digital Twin Engine - System state synchronization
+├── Decision Engine - Doctrine-aligned decision making
+├── Memory System - Persistent knowledge storage
+├── Agent Corps - Specialized AI agents
+├── Security (Faraday Fortress) - Zero-trust protection
+├── Monitoring - System observability
+└── Integrations - External service connections
+```
+
+### Doctrine Domains
+
+- **HHP**: Human Health & Performance (Priority 10)
+- **FAO**: Financial Asset Optimization (Priority 9)
+- **TAA**: Time Allocation & Automation (Priority 8)
+- **KDD**: Knowledge Discovery & Development (Priority 7)
+- **RNN**: Relationship Network & Nurturing (Priority 6)
+- **AIN**: Artificial Intelligence & Neural Networks (Priority 5)
+- **NPE**: Network & Platform Engineering (Priority 4)
+
+## Installation
+
+### Prerequisites
+- Python 3.8+
+- pip package manager
+
+### Setup
+```bash
+# Clone the repository
+cd repos/NCL
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Install the package
+pip install -e .
+```
+
+### Configuration
+Edit `config/ncc_config.json` to configure:
+- API keys for integrations
+- System thresholds and limits
+- Doctrine domain priorities
+- Security settings
+
+## Usage
+
+### Basic Operation
+
+```python
+import asyncio
+from ncl.core.ncc import NCC
+
+async def main():
+    # Initialize NCC
+    ncc = NCC()
+    await ncc.initialize()
+
+    # Run orchestration cycle
+    results = await ncc.orchestrate_cycle()
+    print(f"Cycle completed: {results}")
+
+    # Get system status
+    status = await ncc.get_status()
+    print(f"System health: {status.system_health}%")
+
+    # Shutdown
+    await ncc.emergency_shutdown()
+
+asyncio.run(main())
+```
+
+### Command Line Interface
+
+```bash
+# Run orchestration cycle
+ncl-orchestrate
+
+# Start monitoring dashboard
+ncl-monitor
+```
+
+## Development
+
+### Project Structure
+```
+src/ncl/
+├── core/                    # Core system components
+│   ├── ncc.py              # Main Neural Control Center
+│   ├── digital_twin.py     # Digital twin engine
+│   ├── decision_engine.py  # Decision processing
+│   └── memory_system.py    # Knowledge persistence
+├── agents/                  # Agent corps implementation
+│   ├── agent_corps.py      # Agent management
+│   └── base_agent.py       # Agent foundation
+├── security/                # Security systems
+│   └── faraday_fortress.py # Zero-trust security
+├── monitoring/              # System monitoring
+│   └── system_monitor.py   # Metrics and alerts
+├── integrations/            # External integrations
+│   ├── notion_integration.py
+│   ├── bitwarden_integration.py
+│   └── ...
+└── __init__.py
+```
+
+### Testing
+
+```bash
+# Run all tests
+pytest tests/
+
+# Run specific test module
+pytest tests/test_core.py
+
+# Run with coverage
+pytest --cov=ncl tests/
+```
+
+### Adding New Components
+
+1. **New Agent Domain**: Extend `AgentDomain` enum and implement specialized agent
+2. **New Integration**: Create integration class in `integrations/` package
+3. **New Security Feature**: Extend `FaradayFortress` with additional capabilities
+4. **New Monitoring**: Add metrics to `SystemMonitor`
+
+## API Reference
+
+### Core Classes
+
+#### NCC (Neural Control Center)
+- `initialize()` - Initialize all systems
+- `orchestrate_cycle()` - Run complete orchestration cycle
+- `get_status()` - Get system status
+- `emergency_shutdown()` - Emergency system shutdown
+
+#### DigitalTwin
+- `gather_insights()` - Collect system insights
+- `apply_decision()` - Apply decisions to twin
+- `get_twin_status()` - Get twin synchronization status
+
+#### DecisionEngine
+- `process_insight()` - Process insights into decisions
+- `process_threat()` - Handle security threats
+- `get_decision_history()` - Get decision history
+
+#### MemorySystem
+- `store()` - Store data persistently
+- `retrieve()` - Retrieve stored data
+- `search()` - Search stored knowledge
+
+#### AgentCorps
+- `assign_task()` - Assign tasks to agents
+- `gather_intelligence()` - Collect agent intelligence
+- `get_agent_status()` - Get agent corps status
+
+## Configuration
+
+### Environment Variables
+- `NCL_CONFIG_PATH` - Path to configuration file
+- `NCL_LOG_LEVEL` - Logging level (DEBUG, INFO, WARNING, ERROR)
+- `NCL_API_KEYS` - JSON string of API keys for integrations
+
+### Configuration File
+The `config/ncc_config.json` file contains:
+- System thresholds and limits
+- Integration configurations
+- Security settings
+- Doctrine domain priorities
+- Performance requirements
+
+## Security
+
+### Zero Trust Architecture
+- Continuous authentication verification
+- Least privilege access control
+- Micro-segmentation
+- Real-time threat detection
+
+### Encryption
+- AES-256 for data at rest
+- TLS 1.3 for data in transit
+- Key rotation every 90 days
+
+### Access Control
+- Role-based access control (RBAC)
+- Multi-factor authentication (MFA)
+- Session management with timeouts
+- Audit logging for all actions
+
+## Monitoring
+
+### Metrics Collected
+- System performance (CPU, memory, disk)
+- Agent activity and performance
+- Decision making statistics
+- Security events and incidents
+- Integration health status
+
+### Alerting
+- Configurable thresholds for all metrics
+- Escalation policies for critical alerts
+- Automated response capabilities
+- Historical trend analysis
+
+## Integrations
+
+### Supported Services
+- **Notion**: Single source of truth (PARA methodology)
+- **Bitwarden**: Secure credential management
+- **Microsoft Graph**: Productivity tools (Calendar, Tasks, Email)
+- **Oura Ring**: Health and wellness data
+- **Grafana**: Metrics visualization and dashboards
+
+### Adding New Integrations
+1. Create integration class extending base integration pattern
+2. Implement required methods (initialize, shutdown, core operations)
+3. Add configuration to `ncc_config.json`
+4. Register in `integrations/__init__.py`
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Import Errors**: Ensure `PYTHONPATH` includes `src` directory
+2. **Configuration Errors**: Validate JSON syntax in config files
+3. **Integration Failures**: Check API keys and network connectivity
+4. **Performance Issues**: Monitor system resources and adjust thresholds
+
+### Logs
+- Application logs: `logs/ncc.log`
+- Security events: `logs/security.log`
+- Performance metrics: `logs/monitoring.log`
+
+### Debug Mode
+```bash
+export NCL_LOG_LEVEL=DEBUG
+python -c "import logging; logging.basicConfig(level=logging.DEBUG)"
+```
+
+## Contributing
+
+### Development Guidelines
+1. Follow PEP 8 style guidelines
+2. Add comprehensive tests for new features
+3. Update documentation for API changes
+4. Ensure security review for authentication/authorization changes
+
+### Code Quality
+- Type hints required for all functions
+- Docstrings required for all classes and methods
+- Unit test coverage > 80%
+- Integration tests for critical paths
+
+## License
+
+This implementation is part of the Super Agency doctrine and follows the Master Doctrine v2.0 guidelines for autonomous operation and continuous evolution.
+
+## Support
+
+For issues and questions:
+1. Check existing documentation
+2. Review logs for error details
+3. Test in isolated environment
+4. Contact NCC development team
+
+---
+
+*This implementation represents Phase 1 (Foundation) of the 16-week NCL development roadmap. The system is designed for continuous evolution and autonomous operation.*

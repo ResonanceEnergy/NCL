@@ -1,0 +1,74 @@
+{
+  "ncc": {
+    "version": "2.0.0",
+    "cycle_interval_minutes": 30,
+    "emergency_shutdown_timeout_seconds": 60,
+    "max_concurrent_operations": 10
+  },
+  "memory_system": {
+    "storage_path": "data/memory",
+    "max_entries": 10000,
+    "ttl_days": 90,
+    "backup_interval_hours": 24
+  },
+  "digital_twin": {
+    "sync_interval_seconds": 60,
+    "health_check_interval_seconds": 300,
+    "max_drift_threshold": 0.1
+  },
+  "decision_engine": {
+    "confidence_threshold": 0.8,
+    "max_alternatives": 5,
+    "doctrine_compliance_weight": 0.9
+  },
+  "agent_corps": {
+    "max_concurrent_tasks": 10,
+    "task_timeout_seconds": 3600,
+    "performance_monitoring_interval": 300
+  },
+  "security": {
+    "encryption_enabled": true,
+    "session_timeout_minutes": 60,
+    "max_failed_attempts": 5,
+    "audit_log_retention_days": 365
+  },
+  "monitoring": {
+    "metrics_interval_seconds": 60,
+    "alert_threshold_cpu": 90.0,
+    "alert_threshold_memory": 85.0,
+    "alert_threshold_disk": 90.0
+  },
+  "integrations": {
+    "notion": {
+      "enabled": false,
+      "api_key": "",
+      "database_id": ""
+    },
+    "bitwarden": {
+      "enabled": false,
+      "server_url": "",
+      "client_id": "",
+      "client_secret": ""
+    },
+    "microsoft_graph": {
+      "enabled": false,
+      "client_id": "",
+      "client_secret": "",
+      "tenant_id": ""
+    },
+    "oura_ring": {
+      "enabled": false,
+      "client_id": "",
+      "client_secret": "",
+      "access_token": ""
+    },
+    "grafana": {
+      "enabled": false,
+      "url": "",
+      "api_key": ""
+    }
+  },
+  "data_directory": "C:\\Users\\gripa\\OneDrive - Grip and Ripp\\SuperAgency-Shared\\repos\\NCL\\data",
+  "logs_directory": "C:\\Users\\gripa\\OneDrive - Grip and Ripp\\SuperAgency-Shared\\repos\\NCL\\logs",
+  "backups_directory": "C:\\Users\\gripa\\OneDrive - Grip and Ripp\\SuperAgency-Shared\\repos\\NCL\\backups"
+}

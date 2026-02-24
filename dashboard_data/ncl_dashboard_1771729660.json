@@ -1,0 +1,653 @@
+{
+  "timestamp": 1771729660.0620546,
+  "cycle_result": {
+    "cycle_duration": 1.01415,
+    "intelligence_gathered": 95,
+    "decisions_made": 0,
+    "integrations_completed": 0,
+    "optimizations_applied": 0,
+    "system_health": 100.0
+  },
+  "metrics": {
+    "timestamp": "2026-02-21T20:07:40.061811",
+    "system_health": 100.0,
+    "active_agents": 0,
+    "insights_processed": 95,
+    "decisions_made": 0,
+    "security_incidents": 0,
+    "uptime": "0:00:02.931252",
+    "last_cycle": "2026-02-21T20:07:38.038788",
+    "cpu_usage": 29.6,
+    "memory_usage": 78.0,
+    "disk_usage": 38.6,
+    "network_io": {
+      "sent": 10227303527,
+      "recv": 21968963132
+    },
+    "projects": {
+      "total": 3,
+      "completed": 1,
+      "in_progress": 1,
+      "planned": 1,
+      "overall_progress": 38.3,
+      "projects": {
+        "ncl_foundation": {
+          "name": "NCL Foundation",
+          "description": "Core cyber-physical organism implementation",
+          "status": "completed",
+          "progress": 100,
+          "priority": "critical",
+          "start_date": "2026-02-15",
+          "target_completion": "2026-02-21",
+          "actual_completion": "2026-02-21",
+          "deliverables": [
+            "Neural Control Center (NCC)",
+            "Digital Twin Engine",
+            "Decision Engine",
+            "Memory System",
+            "Agent Corps Foundation",
+            "Security Framework",
+            "Monitoring System",
+            "Deployment Infrastructure"
+          ]
+        },
+        "agent_specialization": {
+          "name": "Agent Specialization",
+          "description": "Specialized AI agents for doctrine domains",
+          "status": "in_progress",
+          "progress": 15,
+          "priority": "high",
+          "start_date": "2026-02-22",
+          "target_completion": "2026-04-15",
+          "milestones": [
+            "IT Infrastructure Agent (Priority 21-45)",
+            "Legal Compliance Agent (Priority 46-70)",
+            "Health & Wellness Agent (Priority 71-95)",
+            "Intelligence Analysis Agent (Priority 96-120)"
+          ]
+        },
+        "integration_ecosystem": {
+          "name": "Integration Ecosystem",
+          "description": "External service integrations and APIs",
+          "status": "planned",
+          "progress": 0,
+          "priority": "high",
+          "start_date": "2026-03-01",
+          "target_completion": "2026-05-01",
+          "dependencies": [
+            "Notion API Integration",
+            "Bitwarden Enterprise Setup",
+            "Microsoft Graph API",
+            "Oura Ring Health Data",
+            "Grafana Metrics Dashboard"
+          ]
+        }
+      }
+    },
+    "agent_activity": {
+      "total_agents": 17,
+      "active_agents": 17,
+      "idle_agents": 0,
+      "processing_agents": 0,
+      "agent_domains": {
+        "it_infrastructure": {
+          "status": "active",
+          "tasks_completed": 0
+        },
+        "legal_compliance": {
+          "status": "active",
+          "tasks_completed": 0
+        },
+        "health_wellness": {
+          "status": "active",
+          "tasks_completed": 0
+        },
+        "intelligence_analysis": {
+          "status": "active",
+          "tasks_completed": 0
+        },
+        "strategic_planning": {
+          "status": "active",
+          "tasks_completed": 0
+        },
+        "network_engineering": {
+          "status": "active",
+          "tasks_completed": 0
+        },
+        "ai_research": {
+          "status": "active",
+          "tasks_completed": 0
+        },
+        "financial_optimization": {
+          "status": "active",
+          "tasks_completed": 0
+        },
+        "relationship_management": {
+          "status": "active",
+          "tasks_completed": 0
+        },
+        "time_allocation": {
+          "status": "active",
+          "tasks_completed": 0
+        },
+        "knowledge_development": {
+          "status": "active",
+          "tasks_completed": 0
+        },
+        "hiring_recruitment": {
+          "status": "active",
+          "tasks_completed": 0
+        },
+        "training_development": {
+          "status": "active",
+          "tasks_completed": 0
+        },
+        "sop_documentation": {
+          "status": "active",
+          "tasks_completed": 0
+        },
+        "automation_tools": {
+          "status": "active",
+          "tasks_completed": 0
+        },
+        "ceo_governance": {
+          "status": "active",
+          "tasks_completed": 0
+        },
+        "fatherhood_family": {
+          "status": "active",
+          "tasks_completed": 0
+        }
+      }
+    },
+    "performance": {
+      "response_time": 0.8,
+      "throughput": 95,
+      "error_rate": 0.1,
+      "availability": 99.9,
+      "efficiency": 92.3
+    },
+    "progress_bar": {
+      "percentage": 38.3,
+      "completed": false,
+      "phases": {
+        "foundation": 100,
+        "agents": 15,
+        "integration": 0,
+        "autonomous": 0
+      },
+      "milestones": [
+        {
+          "name": "NCL Foundation",
+          "completed": true,
+          "date": "2026-02-21"
+        },
+        {
+          "name": "Agent Specialization",
+          "completed": false,
+          "target": "2026-04-15"
+        },
+        {
+          "name": "Integration Ecosystem",
+          "completed": false,
+          "target": "2026-05-01"
+        },
+        {
+          "name": "Autonomous Operations",
+          "completed": false,
+          "target": "2026-06-01"
+        }
+      ]
+    },
+    "batch_index": {
+      "total_batches": 3,
+      "active_batches": 2,
+      "completed_batches": 1,
+      "batches": {
+        "ncl_foundation": {
+          "name": "NCL Foundation",
+          "description": "Core cyber-physical organism implementation",
+          "status": "completed",
+          "progress": 100,
+          "priority": "critical",
+          "start_date": "2026-02-15",
+          "target_completion": "2026-02-21",
+          "actual_completion": "2026-02-21",
+          "deliverables": [
+            "Neural Control Center (NCC)",
+            "Digital Twin Engine",
+            "Decision Engine",
+            "Memory System",
+            "Agent Corps Foundation",
+            "Security Framework",
+            "Monitoring System",
+            "Deployment Infrastructure"
+          ]
+        },
+        "agent_specialization": {
+          "name": "Agent Specialization",
+          "description": "Specialized AI agents for doctrine domains",
+          "status": "in_progress",
+          "progress": 15,
+          "priority": "high",
+          "start_date": "2026-02-22",
+          "target_completion": "2026-04-15",
+          "milestones": [
+            "IT Infrastructure Agent (Priority 21-45)",
+            "Legal Compliance Agent (Priority 46-70)",
+            "Health & Wellness Agent (Priority 71-95)",
+            "Intelligence Analysis Agent (Priority 96-120)"
+          ]
+        },
+        "integration_ecosystem": {
+          "name": "Integration Ecosystem",
+          "description": "External service integrations and APIs",
+          "status": "planned",
+          "progress": 0,
+          "priority": "high",
+          "start_date": "2026-03-01",
+          "target_completion": "2026-05-01",
+          "dependencies": [
+            "Notion API Integration",
+            "Bitwarden Enterprise Setup",
+            "Microsoft Graph API",
+            "Oura Ring Health Data",
+            "Grafana Metrics Dashboard"
+          ]
+        }
+      },
+      "batch_history": []
+    },
+    "deliverables_compiled": {
+      "total_deliverables": 8,
+      "completed_deliverables": 8,
+      "deliverables_by_project": {
+        "ncl_foundation": [
+          "Neural Control Center (NCC)",
+          "Digital Twin Engine",
+          "Decision Engine",
+          "Memory System",
+          "Agent Corps Foundation",
+          "Security Framework",
+          "Monitoring System",
+          "Deployment Infrastructure"
+        ],
+        "agent_specialization": [],
+        "integration_ecosystem": []
+      },
+      "compiled_date": "2026-02-21T20:07:40.061867",
+      "version": "2.0.0"
+    },
+    "roadmap": {
+      "phase_1": {
+        "name": "Foundation (Weeks 1-2)",
+        "status": "completed",
+        "weeks": "1-2",
+        "deliverables": [
+          "Technical Architecture Design",
+          "Core Systems Implementation",
+          "Security Framework",
+          "Monitoring Infrastructure",
+          "Agent Corps Foundation",
+          "Integration Stubs",
+          "Testing Framework",
+          "Deployment Pipeline"
+        ]
+      },
+      "phase_2": {
+        "name": "Agent Corps Development (Weeks 3-6)",
+        "status": "in_progress",
+        "weeks": "3-6",
+        "deliverables": [
+          "IT Infrastructure Agent (21-45)",
+          "Legal Compliance Agent (46-70)",
+          "Health & Wellness Agent (71-95)",
+          "Intelligence Analysis Agent (96-120)",
+          "Strategic Planning Agent (121-145)",
+          "Network Engineering Agent (146-170)",
+          "AI Research Agent (171-195)",
+          "Financial Optimization Agent (196-220)"
+        ]
+      },
+      "phase_3": {
+        "name": "Integration & Evolution (Weeks 7-12)",
+        "status": "planned",
+        "weeks": "7-12",
+        "deliverables": [
+          "Real API Integrations",
+          "Advanced Analytics",
+          "Machine Learning Components",
+          "Performance Optimization",
+          "Scalability Enhancements",
+          "User Interface Development"
+        ]
+      },
+      "phase_4": {
+        "name": "Autonomous Operations (Weeks 13-16)",
+        "status": "planned",
+        "weeks": "13-16",
+        "deliverables": [
+          "Full Autonomous Operation",
+          "Self-Optimization Capabilities",
+          "Global Deployment",
+          "Continuous Evolution",
+          "Advanced Monitoring",
+          "Emergency Protocols"
+        ]
+      }
+    },
+    "charts": {
+      "system_health_trend": [
+        {
+          "timestamp": "2026-02-15T00:00:00",
+          "health": 85.0
+        },
+        {
+          "timestamp": "2026-02-16T00:00:00",
+          "health": 88.0
+        },
+        {
+          "timestamp": "2026-02-17T00:00:00",
+          "health": 92.0
+        },
+        {
+          "timestamp": "2026-02-18T00:00:00",
+          "health": 95.0
+        },
+        {
+          "timestamp": "2026-02-19T00:00:00",
+          "health": 97.0
+        },
+        {
+          "timestamp": "2026-02-20T00:00:00",
+          "health": 98.5
+        },
+        {
+          "timestamp": "2026-02-21T00:00:00",
+          "health": 100.0
+        }
+      ],
+      "project_progress": {
+        "labels": [
+          "NCL Foundation",
+          "Agent Specialization",
+          "Integration Ecosystem"
+        ],
+        "data": [
+          100,
+          15,
+          0
+        ],
+        "colors": [
+          "#00ff00",
+          "#ffff00",
+          "#ff0000"
+        ]
+      },
+      "agent_activity": {
+        "labels": [
+          "ncl_foundation",
+          "agent_specialization",
+          "integration_ecosystem"
+        ],
+        "datasets": [
+          {
+            "label": "Active Agents",
+            "data": [
+              1,
+              1,
+              1
+            ],
+            "backgroundColor": "#00ff00"
+          }
+        ]
+      },
+      "performance_metrics": {
+        "labels": [
+          "Response Time",
+          "Throughput",
+          "Error Rate",
+          "Availability",
+          "Efficiency"
+        ],
+        "data": [
+          0.8,
+          95,
+          0.1,
+          99.9,
+          92.3
+        ]
+      }
+    },
+    "alerts": [
+      {
+        "level": "info",
+        "message": "NCL Foundation Phase completed successfully",
+        "timestamp": "2026-02-21T12:00:00"
+      },
+      {
+        "level": "warning",
+        "message": "Agent specialization phase in progress",
+        "timestamp": "2026-02-21T14:30:00"
+      }
+    ]
+  },
+  "visual_components": {
+    "progress_bar": "\n        <div class=\"ncl-progress-container\">\n            <div class=\"ncl-progress-header\">\n                <h3>NCL Development Progress</h3>\n                <span class=\"ncl-overall-percentage\">38.3%</span>\n            </div>\n            <div class=\"ncl-progress-bar\">\n                <div class=\"ncl-progress-fill\" style=\"width: 38.3%\"></div>\n            </div>\n            <div class=\"ncl-project-progress\">\n                \n                    <div class=\"ncl-project-item\">\n                        <div class=\"ncl-project-name\">NCL Foundation</div>\n                        <div class=\"ncl-project-bar\">\n                            <div class=\"ncl-project-fill\" style=\"width: 100%\"></div>\n                        </div>\n                        <div class=\"ncl-project-percentage\">100%</div>\n                    </div>\n                    \n\n                    <div class=\"ncl-project-item\">\n                        <div class=\"ncl-project-name\">Agent Specialization</div>\n                        <div class=\"ncl-project-bar\">\n                            <div class=\"ncl-project-fill\" style=\"width: 15%\"></div>\n                        </div>\n                        <div class=\"ncl-project-percentage\">15%</div>\n                    </div>\n                    \n\n                    <div class=\"ncl-project-item\">\n                        <div class=\"ncl-project-name\">Integration Ecosystem</div>\n                        <div class=\"ncl-project-bar\">\n                            <div class=\"ncl-project-fill\" style=\"width: 0%\"></div>\n                        </div>\n                        <div class=\"ncl-project-percentage\">0%</div>\n                    </div>\n                    \n            </div>\n        </div>\n        <style>\n        .ncl-progress-container {\n            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;\n            max-width: 800px;\n            margin: 20px auto;\n            padding: 20px;\n            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);\n            border-radius: 12px;\n            box-shadow: 0 8px 32px rgba(0,0,0,0.1);\n            color: white;\n        }\n        .ncl-progress-header {\n            display: flex;\n            justify-content: space-between;\n            align-items: center;\n            margin-bottom: 15px;\n        }\n        .ncl-progress-header h3 {\n            margin: 0;\n            font-size: 1.5em;\n        }\n        .ncl-overall-percentage {\n            font-size: 1.2em;\n            font-weight: bold;\n        }\n        .ncl-progress-bar {\n            width: 100%;\n            height: 20px;\n            background: rgba(255,255,255,0.2);\n            border-radius: 10px;\n            overflow: hidden;\n            margin-bottom: 20px;\n        }\n        .ncl-progress-fill {\n            height: 100%;\n            background: linear-gradient(90deg, #4CAF50, #45a049);\n            transition: width 0.3s ease;\n        }\n        .ncl-project-progress {\n            display: grid;\n            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));\n            gap: 15px;\n        }\n        .ncl-project-item {\n            background: rgba(255,255,255,0.1);\n            padding: 15px;\n            border-radius: 8px;\n            backdrop-filter: blur(10px);\n        }\n        .ncl-project-name {\n            font-weight: bold;\n            margin-bottom: 8px;\n            font-size: 1.1em;\n        }\n        .ncl-project-bar {\n            width: 100%;\n            height: 12px;\n            background: rgba(255,255,255,0.2);\n            border-radius: 6px;\n            overflow: hidden;\n            margin-bottom: 5px;\n        }\n        .ncl-project-fill {\n            height: 100%;\n            background: linear-gradient(90deg, #2196F3, #1976D2);\n            transition: width 0.3s ease;\n        }\n        .ncl-project-percentage {\n            font-size: 0.9em;\n            text-align: right;\n        }\n        </style>\n        ",
+    "batch_index": {
+      "total_batches": 12,
+      "completed_batches": 3,
+      "in_progress_batches": 2,
+      "pending_batches": 7,
+      "projects": {
+        "ncl_foundation": {
+          "name": "NCL Foundation",
+          "total": 4,
+          "completed": 3,
+          "in_progress": 1,
+          "pending": 0,
+          "batches": [
+            {
+              "id": "core_architecture",
+              "name": "Core Architecture",
+              "status": "completed",
+              "progress": 100
+            },
+            {
+              "id": "neural_networks",
+              "name": "Neural Networks",
+              "status": "completed",
+              "progress": 100
+            },
+            {
+              "id": "control_systems",
+              "name": "Control Systems",
+              "status": "completed",
+              "progress": 100
+            },
+            {
+              "id": "learning_algorithms",
+              "name": "Learning Algorithms",
+              "status": "in_progress",
+              "progress": 75
+            }
+          ]
+        },
+        "agent_specialization": {
+          "name": "Agent Specialization",
+          "total": 4,
+          "completed": 0,
+          "in_progress": 1,
+          "pending": 3,
+          "batches": [
+            {
+              "id": "it_infrastructure",
+              "name": "IT Infrastructure Agent",
+              "status": "in_progress",
+              "progress": 15
+            },
+            {
+              "id": "security_agent",
+              "name": "Security Agent",
+              "status": "pending",
+              "progress": 0
+            },
+            {
+              "id": "data_science",
+              "name": "Data Science Agent",
+              "status": "pending",
+              "progress": 0
+            },
+            {
+              "id": "business_intelligence",
+              "name": "Business Intelligence Agent",
+              "status": "pending",
+              "progress": 0
+            }
+          ]
+        },
+        "integration_ecosystem": {
+          "name": "Integration Ecosystem",
+          "total": 4,
+          "completed": 0,
+          "in_progress": 0,
+          "pending": 4,
+          "batches": [
+            {
+              "id": "api_integrations",
+              "name": "API Integrations",
+              "status": "pending",
+              "progress": 0
+            },
+            {
+              "id": "third_party_services",
+              "name": "Third-party Services",
+              "status": "pending",
+              "progress": 0
+            },
+            {
+              "id": "data_connectors",
+              "name": "Data Connectors",
+              "status": "pending",
+              "progress": 0
+            },
+            {
+              "id": "workflow_automation",
+              "name": "Workflow Automation",
+              "status": "pending",
+              "progress": 0
+            }
+          ]
+        }
+      }
+    },
+    "deliverables": {
+      "total_deliverables": 12,
+      "completed_deliverables": 3,
+      "in_progress_deliverables": 2,
+      "pending_deliverables": 7,
+      "projects": {
+        "ncl_foundation": {
+          "name": "NCL Foundation",
+          "total": 4,
+          "completed": 3,
+          "in_progress": 1,
+          "pending": 0,
+          "deliverables": [
+            {
+              "id": "architecture_spec",
+              "name": "Architecture Specification",
+              "status": "completed",
+              "type": "document"
+            },
+            {
+              "id": "core_codebase",
+              "name": "Core Codebase",
+              "status": "completed",
+              "type": "code"
+            },
+            {
+              "id": "api_documentation",
+              "name": "API Documentation",
+              "status": "completed",
+              "type": "document"
+            },
+            {
+              "id": "unit_tests",
+              "name": "Unit Tests",
+              "status": "in_progress",
+              "type": "code"
+            }
+          ]
+        },
+        "agent_specialization": {
+          "name": "Agent Specialization",
+          "total": 4,
+          "completed": 0,
+          "in_progress": 1,
+          "pending": 3,
+          "deliverables": [
+            {
+              "id": "it_agent_module",
+              "name": "IT Infrastructure Agent Module",
+              "status": "in_progress",
+              "type": "code"
+            },
+            {
+              "id": "security_agent_module",
+              "name": "Security Agent Module",
+              "status": "pending",
+              "type": "code"
+            },
+            {
+              "id": "agent_documentation",
+              "name": "Agent Documentation",
+              "status": "pending",
+              "type": "document"
+            },
+            {
+              "id": "integration_tests",
+              "name": "Integration Tests",
+              "status": "pending",
+              "type": "code"
+            }
+          ]
+        },
+        "integration_ecosystem": {
+          "name": "Integration Ecosystem",
+          "total": 4,
+          "completed": 0,
+          "in_progress": 0,
+          "pending": 4,
+          "deliverables": [
+            {
+              "id": "api_connectors",
+              "name": "API Connectors",
+              "status": "pending",
+              "type": "code"
+            },
+            {
+              "id": "service_integrations",
+              "name": "Service Integrations",
+              "status": "pending",
+              "type": "code"
+            },
+            {
+              "id": "integration_guide",
+              "name": "Integration Guide",
+              "status": "pending",
+              "type": "document"
+            },
+            {
+              "id": "deployment_scripts",
+              "name": "Deployment Scripts",
+              "status": "pending",
+              "type": "code"
+            }
+          ]
+        }
+      }
+    },
+    "roadmap": "\n            <div class=\"ncl-roadmap-container\">\n                <h3>NCL Development Roadmap</h3>\n                <div class=\"ncl-roadmap-timeline\">\n                    \n                <div class=\"ncl-phase-item\">\n                    <div class=\"ncl-phase-circle ncl-phase-completed\">\n                        <div class=\"ncl-phase-name\">Foundation & Architecture</div>\n                        <div class=\"ncl-phase-weeks\">Week 1-2</div>\n                    </div>\n                    <div class=\"ncl-phase-details\">\n                        <div class=\"ncl-phase-progress\">100% Complete</div>\n                        <ul class=\"ncl-phase-milestones\">\n                            <li>Core NCL Architecture</li>\n<li>Neural Control Systems</li>\n<li>Basic Learning Algorithms</li>\n                        </ul>\n                    </div>\n                </div>\n                \n\n                <div class=\"ncl-phase-item\">\n                    <div class=\"ncl-phase-circle ncl-phase-in_progress\">\n                        <div class=\"ncl-phase-name\">Agent Development</div>\n                        <div class=\"ncl-phase-weeks\">Week 3-6</div>\n                    </div>\n                    <div class=\"ncl-phase-details\">\n                        <div class=\"ncl-phase-progress\">25% Complete</div>\n                        <ul class=\"ncl-phase-milestones\">\n                            <li>IT Infrastructure Agent</li>\n<li>Security Agent</li>\n<li>Data Science Agent</li>\n<li>Business Intelligence Agent</li>\n                        </ul>\n                    </div>\n                </div>\n                \n\n                <div class=\"ncl-phase-item\">\n                    <div class=\"ncl-phase-circle ncl-phase-pending\">\n                        <div class=\"ncl-phase-name\">Integration & Ecosystem</div>\n                        <div class=\"ncl-phase-weeks\">Week 7-10</div>\n                    </div>\n                    <div class=\"ncl-phase-details\">\n                        <div class=\"ncl-phase-progress\">0% Complete</div>\n                        <ul class=\"ncl-phase-milestones\">\n                            <li>API Integrations</li>\n<li>Third-party Services</li>\n<li>Workflow Automation</li>\n<li>Deployment Systems</li>\n                        </ul>\n                    </div>\n                </div>\n                \n\n                <div class=\"ncl-phase-item\">\n                    <div class=\"ncl-phase-circle ncl-phase-pending\">\n                        <div class=\"ncl-phase-name\">Advanced Features & Scaling</div>\n                        <div class=\"ncl-phase-weeks\">Week 11-16</div>\n                    </div>\n                    <div class=\"ncl-phase-details\">\n                        <div class=\"ncl-phase-progress\">0% Complete</div>\n                        <ul class=\"ncl-phase-milestones\">\n                            <li>Advanced AI Capabilities</li>\n<li>Multi-agent Coordination</li>\n<li>Scalability & Performance</li>\n<li>Production Deployment</li>\n                        </ul>\n                    </div>\n                </div>\n                \n                </div>\n            </div>\n            <style>\n            .ncl-roadmap-container {\n                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;\n                max-width: 1000px;\n                margin: 20px auto;\n                padding: 20px;\n                background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);\n                border-radius: 12px;\n                box-shadow: 0 8px 32px rgba(0,0,0,0.1);\n                color: white;\n            }\n            .ncl-roadmap-container h3 {\n                text-align: center;\n                margin-bottom: 30px;\n                font-size: 1.8em;\n            }\n            .ncl-roadmap-timeline {\n                display: flex;\n                justify-content: space-between;\n                align-items: flex-start;\n                position: relative;\n            }\n            .ncl-roadmap-timeline::before {\n                content: '';\n                position: absolute;\n                top: 50px;\n                left: 0;\n                right: 0;\n                height: 4px;\n                background: rgba(255,255,255,0.3);\n                z-index: 1;\n            }\n            .ncl-phase-item {\n                flex: 1;\n                text-align: center;\n                position: relative;\n                z-index: 2;\n                margin: 0 10px;\n            }\n            .ncl-phase-circle {\n                width: 100px;\n                height: 100px;\n                border-radius: 50%;\n                margin: 0 auto 15px;\n                display: flex;\n                flex-direction: column;\n                justify-content: center;\n                align-items: center;\n                font-weight: bold;\n                font-size: 0.9em;\n                position: relative;\n                border: 4px solid rgba(255,255,255,0.3);\n            }\n            .ncl-phase-completed {\n                background: linear-gradient(135deg, #4CAF50, #45a049);\n                border-color: #4CAF50;\n            }\n            .ncl-phase-in-progress {\n                background: linear-gradient(135deg, #FF9800, #F57C00);\n                border-color: #FF9800;\n                animation: pulse 2s infinite;\n            }\n            .ncl-phase-pending {\n                background: rgba(255,255,255,0.1);\n                border-color: rgba(255,255,255,0.3);\n            }\n            .ncl-phase-name {\n                font-size: 0.8em;\n                margin-bottom: 5px;\n                line-height: 1.2;\n            }\n            .ncl-phase-weeks {\n                font-size: 0.7em;\n                opacity: 0.8;\n            }\n            .ncl-phase-details {\n                background: rgba(255,255,255,0.1);\n                padding: 15px;\n                border-radius: 8px;\n                margin-top: 15px;\n                backdrop-filter: blur(10px);\n            }\n            .ncl-phase-milestones {\n                list-style: none;\n                padding: 0;\n                margin: 10px 0 0 0;\n            }\n            .ncl-phase-milestones li {\n                padding: 3px 0;\n                font-size: 0.8em;\n                opacity: 0.9;\n            }\n            .ncl-phase-progress {\n                font-size: 0.7em;\n                margin-top: 5px;\n                opacity: 0.8;\n            }\n            @keyframes pulse {\n                0% { transform: scale(1); }\n                50% { transform: scale(1.05); }\n                100% { transform: scale(1); }\n            }\n            @media (max-width: 768px) {\n                .ncl-roadmap-timeline {\n                    flex-direction: column;\n                    align-items: center;\n                }\n                .ncl-roadmap-timeline::before {\n                    width: 4px;\n                    height: auto;\n                    left: 50%;\n                    top: 0;\n                    transform: translateX(-50%);\n                }\n                .ncl-phase-item {\n                    margin: 20px 0;\n                }\n            }\n            </style>\n            "
+  }
+}

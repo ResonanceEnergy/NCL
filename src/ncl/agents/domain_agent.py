@@ -1,0 +1,206 @@
+"""
+Concrete Agent Implementation
+Default agent implementation for NCL domains
+"""
+
+import asyncio
+import logging
+from typing import Any, Dict, List, Optional
+from datetime import datetime
+
+from .base_agent import BaseAgent
+from .enums import AgentDomain
+
+
+class DomainAgent(BaseAgent):
+    """Concrete implementation of BaseAgent for doctrine domains"""
+
+    def __init__(self, agent_id: str, domain: AgentDomain, capabilities: List[str]):
+    """__init__ function/class."""
+
+        super().__init__(agent_id, domain, capabilities)
+        self.domain_knowledge: Dict[str, Any] = {}
+        self.task_history: List[Dict[str, Any]] = []
+
+    async def _initialize_domain_components(self) -> bool:
+        """Initialize domain-specific components"""
+        try:
+            self.logger.info(f"🔧 Initializing {self.domain.value} components for {self.agent_id}")
+
+            # Initialize domain knowledge base
+            self.domain_knowledge = {
+                "domain": self.domain.value,
+                "capabilities": self.capabilities,
+                "initialized_at": datetime.now().isoformat(),
+                "performance_metrics": {
+                    "tasks_completed": 0,
+                    "success_rate": 100.0,
+                    "average_completion_time": 0.0
+                }
+            }
+
+            # Domain-specific initialization
+            if self.domain == AgentDomain.IT_INFRASTRUCTURE:
+                await self._initialize_it_infrastructure()
+            elif self.domain == AgentDomain.LEGAL_COMPLIANCE:
+                await self._initialize_legal_compliance()
+            elif self.domain == AgentDomain.HEALTH_WELLNESS:
+                await self._initialize_health_wellness()
+            # Add other domains as needed
+
+            self.logger.info(f"✅ {self.domain.value} components initialized")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"❌ Failed to initialize {self.domain.value} components: {e}")
+            return False
+
+    async def _execute_domain_task(self, task_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute a domain-specific task"""
+        try:
+            task_type = task_data.get("type", "general")
+            self.logger.info(f"⚙️ Executing {task_type} task in {self.domain.value}")
+
+            # Record task start
+            task_start = datetime.now()
+            task_record = {
+                "task_id": task_data.get("id", "unknown"),
+                "type": task_type,
+                "started_at": task_start.isoformat(),
+                "status": "in_progress"
+            }
+
+            # Execute based on domain and task type
+            result = await self._execute_task_by_domain(task_data)
+
+            # Record completion
+            task_record.update({
+                "completed_at": datetime.now().isoformat(),
+                "duration": (datetime.now() - task_start).total_seconds(),
+                "status": "completed",
+                "result": result
+            })
+
+            self.task_history.append(task_record)
+
+            # Update performance metrics
+            self._update_performance_metrics(task_record)
+
+            return result
+
+        except Exception as e:
+            self.logger.error(f"❌ Task execution failed: {e}")
+            return {"status": "failed", "error": str(e)}
+
+    async def _gather_domain_intelligence(self) -> List[Dict[str, Any]]:
+        """Gather intelligence specific to this domain"""
+        intelligence = []
+
+        try:
+            # Gather domain-specific insights
+            if self.domain == AgentDomain.IT_INFRASTRUCTURE:
+                intelligence.extend(await self._gather_it_intelligence())
+            elif self.domain == AgentDomain.HEALTH_WELLNESS:
+                intelligence.extend(await self._gather_health_intelligence())
+            elif self.domain == AgentDomain.LEGAL_COMPLIANCE:
+                intelligence.extend(await self._gather_legal_intelligence())
+            # Add other domains
+
+            # Add general domain health intelligence
+            intelligence.append({
+                "type": "domain_health",
+                "domain": self.domain.value,
+                "agent_id": self.agent_id,
+                "metrics": self.domain_knowledge.get("performance_metrics", {}),
+                "timestamp": datetime.now().isoformat()
+            })
+
+        except Exception as e:
+            self.logger.error(f"❌ Intelligence gathering failed: {e}")
+
+        return intelligence
+
+    async def _execute_task_by_domain(self, task_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute task based on domain specialization"""
+        # Default implementation - override in specialized agents
+        return {
+            "status": "completed",
+            "domain": self.domain.value,
+            "agent_id": self.agent_id,
+            "task_type": task_data.get("type", "general"),
+            "result": f"Task completed by {self.agent_id} in {self.domain.value} domain"
+        }
+
+    def _update_performance_metrics(self, task_record: Dict[str, Any]):
+        """Update performance metrics after task completion"""
+        metrics = self.domain_knowledge["performance_metrics"]
+        metrics["tasks_completed"] += 1
+
+        if task_record["status"] == "completed":
+            # Calculate success rate
+            success_count = sum(1 for t in self.task_history if t["status"] == "completed")
+            metrics["success_rate"] = (success_count / len(self.task_history)) * 100
+
+            # Update average completion time
+            completion_times = [t["duration"] for t in self.task_history if t["status"] == "completed"]
+            if completion_times:
+                metrics["average_completion_time"] = sum(completion_times) / len(completion_times)
+
+    # Domain-specific initialization methods
+    async def _initialize_it_infrastructure(self):
+        """Initialize IT Infrastructure domain components"""
+        self.domain_knowledge.update({
+            "monitored_systems": [],
+            "network_topology": {},
+            "security_policies": {},
+            "backup_schedules": {}
+        })
+
+    async def _initialize_legal_compliance(self):
+        """Initialize Legal Compliance domain components"""
+        self.domain_knowledge.update({
+            "active_contracts": [],
+            "compliance_frameworks": [],
+            "regulatory_requirements": {},
+            "risk_assessments": {}
+        })
+
+    async def _initialize_health_wellness(self):
+        """Initialize Health & Wellness domain components"""
+        self.domain_knowledge.update({
+            "health_metrics": {},
+            "wellness_programs": [],
+            "ergonomics_assessments": {},
+            "stress_indicators": {}
+        })
+
+    # Intelligence gathering methods
+    async def _gather_it_intelligence(self) -> List[Dict[str, Any]]:
+        """Gather IT infrastructure intelligence"""
+        return [{
+            "type": "system_status",
+            "domain": "it_infrastructure",
+            "findings": "System monitoring active",
+            "priority": "medium",
+            "timestamp": datetime.now().isoformat()
+        }]
+
+    async def _gather_health_intelligence(self) -> List[Dict[str, Any]]:
+        """Gather health and wellness intelligence"""
+        return [{
+            "type": "wellness_status",
+            "domain": "health_wellness",
+            "findings": "Wellness monitoring active",
+            "priority": "medium",
+            "timestamp": datetime.now().isoformat()
+        }]
+
+    async def _gather_legal_intelligence(self) -> List[Dict[str, Any]]:
+        """Gather legal compliance intelligence"""
+        return [{
+            "type": "compliance_status",
+            "domain": "legal_compliance",
+            "findings": "Compliance monitoring active",
+            "priority": "high",
+            "timestamp": datetime.now().isoformat()
+        }]

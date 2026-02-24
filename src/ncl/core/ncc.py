@@ -1,0 +1,322 @@
+# src/ncl/core/ncc.py
+"""
+Neural Control Center (NCC)
+Main orchestrator for the NCL system implementing Master Doctrine v2.0
+"""
+
+import asyncio
+import logging
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Any
+from dataclasses import dataclass, field
+from enum import Enum
+
+from .digital_twin import DigitalTwin
+from .decision_engine import DecisionEngine
+from .memory_system import MemorySystem
+from ..security.faraday_fortress import FaradayFortress
+from ..monitoring.system_monitor import SystemMonitor
+from ..agents.agent_corps import AgentCorps
+
+
+class SystemState(Enum):
+"""SystemState function/class."""
+
+    INITIALIZING = "initializing"
+    OPERATIONAL = "operational"
+    EVOLVING = "evolving"
+    MAINTENANCE = "maintenance"
+    EMERGENCY = "emergency"
+
+
+@dataclass
+class NCCStatus:
+    """Real-time status of the NCC system"""
+    state: SystemState = SystemState.INITIALIZING
+    uptime: timedelta = field(default_factory=timedelta)
+    last_cycle: Optional[datetime] = None
+    insights_processed: int = 0
+    decisions_made: int = 0
+    security_incidents: int = 0
+    system_health: float = 100.0
+    active_agents: int = 0
+
+
+class NCC:
+    """
+    Neural Control Center - The cyber-physical organism implementing Master Doctrine v2.0
+
+    This is the master orchestrator that coordinates all NCL systems and maintains
+    the living, evolving nature of the Super Agency.
+    """
+    """__init__ function/class."""
+
+
+    def __init__(self, config_path: str = "config/ncc_config.json"):
+        self.logger = logging.getLogger(__name__)
+        self.config_path = config_path
+        self.status = NCCStatus()
+        self.start_time = datetime.now()
+
+        # Core Systems
+        self.digital_twin: Optional[DigitalTwin] = None
+        self.decision_engine: Optional[DecisionEngine] = None
+        self.memory_system: Optional[MemorySystem] = None
+
+        # Security & Monitoring
+        self.security: Optional[FaradayFortress] = None
+        self.monitor: Optional[SystemMonitor] = None
+
+        # Agent Corps
+        self.agent_corps: Optional[AgentCorps] = None
+
+        # Operating Rhythm
+        self.cycle_interval = timedelta(minutes=30)  # 30-minute orchestration cycles
+        self.last_cycle = None
+        self.is_running = False
+
+    async def initialize(self) -> bool:
+        """Initialize all NCC systems and components"""
+        try:
+            self.logger.info("🔄 Initializing Neural Control Center...")
+
+            # Initialize core systems in dependency order
+            self.memory_system = MemorySystem()
+            await self.memory_system.initialize()
+
+            self.digital_twin = DigitalTwin(self.memory_system)
+            await self.digital_twin.initialize()
+
+            self.decision_engine = DecisionEngine(self.digital_twin, self.memory_system)
+            await self.decision_engine.initialize()
+
+            # Initialize security and monitoring
+            self.security = FaradayFortress()
+            await self.security.initialize()
+
+            self.monitor = SystemMonitor()
+            await self.monitor.initialize()
+
+            # Initialize agent corps
+            self.agent_corps = AgentCorps(self.decision_engine, self.security)
+            await self.agent_corps.initialize()
+
+            # Update status
+            self.status.state = SystemState.OPERATIONAL
+            self.status.uptime = datetime.now() - self.start_time
+
+            self.logger.info("✅ NCC initialization complete")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"❌ NCC initialization failed: {e}")
+            self.status.state = SystemState.EMERGENCY
+            return False
+
+    async def orchestrate_cycle(self) -> Dict[str, Any]:
+        """Execute a complete orchestration cycle"""
+        cycle_start = datetime.now()
+
+        try:
+            self.logger.info("🎯 Starting NCC orchestration cycle...")
+
+            # Phase 1: Intelligence Gathering
+            intelligence = await self._gather_intelligence()
+
+            # Phase 2: Decision Processing
+            decisions = await self._process_decisions(intelligence)
+
+            # Phase 3: System Integration
+            integration_results = await self._integrate_systems(decisions)
+
+            # Phase 4: Resource Optimization
+            optimization_results = await self._optimize_resources(integration_results)
+
+            # Update status
+            self.status.last_cycle = cycle_start
+            self.status.insights_processed += len(intelligence.get('insights', []))
+            self.status.decisions_made += len(decisions)
+            self.status.uptime = datetime.now() - self.start_time
+
+            cycle_duration = datetime.now() - cycle_start
+            self.logger.info(f"✅ Cycle completed in {cycle_duration.total_seconds():.2f}s")
+
+            return {
+                'cycle_duration': cycle_duration.total_seconds(),
+                'intelligence_gathered': len(intelligence.get('insights', [])),
+                'decisions_made': len(decisions),
+                'integrations_completed': len(integration_results),
+                'optimizations_applied': len(optimization_results),
+                'system_health': self.status.system_health
+            }
+
+        except Exception as e:
+            self.logger.error(f"❌ Cycle failed: {e}")
+            self.status.system_health = max(0, self.status.system_health - 10)
+            return {'error': str(e), 'system_health': self.status.system_health}
+
+    async def _gather_intelligence(self) -> Dict[str, Any]:
+        """Phase 1: Gather intelligence from all systems"""
+        intelligence = {
+            'insights': [],
+            'threats': [],
+            'opportunities': [],
+            'metrics': {}
+        }
+
+        # Gather from digital twin
+        if self.digital_twin:
+            twin_data = await self.digital_twin.gather_insights()
+            intelligence['insights'].extend(twin_data.get('insights', []))
+
+        # Gather from agent corps
+        if self.agent_corps:
+            agent_insights = await self.agent_corps.gather_intelligence()
+            intelligence['insights'].extend(agent_insights)
+
+        # Gather security intelligence
+        if self.security:
+            security_data = await self.security.assess_threats()
+            intelligence['threats'].extend(security_data.get('threats', []))
+
+        # Gather system metrics
+        if self.monitor:
+            metrics = await self.monitor.collect_metrics()
+            intelligence['metrics'] = metrics
+
+        return intelligence
+
+    async def _process_decisions(self, intelligence: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Phase 2: Process intelligence through decision engine"""
+        if not self.decision_engine:
+            return []
+
+        decisions = []
+
+        # Process insights
+        for insight in intelligence.get('insights', []):
+            decision = await self.decision_engine.process_insight(insight)
+            if decision:
+                decisions.append(decision)
+
+        # Process threats
+        for threat in intelligence.get('threats', []):
+            decision = await self.decision_engine.process_threat(threat)
+            if decision:
+                decisions.append(decision)
+
+        return decisions
+
+    async def _integrate_systems(self, decisions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Phase 3: Integrate decisions across systems"""
+        integration_results = []
+
+        for decision in decisions:
+            # Apply decision to digital twin
+            if self.digital_twin:
+                result = await self.digital_twin.apply_decision(decision)
+                integration_results.append(result)
+
+            # Update agent corps
+            if self.agent_corps:
+                result = await self.agent_corps.apply_decision(decision)
+                integration_results.append(result)
+
+        return integration_results
+
+    async def _optimize_resources(self, integration_results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Phase 4: Optimize system resources"""
+        optimization_results = []
+
+        # Analyze system performance
+        if self.monitor:
+            performance_data = await self.monitor.analyze_performance()
+
+            # Apply optimizations based on performance
+            optimizations = await self._calculate_optimizations(performance_data)
+            optimization_results.extend(optimizations)
+
+        return optimization_results
+
+    async def _calculate_optimizations(self, performance_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Calculate resource optimizations"""
+        optimizations = []
+
+        # CPU optimization
+        if performance_data.get('cpu_usage', 0) > 80:
+            optimizations.append({
+                'type': 'cpu_optimization',
+                'action': 'reduce_non_essential_processes',
+                'priority': 'high'
+            })
+
+        # Memory optimization
+        if performance_data.get('memory_usage', 0) > 85:
+            optimizations.append({
+                'type': 'memory_optimization',
+                'action': 'clear_memory_cache',
+                'priority': 'high'
+            })
+
+        # Agent optimization
+        if len(performance_data.get('active_agents', [])) > 50:
+            optimizations.append({
+                'type': 'agent_optimization',
+                'action': 'prioritize_critical_agents',
+                'priority': 'medium'
+            })
+
+        return optimizations
+
+    async def get_status(self) -> NCCStatus:
+        """Get current NCC status"""
+        self.status.uptime = datetime.now() - self.start_time
+        return self.status
+
+    async def emergency_shutdown(self) -> bool:
+        """Emergency shutdown of all systems"""
+        try:
+            self.logger.warning("🚨 Emergency shutdown initiated")
+
+            # Shutdown in reverse order
+            if self.agent_corps:
+                await self.agent_corps.shutdown()
+            if self.monitor:
+                await self.monitor.shutdown()
+            if self.security:
+                await self.security.shutdown()
+            if self.decision_engine:
+                await self.decision_engine.shutdown()
+            if self.digital_twin:
+                await self.digital_twin.shutdown()
+            if self.memory_system:
+                await self.memory_system.shutdown()
+
+            self.status.state = SystemState.EMERGENCY
+            self.is_running = False
+
+            self.logger.info("✅ Emergency shutdown complete")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"❌ Emergency shutdown failed: {e}")
+            return False
+
+    async def run_continuous_cycles(self):
+        """Run continuous orchestration cycles"""
+        self.is_running = True
+        self.logger.info("🔄 Starting continuous NCC orchestration cycles")
+
+        while self.is_running:
+            try:
+                await self.orchestrate_cycle()
+                await asyncio.sleep(self.cycle_interval.total_seconds())
+
+            except Exception as e:
+                self.logger.error(f"❌ Cycle error: {e}")
+                await asyncio.sleep(60)  # Wait 1 minute before retrying
+
+    def stop_cycles(self):
+        """Stop continuous cycles"""
+        self.is_running = False
+        self.logger.info("🛑 Stopping NCC orchestration cycles")

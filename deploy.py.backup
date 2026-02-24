@@ -1,0 +1,423 @@
+#!/usr/bin/env python3
+"""
+NCL Deployment Script
+Deploys the Neural Control Language system for production use
+"""
+
+import os
+import sys
+import subprocess
+import json
+import shutil
+from pathlib import Path
+import argparse
+import logging
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+class NCLDeployer:
+    """Handles NCL system deployment"""
+
+    def __init__(self, target_dir=None, config_file=None):
+        self.project_root = Path(__file__).parent.absolute()
+        self.target_dir = Path(target_dir) if target_dir else self.project_root
+        self.config_file = config_file or self.project_root / "config" / "ncc_config.json"
+
+        # Deployment directories
+        self.data_dir = self.target_dir / "data"
+        self.logs_dir = self.target_dir / "logs"
+        self.backups_dir = self.target_dir / "backups"
+
+    def check_prerequisites(self):
+        """Check system prerequisites"""
+        logger.info("🔍 Checking prerequisites...")
+
+        # Check Python version
+        if sys.version_info < (3, 8):
+            raise RuntimeError("Python 3.8+ required")
+
+        # Check pip
+        try:
+            subprocess.run([sys.executable, "-m", "pip", "--version"],
+                         capture_output=True, check=True)
+        except subprocess.CalledProcessError:
+            raise RuntimeError("pip not available")
+
+        logger.info("✅ Prerequisites met")
+
+    def create_directories(self):
+        """Create necessary directories"""
+        logger.info("📁 Creating directories...")
+
+        directories = [
+            self.data_dir,
+            self.logs_dir,
+            self.backups_dir,
+            self.data_dir / "memory",
+            self.data_dir / "insights",
+            self.data_dir / "decisions"
+        ]
+
+        for directory in directories:
+            directory.mkdir(parents=True, exist_ok=True)
+            logger.info(f"  Created: {directory}")
+
+        logger.info("✅ Directories created")
+
+    def install_dependencies(self):
+        """Install Python dependencies"""
+        logger.info("📦 Installing dependencies...")
+
+        requirements_file = self.project_root / "requirements.txt"
+        if not requirements_file.exists():
+            logger.warning("requirements.txt not found, skipping dependency installation")
+            return
+
+        try:
+            subprocess.run([
+                sys.executable, "-m", "pip", "install", "-r", str(requirements_file)
+            ], check=True)
+            logger.info("✅ Dependencies installed")
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"Failed to install dependencies: {e}")
+
+    def install_package(self):
+        """Install the NCL package"""
+        logger.info("🔧 Installing NCL package...")
+
+        try:
+            subprocess.run([
+                sys.executable, "-m", "pip", "install", "-e", str(self.project_root)
+            ], check=True)
+            logger.info("✅ Package installed")
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(f"Failed to install package: {e}")
+
+    def setup_configuration(self):
+        """Setup configuration files"""
+        logger.info("⚙️ Setting up configuration...")
+
+        if not self.config_file.exists():
+            logger.warning(f"Config file not found: {self.config_file}")
+            self.create_default_config()
+            return
+
+        # Load and validate config
+        try:
+            with open(self.config_file, 'r') as f:
+                config = json.load(f)
+        except json.JSONDecodeError as e:
+            logger.warning(f"Invalid config file: {e}")
+            self.create_default_config()
+            return
+
+        # Update paths to absolute
+        config['data_directory'] = str(self.data_dir)
+        config['logs_directory'] = str(self.logs_dir)
+        config['backups_directory'] = str(self.backups_dir)
+
+        # Save updated config
+        config_path = self.target_dir / "config" / "ncc_config.json"
+        config_path.parent.mkdir(exist_ok=True)
+
+        with open(config_path, 'w') as f:
+            json.dump(config, f, indent=2)
+
+        logger.info(f"✅ Configuration saved to {config_path}")
+
+    def create_default_config(self):
+        """Create a default configuration"""
+        logger.info("📝 Creating default configuration...")
+
+        default_config = {
+            "ncc": {
+                "version": "2.0.0",
+                "cycle_interval_minutes": 30,
+                "emergency_shutdown_timeout_seconds": 60,
+                "max_concurrent_operations": 10
+            },
+            "memory_system": {
+                "storage_path": "data/memory",
+                "max_entries": 10000,
+                "ttl_days": 90,
+                "backup_interval_hours": 24
+            },
+            "digital_twin": {
+                "sync_interval_seconds": 60,
+                "health_check_interval_seconds": 300,
+                "max_drift_threshold": 0.1
+            },
+            "decision_engine": {
+                "confidence_threshold": 0.8,
+                "max_alternatives": 5,
+                "doctrine_compliance_weight": 0.9
+            },
+            "agent_corps": {
+                "max_concurrent_tasks": 10,
+                "task_timeout_seconds": 3600,
+                "performance_monitoring_interval": 300
+            },
+            "security": {
+                "encryption_enabled": True,
+                "session_timeout_minutes": 60,
+                "max_failed_attempts": 5,
+                "audit_log_retention_days": 365
+            },
+            "monitoring": {
+                "metrics_interval_seconds": 60,
+                "alert_threshold_cpu": 90.0,
+                "alert_threshold_memory": 85.0,
+                "alert_threshold_disk": 90.0
+            },
+            "integrations": {
+                "notion": {
+                    "enabled": False,
+                    "api_key": "",
+                    "database_id": ""
+                },
+                "bitwarden": {
+                    "enabled": False,
+                    "server_url": "",
+                    "client_id": "",
+                    "client_secret": ""
+                },
+                "microsoft_graph": {
+                    "enabled": False,
+                    "client_id": "",
+                    "client_secret": "",
+                    "tenant_id": ""
+                },
+                "oura_ring": {
+                    "enabled": False,
+                    "client_id": "",
+                    "client_secret": "",
+                    "access_token": ""
+                },
+                "grafana": {
+                    "enabled": False,
+                    "url": "",
+                    "api_key": ""
+                }
+            },
+            "data_directory": str(self.data_dir),
+            "logs_directory": str(self.logs_dir),
+            "backups_directory": str(self.backups_dir)
+        }
+
+        config_path = self.target_dir / "config" / "ncc_config.json"
+        config_path.parent.mkdir(exist_ok=True)
+
+        with open(config_path, 'w') as f:
+            json.dump(default_config, f, indent=2)
+
+        logger.info(f"✅ Default configuration created at {config_path}")
+
+    def create_startup_script(self):
+        """Create startup script"""
+        logger.info("🚀 Creating startup script...")
+
+        startup_script = f'''#!/usr/bin/env python3
+"""
+NCL Startup Script
+Starts the Neural Control Language system
+"""
+
+import asyncio
+import sys
+import os
+from pathlib import Path
+
+# Add src to path
+sys.path.insert(0, r"{self.project_root / "src"}")
+
+async def main():
+    try:
+        from ncl.core.ncc import NCC
+
+        print("🧠 Starting Neural Control Language (NCL) System...")
+        ncc = NCC()
+
+        # Initialize
+        print("🔄 Initializing system...")
+        success = await ncc.initialize()
+        if not success:
+            print("❌ Initialization failed")
+            return 1
+
+        print("✅ System initialized successfully")
+        print("🔄 Starting continuous operation...")
+
+        # Keep running
+        while True:
+            try:
+                results = await ncc.orchestrate_cycle()
+                print(f"✅ Cycle completed: {{len(results)}} insights processed")
+
+                # Brief pause between cycles
+                await asyncio.sleep(300)  # 5 minutes
+
+            except KeyboardInterrupt:
+                print("\\n🛑 Shutdown requested by user")
+                break
+            except Exception as e:
+                print(f"❌ Cycle error: {{e}}")
+                await asyncio.sleep(60)  # Wait before retry
+
+        # Shutdown
+        print("🔄 Shutting down...")
+        await ncc.emergency_shutdown()
+        print("✅ Shutdown complete")
+
+        return 0
+
+    except Exception as e:
+        print(f"❌ Startup failed: {{e}}")
+        return 1
+
+if __name__ == "__main__":
+    exit_code = asyncio.run(main())
+    sys.exit(exit_code)
+'''
+
+        script_path = self.target_dir / "start_ncl.py"
+        with open(script_path, 'w', encoding='utf-8') as f:
+            f.write(startup_script)
+
+        # Make executable on Unix-like systems
+        if os.name != 'nt':
+            script_path.chmod(0o755)
+
+        logger.info(f"✅ Startup script created: {script_path}")
+
+    def create_service_script(self):
+        """Create system service script for Linux"""
+        if os.name == 'nt':
+            return  # Skip on Windows
+
+        logger.info("🔧 Creating system service...")
+
+        service_script = f'''[Unit]
+Description=Neural Control Language (NCL) System
+After=network.target
+
+[Service]
+Type=simple
+User={os.getlogin()}
+WorkingDirectory={self.target_dir}
+ExecStart={sys.executable} {self.target_dir / "start_ncl.py"}
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+'''
+
+        service_path = self.target_dir / "ncl.service"
+        with open(service_path, 'w', encoding='utf-8') as f:
+            f.write(service_script)
+
+        logger.info(f"✅ Service script created: {service_path}")
+        logger.info("   To install: sudo cp ncl.service /etc/systemd/system/")
+        logger.info("   To enable: sudo systemctl enable ncl")
+        logger.info("   To start: sudo systemctl start ncl")
+
+    def run_initial_test(self):
+        """Run initial system test"""
+        logger.info("🧪 Running initial system test...")
+
+        test_script = f'''
+import asyncio
+import sys
+sys.path.insert(0, r"{self.project_root / "src"}")
+
+async def test():
+    from ncl.core.ncc import NCC
+
+    print("Testing NCL system...")
+    ncc = NCC()
+    await ncc.initialize()
+
+    results = await ncc.orchestrate_cycle()
+    status = await ncc.get_status()
+
+    print(f"✅ Test successful!")
+    print(f"   Insights processed: {{len(results)}}")
+    print(f"   System health: {{status.system_health}}%")
+    print(f"   Active agents: {{status.active_agents}}")
+
+    await ncc.emergency_shutdown()
+
+asyncio.run(test())
+'''
+
+        try:
+            result = subprocess.run([
+                sys.executable, "-c", test_script
+            ], capture_output=True, text=True, timeout=60)
+
+            if result.returncode == 0:
+                logger.info("✅ Initial test passed")
+                logger.info(result.stdout.strip())
+            else:
+                logger.error("❌ Initial test failed")
+                logger.error(result.stderr)
+                raise RuntimeError("System test failed")
+
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("System test timed out")
+
+    def deploy(self):
+        """Execute full deployment"""
+        logger.info("🚀 Starting NCL deployment...")
+
+        try:
+            self.check_prerequisites()
+            self.create_directories()
+            self.install_dependencies()
+            self.install_package()
+            self.setup_configuration()
+            self.create_startup_script()
+            self.create_service_script()
+            self.run_initial_test()
+
+            logger.info("🎉 NCL deployment completed successfully!")
+            logger.info("")
+            logger.info("To start the system:")
+            logger.info(f"  cd {self.target_dir}")
+            logger.info(f"  python start_ncl.py")
+            logger.info("")
+            logger.info("Or install as service (Linux):")
+            logger.info(f"  sudo cp {self.target_dir / 'ncl.service'} /etc/systemd/system/")
+            logger.info("  sudo systemctl enable ncl")
+            logger.info("  sudo systemctl start ncl")
+
+        except Exception as e:
+            logger.error(f"❌ Deployment failed: {e}")
+            raise
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Deploy NCL System")
+    parser.add_argument("--target-dir", help="Target deployment directory")
+    parser.add_argument("--config", help="Configuration file path")
+    parser.add_argument("--test-only", action="store_true", help="Run tests only")
+
+    args = parser.parse_args()
+
+    deployer = NCLDeployer(args.target_dir, args.config)
+
+    if args.test_only:
+        deployer.run_initial_test()
+    else:
+        deployer.deploy()
+
+
+if __name__ == "__main__":
+    main()

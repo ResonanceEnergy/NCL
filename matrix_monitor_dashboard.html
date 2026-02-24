@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NCL Matrix Monitor Dashboard</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+        }
+        .dashboard-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .dashboard-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .dashboard-header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        .dashboard-header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+        .component-section {
+            margin-bottom: 40px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 20px;
+            backdrop-filter: blur(10px);
+        }
+        .component-section h2 {
+            margin-top: 0;
+            color: #4CAF50;
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard-container">
+        <div class="dashboard-header">
+            <h1>🧠 NCL Matrix Monitor Dashboard</h1>
+            <p>Real-time visualization of NCL cyber-physical organism development</p>
+        </div>
+
+        <div class="component-section">
+            <h2>📊 Progress Visualization</h2>
+            <div id="progress-bar-container">
+                <!-- Progress bar HTML will be inserted here -->
+            </div>
+        </div>
+
+        <div class="component-section">
+            <h2>🗂️ Batch Index</h2>
+            <div id="batch-index-container">
+                <!-- Batch index HTML will be inserted here -->
+            </div>
+        </div>
+
+        <div class="component-section">
+            <h2>📋 Compiled Deliverables</h2>
+            <div id="deliverables-container">
+                <!-- Deliverables HTML will be inserted here -->
+            </div>
+        </div>
+
+        <div class="component-section">
+            <h2>🗺️ Development Roadmap</h2>
+            <div id="roadmap-container">
+                <!-- Roadmap HTML will be inserted here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Load dashboard data
+        async function loadDashboardData() {
+            try {
+                const response = await fetch('./dashboard_data/ncl_dashboard_1771726265.json');
+                const data = await response.json();
+
+                // Insert progress bar
+                const progressContainer = document.getElementById('progress-bar-container');
+                progressContainer.innerHTML = data.visual_components.progress_bar;
+
+                // Insert roadmap
+                const roadmapContainer = document.getElementById('roadmap-container');
+                roadmapContainer.innerHTML = data.visual_components.roadmap;
+
+                console.log('Dashboard data loaded successfully');
+                console.log('Metrics:', data.metrics);
+
+            } catch (error) {
+                console.error('Error loading dashboard data:', error);
+                document.body.innerHTML += '<div style="color: red; text-align: center; margin-top: 20px;">Error loading dashboard data</div>';
+            }
+        }
+
+        // Load data when page loads
+        window.addEventListener('DOMContentLoaded', loadDashboardData);
+    </script>
+</body>
+</html>

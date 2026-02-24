@@ -1,0 +1,61 @@
+{
+  "backup_timestamp": "2026-02-21T18:28:41.054948",
+  "total_records": 1,
+  "records": [
+    {
+      "key": "digital_twin_state",
+      "data": {
+        "overall_health": 99.57295791810543,
+        "sync_status": "synchronizing",
+        "components": [
+          {
+            "name": "Human Health & Performance",
+            "status": "operational",
+            "health_score": 100,
+            "last_sync": "2026-02-21T18:28:41.052192"
+          },
+          {
+            "name": "Financial Asset Optimization",
+            "status": "operational",
+            "health_score": 99.36721656107673,
+            "last_sync": "2026-02-21T18:28:41.052203"
+          },
+          {
+            "name": "Time Allocation & Automation",
+            "status": "operational",
+            "health_score": 98.80483723772457,
+            "last_sync": "2026-02-21T18:28:41.052207"
+          },
+          {
+            "name": "Knowledge Discovery & Development",
+            "status": "operational",
+            "health_score": 99.5779517579413,
+            "last_sync": "2026-02-21T18:28:41.052209"
+          },
+          {
+            "name": "Relationship Network & Nurturing",
+            "status": "operational",
+            "health_score": 100,
+            "last_sync": "2026-02-21T18:28:41.052210"
+          },
+          {
+            "name": "Artificial Intelligence & Neural Networks",
+            "status": "operational",
+            "health_score": 99.57252689523894,
+            "last_sync": "2026-02-21T18:28:41.052212"
+          },
+          {
+            "name": "Network & Platform Engineering",
+            "status": "operational",
+            "health_score": 99.68817297475645,
+            "last_sync": "2026-02-21T18:28:41.052213"
+          }
+        ]
+      },
+      "timestamp": "2026-02-21T18:28:41.053867",
+      "ttl": null,
+      "tags": [],
+      "version": 2
+    }
+  ]
+}
