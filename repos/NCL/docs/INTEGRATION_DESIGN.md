@@ -2,107 +2,105 @@
 
 ## 1. Integration Overview
 
-The repository "NCL" serves as a core component of our software ecosystem, intended to facilitate streamlined workflows and data consistency across all dependent systems. This integration design document details the current and proposed integration points, API design elements, data flow diagrams, and the strategy for authentication, error handling, and testing. 
+The purpose of this document is to outline the integration design for the "NCL" repository, which is part of a portfolio consisting of the following repositories: 'VORTEX-HUNTER', 'demo', 'YOUTUBEDROP', 'SUPERSTONK-TRADER', and 'HUMAN-HEALTH'. This document specifies how "NCL" will interact with these repositories, external services, and the technical details necessary to achieve seamless integration.
 
 ## 2. Current Integration Points
 
-Currently, the "NCL" repository integrates primarily through:
-- Internal API services
-- Central database connections for shared data access
-- Manual data export/import processes with `VORTEX-HUNTER`
+Currently, the "NCL" repository includes the following integration points:
+- Internal data transfer via API endpoints with "VORTEX-HUNTER".
+- Data synchronization tasks with "SUPERSTONK-TRADER".
+- Use of shared libraries found in 'demo'.
 
-## 3. Proposed Integrations:
+## 3. Proposed Integrations
 
-### With Other Portfolio Repositories:
+### With Other Portfolio Repos
 
-- **VORTEX-HUNTER**: Automated data synchronization via RESTful APIs for real-time data sharing.
-- **demo**: Extend APIs to support demo applications, ensuring they reflect live system behaviors.
-- **YOUTUBEDROP**: Implement webhooks for immediate data updates between NCL and YOUTUBEDROP.
-- **SUPERSTONK-TRADER**: Utilize message queues to manage and route trading data streams.
-- **HUMAN-HEALTH**: Establish secure channels to sync patient data analytics for health monitoring.
+#### VORTEX-HUNTER
+- Deep integration involving data sharing for meteorological datasets.
+- Scheduled batch updates for real-time data accuracy.
+  
+#### SUPERSTONK-TRADER
+- Develop real-time market data feed through webhooks to push updates from NCL to SUPERSTONK-TRADER.
+  
+#### YOUTUBEDROP
+- Implement a video analytics reporting service that fetches data from NCL.
 
-### External Service Integrations:
+### External Service Integrations
 
-- **Payment Gateway**: Connect with "Stripe" for handling financial transactions.
-- **Analytics Service**: Integrate with "Google Analytics" for user interaction insights.
+- Integrate with a third-party weather API to enhance data accuracy in NCL.
+- Employ a cloud-based database service for scalability and redundancy.
 
-## 4. API Design (if applicable)
+## 4. API Design
 
-NCL will provide the following RESTful API endpoints:
-- **GET /data**: Retrieve core data elements.
-- **POST /data**: Submit new data entries.
-- **PATCH /data/:id**: Update existing data records.
-- **DELETE /data/:id**: Remove data entries.
+### NCL API Endpoints
 
-### Example JSON for Data Entry
-```json
-{
-  "id": "12345",
-  "name": "Sample Data",
-  "value": "Test value",
-  "timestamp": "2023-10-01T10:00:00Z"
-}
-```
+- **GET /v1/weather-data**
+  - Description: Fetch and filter meteorological data.
+  - Parameters: `location`, `date_range`, `data_type`.
+  - Response: JSON - containing the requested dataset.
+  
+- **POST /v1/data-sync**
+  - Description: Trigger a manual synchronization with another repository.
+  - Request Body: Repository name, sync parameters.
+  - Response: JSON - sync status.
 
-## 5. Data Flow Diagrams (Mermaid)
+## 5. Data Flow Diagrams
 
 ```mermaid
-graph TD
-    A[NCL API] -->|Fetch data| B[VORTEX-HUNTER]
-    A -->|Receive data| C[YOUTUBEDROP Webhook]
-    A -->|Process data| D{SUPERSTONK-TRADER Queue}
-    A -->|Authorize data| E[HUMAN-HEALTH]
-    A -->|Send data| F[External Payment]
+flowchart TD
+    subgraph NCL
+    A[NCL API] --> B[Data Processor]
+    B --> C[Data Storage]
+    end
+    
+    VORTEX[Repo VORTEX-HUNTER] -- Request/Response --> A
+    SUPERST[Repo SUPERSTONK-TRADER] -- Webhook --> A
+    YDROP[Repo YOUTUBEDROP] -- API Calls --> A
 ```
 
 ## 6. Authentication & Authorization
 
-- Use **OAuth 2.0** for API authentication:
-  - Token-based API access
-  - Scopes to limit the permissions of tokens
-- Implement RBAC (Role-Based Access Control) for managing user permissions within NCL.
+- Use OAuth 2.0 for secure API communication between the repositories.
+- API Keys for external service integrations, rotated monthly for security.
 
 ## 7. Error Handling Strategy
 
-- **Client-side Validation** before data submission.
-- **Standardized API Error Responses**:
-  - 400 for Bad Requests
-  - 401 for Unauthorized Access
-  - 404 for Not Found
-  - 500 for Internal Server Errors
-- Central logging of all integration errors for easy troubleshooting.
+- Implement centralized logging for all integration errors.
+- Categorize errors: Critical, Major, Minor and notify the respective teams for immediate action.
 
 ## 8. Implementation Phases
 
-1. **Phase 1**: Develop and test internal API enhancements.
-2. **Phase 2**: Implement and test integration with VORTEX-HUNTER.
-3. **Phase 3**: Extend to demo applications and YOUTUBEDROP.
-4. **Phase 4**: Integrate SUPERSTONK-TRADER and external services like Stripe.
-5. **Phase 5**: Conduct performance testing and move to production.
+### Phase 1: Initial Setup
+- Define API endpoints and initial authentication setup.
+
+### Phase 2: Internal Integration
+- Establish connections with VORTEX-HUNTER and SUPERSTONK-TRADER.
+
+### Phase 3: External Service Integration
+- Connect with weather API and database services.
+
+### Phase 4: Testing and Deployment
+- Test all integrations and deploy incrementally.
 
 ## 9. Testing Strategy for Integrations
 
-- **Unit Tests** for API endpoints.
-- **Integration Tests** using automated scripts to test interaction with each portfolio repository.
-- **End-to-End Testing** through UI testing tools to simulate real user interactions.
-- **Load Testing** to ensure the system can handle high traffic.
-  
-### Sequence Diagrams for Key Flows
+- **Unit Testing**: Each integration point should have unit tests covering typical and edge cases.
+- **Integration Testing**: Simulate end-to-end flows between "NCL" and the other repositories.
+- **Load Testing**: Ensure the system can handle peak loads for data synchronization tasks.
+- **Security Testing**: Regularly audit and pen-test the integrations to prevent unauthorized access.
+
+### Key Flow Sequence Diagram
 
 ```mermaid
 sequenceDiagram
-    participant User
-    participant NCL_System
-    participant VORTEX_System
+    participant V as VORTEX-HUNTER
+    participant N as NCL
+    participant S as SUPERSTONK-TRADER
 
-    User->>NCL_System: Request Data Sync
-    activate NCL_System
-    NCL_System->>VORTEX_System: Fetch Data
-    activate VORTEX_System
-    VORTEX_System-->>NCL_System: Return Data
-    deactivate VORTEX_System
-    NCL_System-->>User: Confirm Data Sync
-    deactivate NCL_System
+    V->>N: Request dataset
+    N-->>V: Return dataset
+    S-)N: Trigger webhook
+    N->>S: Push market data updates
 ```
 
-This document lays out a structured plan for integrating the "NCL" repository within its portfolio and with external platforms, ensuring a seamless, efficient, and secure ecosystem.
+This Integration Design document aims to ensure that "NCL" seamlessly integrates with other repositories in the portfolio and external services while maintaining security, efficiency, and scalability.
