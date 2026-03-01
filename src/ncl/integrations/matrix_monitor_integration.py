@@ -22,8 +22,7 @@ class NCLMatrixMonitor:
     """NCL integration with Matrix Monitor dashboard"""
 
     def __init__(self, ncc: NCC):
-    """__init__ function/class."""
-
+        """Initialize NCLMatrixMonitor with NCC instance."""
         self.ncc = ncc
         self.logger = logging.getLogger(__name__)
 
@@ -255,7 +254,7 @@ class NCLMatrixMonitor:
         """Get system resource metrics"""
         try:
             return {
-                "cpu_percent": psutil.cpu_percent(interval=1),
+                "cpu_percent": psutil.cpu_percent(interval=None),
                 "memory_percent": psutil.virtual_memory().percent,
                 "disk_percent": psutil.disk_usage('/').percent,
                 "network_io": self._get_network_io()
@@ -285,7 +284,7 @@ class NCLMatrixMonitor:
         completed_projects = sum(1 for p in self.projects.values() if p["status"] == "completed")
         in_progress_projects = sum(1 for p in self.projects.values() if p["status"] == "in_progress")
 
-        overall_progress = sum(p["progress"] for p in self.projects.values()) / total_projects
+        overall_progress = sum(p["progress"] for p in self.projects.values()) / max(total_projects, 1)
 
         return {
             "total": total_projects,
@@ -340,7 +339,7 @@ class NCLMatrixMonitor:
 
     def _generate_progress_bar(self) -> Dict[str, Any]:
         """Generate visual progress bar data"""
-        overall_progress = sum(p["progress"] for p in self.projects.values()) / len(self.projects)
+        overall_progress = sum(p["progress"] for p in self.projects.values()) / max(len(self.projects), 1)
 
         return {
             "percentage": round(overall_progress, 1),

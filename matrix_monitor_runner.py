@@ -96,8 +96,7 @@ Updates occur every 5 minutes to maintain maximum velocity.
     print("Created basic ROADMAP.md structure")
 
 def main():
-"""main function/class."""
-
+    """Main entry point for Matrix Monitor Runner."""
     parser = argparse.ArgumentParser(description='Matrix Monitor Runner')
     parser.add_argument('--mode', choices=['single', 'continuous'], default='single',
                        help='Run mode: single update or continuous')
