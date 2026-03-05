@@ -1,0 +1,45 @@
+{
+  "id": "golden_0042",
+  "name": "Analyze weekly time allocation",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Meetings: 15 hours"
+      },
+      {
+        "id": "e2",
+        "text": "Deep work: 8 hours"
+      },
+      {
+        "id": "e3",
+        "text": "Email/Slack: 10 hours"
+      },
+      {
+        "id": "e4",
+        "text": "Admin/misc: 5 hours"
+      },
+      {
+        "id": "e5",
+        "text": "Total available: 40 hours"
+      }
+    ]
+  },
+  "expected": {
+    "analysis": {
+      "breakdown": {
+        "meetings": "37.5%",
+        "deep_work": "20%",
+        "communication": "25%",
+        "admin": "12.5%",
+        "unaccounted": "5%"
+      },
+      "concern": "Deep work below 25% threshold",
+      "recommendation": "Reduce meetings by 5 hours to increase deep work"
+    }
+  },
+  "failure_conditions": [
+    "wrong_percentage",
+    "missed_concern"
+  ]
+}

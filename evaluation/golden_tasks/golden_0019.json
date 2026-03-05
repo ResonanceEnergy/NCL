@@ -1,0 +1,49 @@
+{
+  "id": "golden_0019",
+  "name": "Categorize learning resources",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "MIT OCW: Linear Algebra lecture series"
+      },
+      {
+        "id": "e2",
+        "text": "YouTube: 3Blue1Brown essence of calculus"
+      },
+      {
+        "id": "e3",
+        "text": "Book: Thinking Fast and Slow"
+      },
+      {
+        "id": "e4",
+        "text": "Coursera: Machine Learning by Andrew Ng"
+      },
+      {
+        "id": "e5",
+        "text": "Blog post: How to read a paper"
+      }
+    ]
+  },
+  "expected": {
+    "categories": {
+      "courses": [
+        "MIT OCW: Linear Algebra lecture series",
+        "Coursera: Machine Learning by Andrew Ng"
+      ],
+      "videos": [
+        "YouTube: 3Blue1Brown essence of calculus"
+      ],
+      "books": [
+        "Book: Thinking Fast and Slow"
+      ],
+      "articles": [
+        "Blog post: How to read a paper"
+      ]
+    }
+  },
+  "failure_conditions": [
+    "wrong_category_courses",
+    "wrong_category_books"
+  ]
+}

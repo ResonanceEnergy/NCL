@@ -1,0 +1,59 @@
+{
+  "id": "golden_0040",
+  "name": "Plan sprint priorities",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Backlog: 15 tickets"
+      },
+      {
+        "id": "e2",
+        "text": "Team capacity: 3 devs, 2 weeks"
+      },
+      {
+        "id": "e3",
+        "text": "Critical bugs: 2"
+      },
+      {
+        "id": "e4",
+        "text": "Feature request from top client"
+      },
+      {
+        "id": "e5",
+        "text": "Tech debt: auth module needs refactor"
+      }
+    ]
+  },
+  "expected": {
+    "plan": {
+      "priorities": [
+        {
+          "rank": 1,
+          "items": "Fix 2 critical bugs",
+          "reason": "User-facing issues"
+        },
+        {
+          "rank": 2,
+          "items": "Top client feature",
+          "reason": "Revenue impact"
+        },
+        {
+          "rank": 3,
+          "items": "Auth module refactor",
+          "reason": "Tech debt reduction"
+        },
+        {
+          "rank": 4,
+          "items": "Remaining backlog triage",
+          "reason": "Capacity permitting"
+        }
+      ],
+      "estimated_completion": "8-10 tickets in 2-week sprint"
+    }
+  },
+  "failure_conditions": [
+    "bugs_not_prioritized",
+    "missing_rationale"
+  ]
+}

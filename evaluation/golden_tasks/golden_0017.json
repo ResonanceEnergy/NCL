@@ -1,0 +1,41 @@
+{
+  "id": "golden_0017",
+  "name": "Categorize work items by urgency",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Server is down \u2014 customers affected"
+      },
+      {
+        "id": "e2",
+        "text": "Update team wiki with new onboarding steps"
+      },
+      {
+        "id": "e3",
+        "text": "Quarterly OKR draft due next month"
+      },
+      {
+        "id": "e4",
+        "text": "Expired SSL cert on staging"
+      }
+    ]
+  },
+  "expected": {
+    "categories": {
+      "urgent": [
+        "Server is down \u2014 customers affected",
+        "Expired SSL cert on staging"
+      ],
+      "important": [
+        "Quarterly OKR draft due next month"
+      ],
+      "routine": [
+        "Update team wiki with new onboarding steps"
+      ]
+    }
+  },
+  "failure_conditions": [
+    "wrong_category_urgent"
+  ]
+}

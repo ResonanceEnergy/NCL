@@ -1,0 +1,32 @@
+{
+  "id": "golden_0049",
+  "name": "Handle sensitive data redaction",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "SSN: 123-45-6789"
+      },
+      {
+        "id": "e2",
+        "text": "Credit card: 4111-1111-1111-1111"
+      },
+      {
+        "id": "e3",
+        "text": "Doctor appointment at 2pm"
+      }
+    ]
+  },
+  "expected": {
+    "summary": "Doctor appointment at 2pm",
+    "redacted_fields": [
+      "SSN",
+      "credit_card"
+    ],
+    "sensitivity": "P0"
+  },
+  "failure_conditions": [
+    "sensitive_data_leaked",
+    "missed_redaction"
+  ]
+}

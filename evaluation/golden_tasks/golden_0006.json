@@ -1,0 +1,27 @@
+{
+  "id": "golden_0006",
+  "name": "Summarize weekly calendar",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Monday: Team standup 9am"
+      },
+      {
+        "id": "e2",
+        "text": "Wednesday: Client call 2pm"
+      },
+      {
+        "id": "e3",
+        "text": "Friday: Sprint review 3pm"
+      }
+    ]
+  },
+  "expected": {
+    "summary": "3 meetings this week: Mon standup, Wed client call, Fri sprint review"
+  },
+  "failure_conditions": [
+    "missing_core_fact",
+    "hallucinated_item"
+  ]
+}

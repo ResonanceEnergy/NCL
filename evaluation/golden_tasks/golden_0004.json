@@ -1,0 +1,21 @@
+{
+  "id": "golden_0004",
+  "name": "Generate CODE methodology insights",
+  "input": {
+    "events": [
+      { "id": "e1", "text": "Spent 3 hours debugging authentication issue" },
+      { "id": "e2", "text": "Read article about Zettelkasten method" },
+      { "id": "e3", "text": "Attended workshop on digital gardens" },
+      { "id": "e4", "text": "Struggled with focus during deep work session" }
+    ]
+  },
+  "expected": {
+    "insights": [
+      "Capture: Authentication debugging took longer than expected - investigate root causes",
+      "Organize: Zettelkasten and digital gardens are complementary knowledge management approaches",
+      "Distill: Focus issues during deep work may indicate need for better environment design",
+      "Express: Share debugging patterns and knowledge management learnings with team"
+    ]
+  },
+  "failure_conditions": ["missing_code_phase", "weak_insight", "irrelevant_insight"]
+}

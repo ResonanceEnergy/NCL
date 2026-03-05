@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ncl.event.v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "event_id",
+    "event_type",
+    "occurred_at",
+    "source",
+    "privacy",
+    "payload"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "ncl.event.v1"
+    },
+    "event_id": {
+      "type": "string",
+      "minLength": 8
+    },
+    "event_type": {
+      "type": "string",
+      "minLength": 3
+    },
+    "occurred_at": {
+      "type": "string"
+    },
+    "observed_at": {
+      "type": "string"
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "device",
+        "origin"
+      ],
+      "properties": {
+        "device": {
+          "type": "string"
+        },
+        "origin": {
+          "type": "string"
+        },
+        "collector_version": {
+          "type": "string"
+        }
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "required": [
+        "level"
+      ],
+      "properties": {
+        "level": {
+          "enum": [
+            "P0",
+            "P1",
+            "P2",
+            "P3"
+          ]
+        },
+        "raw_retention": {
+          "type": "string"
+        },
+        "derived_retention_days": {
+          "type": "integer"
+        }
+      }
+    },
+    "payload": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": true
+}

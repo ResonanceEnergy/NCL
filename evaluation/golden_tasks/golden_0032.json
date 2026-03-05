@@ -1,0 +1,54 @@
+{
+  "id": "golden_0032",
+  "name": "Recall exercise PRs",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Squat PR: 225 lbs on Jan 15"
+      },
+      {
+        "id": "e2",
+        "text": "Bench PR: 185 lbs on Feb 1"
+      },
+      {
+        "id": "e3",
+        "text": "Deadlift PR: 315 lbs on Feb 10"
+      },
+      {
+        "id": "e4",
+        "text": "5K PR: 23:45 on Feb 20"
+      }
+    ]
+  },
+  "expected": {
+    "recall": {
+      "personal_records": [
+        {
+          "exercise": "Squat",
+          "weight": "225 lbs",
+          "date": "Jan 15"
+        },
+        {
+          "exercise": "Bench",
+          "weight": "185 lbs",
+          "date": "Feb 1"
+        },
+        {
+          "exercise": "Deadlift",
+          "weight": "315 lbs",
+          "date": "Feb 10"
+        },
+        {
+          "exercise": "5K",
+          "time": "23:45",
+          "date": "Feb 20"
+        }
+      ]
+    }
+  },
+  "failure_conditions": [
+    "missing_recall_item",
+    "wrong_number"
+  ]
+}

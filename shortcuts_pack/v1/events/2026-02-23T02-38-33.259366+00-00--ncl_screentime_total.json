@@ -1,0 +1,19 @@
+{
+  "event_id": "3a075376-8426-4ae5-bfb9-22c0a2ce39fa",
+  "event_type": "ncl.screentime.total",
+  "schema_version": "ncl.iphone.v1",
+  "timestamp": "2026-02-23T02:38:33.259366+00:00",
+  "ingestion_method": "shortcut",
+  "permission": {
+    "granted": true
+  },
+  "retention_tier": "short",
+  "privacy_level": "metadata_only",
+  "provenance": {
+    "source": "Shortcut"
+  },
+  "payload": {
+    "date": "2026-02-22",
+    "total_seconds": 3600
+  }
+}

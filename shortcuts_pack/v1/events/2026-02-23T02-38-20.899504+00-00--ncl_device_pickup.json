@@ -1,0 +1,19 @@
+{
+  "event_id": "89a12208-ad21-474e-8fb2-6e6b0b8ffcce",
+  "event_type": "ncl.device.pickup",
+  "schema_version": "ncl.iphone.v1",
+  "timestamp": "2026-02-23T02:38:20.899504+00:00",
+  "ingestion_method": "shortcut",
+  "permission": {
+    "granted": true
+  },
+  "retention_tier": "short",
+  "privacy_level": "metadata_only",
+  "provenance": {
+    "source": "Shortcut"
+  },
+  "payload": {
+    "recorded_at": "2026-02-23T02:38:12Z",
+    "unlock_method": "face_id"
+  }
+}

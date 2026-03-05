@@ -1,0 +1,31 @@
+{
+  "id": "golden_0009",
+  "name": "Summarize workout log",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Squat: 3x8 @ 185lbs"
+      },
+      {
+        "id": "e2",
+        "text": "Bench: 4x6 @ 155lbs"
+      },
+      {
+        "id": "e3",
+        "text": "Deadlift: 3x5 @ 225lbs"
+      },
+      {
+        "id": "e4",
+        "text": "Total time: 55 minutes"
+      }
+    ]
+  },
+  "expected": {
+    "summary": "Strength session (55 min): Squat 3x8@185, Bench 4x6@155, Deadlift 3x5@225"
+  },
+  "failure_conditions": [
+    "missing_core_fact",
+    "wrong_number"
+  ]
+}

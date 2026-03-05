@@ -1,0 +1,48 @@
+{
+  "id": "golden_0016",
+  "name": "Categorize personal inbox items",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Dentist appointment confirmation March 5"
+      },
+      {
+        "id": "e2",
+        "text": "New podcast episode: Huberman on sleep"
+      },
+      {
+        "id": "e3",
+        "text": "Mortgage payment reminder"
+      },
+      {
+        "id": "e4",
+        "text": "Recipe for chicken tikka masala"
+      },
+      {
+        "id": "e5",
+        "text": "Old warranty card for broken blender"
+      }
+    ]
+  },
+  "expected": {
+    "categories": {
+      "projects": [],
+      "areas": [
+        "Dentist appointment confirmation March 5",
+        "Mortgage payment reminder"
+      ],
+      "resources": [
+        "New podcast episode: Huberman on sleep",
+        "Recipe for chicken tikka masala"
+      ],
+      "archive": [
+        "Old warranty card for broken blender"
+      ]
+    }
+  },
+  "failure_conditions": [
+    "wrong_category_areas",
+    "wrong_category_archive"
+  ]
+}

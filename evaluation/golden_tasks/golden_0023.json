@@ -1,0 +1,35 @@
+{
+  "id": "golden_0023",
+  "name": "Generate CODE insights from learning log",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Read 3 chapters of ML textbook"
+      },
+      {
+        "id": "e2",
+        "text": "Struggled with backpropagation math"
+      },
+      {
+        "id": "e3",
+        "text": "Found helpful YouTube explanation"
+      },
+      {
+        "id": "e4",
+        "text": "Implemented simple neural net in Python"
+      }
+    ]
+  },
+  "expected": {
+    "insights": [
+      "Capture: Active reading of ML textbook (3 chapters)",
+      "Organize: Backpropagation is a gap area needing visual/video supplements",
+      "Distill: Combining text + video + hands-on coding accelerates understanding",
+      "Express: Write a blog post explaining backpropagation to solidify learning"
+    ]
+  },
+  "failure_conditions": [
+    "missing_code_phase"
+  ]
+}

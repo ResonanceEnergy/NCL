@@ -1,0 +1,60 @@
+{
+  "id": "golden_0037",
+  "name": "Plan study schedule for exam",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Exam in 5 days"
+      },
+      {
+        "id": "e2",
+        "text": "Topics: algebra, calculus, statistics"
+      },
+      {
+        "id": "e3",
+        "text": "Weakest: statistics"
+      },
+      {
+        "id": "e4",
+        "text": "Available: 2 hours per day"
+      }
+    ]
+  },
+  "expected": {
+    "plan": {
+      "schedule": [
+        {
+          "day": 1,
+          "topic": "Statistics (weakest)",
+          "hours": 2
+        },
+        {
+          "day": 2,
+          "topic": "Statistics + Calculus",
+          "hours": 2
+        },
+        {
+          "day": 3,
+          "topic": "Calculus",
+          "hours": 2
+        },
+        {
+          "day": 4,
+          "topic": "Algebra",
+          "hours": 2
+        },
+        {
+          "day": 5,
+          "topic": "Full review + practice",
+          "hours": 2
+        }
+      ],
+      "strategy": "Front-load weakest topic"
+    }
+  },
+  "failure_conditions": [
+    "missing_topic",
+    "illogical_schedule"
+  ]
+}

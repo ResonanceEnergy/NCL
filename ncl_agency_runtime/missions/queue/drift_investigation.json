@@ -1,0 +1,16 @@
+{
+  "schema_version": "ncl.mission.v1",
+  "mission_id": "mis-drift-investigation",
+  "mission_type": "drift_investigation",
+  "created_at": "2026-02-18T21:21:03.185698+00:00",
+  "inputs": {
+    "date": "2026-02-18",
+    "baseline_file": null
+  },
+  "policy": {
+    "privacy_max": "P1",
+    "cloud_allowed": false
+  },
+  "trace_id": "trc-drift-20260218",
+  "status": "queued"
+}

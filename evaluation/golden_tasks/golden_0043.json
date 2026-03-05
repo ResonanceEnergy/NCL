@@ -1,0 +1,38 @@
+{
+  "id": "golden_0043",
+  "name": "Evaluate goal progress",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Goal: Read 24 books this year"
+      },
+      {
+        "id": "e2",
+        "text": "Books read so far: 3"
+      },
+      {
+        "id": "e3",
+        "text": "Current date: end of February"
+      },
+      {
+        "id": "e4",
+        "text": "Pace needed: 2 books/month"
+      }
+    ]
+  },
+  "expected": {
+    "analysis": {
+      "target": 24,
+      "completed": 3,
+      "expected_by_now": 4,
+      "status": "slightly_behind",
+      "pace_needed": "2.5 books/month remaining",
+      "recommendation": "Increase reading time or add audiobooks"
+    }
+  },
+  "failure_conditions": [
+    "wrong_math",
+    "incorrect_status"
+  ]
+}

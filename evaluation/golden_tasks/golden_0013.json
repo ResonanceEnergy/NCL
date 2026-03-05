@@ -1,0 +1,37 @@
+{
+  "id": "golden_0013",
+  "name": "Extract grocery list from conversation",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "We need milk and eggs"
+      },
+      {
+        "id": "e2",
+        "text": "Also grab bread, the sourdough kind"
+      },
+      {
+        "id": "e3",
+        "text": "Oh and bananas for smoothies"
+      },
+      {
+        "id": "e4",
+        "text": "Check if we have olive oil"
+      }
+    ]
+  },
+  "expected": {
+    "action_items": [
+      "Buy milk",
+      "Buy eggs",
+      "Buy sourdough bread",
+      "Buy bananas",
+      "Check olive oil stock"
+    ]
+  },
+  "failure_conditions": [
+    "missing_action_item",
+    "hallucinated_item"
+  ]
+}

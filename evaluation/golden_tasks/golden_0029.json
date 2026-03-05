@@ -1,0 +1,42 @@
+{
+  "id": "golden_0029",
+  "name": "Detect notification overload",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Notifications received: 287"
+      },
+      {
+        "id": "e2",
+        "text": "Notifications acted on: 23"
+      },
+      {
+        "id": "e3",
+        "text": "Average response time: 3 minutes"
+      },
+      {
+        "id": "e4",
+        "text": "Context switches from notifications: 45"
+      }
+    ]
+  },
+  "expected": {
+    "pattern": "notification_overload",
+    "severity": "concerning",
+    "insights": [
+      "92% of notifications ignored (264/287)",
+      "45 context switches from 287 notifications",
+      "3-minute avg response suggests reactive behavior"
+    ],
+    "recommendations": [
+      "Enable notification batching",
+      "Disable non-essential app notifications",
+      "Schedule notification check windows"
+    ]
+  },
+  "failure_conditions": [
+    "missed_pattern",
+    "incorrect_severity"
+  ]
+}

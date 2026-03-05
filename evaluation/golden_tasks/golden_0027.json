@@ -1,0 +1,46 @@
+{
+  "id": "golden_0027",
+  "name": "Detect productivity pattern shift",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Focus time Mon: 4.5 hours"
+      },
+      {
+        "id": "e2",
+        "text": "Focus time Tue: 3.0 hours"
+      },
+      {
+        "id": "e3",
+        "text": "Focus time Wed: 1.5 hours"
+      },
+      {
+        "id": "e4",
+        "text": "Focus time Thu: 1.0 hours"
+      },
+      {
+        "id": "e5",
+        "text": "Meetings increased from 2 to 6 this week"
+      }
+    ]
+  },
+  "expected": {
+    "pattern": "focus_time_erosion",
+    "severity": "warning",
+    "insights": [
+      "Focus time dropped 78% over 4 days (4.5h\u21921.0h)",
+      "Meeting load increased 3x in same period",
+      "Inverse correlation between meetings and deep work"
+    ],
+    "recommendations": [
+      "Block 2-hour focus windows on calendar",
+      "Decline non-essential meetings",
+      "Batch meetings into specific days"
+    ]
+  },
+  "failure_conditions": [
+    "missed_pattern",
+    "incorrect_severity"
+  ]
+}

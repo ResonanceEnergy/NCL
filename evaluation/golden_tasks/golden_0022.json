@@ -1,0 +1,35 @@
+{
+  "id": "golden_0022",
+  "name": "Generate CODE insights from health journal",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Slept 5.5 hours, woke groggy"
+      },
+      {
+        "id": "e2",
+        "text": "Afternoon crash at 2pm, needed coffee"
+      },
+      {
+        "id": "e3",
+        "text": "Skipped workout due to fatigue"
+      },
+      {
+        "id": "e4",
+        "text": "Late screen time until 11:30pm"
+      }
+    ]
+  },
+  "expected": {
+    "insights": [
+      "Capture: Sleep deficit (5.5h) causing cascading energy issues",
+      "Organize: Late screen time \u2192 poor sleep \u2192 daytime fatigue cycle",
+      "Distill: Energy crash pattern suggests sleep debt as root cause",
+      "Express: Implement screen cutoff at 10pm to break the cycle"
+    ]
+  },
+  "failure_conditions": [
+    "missing_code_phase"
+  ]
+}

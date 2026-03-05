@@ -1,0 +1,49 @@
+{
+  "id": "golden_0018",
+  "name": "Categorize fitness data points",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Ran 5K in 24:30"
+      },
+      {
+        "id": "e2",
+        "text": "Bodyweight: 175 lbs"
+      },
+      {
+        "id": "e3",
+        "text": "Sleep: 7.2 hours"
+      },
+      {
+        "id": "e4",
+        "text": "Steps: 12,450"
+      },
+      {
+        "id": "e5",
+        "text": "Resting HR: 58 bpm"
+      }
+    ]
+  },
+  "expected": {
+    "categories": {
+      "exercise": [
+        "Ran 5K in 24:30"
+      ],
+      "body_composition": [
+        "Bodyweight: 175 lbs"
+      ],
+      "recovery": [
+        "Sleep: 7.2 hours",
+        "Resting HR: 58 bpm"
+      ],
+      "activity": [
+        "Steps: 12,450"
+      ]
+    }
+  },
+  "failure_conditions": [
+    "wrong_category_exercise",
+    "wrong_category_recovery"
+  ]
+}

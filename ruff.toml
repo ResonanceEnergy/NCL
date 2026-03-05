@@ -1,0 +1,32 @@
+# NCL ruff configuration
+# https://docs.astral.sh/ruff/
+
+target-version = "py311"
+line-length = 120
+
+[lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+    "S",    # flake8-bandit (security)
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff-specific rules
+]
+ignore = [
+    "E501",   # line-too-long (handled by formatter)
+    "S101",   # assert in tests is fine
+    "S603",   # subprocess — needed for system commands
+    "S607",   # start-process with partial path
+    "B008",   # function-call-in-default-argument (argparse)
+]
+
+[lint.per-file-ignores]
+"tests/**" = ["S101", "S106"]  # asserts & hardcoded passwords OK in tests
+
+[format]
+quote-style = "double"
+indent-style = "space"

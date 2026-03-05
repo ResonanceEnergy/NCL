@@ -1,0 +1,45 @@
+{
+  "id": "golden_0028",
+  "name": "Detect exercise consistency pattern",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Week 1: 4 workouts"
+      },
+      {
+        "id": "e2",
+        "text": "Week 2: 3 workouts"
+      },
+      {
+        "id": "e3",
+        "text": "Week 3: 2 workouts"
+      },
+      {
+        "id": "e4",
+        "text": "Week 4: 1 workout"
+      },
+      {
+        "id": "e5",
+        "text": "Reason: busy with work project"
+      }
+    ]
+  },
+  "expected": {
+    "pattern": "declining_exercise_frequency",
+    "severity": "warning",
+    "insights": [
+      "Workout frequency declining weekly (4\u21921)",
+      "Work project cited as barrier",
+      "75% reduction over 4 weeks"
+    ],
+    "recommendations": [
+      "Schedule shorter workouts (20 min)",
+      "Try morning sessions before work ramps up",
+      "Set minimum 2 sessions/week as floor"
+    ]
+  },
+  "failure_conditions": [
+    "missed_pattern"
+  ]
+}

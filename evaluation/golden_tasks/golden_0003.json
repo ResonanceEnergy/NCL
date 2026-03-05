@@ -1,0 +1,22 @@
+{
+  "id": "golden_0003",
+  "name": "Categorize knowledge by PARA method",
+  "input": {
+    "events": [
+      { "id": "e1", "text": "Research paper on cognitive load theory" },
+      { "id": "e2", "text": "Meeting notes from quarterly planning" },
+      { "id": "e3", "text": "Grocery list for weekend" },
+      { "id": "e4", "text": "Ideas for new product features" },
+      { "id": "e5", "text": "Tax documents for 2025" }
+    ]
+  },
+  "expected": {
+    "categories": {
+      "projects": ["Ideas for new product features"],
+      "areas": ["Meeting notes from quarterly planning"],
+      "resources": ["Research paper on cognitive load theory"],
+      "archive": ["Tax documents for 2025", "Grocery list for weekend"]
+    }
+  },
+  "failure_conditions": ["wrong_category", "missing_item", "extra_item"]
+}

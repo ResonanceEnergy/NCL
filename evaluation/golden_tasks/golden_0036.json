@@ -1,0 +1,54 @@
+{
+  "id": "golden_0036",
+  "name": "Generate morning routine plan",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Wake up: 6:30am"
+      },
+      {
+        "id": "e2",
+        "text": "First meeting: 9:00am"
+      },
+      {
+        "id": "e3",
+        "text": "Need: exercise, breakfast, journal"
+      },
+      {
+        "id": "e4",
+        "text": "Commute: 30 minutes"
+      }
+    ]
+  },
+  "expected": {
+    "plan": {
+      "blocks": [
+        {
+          "time": "6:30-7:00",
+          "activity": "Exercise (30 min)"
+        },
+        {
+          "time": "7:00-7:30",
+          "activity": "Shower + breakfast"
+        },
+        {
+          "time": "7:30-8:00",
+          "activity": "Journal + intention setting"
+        },
+        {
+          "time": "8:00-8:30",
+          "activity": "Commute"
+        },
+        {
+          "time": "8:30-9:00",
+          "activity": "Pre-meeting prep"
+        }
+      ]
+    }
+  },
+  "failure_conditions": [
+    "schedule_conflict",
+    "missing_activity"
+  ]
+}

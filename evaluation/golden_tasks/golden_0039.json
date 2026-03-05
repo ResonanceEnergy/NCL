@@ -1,0 +1,43 @@
+{
+  "id": "golden_0039",
+  "name": "Plan weekend trip itinerary",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Destination: Austin, TX"
+      },
+      {
+        "id": "e2",
+        "text": "Duration: Saturday-Sunday"
+      },
+      {
+        "id": "e3",
+        "text": "Interests: food, music, outdoors"
+      },
+      {
+        "id": "e4",
+        "text": "Budget: moderate"
+      }
+    ]
+  },
+  "expected": {
+    "plan": {
+      "saturday": [
+        "Morning: Barton Springs or Lady Bird Lake",
+        "Lunch: Franklin BBQ or local Tex-Mex",
+        "Afternoon: South Congress shops and galleries",
+        "Evening: Live music on 6th Street"
+      ],
+      "sunday": [
+        "Morning: Brunch on East Side",
+        "Afternoon: Zilker Park or Museum",
+        "Evening: Return home"
+      ]
+    }
+  },
+  "failure_conditions": [
+    "wrong_location",
+    "exceeds_budget"
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "id": "golden_0031",
+  "name": "Recall recent decisions",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Decided to switch to TypeScript for new project"
+      },
+      {
+        "id": "e2",
+        "text": "Chose React over Vue for frontend"
+      },
+      {
+        "id": "e3",
+        "text": "Selected AWS over GCP for hosting"
+      },
+      {
+        "id": "e4",
+        "text": "Picked Postgres over MongoDB for database"
+      }
+    ]
+  },
+  "expected": {
+    "recall": {
+      "decisions": [
+        "TypeScript for new project",
+        "React over Vue for frontend",
+        "AWS over GCP for hosting",
+        "Postgres over MongoDB for database"
+      ],
+      "decision_count": 4
+    }
+  },
+  "failure_conditions": [
+    "missing_recall_item"
+  ]
+}

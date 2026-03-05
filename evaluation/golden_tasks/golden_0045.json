@@ -1,0 +1,40 @@
+{
+  "id": "golden_0045",
+  "name": "Analyze habit streak data",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Meditation: 14-day streak, current"
+      },
+      {
+        "id": "e2",
+        "text": "Exercise: 5-day streak, broken yesterday"
+      },
+      {
+        "id": "e3",
+        "text": "Reading: 30-day streak, current"
+      },
+      {
+        "id": "e4",
+        "text": "Journaling: 2-day streak, restarted"
+      }
+    ]
+  },
+  "expected": {
+    "analysis": {
+      "strong_habits": [
+        "Reading (30-day streak)",
+        "Meditation (14-day streak)"
+      ],
+      "needs_attention": [
+        "Exercise (streak broken)",
+        "Journaling (just restarted, 2 days)"
+      ],
+      "recommendation": "Focus on rebuilding exercise habit; protect reading and meditation streaks"
+    }
+  },
+  "failure_conditions": [
+    "wrong_classification"
+  ]
+}

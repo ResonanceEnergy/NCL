@@ -1,0 +1,35 @@
+{
+  "id": "golden_0014",
+  "name": "Extract home maintenance tasks",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Furnace filter needs replacing, been 3 months"
+      },
+      {
+        "id": "e2",
+        "text": "Gutter cleaning before rainy season"
+      },
+      {
+        "id": "e3",
+        "text": "Smoke detector batteries \u2014 check all floors"
+      },
+      {
+        "id": "e4",
+        "text": "Schedule HVAC inspection for spring"
+      }
+    ]
+  },
+  "expected": {
+    "action_items": [
+      "Replace furnace filter",
+      "Clean gutters before rain season",
+      "Check smoke detector batteries on all floors",
+      "Schedule spring HVAC inspection"
+    ]
+  },
+  "failure_conditions": [
+    "missing_action_item"
+  ]
+}

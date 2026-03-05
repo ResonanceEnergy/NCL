@@ -1,0 +1,14 @@
+{
+  "ncl_root": "~/NCL",
+  "event_log_dir": "~/NCL/data/event_log",
+  "quarantine_dir": "~/NCL/data/quarantine",
+  "reports_dir": "~/NCL/dist/reports",
+  "schemas": {
+    "event": "schemas/ncl.event.v1.json"
+  },
+  "relay": {
+    "host": "0.0.0.0",
+    "port": 8787,
+    "path": "/event"
+  }
+}

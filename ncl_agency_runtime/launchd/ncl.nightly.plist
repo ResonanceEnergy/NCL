@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>ncl.nightly</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string>
+    <string>__ROOT__/runtime/mission_runner.py</string>
+    <string>--mission</string>
+    <string>__ROOT__/missions/queue/daily_brief_today.json</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key><integer>3</integer>
+    <key>Minute</key><integer>15</integer>
+  </dict>
+  <key>StandardOutPath</key><string>__ROOT__/logs/nightly.out.log</string>
+  <key>StandardErrorPath</key><string>__ROOT__/logs/nightly.err.log</string>
+</dict>
+</plist>

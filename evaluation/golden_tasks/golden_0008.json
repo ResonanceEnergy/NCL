@@ -1,0 +1,27 @@
+{
+  "id": "golden_0008",
+  "name": "Summarize voice memo transcript",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Idea for app: habit tracker with streaks"
+      },
+      {
+        "id": "e2",
+        "text": "Maybe gamification with points"
+      },
+      {
+        "id": "e3",
+        "text": "Check competitors: Habitica, Streaks app"
+      }
+    ]
+  },
+  "expected": {
+    "summary": "App idea: habit tracker with streaks and gamification; check Habitica and Streaks as competitors"
+  },
+  "failure_conditions": [
+    "missing_core_fact",
+    "hallucinated_item"
+  ]
+}

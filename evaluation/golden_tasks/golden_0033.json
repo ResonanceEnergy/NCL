@@ -1,0 +1,39 @@
+{
+  "id": "golden_0033",
+  "name": "Recall meeting commitments",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Promised client: deliver MVP by March 1"
+      },
+      {
+        "id": "e2",
+        "text": "Told boss: hiring plan by end of week"
+      },
+      {
+        "id": "e3",
+        "text": "Agreed with team: code freeze Feb 28"
+      },
+      {
+        "id": "e4",
+        "text": "Scheduled: board presentation March 15"
+      }
+    ]
+  },
+  "expected": {
+    "recall": {
+      "commitments": [
+        "MVP delivery to client by March 1",
+        "Hiring plan to boss by end of week",
+        "Code freeze with team on Feb 28",
+        "Board presentation on March 15"
+      ],
+      "commitment_count": 4
+    }
+  },
+  "failure_conditions": [
+    "missing_recall_item",
+    "missing_deadline"
+  ]
+}

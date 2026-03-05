@@ -1,0 +1,35 @@
+{
+  "id": "golden_0024",
+  "name": "Generate CODE insights from relationship log",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Had deep conversation with partner about goals"
+      },
+      {
+        "id": "e2",
+        "text": "Missed friends birthday \u2014 forgot to check calendar"
+      },
+      {
+        "id": "e3",
+        "text": "Family dinner was great, kids happy"
+      },
+      {
+        "id": "e4",
+        "text": "Colleague asked for help, said yes but overwhelmed"
+      }
+    ]
+  },
+  "expected": {
+    "insights": [
+      "Capture: Quality time with partner and family is high-value activity",
+      "Organize: Calendar system failed \u2014 birthday reminders need improvement",
+      "Distill: Saying yes to everything leads to overwhelm; need boundaries",
+      "Express: Set up automated birthday reminders and practice saying no"
+    ]
+  },
+  "failure_conditions": [
+    "missing_code_phase"
+  ]
+}

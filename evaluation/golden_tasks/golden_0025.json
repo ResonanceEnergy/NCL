@@ -1,0 +1,35 @@
+{
+  "id": "golden_0025",
+  "name": "Generate CODE insights from financial review",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Spending 40% on housing, above 30% guideline"
+      },
+      {
+        "id": "e2",
+        "text": "Saved only 8% this month vs 15% target"
+      },
+      {
+        "id": "e3",
+        "text": "Subscription audit found 3 unused services"
+      },
+      {
+        "id": "e4",
+        "text": "Side project earned $200 this month"
+      }
+    ]
+  },
+  "expected": {
+    "insights": [
+      "Capture: Housing costs at 40% are above the 30% guideline",
+      "Organize: Savings rate gap (8% vs 15% target) needs structural fix",
+      "Distill: Unused subscriptions and housing ratio are primary drains",
+      "Express: Cancel 3 subscriptions immediately and explore housing alternatives"
+    ]
+  },
+  "failure_conditions": [
+    "missing_code_phase"
+  ]
+}

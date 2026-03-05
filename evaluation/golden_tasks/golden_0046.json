@@ -1,0 +1,15 @@
+{
+  "id": "golden_0046",
+  "name": "Handle empty input gracefully",
+  "input": {
+    "events": []
+  },
+  "expected": {
+    "summary": "No events to process",
+    "status": "empty_input"
+  },
+  "failure_conditions": [
+    "crash_on_empty",
+    "hallucinated_item"
+  ]
+}

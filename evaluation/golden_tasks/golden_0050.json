@@ -1,0 +1,28 @@
+{
+  "id": "golden_0050",
+  "name": "Handle contradictory information",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Meeting moved to 3pm"
+      },
+      {
+        "id": "e2",
+        "text": "Meeting moved to 4pm"
+      },
+      {
+        "id": "e3",
+        "text": "Latest update: meeting at 4pm confirmed"
+      }
+    ]
+  },
+  "expected": {
+    "summary": "Meeting confirmed at 4pm (updated from earlier 3pm)",
+    "conflict_resolved": true
+  },
+  "failure_conditions": [
+    "used_outdated_info",
+    "missed_contradiction"
+  ]
+}

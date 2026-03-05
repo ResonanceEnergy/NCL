@@ -1,0 +1,46 @@
+{
+  "id": "golden_0020",
+  "name": "Categorize expenses",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Grocery store: $85.40"
+      },
+      {
+        "id": "e2",
+        "text": "Electric bill: $142"
+      },
+      {
+        "id": "e3",
+        "text": "Coffee shop: $5.75"
+      },
+      {
+        "id": "e4",
+        "text": "New running shoes: $130"
+      },
+      {
+        "id": "e5",
+        "text": "Netflix subscription: $15.99"
+      }
+    ]
+  },
+  "expected": {
+    "categories": {
+      "necessities": [
+        "Grocery store: $85.40",
+        "Electric bill: $142"
+      ],
+      "discretionary": [
+        "Coffee shop: $5.75",
+        "New running shoes: $130"
+      ],
+      "subscriptions": [
+        "Netflix subscription: $15.99"
+      ]
+    }
+  },
+  "failure_conditions": [
+    "wrong_category_necessities"
+  ]
+}

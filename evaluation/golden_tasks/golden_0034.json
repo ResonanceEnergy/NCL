@@ -1,0 +1,44 @@
+{
+  "id": "golden_0034",
+  "name": "Recall recipe ingredients",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Chicken tikka: yogurt, garam masala, turmeric, chili"
+      },
+      {
+        "id": "e2",
+        "text": "Also need: garlic, ginger, lemon juice"
+      },
+      {
+        "id": "e3",
+        "text": "For sauce: tomato paste, cream, butter"
+      },
+      {
+        "id": "e4",
+        "text": "Serve with: basmati rice and naan"
+      }
+    ]
+  },
+  "expected": {
+    "recall": {
+      "ingredients": [
+        "yogurt",
+        "garam masala",
+        "turmeric",
+        "chili",
+        "garlic",
+        "ginger",
+        "lemon juice",
+        "tomato paste",
+        "cream",
+        "butter"
+      ],
+      "serving": "basmati rice and naan"
+    }
+  },
+  "failure_conditions": [
+    "missing_recall_item"
+  ]
+}

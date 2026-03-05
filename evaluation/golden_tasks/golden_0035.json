@@ -1,0 +1,54 @@
+{
+  "id": "golden_0035",
+  "name": "Recall project milestones",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Phase 1 complete: user auth + basic UI"
+      },
+      {
+        "id": "e2",
+        "text": "Phase 2 complete: payment integration"
+      },
+      {
+        "id": "e3",
+        "text": "Phase 3 in progress: analytics dashboard"
+      },
+      {
+        "id": "e4",
+        "text": "Phase 4 planned: mobile app"
+      }
+    ]
+  },
+  "expected": {
+    "recall": {
+      "milestones": [
+        {
+          "phase": 1,
+          "status": "complete",
+          "description": "user auth + basic UI"
+        },
+        {
+          "phase": 2,
+          "status": "complete",
+          "description": "payment integration"
+        },
+        {
+          "phase": 3,
+          "status": "in_progress",
+          "description": "analytics dashboard"
+        },
+        {
+          "phase": 4,
+          "status": "planned",
+          "description": "mobile app"
+        }
+      ]
+    }
+  },
+  "failure_conditions": [
+    "missing_recall_item",
+    "wrong_status"
+  ]
+}

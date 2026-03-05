@@ -1,0 +1,20 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Create venv & install",
+      "type": "shell",
+      "command": "python3 onedrop_setup.py install"
+    },
+    {
+      "label": "Run API",
+      "type": "shell",
+      "command": "python3 -m uvicorn backend.api.main:app --reload --port 8123"
+    },
+    {
+      "label": "Update Progress",
+      "type": "shell",
+      "command": "python3 backend/cli/progress.py --complete 150"
+    }
+  ]
+}

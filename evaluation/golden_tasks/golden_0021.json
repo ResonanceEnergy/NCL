@@ -1,0 +1,35 @@
+{
+  "id": "golden_0021",
+  "name": "Generate CODE insights from productivity journal",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Deep work block 9-11am: very productive"
+      },
+      {
+        "id": "e2",
+        "text": "After lunch meeting chain broke focus"
+      },
+      {
+        "id": "e3",
+        "text": "Email checking every 15 min during PM"
+      },
+      {
+        "id": "e4",
+        "text": "Best idea came during morning walk"
+      }
+    ]
+  },
+  "expected": {
+    "insights": [
+      "Capture: Morning 9-11am is peak deep work window",
+      "Organize: Meeting chains fragment afternoon productivity",
+      "Distill: Email checking frequency correlates with reduced focus",
+      "Express: Schedule creative thinking during morning walks"
+    ]
+  },
+  "failure_conditions": [
+    "missing_code_phase"
+  ]
+}

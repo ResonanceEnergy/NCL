@@ -1,0 +1,49 @@
+{
+  "id": "golden_0041",
+  "name": "Cross-reference calendar and tasks",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Calendar: Meeting with Sarah at 2pm"
+      },
+      {
+        "id": "e2",
+        "text": "Task: Prepare slides for Sarah meeting"
+      },
+      {
+        "id": "e3",
+        "text": "Calendar: Dentist at 4pm"
+      },
+      {
+        "id": "e4",
+        "text": "Task: Submit expense report"
+      },
+      {
+        "id": "e5",
+        "text": "Status: slides not started, expense report half done"
+      }
+    ]
+  },
+  "expected": {
+    "analysis": {
+      "blocked": [
+        {
+          "task": "Prepare slides for Sarah meeting",
+          "blocker": "Not started, meeting at 2pm"
+        }
+      ],
+      "on_track": [
+        {
+          "task": "Submit expense report",
+          "status": "half done, no deadline conflict"
+        }
+      ],
+      "scheduling_conflicts": []
+    }
+  },
+  "failure_conditions": [
+    "missed_blocker",
+    "false_conflict"
+  ]
+}

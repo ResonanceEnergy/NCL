@@ -1,0 +1,46 @@
+{
+  "id": "golden_0026",
+  "name": "Detect sleep quality degradation",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Sleep score: 85 (good)"
+      },
+      {
+        "id": "e2",
+        "text": "Sleep score: 78 (fair)"
+      },
+      {
+        "id": "e3",
+        "text": "Sleep score: 71 (poor)"
+      },
+      {
+        "id": "e4",
+        "text": "Sleep score: 65 (poor)"
+      },
+      {
+        "id": "e5",
+        "text": "Screen time before bed: 2.5 hours avg"
+      }
+    ]
+  },
+  "expected": {
+    "pattern": "declining_sleep_quality",
+    "severity": "concerning",
+    "insights": [
+      "Sleep score declining over 4 days (85\u219265)",
+      "20-point drop suggests environmental or behavioral issue",
+      "High pre-bed screen time (2.5h) is a likely contributor"
+    ],
+    "recommendations": [
+      "Reduce screen time 1 hour before bed",
+      "Monitor caffeine intake after 2pm",
+      "Consider blue light filtering"
+    ]
+  },
+  "failure_conditions": [
+    "missed_pattern",
+    "incorrect_severity"
+  ]
+}

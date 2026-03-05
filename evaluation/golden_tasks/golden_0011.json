@@ -1,0 +1,31 @@
+{
+  "id": "golden_0011",
+  "name": "Extract tasks from standup notes",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Alice: blocked on API docs, needs access by EOD"
+      },
+      {
+        "id": "e2",
+        "text": "Bob: finishing PR #42, will merge today"
+      },
+      {
+        "id": "e3",
+        "text": "Carol: starting design review tomorrow"
+      }
+    ]
+  },
+  "expected": {
+    "action_items": [
+      "Alice: Get API docs access (due: EOD)",
+      "Bob: Merge PR #42 (due: today)",
+      "Carol: Start design review (due: tomorrow)"
+    ]
+  },
+  "failure_conditions": [
+    "missing_action_item",
+    "incorrect_assignee"
+  ]
+}

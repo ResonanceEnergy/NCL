@@ -1,0 +1,72 @@
+{
+  "system": {
+    "name": "NUREALCORTEXLINK",
+    "version": "3.0",
+    "codename": "Cognitive Augmentation Platform"
+  },
+  "paths": {
+    "root": "~/NCL",
+    "data": "~/NCL/data",
+    "event_log": "~/NCL/data/event_log",
+    "quarantine": "~/NCL/data/quarantine",
+    "derived": "~/NCL/data/derived",
+    "agents": "~/NCL/agents",
+    "missions": "~/NCL/missions",
+    "policies": "~/NCL/policies",
+    "dist": "~/NCL/dist",
+    "audit": "~/NCL/audit"
+  },
+  "network": {
+    "relay_port": 8787,
+    "onedrop_port": 8123,
+    "local_only": true,
+    "allowed_origins": ["localhost", "127.0.0.1"]
+  },
+  "schemas": {
+    "catalog_path": "./schemas/ncl.iphone.v1/index.json",
+    "default_version": "ncl.iphone.v1",
+    "validation_strict": true
+  },
+  "evaluation": {
+    "golden_tasks_path": "./evaluation/golden_tasks",
+    "report_path": "./evaluation_report.md",
+    "auto_update": true
+  },
+  "agency": {
+    "enabled": true,
+    "missions_path": "./ncl_agency_runtime/missions",
+    "default_mission": "daily_brief_today.json",
+    "auto_start": false
+  },
+  "onedrop": {
+    "enabled": true,
+    "api_port": 8123,
+    "roadmap_path": "./ncl_onedrop_setup/docs/product/roadmap_100_steps.md",
+    "progress_file": "./ncl_onedrop_setup/backend/data/progress.json"
+  },
+  "memory": {
+    "enabled": true,
+    "storage_path": "~/NCL/memory",
+    "working_memory_limit": 1000,
+    "consolidation_threshold_days": 7,
+    "consolidation_min_importance": 0.7,
+    "pruning_max_short_term": 10000,
+    "pruning_max_long_term": 50000,
+    "auto_consolidation": true,
+    "auto_pruning": true,
+    "learning_enabled": true
+  },
+  "privacy": {
+    "local_only": true,
+    "data_retention_days": 90,
+    "audit_logging": true,
+    "anonymize_exports": true
+  },
+  "access": {
+    "api_keys_required": false,
+    "rate_limiting": {
+      "events_per_minute": 60,
+      "api_calls_per_minute": 30
+    }
+  }
+}

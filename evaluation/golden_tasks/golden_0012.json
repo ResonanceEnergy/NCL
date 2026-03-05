@@ -1,0 +1,35 @@
+{
+  "id": "golden_0012",
+  "name": "Extract follow-ups from client call",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Client wants updated proposal by next Monday"
+      },
+      {
+        "id": "e2",
+        "text": "Need to include pricing for enterprise tier"
+      },
+      {
+        "id": "e3",
+        "text": "Schedule demo for their CTO next week"
+      },
+      {
+        "id": "e4",
+        "text": "Send NDA before sharing technical docs"
+      }
+    ]
+  },
+  "expected": {
+    "action_items": [
+      "Update proposal with enterprise pricing (due: Monday)",
+      "Schedule CTO demo (due: next week)",
+      "Send NDA before sharing tech docs"
+    ]
+  },
+  "failure_conditions": [
+    "missing_action_item",
+    "missing_deadline"
+  ]
+}

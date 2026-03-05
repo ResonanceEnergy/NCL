@@ -1,0 +1,36 @@
+{
+  "id": "golden_0015",
+  "name": "Extract study plan from lecture notes",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Midterm covers chapters 4-8"
+      },
+      {
+        "id": "e2",
+        "text": "Focus on regression analysis and hypothesis testing"
+      },
+      {
+        "id": "e3",
+        "text": "Practice problems due Friday"
+      },
+      {
+        "id": "e4",
+        "text": "Study group meets Wednesday 7pm library"
+      }
+    ]
+  },
+  "expected": {
+    "action_items": [
+      "Study chapters 4-8 for midterm",
+      "Focus on regression analysis and hypothesis testing",
+      "Complete practice problems (due: Friday)",
+      "Attend study group Wed 7pm at library"
+    ]
+  },
+  "failure_conditions": [
+    "missing_action_item",
+    "missing_deadline"
+  ]
+}

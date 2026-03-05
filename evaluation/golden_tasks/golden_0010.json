@@ -1,0 +1,31 @@
+{
+  "id": "golden_0010",
+  "name": "Summarize reading notes",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Book: Atomic Habits by James Clear"
+      },
+      {
+        "id": "e2",
+        "text": "Key: 1% improvement daily compounds"
+      },
+      {
+        "id": "e3",
+        "text": "Habit stacking: attach new habit to existing one"
+      },
+      {
+        "id": "e4",
+        "text": "Environment design matters more than motivation"
+      }
+    ]
+  },
+  "expected": {
+    "summary": "Atomic Habits: 1% daily gains compound; use habit stacking and environment design over motivation"
+  },
+  "failure_conditions": [
+    "missing_core_fact",
+    "wrong_attribution"
+  ]
+}

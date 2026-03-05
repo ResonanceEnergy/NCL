@@ -1,0 +1,27 @@
+{
+  "id": "golden_0007",
+  "name": "Summarize email thread",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "From: boss@co.com Subject: Q2 targets"
+      },
+      {
+        "id": "e2",
+        "text": "Revenue target: $2M, Headcount: +3"
+      },
+      {
+        "id": "e3",
+        "text": "Deadline for plan: March 15"
+      }
+    ]
+  },
+  "expected": {
+    "summary": "Q2 targets from boss: $2M revenue, +3 headcount, plan due March 15"
+  },
+  "failure_conditions": [
+    "missing_core_fact",
+    "wrong_number"
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "id": "golden_0048",
+  "name": "Handle mixed languages",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Meeting at 3pm"
+      },
+      {
+        "id": "e2",
+        "text": "Llamar a Maria manana"
+      },
+      {
+        "id": "e3",
+        "text": "Buy groceries"
+      }
+    ]
+  },
+  "expected": {
+    "summary": "Meeting at 3pm; Call Maria tomorrow; Buy groceries",
+    "languages_detected": [
+      "en",
+      "es"
+    ]
+  },
+  "failure_conditions": [
+    "dropped_non_english",
+    "mistranslation"
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "id": "golden_0047",
+  "name": "Handle duplicate events",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Buy milk"
+      },
+      {
+        "id": "e2",
+        "text": "Buy milk"
+      },
+      {
+        "id": "e3",
+        "text": "Buy eggs"
+      },
+      {
+        "id": "e1_dup",
+        "text": "Buy milk"
+      }
+    ]
+  },
+  "expected": {
+    "summary": "Buy milk; Buy eggs",
+    "deduplicated_count": 2
+  },
+  "failure_conditions": [
+    "duplicate_in_output"
+  ]
+}

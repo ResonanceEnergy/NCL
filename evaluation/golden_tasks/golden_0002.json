@@ -1,0 +1,20 @@
+{
+  "id": "golden_0002",
+  "name": "Extract action items from meeting notes",
+  "input": {
+    "events": [
+      { "id": "e1", "text": "Meeting with team about Q1 planning" },
+      { "id": "e2", "text": "John to research competitor analysis by Friday" },
+      { "id": "e3", "text": "Sarah will prepare budget presentation" },
+      { "id": "e4", "text": "Follow up on vendor quotes next week" }
+    ]
+  },
+  "expected": {
+    "action_items": [
+      "John: Research competitor analysis (due: Friday)",
+      "Sarah: Prepare budget presentation",
+      "Follow up on vendor quotes (due: next week)"
+    ]
+  },
+  "failure_conditions": ["missing_action_item", "incorrect_assignee", "missing_deadline"]
+}

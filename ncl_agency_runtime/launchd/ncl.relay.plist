@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>ncl.relay</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/python3</string>
+    <string>__ROOT__/runtime/relay_server.py</string>
+    <string>--host</string><string>0.0.0.0</string>
+    <string>--port</string><string>8787</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>__ROOT__/logs/relay.out.log</string>
+  <key>StandardErrorPath</key><string>__ROOT__/logs/relay.err.log</string>
+</dict>
+</plist>

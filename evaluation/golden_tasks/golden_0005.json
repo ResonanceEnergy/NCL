@@ -1,0 +1,29 @@
+{
+  "id": "golden_0005",
+  "name": "Detect health pattern from vitals",
+  "input": {
+    "events": [
+      { "id": "e1", "text": "Resting HR: 65 bpm (normal range)" },
+      { "id": "e2", "text": "Resting HR: 72 bpm (elevated)" },
+      { "id": "e3", "text": "Resting HR: 78 bpm (high)" },
+      { "id": "e4", "text": "Resting HR: 82 bpm (very high)" },
+      { "id": "e5", "text": "Sleep duration: 6.5 hours (below target)" },
+      { "id": "e6", "text": "Sleep duration: 5.8 hours (significantly below)" }
+    ]
+  },
+  "expected": {
+    "pattern": "elevated_resting_heart_rate_trend",
+    "severity": "concerning",
+    "insights": [
+      "Resting heart rate trending upward over 4 days",
+      "Correlates with reduced sleep duration",
+      "May indicate stress or recovery debt accumulation"
+    ],
+    "recommendations": [
+      "Monitor for additional symptoms",
+      "Consider stress reduction techniques",
+      "Evaluate sleep hygiene improvements"
+    ]
+  },
+  "failure_conditions": ["missed_pattern", "incorrect_severity", "irrelevant_recommendation"]
+}

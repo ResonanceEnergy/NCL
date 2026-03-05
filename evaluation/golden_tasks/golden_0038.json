@@ -1,0 +1,51 @@
+{
+  "id": "golden_0038",
+  "name": "Plan meal prep for the week",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Goal: high protein, moderate carb"
+      },
+      {
+        "id": "e2",
+        "text": "Budget: $75 for the week"
+      },
+      {
+        "id": "e3",
+        "text": "Allergies: none"
+      },
+      {
+        "id": "e4",
+        "text": "Prep time: Sunday 2 hours max"
+      }
+    ]
+  },
+  "expected": {
+    "plan": {
+      "meals": {
+        "protein_sources": [
+          "chicken breast",
+          "eggs",
+          "Greek yogurt"
+        ],
+        "carb_sources": [
+          "rice",
+          "sweet potato",
+          "oats"
+        ],
+        "vegetables": [
+          "broccoli",
+          "spinach",
+          "bell peppers"
+        ]
+      },
+      "estimated_cost": "~$60-75",
+      "prep_time": "~2 hours"
+    }
+  },
+  "failure_conditions": [
+    "exceeds_budget",
+    "missing_macronutrient"
+  ]
+}

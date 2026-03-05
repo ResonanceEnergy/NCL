@@ -1,0 +1,45 @@
+{
+  "id": "golden_0030",
+  "name": "Detect hydration deficit pattern",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Water intake: 4 cups (target: 8)"
+      },
+      {
+        "id": "e2",
+        "text": "Headache at 3pm"
+      },
+      {
+        "id": "e3",
+        "text": "Energy dip at 2pm"
+      },
+      {
+        "id": "e4",
+        "text": "Caffeinated drinks: 4"
+      },
+      {
+        "id": "e5",
+        "text": "Urine color: dark yellow"
+      }
+    ]
+  },
+  "expected": {
+    "pattern": "chronic_dehydration",
+    "severity": "warning",
+    "insights": [
+      "Water intake at 50% of target",
+      "Caffeine intake may be displacing water",
+      "Physical symptoms consistent with dehydration (headache, fatigue, dark urine)"
+    ],
+    "recommendations": [
+      "Set hourly water reminders",
+      "Replace 2 caffeine servings with water",
+      "Track intake with visual water bottle markers"
+    ]
+  },
+  "failure_conditions": [
+    "missed_pattern"
+  ]
+}

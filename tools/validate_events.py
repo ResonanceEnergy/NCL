@@ -18,7 +18,8 @@ import json
 import os
 import pathlib
 import sys
-from jsonschema import Draft7Validator, RefResolver
+from jsonschema import Draft7Validator
+from referencing import Registry, Resource
 
 SCHEMA_DIR = os.path.join('schemas','ncl.iphone.v1')
 INDEX_PATH = os.path.join(SCHEMA_DIR,'index.json')
@@ -41,9 +42,12 @@ def load_schema_for_event_type(event_type: str, catalog: dict):
 
 def validate_instance(instance: dict, schema: dict, schema_path: str, envelope_schema: dict):
     base_uri = pathlib.Path(os.path.abspath(schema_path)).as_uri()
-    store = {envelope_schema.get('$id'): envelope_schema, pathlib.Path(os.path.abspath(ENVELOPE_PATH)).as_uri(): envelope_schema}
-    resolver = RefResolver(base_uri=base_uri, referrer=schema, store=store)
-    validator = Draft7Validator(schema, resolver=resolver)
+    registry = Registry()
+    registry = registry.with_resources([
+        (envelope_schema.get('$id'), Resource.from_contents(envelope_schema)),
+        (pathlib.Path(os.path.abspath(ENVELOPE_PATH)).as_uri(), Resource.from_contents(envelope_schema))
+    ])
+    validator = Draft7Validator(schema, registry=registry)
     errs = list(validator.iter_errors(instance))
     return errs
 

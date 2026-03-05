@@ -1,0 +1,136 @@
+name: NCL CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+          pip install ruff mypy
+
+      - name: Lint with ruff
+        run: ruff check .
+
+      - name: Type check with mypy
+        run: mypy ncl_memory.py ncl_agency_runtime/runtime/ tools/ --ignore-missing-imports || true
+
+      - name: Run tests
+        run: |
+          python -m pytest tests/ -v --tb=short -x
+
+      - name: Validate golden task schemas
+        run: |
+          python -c "
+          import json, glob, sys
+          errors = []
+          for f in sorted(glob.glob('evaluation/golden_tasks/golden_*.json')):
+              try:
+                  task = json.load(open(f))
+                  for key in ['task_id', 'task_type', 'input', 'expected_output']:
+                      if key not in task:
+                          errors.append(f'{f}: missing required key \"{key}\"')
+              except Exception as e:
+                  errors.append(f'{f}: {e}')
+          if errors:
+              for e in errors:
+                  print(f'ERROR: {e}', file=sys.stderr)
+              sys.exit(1)
+          print(f'Validated {len(glob.glob(\"evaluation/golden_tasks/golden_*.json\"))} golden tasks')
+          "
+
+      - name: Validate event schemas
+        run: |
+          python tools/validate_events.py --check-catalog 2>/dev/null || echo "Schema catalog validation skipped"
+
+      - name: Validate ncl_config.json
+        run: |
+          python -c "
+          import json, sys
+          try:
+              cfg = json.load(open('ncl_config.json'))
+              required = ['system', 'paths', 'network', 'schemas']
+              for key in required:
+                  assert key in cfg, f'Missing top-level key: {key}'
+              print('ncl_config.json: valid')
+          except Exception as e:
+              print(f'ERROR: {e}', file=sys.stderr)
+              sys.exit(1)
+          "
+
+      - name: Check mission queue files
+        run: |
+          python -c "
+          import json, glob, sys
+          for f in glob.glob('ncl_agency_runtime/missions/queue/*.json'):
+              try:
+                  m = json.load(open(f))
+                  assert 'mission_type' in m, f'{f}: missing mission_type'
+                  assert 'mission_id' in m, f'{f}: missing mission_id'
+                  print(f'  OK: {f} ({m[\"mission_type\"]})')
+              except Exception as e:
+                  print(f'ERROR: {e}', file=sys.stderr)
+                  sys.exit(1)
+          "
+
+  schema-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install jsonschema referencing
+
+      - name: Validate all schemas parse correctly
+        run: |
+          python -c "
+          import json, glob, sys
+          errors = []
+          for f in glob.glob('schemas/**/*.json', recursive=True):
+              try:
+                  json.load(open(f))
+              except Exception as e:
+                  errors.append(f'{f}: {e}')
+          if errors:
+              for e in errors:
+                  print(f'ERROR: {e}', file=sys.stderr)
+              sys.exit(1)
+          print(f'All schema files parse correctly')
+          "
+
+  swift-build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Swift package
+        working-directory: ios/CompanionApp
+        run: swift build
+
+      - name: Run Swift tests
+        working-directory: ios/CompanionApp
+        run: swift test

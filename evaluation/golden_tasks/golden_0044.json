@@ -1,0 +1,48 @@
+{
+  "id": "golden_0044",
+  "name": "Detect conflicting commitments",
+  "input": {
+    "events": [
+      {
+        "id": "e1",
+        "text": "Promised team: deliver feature by Friday"
+      },
+      {
+        "id": "e2",
+        "text": "Promised client: attend workshop Thursday-Friday"
+      },
+      {
+        "id": "e3",
+        "text": "Promised partner: date night Friday"
+      },
+      {
+        "id": "e4",
+        "text": "Estimated work remaining: 12 hours"
+      }
+    ]
+  },
+  "expected": {
+    "analysis": {
+      "conflicts": [
+        {
+          "items": [
+            "Feature delivery Friday",
+            "Client workshop Thursday-Friday"
+          ],
+          "issue": "Workshop blocks feature development time"
+        },
+        {
+          "items": [
+            "Client workshop Friday",
+            "Date night Friday"
+          ],
+          "issue": "Evening conflict possible"
+        }
+      ],
+      "recommendation": "Negotiate feature deadline extension or delegate workshop attendance"
+    }
+  },
+  "failure_conditions": [
+    "missed_conflict"
+  ]
+}
