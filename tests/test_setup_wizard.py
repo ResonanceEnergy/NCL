@@ -4,18 +4,18 @@ Tests for tools/setup_wizard.py — directory creation, config validation, banne
 Uses mocks to avoid interactive prompts and file system side-effects.
 """
 import json
-import os
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "tools"))
 
-import setup_wizard
+import setup_wizard  # noqa: E402
 
 
 class TestSetupWizardConstants(unittest.TestCase):
@@ -40,11 +40,10 @@ class TestSetupWizardConstants(unittest.TestCase):
 class TestStepCreateDirs(unittest.TestCase):
 
     def test_creates_directories(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with patch.object(setup_wizard, "NCL_ROOT", Path(tmpdir)):
-                setup_wizard.step_create_dirs()
-                for d in setup_wizard.REQUIRED_DIRS:
-                    self.assertTrue((Path(tmpdir) / d).exists(), f"Missing dir: {d}")
+        with tempfile.TemporaryDirectory() as tmpdir, patch.object(setup_wizard, "NCL_ROOT", Path(tmpdir)):
+            setup_wizard.step_create_dirs()
+            for d in setup_wizard.REQUIRED_DIRS:
+                self.assertTrue((Path(tmpdir) / d).exists(), f"Missing dir: {d}")
 
 
 class TestStepCheckPython(unittest.TestCase):
@@ -73,10 +72,9 @@ class TestStepValidateConfig(unittest.TestCase):
                 self.assertTrue(result)
 
     def test_missing_config_file(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with patch.object(setup_wizard, "REPO_ROOT", Path(tmpdir)):
-                result = setup_wizard.step_validate_config()
-                self.assertFalse(result)
+        with tempfile.TemporaryDirectory() as tmpdir, patch.object(setup_wizard, "REPO_ROOT", Path(tmpdir)):
+            result = setup_wizard.step_validate_config()
+            self.assertFalse(result)
 
     def test_incomplete_config(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -116,6 +114,51 @@ class TestBanner(unittest.TestCase):
     def test_banner_prints(self):
         """Banner should not raise."""
         setup_wizard.banner()
+
+
+class TestStepValidateImports(unittest.TestCase):
+
+    def test_all_imports_pass(self):
+        # lib_ncl and ncl_memory should import fine in test env
+        result = setup_wizard.step_validate_imports()
+        self.assertTrue(result)
+
+    @patch("builtins.__import__", side_effect=ImportError("fake"))
+    def test_import_failures(self, mock_import):
+        result = setup_wizard.step_validate_imports()
+        self.assertFalse(result)
+
+
+class TestStepRunTests(unittest.TestCase):
+
+    @patch("setup_wizard.subprocess.run")
+    def test_tests_pass(self, mock_run):
+        mock_run.return_value = unittest.mock.MagicMock(
+            returncode=0,
+            stdout="42 passed in 1.2s\n",
+        )
+        result = setup_wizard.step_run_tests()
+        self.assertTrue(result)
+
+    @patch("setup_wizard.subprocess.run")
+    def test_tests_fail(self, mock_run):
+        mock_run.return_value = unittest.mock.MagicMock(
+            returncode=1,
+            stdout="FAILED tests/test_x.py\n2 failed\n",
+        )
+        result = setup_wizard.step_run_tests()
+        self.assertFalse(result)
+
+
+class TestSummary(unittest.TestCase):
+
+    def test_all_pass(self, ):
+        results = {"Python check": True, "Config check": True}
+        setup_wizard.summary(results)  # Should not raise
+
+    def test_partial_fail(self):
+        results = {"Python check": True, "Config check": False}
+        setup_wizard.summary(results)  # Should not raise
 
 
 if __name__ == "__main__":

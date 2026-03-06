@@ -3,7 +3,6 @@
 Tests for tools/import_data.py — dedup, merge, dry-run, zip handling.
 """
 import json
-import os
 import sys
 import tempfile
 import unittest
@@ -14,7 +13,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "tools"))
 
-from import_data import import_data, load_existing_event_ids
+from import_data import import_data, load_existing_event_ids  # noqa: E402
 
 
 class TestLoadExistingEventIds(unittest.TestCase):
@@ -74,7 +73,7 @@ class TestImportData(unittest.TestCase):
                     zf.writestr(f"memory/{name}", content)
 
     def test_import_nonexistent_archive(self):
-        result = import_data(Path("/tmp/nofile.zip"), self.ncl_root)
+        result = import_data(Path("/tmp/nofile.zip"), self.ncl_root)  # noqa: S108
         self.assertIsNone(result)
 
     def test_import_events(self):

@@ -9,7 +9,7 @@ import sys
 import types
 import unittest
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 # ── Path setup ────────────────────────────────────────────
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -33,7 +33,7 @@ class TestDiscordConnector(unittest.TestCase):
         import importlib
         if "discord_connector" in sys.modules:
             importlib.reload(sys.modules["discord_connector"])
-        from discord_connector import DiscordConnector, ChannelType
+        from discord_connector import ChannelType, DiscordConnector
         self.DiscordConnector = DiscordConnector
         self.ChannelType = ChannelType
 
@@ -123,7 +123,7 @@ class TestDiscordConnector(unittest.TestCase):
     # ── Send without client ─────────────────────────────
 
     def test_send_without_client_does_not_crash(self):
-        from super_openclaw_agent import OutboundMessage, ChannelType
+        from super_openclaw_agent import ChannelType, OutboundMessage
         dc = self.DiscordConnector(token="t")
         msg = OutboundMessage(
             channel=ChannelType.DISCORD,

@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-import argparse, json, uuid, datetime, urllib.request
+import argparse
+import datetime
+import json
+import urllib.request
+import uuid
 
 
 def main():
@@ -8,7 +12,7 @@ def main():
     ap.add_argument('--event_type', default='intent.capture.quicklog')
     args = ap.parse_args()
 
-    now = datetime.datetime.now(datetime.timezone.utc).astimezone()
+    now = datetime.datetime.now(datetime.UTC).astimezone()
     payload = {
         "schema_version": "ncl.event.v1",
         "event_id": str(uuid.uuid4()),
@@ -20,8 +24,8 @@ def main():
     }
 
     data = json.dumps(payload).encode('utf-8')
-    req = urllib.request.Request(args.url, data=data, method='POST', headers={'Content-Type':'application/json'})
-    with urllib.request.urlopen(req, timeout=10) as resp:
+    req = urllib.request.Request(args.url, data=data, method='POST', headers={'Content-Type':'application/json'})  # noqa: S310
+    with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
         print(resp.read().decode('utf-8'))
 
 

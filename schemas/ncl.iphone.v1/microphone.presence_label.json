@@ -1,0 +1,26 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/microphone.presence_label.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Microphone Presence Label",
+  "description": "On-device audio classification label (no raw audio stored).",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.microphone.presence_label" },
+        "payload": {
+          "type": "object",
+          "required": ["timestamp", "label"],
+          "properties": {
+            "timestamp": { "type": "string", "format": "date-time" },
+            "label": { "type": "string", "enum": ["silence", "speech", "music", "noise", "meeting"] },
+            "confidence": { "type": "number", "minimum": 0, "maximum": 1.0 },
+            "duration_seconds": { "type": "integer", "minimum": 0 },
+            "is_interruption": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

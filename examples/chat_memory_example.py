@@ -11,9 +11,12 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 
 from ncl_agency_runtime.runtime.memory_api import (
-    store_chat_conversation, learn_from_chat,
-    recall_chat_history, search_chat_content
+    learn_from_chat,
+    recall_chat_history,
+    search_chat_content,
+    store_chat_conversation,
 )
+
 
 def example_chat_memory():
     """Example of storing and retrieving chat conversations"""

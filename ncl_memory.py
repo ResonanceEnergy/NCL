@@ -5,24 +5,22 @@ Advanced memory management for cognitive augmentation with multi-tier storage,
 semantic indexing, and learning capabilities.
 """
 
-import json
-import os
-import time
 import hashlib
-import threading
-from pathlib import Path
-from typing import Dict, List, Any, Optional, Tuple
-from datetime import datetime, timedelta
-import heapq
-import pickle
+import json
 import sqlite3
+import threading
+import time
 from collections import defaultdict, deque
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any
+
 
 class MemoryUnit:
     """Represents a single unit of memory with metadata"""
 
     def __init__(self, content: Any, memory_type: str = "episodic",
-                 tags: List[str] = None, context: Dict = None):
+                 tags: list[str] | None = None, context: dict | None = None):
         self.id = hashlib.sha256(f"{time.time()}_{content}_{memory_type}".encode()).hexdigest()[:16]
         self.content = content
         self.memory_type = memory_type  # episodic, semantic, procedural, working
@@ -35,7 +33,7 @@ class MemoryUnit:
         self.consolidated = False
         self.source = "system"
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Convert to dictionary for storage"""
         return {
             "id": self.id,
@@ -52,21 +50,41 @@ class MemoryUnit:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict) -> 'MemoryUnit':
+    def from_dict(cls, data: dict) -> 'MemoryUnit':
         """Create from dictionary"""
+        required_keys = {"id", "content", "memory_type", "timestamp"}
+        missing = required_keys - set(data.keys())
+        if missing:
+            raise ValueError(f"MemoryUnit.from_dict missing keys: {missing}")
+
+        # Type coercion for safety
+        tags = data.get("tags", [])
+        if not isinstance(tags, list):
+            tags = []
+        context = data.get("context", {})
+        if not isinstance(context, dict):
+            context = {}
+
         unit = cls(
             content=data["content"],
             memory_type=data["memory_type"],
-            tags=data["tags"],
-            context=data["context"]
+            tags=tags,
+            context=context,
         )
-        unit.id = data["id"]
+        unit.id = str(data["id"])
         unit.timestamp = datetime.fromisoformat(data["timestamp"])
-        unit.access_count = data["access_count"]
-        unit.last_accessed = datetime.fromisoformat(data["last_accessed"])
-        unit.importance = data["importance"]
-        unit.consolidated = data["consolidated"]
-        unit.source = data.get("source", "system")
+        try:
+            unit.access_count = int(data.get("access_count", 0))
+        except (ValueError, TypeError):
+            unit.access_count = 0
+        last_accessed = data.get("last_accessed")
+        unit.last_accessed = datetime.fromisoformat(last_accessed) if last_accessed else unit.timestamp
+        try:
+            unit.importance = float(data.get("importance", 1.0))
+        except (ValueError, TypeError):
+            unit.importance = 1.0
+        unit.consolidated = bool(data.get("consolidated", False))
+        unit.source = str(data.get("source") or "system")
         return unit
 
     def access(self):
@@ -111,7 +129,7 @@ class MemoryIndex:
         self.type_index = defaultdict(set)  # type -> memory_ids
         self.time_index = defaultdict(set)  # hour -> memory_ids
         self.content_index = defaultdict(set)  # keyword -> memory_ids
-        self.context_index = defaultdict(lambda: defaultdict(set))  # key -> value -> memory_ids
+        self.context_index: defaultdict[str, defaultdict[str, set[str]]] = defaultdict(lambda: defaultdict(set))  # key -> value -> memory_ids
 
     def add_memory(self, memory: MemoryUnit):
         """Add memory to all relevant indexes"""
@@ -144,7 +162,7 @@ class MemoryIndex:
         # For now, we'll rebuild on demand
         pass
 
-    def search(self, query: Dict) -> set:
+    def search(self, query: dict) -> set:
         """Search memories using query filters"""
         results = None
 
@@ -197,7 +215,7 @@ class MemoryStorage:
         self.base_path.mkdir(parents=True, exist_ok=True)
 
         # Storage tiers
-        self.working_memory = {}  # RAM-based for active context
+        self.working_memory: dict[str, MemoryUnit] = {}  # RAM-based for active context
         self.short_term_db = self.base_path / "short_term.db"  # SQLite for recent memories
         self.long_term_db = self.base_path / "long_term.db"    # SQLite for consolidated memories
 
@@ -206,12 +224,19 @@ class MemoryStorage:
 
         # Working memory limits
         self.working_memory_limit = 1000
-        self.working_memory_queue = deque(maxlen=self.working_memory_limit)
+        self.working_memory_queue: deque[str] = deque(maxlen=self.working_memory_limit)
+
+    def _connect(self, db_path: Path) -> sqlite3.Connection:
+        """Create a SQLite connection with WAL mode and busy timeout."""
+        conn = sqlite3.connect(str(db_path), timeout=30)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=30000")
+        return conn
 
     def _init_databases(self):
         """Initialize SQLite databases"""
         for db_path in [self.short_term_db, self.long_term_db]:
-            conn = sqlite3.connect(str(db_path))
+            conn = self._connect(db_path)
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS memories (
                     id TEXT PRIMARY KEY,
@@ -242,7 +267,7 @@ class MemoryStorage:
 
     def store_short_term(self, memory: MemoryUnit):
         """Store in short-term database"""
-        conn = sqlite3.connect(str(self.short_term_db))
+        conn = self._connect(self.short_term_db)
         conn.execute("""
             INSERT OR REPLACE INTO memories
             (id, data, memory_type, importance, timestamp, last_accessed, access_count)
@@ -262,7 +287,7 @@ class MemoryStorage:
     def store_long_term(self, memory: MemoryUnit):
         """Store in long-term database"""
         memory.consolidated = True
-        conn = sqlite3.connect(str(self.long_term_db))
+        conn = self._connect(self.long_term_db)
         conn.execute("""
             INSERT OR REPLACE INTO memories
             (id, data, memory_type, importance, timestamp, last_accessed, access_count)
@@ -279,7 +304,7 @@ class MemoryStorage:
         conn.commit()
         conn.close()
 
-    def retrieve_working_memory(self, memory_id: str) -> Optional[MemoryUnit]:
+    def retrieve_working_memory(self, memory_id: str) -> MemoryUnit | None:
         """Retrieve from working memory"""
         if memory_id in self.working_memory:
             memory = self.working_memory[memory_id]
@@ -287,9 +312,9 @@ class MemoryStorage:
             return memory
         return None
 
-    def retrieve_short_term(self, memory_id: str) -> Optional[MemoryUnit]:
+    def retrieve_short_term(self, memory_id: str) -> MemoryUnit | None:
         """Retrieve from short-term database"""
-        conn = sqlite3.connect(str(self.short_term_db))
+        conn = self._connect(self.short_term_db)
         cursor = conn.execute("SELECT data FROM memories WHERE id = ?", (memory_id,))
         row = cursor.fetchone()
         conn.close()
@@ -303,9 +328,9 @@ class MemoryStorage:
             return memory
         return None
 
-    def retrieve_long_term(self, memory_id: str) -> Optional[MemoryUnit]:
+    def retrieve_long_term(self, memory_id: str) -> MemoryUnit | None:
         """Retrieve from long-term database"""
-        conn = sqlite3.connect(str(self.long_term_db))
+        conn = self._connect(self.long_term_db)
         cursor = conn.execute("SELECT data FROM memories WHERE id = ?", (memory_id,))
         row = cursor.fetchone()
         conn.close()
@@ -319,9 +344,9 @@ class MemoryStorage:
             return memory
         return None
 
-    def search_short_term(self, query: Dict, limit: int = 50) -> List[MemoryUnit]:
+    def search_short_term(self, query: dict, limit: int = 50) -> list[MemoryUnit]:
         """Search short-term memories"""
-        conn = sqlite3.connect(str(self.short_term_db))
+        conn = self._connect(self.short_term_db)
 
         # Build WHERE clause
         conditions = []
@@ -337,12 +362,8 @@ class MemoryStorage:
 
         where_clause = " AND ".join(conditions) if conditions else "1=1"
 
-        cursor = conn.execute(f"""
-            SELECT data FROM memories
-            WHERE {where_clause}
-            ORDER BY importance DESC, last_accessed DESC
-            LIMIT ?
-        """, params + [limit])
+        sql = f"SELECT data FROM memories WHERE {where_clause} ORDER BY importance DESC, last_accessed DESC LIMIT ?"  # noqa: S608
+        cursor = conn.execute(sql, [*params, limit])
 
         results = []
         for row in cursor:
@@ -352,35 +373,38 @@ class MemoryStorage:
         conn.close()
         return results
 
-    def consolidate_memories(self, threshold_days: int = 7, min_importance: float = 0.7):
+    def consolidate_memories(self, threshold_days: int = 7, min_importance: float = 0.7) -> int:
         """Move important short-term memories to long-term storage"""
         cutoff_date = datetime.now() - timedelta(days=threshold_days)
 
-        conn = sqlite3.connect(str(self.short_term_db))
+        # Collect candidates first to release read lock before writing
+        conn = self._connect(self.short_term_db)
         cursor = conn.execute("""
             SELECT data FROM memories
             WHERE importance >= ? AND timestamp < ?
         """, (min_importance, cutoff_date.isoformat()))
+        candidates = cursor.fetchall()
+        conn.close()
 
         consolidated_count = 0
-        for row in cursor:
+        for row in candidates:
             data = json.loads(row[0])
             memory = MemoryUnit.from_dict(data)
             self.store_long_term(memory)
 
             # Remove from short-term
+            conn = self._connect(self.short_term_db)
             conn.execute("DELETE FROM memories WHERE id = ?", (memory.id,))
+            conn.commit()
+            conn.close()
             consolidated_count += 1
-
-        conn.commit()
-        conn.close()
 
         return consolidated_count
 
     def prune_memories(self, max_short_term: int = 10000, max_long_term: int = 50000):
         """Prune least important memories to maintain size limits"""
         # Prune short-term
-        conn = sqlite3.connect(str(self.short_term_db))
+        conn = self._connect(self.short_term_db)
         count = conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
 
         if count > max_short_term:
@@ -398,7 +422,7 @@ class MemoryStorage:
         conn.close()
 
         # Prune long-term
-        conn = sqlite3.connect(str(self.long_term_db))
+        conn = self._connect(self.long_term_db)
         count = conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
 
         if count > max_long_term:
@@ -425,8 +449,8 @@ class MemoryManager:
         self.index = MemoryIndex()
 
         # Memory processing queues
-        self.consolidation_queue = deque()
-        self.learning_queue = deque()
+        self.consolidation_queue: deque[str] = deque()
+        self.learning_queue: deque[str] = deque()
 
         # Background processing
         self.running = True
@@ -436,11 +460,12 @@ class MemoryManager:
         # Load existing memories into index
         self._rebuild_index()
 
-    def load_config(self, config_path: str) -> Dict:
+    def load_config(self, config_path: str) -> dict[str, Any]:
         """Load memory configuration"""
         try:
-            with open(config_path, 'r') as f:
-                return json.load(f)
+            with open(config_path) as f:
+                result: dict[str, Any] = json.load(f)
+                return result
         except FileNotFoundError:
             return {
                 "memory": {
@@ -464,9 +489,8 @@ class MemoryManager:
             try:
                 # Consolidate memories periodically
                 if len(self.consolidation_queue) > 0:
-                    memory_id = self.consolidation_queue.popleft()
+                    self.consolidation_queue.popleft()
                     # Consolidation logic would go here
-                    pass
 
                 time.sleep(300)  # Run every 5 minutes
 
@@ -475,7 +499,7 @@ class MemoryManager:
                 time.sleep(60)
 
     def store_memory(self, content: Any, memory_type: str = "episodic",
-                    tags: List[str] = None, context: Dict = None,
+                    tags: list[str] | None = None, context: dict | None = None,
                     source: str = "system") -> str:
         """Store a new memory"""
         memory = MemoryUnit(content, memory_type, tags, context)
@@ -501,7 +525,7 @@ class MemoryManager:
 
         return memory.id
 
-    def retrieve_memory(self, memory_id: str) -> Optional[MemoryUnit]:
+    def retrieve_memory(self, memory_id: str) -> MemoryUnit | None:
         """Retrieve a specific memory"""
         # Try working memory first
         memory = self.storage.retrieve_working_memory(memory_id)
@@ -517,7 +541,7 @@ class MemoryManager:
         memory = self.storage.retrieve_long_term(memory_id)
         return memory
 
-    def search_memories(self, query: Dict, limit: int = 50) -> List[MemoryUnit]:
+    def search_memories(self, query: dict, limit: int = 50) -> list[MemoryUnit]:
         """Search memories using flexible query"""
         # Use index for fast filtering
         candidate_ids = self.index.search(query)
@@ -547,9 +571,9 @@ class MemoryManager:
         memories.sort(key=lambda m: (m.importance, m.last_accessed), reverse=True)
         return memories[:limit]
 
-    def _search_long_term(self, query: Dict, limit: int) -> List[MemoryUnit]:
+    def _search_long_term(self, query: dict, limit: int) -> list[MemoryUnit]:
         """Search long-term memories (simplified implementation)"""
-        conn = sqlite3.connect(str(self.storage.long_term_db))
+        conn = self.storage._connect(self.storage.long_term_db)
 
         # Build WHERE clause
         conditions = []
@@ -565,12 +589,8 @@ class MemoryManager:
 
         where_clause = " AND ".join(conditions) if conditions else "1=1"
 
-        cursor = conn.execute(f"""
-            SELECT data FROM memories
-            WHERE {where_clause}
-            ORDER BY importance DESC, last_accessed DESC
-            LIMIT ?
-        """, params + [limit])
+        sql = f"SELECT data FROM memories WHERE {where_clause} ORDER BY importance DESC, last_accessed DESC LIMIT ?"  # noqa: S608
+        cursor = conn.execute(sql, [*params, limit])
 
         results = []
         for row in cursor:
@@ -586,7 +606,7 @@ class MemoryManager:
         threshold_days = config.get("consolidation_threshold_days", 7)
         min_importance = config.get("consolidation_min_importance", 0.7)
 
-        return self.storage.consolidate_memories(threshold_days, min_importance)
+        return int(self.storage.consolidate_memories(threshold_days, min_importance))
 
     def prune_memories(self) -> None:
         """Manually trigger memory pruning"""
@@ -596,7 +616,7 @@ class MemoryManager:
 
         self.storage.prune_memories(max_short, max_long)
 
-    def get_memory_stats(self) -> Dict:
+    def get_memory_stats(self) -> dict:
         """Get memory system statistics"""
         # This would query the databases for counts
         return {
@@ -609,12 +629,12 @@ class MemoryManager:
     def _get_db_count(self, db_path: Path) -> int:
         """Get memory count from database"""
         try:
-            conn = sqlite3.connect(str(db_path))
+            conn = self.storage._connect(db_path)
             cursor = conn.execute("SELECT COUNT(*) FROM memories")
-            count = cursor.fetchone()[0]
+            count: int = cursor.fetchone()[0]
             conn.close()
             return count
-        except:
+        except Exception:
             return 0
 
     def shutdown(self):
@@ -634,23 +654,23 @@ def get_memory_manager() -> MemoryManager:
         _memory_manager = MemoryManager()
     return _memory_manager
 
-def store_episodic_memory(content: Any, tags: List[str] = None, context: Dict = None) -> str:
+def store_episodic_memory(content: Any, tags: list[str] | None = None, context: dict | None = None) -> str:
     """Convenience function for storing episodic memories"""
     return get_memory_manager().store_memory(content, "episodic", tags, context)
 
-def store_semantic_memory(content: Any, tags: List[str] = None, context: Dict = None) -> str:
+def store_semantic_memory(content: Any, tags: list[str] | None = None, context: dict | None = None) -> str:
     """Convenience function for storing semantic memories"""
     return get_memory_manager().store_memory(content, "semantic", tags, context)
 
-def store_working_memory(content: Any, tags: List[str] = None, context: Dict = None) -> str:
+def store_working_memory(content: Any, tags: list[str] | None = None, context: dict | None = None) -> str:
     """Convenience function for storing working memories"""
     return get_memory_manager().store_memory(content, "working", tags, context)
 
-def recall_memory(memory_id: str) -> Optional[MemoryUnit]:
+def recall_memory(memory_id: str) -> MemoryUnit | None:
     """Convenience function for retrieving memories"""
     return get_memory_manager().retrieve_memory(memory_id)
 
-def search_memories(query: Dict, limit: int = 50) -> List[MemoryUnit]:
+def search_memories(query: dict, limit: int = 50) -> list[MemoryUnit]:
     """Convenience function for searching memories"""
     return get_memory_manager().search_memories(query, limit)
 

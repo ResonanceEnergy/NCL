@@ -1,0 +1,28 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/call.daily_summary.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Call Daily Summary",
+  "description": "Aggregated daily call statistics (metadata only).",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.call.daily_summary" },
+        "payload": {
+          "type": "object",
+          "required": ["date", "total_calls"],
+          "properties": {
+            "date": { "type": "string", "format": "date" },
+            "total_calls": { "type": "integer", "minimum": 0 },
+            "inbound_count": { "type": "integer", "minimum": 0 },
+            "outbound_count": { "type": "integer", "minimum": 0 },
+            "missed_count": { "type": "integer", "minimum": 0 },
+            "total_duration_seconds": { "type": "integer", "minimum": 0 },
+            "unique_contacts": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

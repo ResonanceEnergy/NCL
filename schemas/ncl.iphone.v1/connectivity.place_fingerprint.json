@@ -1,0 +1,26 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/connectivity.place_fingerprint.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Place Fingerprint",
+  "description": "Hashed Wi-Fi SSID place fingerprint (no raw SSIDs stored).",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.connectivity.place_fingerprint" },
+        "payload": {
+          "type": "object",
+          "required": ["timestamp", "place_hash"],
+          "properties": {
+            "timestamp": { "type": "string", "format": "date-time" },
+            "place_hash": { "type": "string", "description": "SHA-256 of Wi-Fi SSID" },
+            "is_known_place": { "type": "boolean" },
+            "ble_device_count": { "type": "integer", "minimum": 0 },
+            "social_density_estimate": { "type": "string", "enum": ["alone", "small_group", "crowd", "unknown"] }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

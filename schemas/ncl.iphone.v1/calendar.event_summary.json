@@ -1,0 +1,30 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/calendar.event_summary.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Calendar Event Summary",
+  "description": "Metadata-only summary of a calendar event (no titles or descriptions).",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.calendar.event_summary" },
+        "payload": {
+          "type": "object",
+          "required": ["date", "event_count"],
+          "properties": {
+            "date": { "type": "string", "format": "date" },
+            "event_count": { "type": "integer", "minimum": 0 },
+            "total_duration_minutes": { "type": "number", "minimum": 0 },
+            "first_event_start": { "type": "string", "format": "date-time" },
+            "last_event_end": { "type": "string", "format": "date-time" },
+            "categories": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

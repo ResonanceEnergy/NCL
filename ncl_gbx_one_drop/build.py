@@ -9,7 +9,8 @@ Generates:
   - dist/insights_150.csv
 """
 
-import json, csv, os
+import csv
+import json
 from pathlib import Path
 
 HERE = Path(__file__).parent
@@ -17,7 +18,7 @@ DIST = HERE / "dist"
 DIST.mkdir(exist_ok=True)
 
 # Load embedded data
-with open(HERE / "src" / "insights_150.json", "r", encoding="utf-8") as f:
+with open(HERE / "src" / "insights_150.json", encoding="utf-8") as f:
     insights = json.load(f)
 
 # Build markdown
@@ -28,9 +29,9 @@ md_lines = [
     "**Revision:** 1.0",
     "",
     "## Purpose",
-    "Use the iPhone as NCL’s primary **UI + router + sensor hub**, capturing **high-signal, low-invasion** data streams via **consent, metadata-first collection, and event extraction**, enabling a local-first path toward symbiosis.",
+    "Use the iPhone as NCL’s primary **UI + router + sensor hub**, capturing **high-signal, low-invasion** data streams via **consent, metadata-first collection, and event extraction**, enabling a local-first path toward symbiosis.",  # noqa: RUF001
     "",
-    "## Non‑Negotiables",
+    "## Non‑Negotiables",  # noqa: RUF001
     "- Local-first default; cloud optional.",
     "- Metadata-first; avoid content capture.",
     "- Event extraction > raw streams.",

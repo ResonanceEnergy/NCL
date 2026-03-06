@@ -27,20 +27,21 @@ Version: 1.0.0
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import inspect
 import json
 import logging
 import os
+import re
 import sys
 import time
 import uuid
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone
-from enum import Enum
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, ClassVar
 
 # ── Logging ──────────────────────────────────────────────────
 
@@ -62,24 +63,114 @@ sys.path.insert(0, str(_REPO_ROOT / "ncl_agency_runtime" / "runtime"))
 # ── Optional heavyweight imports ─────────────────────────────
 
 try:
-    from ncl_memory import MemoryUnit, MemoryManager, get_memory_manager
+    from ncl_memory import get_memory_manager
     MEMORY_AVAILABLE = True
 except ImportError:
     MEMORY_AVAILABLE = False
     LOG.warning("ncl_memory not importable — running without memory backend")
 
 try:
-    import numpy as np
+    import numpy as np  # noqa: F401
     NUMPY_AVAILABLE = True
 except ImportError:
     NUMPY_AVAILABLE = False
 
 
 # ═══════════════════════════════════════════════════════════════
+#  LLM Backend Interface
+# ═══════════════════════════════════════════════════════════════
+
+class LLMBackend(ABC):
+    """Abstract interface for LLM providers (OpenAI, Ollama, etc.)."""
+
+    @abstractmethod
+    async def complete(self, prompt: str, *, system: str = "",
+                       max_tokens: int = 512, temperature: float = 0.7) -> str:
+        """Generate a completion.  Returns the text response."""
+
+
+class LLMRateLimiter:
+    """Token-bucket rate limiter with cost cap for LLM calls.
+
+    Parameters
+    ----------
+    max_calls_per_minute : int
+        Maximum number of calls allowed per 60-second window.
+    max_cost_usd : float
+        Lifetime cost cap in USD.  When exceeded, calls are blocked.
+    cost_per_call : float
+        Estimated cost per LLM call (used for tracking).
+    """
+
+    def __init__(self, *, max_calls_per_minute: int = 20,
+                 max_cost_usd: float = 5.0, cost_per_call: float = 0.01):
+        self.max_calls_per_minute = max_calls_per_minute
+        self.max_cost_usd = max_cost_usd
+        self.cost_per_call = cost_per_call
+        self._call_timestamps: list[float] = []
+        self._total_cost: float = 0.0
+
+    def _prune_old_calls(self) -> None:
+        cutoff = time.time() - 60.0
+        self._call_timestamps = [t for t in self._call_timestamps if t > cutoff]
+
+    def allow(self) -> tuple[bool, str]:
+        """Check whether a call is allowed.  Returns (allowed, reason)."""
+        if self._total_cost >= self.max_cost_usd:
+            return False, f"COST_CAP_EXCEEDED(${self._total_cost:.4f}/{self.max_cost_usd})"
+        self._prune_old_calls()
+        if len(self._call_timestamps) >= self.max_calls_per_minute:
+            return False, f"RATE_LIMIT({len(self._call_timestamps)}/{self.max_calls_per_minute}/min)"
+        return True, "OK"
+
+    def record_call(self, cost: float | None = None) -> None:
+        """Record that a call was made."""
+        self._call_timestamps.append(time.time())
+        self._total_cost += cost if cost is not None else self.cost_per_call
+
+    @property
+    def total_cost(self) -> float:
+        return self._total_cost
+
+
+class LLMManager:
+    """Wraps an LLMBackend with rate-limiting and cost capping.
+
+    Usage::
+
+        backend = MyOpenAIBackend(api_key="...")
+        llm = LLMManager(backend)
+        reply = await llm.complete("Summarize this...")
+    """
+
+    def __init__(self, backend: LLMBackend,
+                 rate_limiter: LLMRateLimiter | None = None):
+        self.backend = backend
+        self.limiter = rate_limiter or LLMRateLimiter()
+
+    async def complete(self, prompt: str, *, system: str = "",
+                       max_tokens: int = 512, temperature: float = 0.7) -> str:
+        allowed, reason = self.limiter.allow()
+        if not allowed:
+            LOG.warning("LLM call blocked: %s", reason)
+            raise RuntimeError(f"LLM blocked: {reason}")
+        try:
+            result = await self.backend.complete(
+                prompt, system=system, max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            self.limiter.record_call()
+            return result
+        except Exception:
+            self.limiter.record_call()
+            raise
+
+
+# ═══════════════════════════════════════════════════════════════
 #  Data Types
 # ═══════════════════════════════════════════════════════════════
 
-class ChannelType(str, Enum):
+class ChannelType(StrEnum):
     DISCORD = "discord"
     TELEGRAM = "telegram"
     RELAY = "relay"          # NCL relay_server HTTP
@@ -87,7 +178,7 @@ class ChannelType(str, Enum):
     IOS = "ios"
 
 
-class MessagePriority(str, Enum):
+class MessagePriority(StrEnum):
     LOW = "low"
     NORMAL = "normal"
     HIGH = "high"
@@ -102,12 +193,12 @@ class InboundMessage:
     sender_id: str = ""
     sender_name: str = ""
     text: str = ""
-    attachments: List[Dict[str, Any]] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    attachments: list[dict[str, Any]] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
+    timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     raw: Any = None          # platform-specific payload
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         d = asdict(self)
         d.pop("raw", None)
         return d
@@ -119,10 +210,10 @@ class OutboundMessage:
     channel: ChannelType
     recipient_id: str
     text: str
-    attachments: List[Dict[str, Any]] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    attachments: list[dict[str, Any]] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
@@ -131,7 +222,7 @@ class SkillResult:
     """Result from a skill execution."""
     success: bool
     reply: str = ""
-    data: Dict[str, Any] = field(default_factory=dict)
+    data: dict[str, Any] = field(default_factory=dict)
     skill_name: str = ""
     execution_ms: float = 0.0
     memory_stored: bool = False
@@ -146,27 +237,56 @@ class EventBus:
 
     Provides async event dispatch between agent subsystems.
     Subscribers register with a topic string; ``*`` matches all.
+
+    When *persist_path* is provided, every published event is appended to
+    an NDJSON file so in-flight events survive process restarts.
     """
 
-    def __init__(self):
-        self._subscribers: Dict[str, List[Callable]] = {}
+    def __init__(self, persist_path: Path | str | None = None):
+        self._subscribers: dict[str, list[Callable]] = {}
         self._lock = asyncio.Lock()
-        self._history: List[Dict] = []
+        self._history: list[dict] = []
+        self._persist_path: Path | None = Path(persist_path) if persist_path else None
+        if self._persist_path:
+            self._persist_path.parent.mkdir(parents=True, exist_ok=True)
+            self._replay_from_disk()
+
+    def _replay_from_disk(self) -> None:
+        """Load persisted events into in-memory history on startup."""
+        if not self._persist_path or not self._persist_path.exists():
+            return
+        with self._persist_path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                import contextlib
+                with contextlib.suppress(Exception):
+                    self._history.append(json.loads(line))
+
+    def _persist_event(self, event: dict) -> None:
+        """Append a single event to the on-disk NDJSON log."""
+        if not self._persist_path:
+            return
+        with self._persist_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(event) + "\n")
 
     async def subscribe(self, topic: str, callback: Callable):
         async with self._lock:
             self._subscribers.setdefault(topic, []).append(callback)
 
-    async def publish(self, topic: str, payload: Dict[str, Any]):
+    async def publish(self, topic: str, payload: dict[str, Any]):
         event = {
             "topic": topic,
             "payload": payload,
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
             "id": uuid.uuid4().hex[:8]
         }
         self._history.append(event)
         if len(self._history) > 500:
             self._history = self._history[-500:]
+
+        self._persist_event(event)
 
         handlers = list(self._subscribers.get(topic, []))
         handlers += list(self._subscribers.get("*", []))
@@ -189,41 +309,130 @@ class PolicyGate:
 
     Mirrors the iOS PolicyKernel 6-step chain:
         kill_switch → system_mode → provenance → consent → risk_tier → allow
-
-    In the Python runtime we implement a simplified version focused on:
-        1. Kill-switch check  (global halt)
-        2. Sender allow-list  (AZ_PRIME = always allowed)
-        3. Risk-tier scoring  (command complexity)
     """
 
     AZ_PRIME = "AZ_PRIME"
 
+    # Content patterns considered risky (PII, NSFW, prompt-injection)
+    PII_PATTERNS: ClassVar[list[re.Pattern[str]]] = [
+        re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),          # SSN
+        re.compile(r"\b\d{16}\b"),                       # credit-card-like
+        re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Z|a-z]{2,}\b"),  # email
+    ]
+    NSFW_KEYWORDS: ClassVar[list[str]] = [
+        "nsfw", "explicit", "xxx", "porn",
+    ]
+    INJECTION_MARKERS: ClassVar[list[str]] = [
+        "ignore previous instructions",
+        "disregard your system prompt",
+        "you are now",
+        "new instructions:",
+    ]
+
+    # Valid system modes
+    VALID_MODES: ClassVar[set[str]] = {"normal", "maintenance", "demo", "lockdown"}
+
+    # Trusted channel types for provenance checks
+    TRUSTED_CHANNELS: ClassVar[set[str]] = {
+        ChannelType.CLI, ChannelType.TELEGRAM, ChannelType.DISCORD,
+    }
+
     def __init__(self, *, kill_switch: bool = False,
-                 allowed_senders: Optional[List[str]] = None):
+                 allowed_senders: list[str] | None = None,
+                 system_mode: str = "normal",
+                 require_consent: bool = False,
+                 trusted_channels: set[str] | None = None,
+                 risk_threshold: float = 0.7):
         self.kill_switch = kill_switch
         self.allowed_senders = set(allowed_senders or [self.AZ_PRIME])
-        self._denied_log: List[Dict] = []
+        self.system_mode = system_mode if system_mode in self.VALID_MODES else "normal"
+        self.require_consent = require_consent
+        self.trusted_channels = trusted_channels if trusted_channels is not None else self.TRUSTED_CHANNELS
+        self.risk_threshold = risk_threshold
+        self._denied_log: list[dict] = []
+        self._consented_senders: set[str] = set()
 
-    def evaluate(self, msg: InboundMessage) -> Tuple[bool, str]:
-        """Returns (allowed, reason)."""
+    def grant_consent(self, sender_id: str) -> None:
+        """Record that *sender_id* has given consent."""
+        self._consented_senders.add(sender_id)
+
+    def revoke_consent(self, sender_id: str) -> None:
+        """Revoke consent for *sender_id*."""
+        self._consented_senders.discard(sender_id)
+
+    def evaluate(self, msg: InboundMessage) -> tuple[bool, str]:
+        """6-step policy chain.  Returns (allowed, reason)."""
+        # Step 1 — kill switch
         if self.kill_switch:
             reason = "KILL_SWITCH_ACTIVE"
             self._log_denial(msg, reason)
             return False, reason
 
+        # Step 2 — system mode
+        if self.system_mode == "lockdown":
+            reason = "SYSTEM_LOCKDOWN"
+            self._log_denial(msg, reason)
+            return False, reason
+        if self.system_mode == "maintenance" and msg.sender_id != self.AZ_PRIME:
+            reason = "MAINTENANCE_MODE"
+            self._log_denial(msg, reason)
+            return False, reason
+
+        # Step 3 — provenance (channel trust)
+        if msg.channel not in self.trusted_channels:
+            reason = f"UNTRUSTED_CHANNEL:{msg.channel}"
+            self._log_denial(msg, reason)
+            return False, reason
+
+        # Step 4 — sender allow-list
         if msg.sender_id not in self.allowed_senders and self.AZ_PRIME not in self.allowed_senders:
             reason = f"SENDER_NOT_ALLOWED:{msg.sender_id}"
             self._log_denial(msg, reason)
             return False, reason
 
+        # Step 5 — consent
+        if (self.require_consent
+                and msg.sender_id not in self._consented_senders
+                and msg.sender_id != self.AZ_PRIME):
+                reason = f"CONSENT_REQUIRED:{msg.sender_id}"
+                self._log_denial(msg, reason)
+                return False, reason
+
+        # Step 6 — risk tier
+        risk_score, risk_reason = self._assess_risk(msg.text)
+        if risk_score >= self.risk_threshold:
+            reason = f"RISK_TOO_HIGH:{risk_reason}(score={risk_score:.2f})"
+            self._log_denial(msg, reason)
+            return False, reason
+
         return True, "ALLOWED"
+
+    def _assess_risk(self, text: str) -> tuple[float, str]:
+        """Score message content for PII, NSFW, or injection risks.
+
+        Returns (score, category) where score is 0.0-1.0.
+        """
+        text_lower = text.lower()
+        # PII check
+        for pattern in self.PII_PATTERNS:
+            if pattern.search(text):
+                return 1.0, "PII_DETECTED"
+        # NSFW check
+        for keyword in self.NSFW_KEYWORDS:
+            if keyword in text_lower:
+                return 0.9, "NSFW_CONTENT"
+        # Prompt injection check
+        for marker in self.INJECTION_MARKERS:
+            if marker in text_lower:
+                return 0.95, "PROMPT_INJECTION"
+        return 0.0, "CLEAN"
 
     def _log_denial(self, msg: InboundMessage, reason: str):
         self._denied_log.append({
             "msg_id": msg.id,
             "sender_id": msg.sender_id,
             "reason": reason,
-            "ts": datetime.now(timezone.utc).isoformat()
+            "ts": datetime.now(UTC).isoformat()
         })
         LOG.warning("PolicyGate DENIED %s — %s", msg.id, reason)
 
@@ -242,11 +451,11 @@ class Skill(ABC):
     """
 
     name: str = "base_skill"
-    triggers: List[str] = []
+    triggers: ClassVar[list[str]] = []
     description: str = ""
 
     @abstractmethod
-    async def execute(self, msg: InboundMessage, agent: "SuperOpenClawAgent") -> SkillResult:
+    async def execute(self, msg: InboundMessage, agent: SuperOpenClawAgent) -> SkillResult:
         """Run the skill and return a result."""
         ...
 
@@ -255,14 +464,14 @@ class MemorySearchSkill(Skill):
     """Search the NCL second-brain memory via semantic or keyword query."""
 
     name = "memory_search"
-    triggers = [
+    triggers: ClassVar[list[str]] = [
         "remember", "recall", "search memory", "what do you know about",
         "find in memory", "look up", "search for", "find me", "do you remember",
         "what did i say about", "search", "lookup", "query memory",
     ]
     description = "Searches the NCL cognitive memory for relevant insights, episodes, and doctrine."
 
-    async def execute(self, msg: InboundMessage, agent: "SuperOpenClawAgent") -> SkillResult:
+    async def execute(self, msg: InboundMessage, agent: SuperOpenClawAgent) -> SkillResult:
         t0 = time.monotonic()
         query = msg.text
         for trigger in self.triggers:
@@ -290,14 +499,14 @@ class MemoryStoreSkill(Skill):
     """Store a new memory into the NCL second-brain."""
 
     name = "memory_store"
-    triggers = [
+    triggers: ClassVar[list[str]] = [
         "remember this", "store memory", "save to memory", "note this",
         "save this", "memorize", "write down", "take note", "log this",
         "store this", "keep this", "don't forget",
     ]
     description = "Stores a new episodic memory into NCL's multi-tier memory system."
 
-    async def execute(self, msg: InboundMessage, agent: "SuperOpenClawAgent") -> SkillResult:
+    async def execute(self, msg: InboundMessage, agent: SuperOpenClawAgent) -> SkillResult:
         t0 = time.monotonic()
         content = msg.text
         for trigger in self.triggers:
@@ -318,7 +527,7 @@ class DoctrineSkill(Skill):
     """Surface NCL Master Doctrine concepts on demand."""
 
     name = "doctrine"
-    triggers = [
+    triggers: ClassVar[list[str]] = [
         "doctrine", "living organism", "agent corps", "faraday fortress",
         "prime directive", "second brain", "ncc", "master doctrine",
         "ncl doctrine", "what is ncl", "what is the doctrine", "organism framework",
@@ -326,7 +535,7 @@ class DoctrineSkill(Skill):
     ]
     description = "Retrieves and explains NCL Master Doctrine (v2.0) concepts."
 
-    DOCTRINE_SNIPPETS = {
+    DOCTRINE_SNIPPETS: ClassVar[dict[str, str]] = {
         "prime_directive": (
             "**Prime Directive** — NCL operates as a continuously improving "
             "cyber-physical organism (digital twin). Target: 150+ insights/week, "
@@ -355,7 +564,7 @@ class DoctrineSkill(Skill):
         ),
     }
 
-    async def execute(self, msg: InboundMessage, agent: "SuperOpenClawAgent") -> SkillResult:
+    async def execute(self, msg: InboundMessage, agent: SuperOpenClawAgent) -> SkillResult:
         t0 = time.monotonic()
         text_lower = msg.text.lower()
 
@@ -376,14 +585,14 @@ class BrainMapSkill(Skill):
     """Generate a text-based brain map of current memory landscape."""
 
     name = "brain_map"
-    triggers = [
+    triggers: ClassVar[list[str]] = [
         "brain map", "brainmap", "mind map", "knowledge map", "second brain map",
         "map", "overview", "dashboard", "architecture", "layout",
         "show me the brain", "cognitive map", "show brain",
     ]
     description = "Maps the current memory landscape into a structured brain map."
 
-    async def execute(self, msg: InboundMessage, agent: "SuperOpenClawAgent") -> SkillResult:
+    async def execute(self, msg: InboundMessage, agent: SuperOpenClawAgent) -> SkillResult:
         t0 = time.monotonic()
         stats = agent.memory_stats()
 
@@ -417,14 +626,14 @@ class StatusSkill(Skill):
     """Report current agent status and health."""
 
     name = "status"
-    triggers = [
+    triggers: ClassVar[list[str]] = [
         "status", "health", "ping", "are you alive", "how are you",
         "uptime", "check", "alive", "running", "online",
         "are you there", "you up",
     ]
     description = "Shows SuperOpenClaw agent status, uptime, and linked channels."
 
-    async def execute(self, msg: InboundMessage, agent: "SuperOpenClawAgent") -> SkillResult:
+    async def execute(self, msg: InboundMessage, agent: SuperOpenClawAgent) -> SkillResult:
         t0 = time.monotonic()
         uptime = time.time() - agent._start_time
         hours = int(uptime // 3600)
@@ -449,14 +658,14 @@ class HelpSkill(Skill):
     """List all available skills."""
 
     name = "help"
-    triggers = [
+    triggers: ClassVar[list[str]] = [
         "help", "commands", "skills", "what can you do", "menu",
         "options", "how do i", "how to", "guide", "tutorial",
         "what do you do", "capabilities",
     ]
     description = "Lists all registered OpenClaw skills and their triggers."
 
-    async def execute(self, msg: InboundMessage, agent: "SuperOpenClawAgent") -> SkillResult:
+    async def execute(self, msg: InboundMessage, agent: SuperOpenClawAgent) -> SkillResult:
         t0 = time.monotonic()
         lines = ["**NCL Super OpenClaw — Available Skills**\n"]
         for skill in agent.skill_router.skills:
@@ -472,14 +681,14 @@ class LearningSkill(Skill):
     """Trigger learning cycle — consolidate memories and surface patterns."""
 
     name = "learn"
-    triggers = [
+    triggers: ClassVar[list[str]] = [
         "learn", "consolidate", "reflect", "pattern scan",
         "analyze", "analyse", "think", "process", "digest",
         "what have you learned", "learning",
     ]
     description = "Triggers the NCL learning engine: consolidation, pattern detection, importance recalc."
 
-    async def execute(self, msg: InboundMessage, agent: "SuperOpenClawAgent") -> SkillResult:
+    async def execute(self, msg: InboundMessage, agent: SuperOpenClawAgent) -> SkillResult:
         t0 = time.monotonic()
         if not agent._memory_manager:
             return SkillResult(success=False, reply="Memory system offline — cannot learn.",
@@ -518,15 +727,15 @@ class GeneralChatSkill(Skill):
     """
 
     name = "general_chat"
-    triggers: List[str] = []  # Never matched by trigger — used as fallback only
+    triggers: ClassVar[list[str]] = []  # Never matched by trigger — used as fallback only
     description = "Handles general conversation and unmatched messages."
 
     # Greetings the bot recognises
-    GREETINGS = {"hi", "hello", "hey", "yo", "sup", "whats up", "what's up",
+    GREETINGS: ClassVar[set[str]] = {"hi", "hello", "hey", "yo", "sup", "whats up", "what's up",
                  "good morning", "good evening", "good afternoon", "gm", "gn",
                  "greetings", "howdy", "hiya", "what up"}
 
-    async def execute(self, msg: InboundMessage, agent: "SuperOpenClawAgent") -> SkillResult:
+    async def execute(self, msg: InboundMessage, agent: SuperOpenClawAgent) -> SkillResult:
         t0 = time.monotonic()
         text = msg.text.strip()
         text_lower = text.lower()
@@ -551,7 +760,7 @@ class GeneralChatSkill(Skill):
         memory_results = agent.memory_search(text, top_k=3)
         if memory_results:
             lines = [f"Here's what I found related to *\"{text[:60]}\"*:\n"]
-            for i, (mem, score) in enumerate(memory_results, 1):
+            for i, (mem, _score) in enumerate(memory_results, 1):
                 content = mem.get("content", str(mem)) if isinstance(mem, dict) else str(mem)
                 if len(content) > 200:
                     content = content[:200] + "..."
@@ -584,8 +793,8 @@ class SkillRouter:
     """
 
     def __init__(self):
-        self.skills: List[Skill] = []
-        self._fallback: Optional[Skill] = None
+        self.skills: list[Skill] = []
+        self._fallback: Skill | None = None
 
     def register(self, skill: Skill):
         self.skills.append(skill)
@@ -593,10 +802,10 @@ class SkillRouter:
             self._fallback = skill
         LOG.info("Skill registered: %s (%d triggers)", skill.name, len(skill.triggers))
 
-    def match(self, text: str) -> Optional[Skill]:
+    def match(self, text: str) -> Skill | None:
         """Find the best matching skill for the given text."""
         text_lower = text.lower().strip()
-        best_skill: Optional[Skill] = None
+        best_skill: Skill | None = None
         best_score = 0
 
         for skill in self.skills:
@@ -609,7 +818,7 @@ class SkillRouter:
 
         return best_skill
 
-    async def route(self, msg: InboundMessage, agent: "SuperOpenClawAgent") -> SkillResult:
+    async def route(self, msg: InboundMessage, agent: SuperOpenClawAgent) -> SkillResult:
         skill = self.match(msg.text)
         if skill:
             LOG.info("Routing to skill: %s", skill.name)
@@ -635,7 +844,7 @@ class ChannelConnector(ABC):
     channel_type: ChannelType = ChannelType.CLI
 
     @abstractmethod
-    async def start(self, agent: "SuperOpenClawAgent"):
+    async def start(self, agent: SuperOpenClawAgent):
         """Start listening on this channel."""
         ...
 
@@ -664,10 +873,10 @@ class HealthMonitor:
         - Event bus backpressure
     """
 
-    def __init__(self, agent: "SuperOpenClawAgent", interval_s: int = 60):
+    def __init__(self, agent: SuperOpenClawAgent, interval_s: int = 60):
         self.agent = agent
         self.interval_s = interval_s
-        self._task: Optional[asyncio.Task] = None
+        self._task: asyncio.Task | None = None
         self._running = False
 
     async def start(self):
@@ -691,7 +900,7 @@ class HealthMonitor:
                 LOG.error("HealthMonitor error: %s", exc)
             await asyncio.sleep(self.interval_s)
 
-    def check(self) -> Dict:
+    def check(self) -> dict:
         issues = []
         if not self.agent._memory_manager:
             issues.append("memory_offline")
@@ -707,7 +916,7 @@ class HealthMonitor:
             "channels": len(self.agent.channels),
             "messages_processed": self.agent._msg_count,
             "uptime_s": time.time() - self.agent._start_time,
-            "ts": datetime.now(timezone.utc).isoformat()
+            "ts": datetime.now(UTC).isoformat()
         }
 
 
@@ -730,9 +939,9 @@ class SuperOpenClawAgent:
 
     def __init__(
         self,
-        agent_id: Optional[str] = None,
-        config_path: Optional[str] = None,
-        allowed_senders: Optional[List[str]] = None,
+        agent_id: str | None = None,
+        config_path: str | None = None,
+        allowed_senders: list[str] | None = None,
     ):
         self.agent_id = agent_id or f"openclaw-{uuid.uuid4().hex[:8]}"
         self.config = self._load_config(config_path)
@@ -749,7 +958,7 @@ class SuperOpenClawAgent:
         )
 
         # Memory (NCL second brain)
-        self._memory_manager: Optional[Any] = None
+        self._memory_manager: Any | None = None
         if MEMORY_AVAILABLE:
             try:
                 self._memory_manager = get_memory_manager()
@@ -758,8 +967,8 @@ class SuperOpenClawAgent:
                 LOG.warning("Memory init failed: %s", exc)
 
         # Channels (senses)
-        self.channels: List[ChannelType] = []
-        self._connectors: Dict[ChannelType, ChannelConnector] = {}
+        self.channels: list[ChannelType] = []
+        self._connectors: dict[ChannelType, ChannelConnector] = {}
 
         # Register built-in skills
         self._register_default_skills()
@@ -768,7 +977,7 @@ class SuperOpenClawAgent:
 
     # ── Config ────
 
-    def _load_config(self, path: Optional[str] = None) -> Dict:
+    def _load_config(self, path: str | None = None) -> dict:
         candidates = [
             path,
             str(_REPO_ROOT / "ncl_config.json"),
@@ -778,7 +987,8 @@ class SuperOpenClawAgent:
             if p and os.path.isfile(p):
                 with open(p) as f:
                     LOG.info("Config loaded from %s", p)
-                    return json.load(f)
+                    result: dict = json.load(f)
+                    return result
         LOG.warning("No config file found — using defaults")
         return {}
 
@@ -795,7 +1005,7 @@ class SuperOpenClawAgent:
             LearningSkill,
             GeneralChatSkill,
         ]:
-            self.skill_router.register(skill_cls())
+            self.skill_router.register(skill_cls())  # type: ignore[abstract]
 
     def register_skill(self, skill: Skill):
         """Register a custom skill at runtime."""
@@ -853,7 +1063,7 @@ class SuperOpenClawAgent:
 
     # ── Memory interface (NCL Second Brain) ────
 
-    def memory_search(self, query: str, top_k: int = 5) -> List[Tuple[Any, float]]:
+    def memory_search(self, query: str, top_k: int = 5) -> list[tuple[Any, float]]:
         """Semantic search across NCL memory.
 
         Returns list of ``(dict, float)`` tuples where the dict is a memory
@@ -865,7 +1075,7 @@ class SuperOpenClawAgent:
             if hasattr(self._memory_manager, "semantic_search"):
                 raw = self._memory_manager.semantic_search(query, top_k=top_k)
                 # semantic_search returns List[MemoryUnit]; convert to scored tuples
-                results: List[Tuple[Any, float]] = []
+                results: list[tuple[Any, float]] = []
                 for mem in raw:
                     mem_dict = mem.to_dict() if hasattr(mem, "to_dict") else {"content": str(mem)}
                     score = getattr(mem, "importance", 0.5)
@@ -880,8 +1090,8 @@ class SuperOpenClawAgent:
         return []
 
     def memory_store(self, content: str, memory_type: str = "episodic",
-                     tags: Optional[List[str]] = None,
-                     context: Optional[Dict] = None) -> bool:
+                     tags: list[str] | None = None,
+                     context: dict | None = None) -> bool:
         """Store a memory in the NCL second brain."""
         if not self._memory_manager:
             return False
@@ -899,7 +1109,7 @@ class SuperOpenClawAgent:
             LOG.error("Memory store failed: %s", exc)
         return False
 
-    def memory_stats(self) -> Dict[str, int]:
+    def memory_stats(self) -> dict[str, int]:
         """Return memory statistics for brain map."""
         stats = {"total": 0, "episodic": 0, "semantic": 0, "procedural": 0, "working": 0}
         if not self._memory_manager:
@@ -929,11 +1139,9 @@ class SuperOpenClawAgent:
                     mt = m.memory_type if hasattr(m, "memory_type") else "episodic"
                     if mt in stats:
                         stats[mt] += 1
-        except Exception:
+        except Exception:  # noqa: S110
             pass
         return stats
-
-    # ── Lifecycle ────
 
     async def start(self):
         """Start the agent and all subsystems."""
@@ -963,9 +1171,9 @@ class SuperOpenClawAgent:
         LOG.info("Stopping SuperOpenClawAgent %s ...", self.agent_id)
         await self.health_monitor.stop()
         for connector in self._connectors.values():
-            try:
+            try:  # noqa: SIM105
                 await connector.stop()
-            except Exception:
+            except Exception:  # noqa: S110
                 pass
         await self.event_bus.publish("agent.stopped", {"agent_id": self.agent_id})
         LOG.info("SuperOpenClawAgent OFFLINE")
@@ -1009,9 +1217,9 @@ class SuperOpenClawAgent:
 
 def create_agent(
     *,
-    config_path: Optional[str] = None,
-    allowed_senders: Optional[List[str]] = None,
-    extra_skills: Optional[List[Skill]] = None,
+    config_path: str | None = None,
+    allowed_senders: list[str] | None = None,
+    extra_skills: list[Skill] | None = None,
 ) -> SuperOpenClawAgent:
     """Create a fully configured SuperOpenClawAgent."""
     agent = SuperOpenClawAgent(

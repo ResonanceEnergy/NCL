@@ -36,7 +36,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from super_openclaw_agent import create_agent, SuperOpenClawAgent
+from super_openclaw_agent import create_agent  # noqa: E402
 
 LOG = logging.getLogger("ncl.openclaw.launch")
 
@@ -101,7 +101,7 @@ async def launch():
     print()
     print("  ╔════════════════════════════════════════════════╗")
     print("  ║     NCL SUPER OPENCLAW AGENT                  ║")
-    print("  ║     Cognitive Augmentation × OpenClaw Skills   ║")
+    print("  ║     Cognitive Augmentation × OpenClaw Skills   ║")  # noqa: RUF001
     print("  ╠════════════════════════════════════════════════╣")
     print(f"  ║  Agent ID : {agent.agent_id:<35}║")
     print(f"  ║  Skills   : {len(agent.skill_router.skills):<35}║")
@@ -132,7 +132,7 @@ async def launch():
                         break
                     if user_input.strip().lower() in ("quit", "exit", "q"):
                         break
-                    from super_openclaw_agent import InboundMessage, ChannelType
+                    from super_openclaw_agent import ChannelType, InboundMessage
                     msg = InboundMessage(
                         channel=ChannelType.CLI,
                         sender_id="AZ_PRIME",

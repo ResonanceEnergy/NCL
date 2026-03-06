@@ -5,7 +5,7 @@
     "events": [
       {
         "id": "e1",
-        "text": "Server is down \u2014 customers affected"
+        "text": "Server is down — customers affected"
       },
       {
         "id": "e2",
@@ -24,7 +24,7 @@
   "expected": {
     "categories": {
       "urgent": [
-        "Server is down \u2014 customers affected",
+        "Server is down — customers affected",
         "Expired SSL cert on staging"
       ],
       "important": [

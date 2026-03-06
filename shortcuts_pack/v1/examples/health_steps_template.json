@@ -1,0 +1,14 @@
+{
+  "event_type": "ncl.activity.steps",
+  "ingestion_method": "shortcut",
+  "permission": { "granted": true, "scope": "read:health" },
+  "retention_tier": "short",
+  "privacy_level": "metadata_only",
+  "provenance": { "source": "HealthKit" },
+  "payload": {
+    "date": "{{CURRENT_DATE}}",
+    "step_count": "{{STEP_COUNT}}",
+    "distance_km": "{{DISTANCE_KM}}",
+    "source_device": "iphone"
+  }
+}

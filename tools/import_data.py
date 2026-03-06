@@ -8,14 +8,12 @@ import json
 import os
 import sys
 import zipfile
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional, Set
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 try:
-    from lib_ncl import expanduser, ensure_dirs, append_ndjson
+    from lib_ncl import append_ndjson, ensure_dirs, expanduser
 except ImportError:
     def expanduser(p):
         return Path(os.path.expanduser(p))
@@ -27,8 +25,8 @@ except ImportError:
             f.write(json.dumps(obj) + '\n')
 
 
-def load_existing_event_ids(event_dir: Path) -> Set[str]:
-    """Load all existing event IDs from NDJSON files to avoid duplicates.""""
+def load_existing_event_ids(event_dir: Path) -> set[str]:
+    """Load all existing event IDs from NDJSON files to avoid duplicates."""
     ids = set()
     if event_dir.exists():
         for f in event_dir.glob("*.ndjson"):
@@ -48,7 +46,7 @@ def load_existing_event_ids(event_dir: Path) -> Set[str]:
 def import_data(archive_path: Path, ncl_root: Path,
                 import_events: bool = True, import_memory: bool = True,
                 import_audit: bool = True, import_reports: bool = True,
-                dry_run: bool = False) -> Optional[Dict[str, int]]:
+                dry_run: bool = False) -> dict[str, int] | None:
     """Import NCL data from a zip archive.
 
     Returns a stats dict on success, or ``None`` if the archive is missing.

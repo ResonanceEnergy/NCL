@@ -12,12 +12,13 @@ Exit codes:
   1 = one or more invalid files
 """
 from __future__ import annotations
+
 import argparse
 import glob
 import json
 import os
 import pathlib
-import sys
+
 from jsonschema import Draft7Validator
 from referencing import Registry, Resource
 
@@ -27,7 +28,7 @@ ENVELOPE_PATH = os.path.join(SCHEMA_DIR,'envelope.json')
 
 
 def load_catalog():
-    with open(INDEX_PATH, 'r', encoding='utf-8') as fh:
+    with open(INDEX_PATH, encoding='utf-8') as fh:
         return json.load(fh)['schemas']
 
 
@@ -36,12 +37,11 @@ def load_schema_for_event_type(event_type: str, catalog: dict):
     if not rel:
         return None
     path = os.path.join(SCHEMA_DIR, rel)
-    with open(path, 'r', encoding='utf-8') as fh:
+    with open(path, encoding='utf-8') as fh:
         return json.load(fh), path
 
 
 def validate_instance(instance: dict, schema: dict, schema_path: str, envelope_schema: dict):
-    base_uri = pathlib.Path(os.path.abspath(schema_path)).as_uri()
     registry = Registry()
     registry = registry.with_resources([
         (envelope_schema.get('$id'), Resource.from_contents(envelope_schema)),
@@ -67,7 +67,7 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
 
     catalog = load_catalog()
-    with open(ENVELOPE_PATH, 'r', encoding='utf-8') as fh:
+    with open(ENVELOPE_PATH, encoding='utf-8') as fh:
         envelope_schema = json.load(fh)
 
     files = find_json_files(args.event_dirs)
@@ -78,7 +78,7 @@ def main(argv: list[str] | None = None) -> int:
     total_errs = 0
     for f in files:
         try:
-            with open(f, 'r', encoding='utf-8') as fh:
+            with open(f, encoding='utf-8') as fh:
                 data = json.load(fh)
         except Exception as e:
             print(f'ERROR: could not parse {f}:', e)

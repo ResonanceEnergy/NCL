@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Tests for the NCL Super OpenClaw Agent core."""
 
-import asyncio
 import sys
 from pathlib import Path
 
@@ -11,31 +10,24 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ncl_agency_runt
 
 import pytest
 
-
 # ── Import agent components ──────────────────────────────────
-
 from ncl_agency_runtime.agents.super_openclaw_agent import (
-    SuperOpenClawAgent,
-    SkillRouter,
-    PolicyGate,
-    EventBus,
-    HealthMonitor,
-    InboundMessage,
-    OutboundMessage,
-    SkillResult,
+    BrainMapSkill,
     ChannelType,
-    MessagePriority,
-    Skill,
+    DoctrineSkill,
+    EventBus,
+    HelpSkill,
+    InboundMessage,
     MemorySearchSkill,
     MemoryStoreSkill,
-    DoctrineSkill,
-    BrainMapSkill,
+    MessagePriority,
+    PolicyGate,
+    Skill,
+    SkillResult,
+    SkillRouter,
     StatusSkill,
-    HelpSkill,
-    LearningSkill,
     create_agent,
 )
-
 
 # ── Fixtures ─────────────────────────────────────────────────
 
@@ -330,7 +322,7 @@ def test_create_agent_defaults():
 def test_create_agent_extra_skills():
     class DummySkill(Skill):
         name = "dummy"
-        triggers = ["dummy"]
+        triggers = ["dummy"]  # noqa: RUF012
         description = "test"
         async def execute(self, msg, agent):
             return SkillResult(success=True, reply="dummy", skill_name="dummy")

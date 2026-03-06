@@ -1,0 +1,26 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/call.metadata.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Call Metadata",
+  "description": "Metadata-only call event (no phone numbers or contact names).",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.call.metadata" },
+        "payload": {
+          "type": "object",
+          "required": ["timestamp", "direction", "duration_seconds"],
+          "properties": {
+            "timestamp": { "type": "string", "format": "date-time" },
+            "direction": { "type": "string", "enum": ["inbound", "outbound", "missed"] },
+            "duration_seconds": { "type": "integer", "minimum": 0 },
+            "contact_hash": { "type": "string", "description": "SHA-256 hash of the contact ID" },
+            "is_video": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

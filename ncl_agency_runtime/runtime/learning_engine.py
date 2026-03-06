@@ -3,20 +3,18 @@
 NCL Learning Engine - Pattern extraction and knowledge synthesis
 """
 
-import json
-import re
-from typing import Dict, List, Any, Optional, Tuple
-from datetime import datetime, timedelta
-from collections import defaultdict, Counter
 import sys
+from collections import Counter, defaultdict
+from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
 try:
-    from ncl_memory import search_memories, store_semantic_memory, get_memory_manager
-    from memory_api import get_memory_api
+    import ncl_memory
+    from ncl_agency_runtime.runtime.memory_api import get_memory_api
     MEMORY_ENABLED = True
 except ImportError:
     print("Warning: Memory system not available")
@@ -26,11 +24,16 @@ except ImportError:
 class LearningEngine:
     """Engine for extracting patterns and synthesizing knowledge from memories"""
 
-    def __init__(self):
+    def __init__(self, storage_path: str | None = None):
+        self.storage_path = storage_path
         self.memory_api = get_memory_api() if MEMORY_ENABLED else None
         self.patterns = self._load_patterns()
 
-    def _load_patterns(self) -> Dict:
+    def learn_from_task(self, task: dict, result: dict) -> None:
+        """Learn from a task execution (alias for learn_from_task_execution)."""
+        self.learn_from_task_execution(task, result)
+
+    def _load_patterns(self) -> dict:
         """Load pattern recognition templates"""
         return {
             "productivity_patterns": {
@@ -65,7 +68,7 @@ class LearningEngine:
             }
         }
 
-    def analyze_recent_events(self, days_back: int = 7) -> Dict:
+    def analyze_recent_events(self, days_back: int = 7) -> dict:
         """Analyze recent events to extract patterns and insights"""
         if not MEMORY_ENABLED:
             return {"error": "Memory system not available"}
@@ -76,10 +79,10 @@ class LearningEngine:
             "time_range": (datetime.now() - timedelta(days=days_back), datetime.now())
         }
 
-        memories = search_memories(query, limit=500)
+        memories = ncl_memory.search_memories(query, limit=500)
         events = [mem.content for mem in memories if isinstance(mem.content, dict)]
 
-        analysis = {
+        analysis: dict[str, Any] = {
             "period": f"Last {days_back} days",
             "total_events": len(events),
             "patterns": {},
@@ -88,8 +91,8 @@ class LearningEngine:
         }
 
         # Analyze event type distribution
-        event_types = Counter()
-        categories = Counter()
+        event_types: Counter[str] = Counter()
+        categories: Counter[str] = Counter()
 
         for event in events:
             if "event_type" in event:
@@ -117,7 +120,7 @@ class LearningEngine:
 
         return analysis
 
-    def _analyze_productivity_patterns(self, events: List[Dict]) -> Dict:
+    def _analyze_productivity_patterns(self, events: list[dict]) -> dict:
         """Analyze productivity-related patterns"""
         focus_sessions = []
         task_completions = []
@@ -147,10 +150,10 @@ class LearningEngine:
 
         return patterns
 
-    def _analyze_temporal_patterns(self, events: List[Dict]) -> Dict:
+    def _analyze_temporal_patterns(self, events: list[dict]) -> dict:
         """Analyze temporal patterns in events"""
-        hourly_distribution = defaultdict(int)
-        daily_distribution = defaultdict(int)
+        hourly_distribution: defaultdict[int, int] = defaultdict(int)
+        daily_distribution: defaultdict[int, int] = defaultdict(int)
 
         for event in events:
             occurred_at = event.get("occurred_at")
@@ -159,7 +162,7 @@ class LearningEngine:
                     dt = datetime.fromisoformat(occurred_at.replace('Z', '+00:00'))
                     hourly_distribution[dt.hour] += 1
                     daily_distribution[dt.weekday()] += 1  # 0=Monday, 6=Sunday
-                except:
+                except (ValueError, TypeError):
                     continue
 
         patterns = {
@@ -173,7 +176,7 @@ class LearningEngine:
 
         return patterns
 
-    def _generate_insights(self, patterns: Dict) -> List[str]:
+    def _generate_insights(self, patterns: dict) -> list[str]:
         """Generate insights from patterns"""
         insights = []
 
@@ -206,7 +209,7 @@ class LearningEngine:
 
         return insights
 
-    def _generate_recommendations(self, patterns: Dict) -> List[str]:
+    def _generate_recommendations(self, patterns: dict) -> list[str]:
         """Generate actionable recommendations"""
         recommendations = []
 
@@ -224,14 +227,14 @@ class LearningEngine:
 
         return recommendations
 
-    def _store_learned_knowledge(self, analysis: Dict) -> None:
+    def _store_learned_knowledge(self, analysis: dict) -> None:
         """Store learned patterns as semantic memory"""
         if not MEMORY_ENABLED:
             return
 
         # Store key insights
         for insight in analysis.get("insights", []):
-            store_semantic_memory(
+            ncl_memory.store_semantic_memory(
                 content={
                     "type": "behavioral_insight",
                     "insight": insight,
@@ -248,7 +251,7 @@ class LearningEngine:
         # Store productivity patterns
         prod_patterns = analysis.get("patterns", {}).get("productivity", {})
         if prod_patterns:
-            store_semantic_memory(
+            ncl_memory.store_semantic_memory(
                 content={
                     "type": "productivity_pattern",
                     "patterns": prod_patterns,
@@ -261,7 +264,7 @@ class LearningEngine:
                 }
             )
 
-    def learn_from_task_execution(self, task: Dict, result: Dict) -> None:
+    def learn_from_task_execution(self, task: dict, result: dict) -> None:
         """Learn from task execution patterns"""
         if not MEMORY_ENABLED:
             return
@@ -278,7 +281,7 @@ class LearningEngine:
             "factors": self._extract_success_factors(task, result)
         }
 
-        store_semantic_memory(
+        ncl_memory.store_semantic_memory(
             content=pattern,
             tags=["task_pattern", f"task:{task_type}", "execution"],
             context={
@@ -287,7 +290,7 @@ class LearningEngine:
             }
         )
 
-    def _extract_success_factors(self, task: Dict, result: Dict) -> List[str]:
+    def _extract_success_factors(self, task: dict, result: dict) -> list[str]:
         """Extract factors that contributed to task success/failure"""
         factors = []
 
@@ -306,7 +309,7 @@ class LearningEngine:
 
         return factors
 
-    def _calculate_avg_duration(self, events: List[Dict]) -> float:
+    def _calculate_avg_duration(self, events: list[dict]) -> float:
         """Calculate average duration from events"""
         durations = []
         for event in events:
@@ -316,7 +319,7 @@ class LearningEngine:
 
         return sum(durations) / max(len(durations), 1) if durations else 0
 
-    def _analyze_quality(self, events: List[Dict]) -> Dict:
+    def _analyze_quality(self, events: list[dict]) -> dict:
         """Analyze quality distribution"""
         qualities = []
         for event in events:
@@ -337,11 +340,11 @@ def get_learning_engine() -> LearningEngine:
         _learning_engine = LearningEngine()
     return _learning_engine
 
-def analyze_recent_patterns(days_back: int = 7) -> Dict:
+def analyze_recent_patterns(days_back: int = 7) -> dict:
     """Convenience function for pattern analysis"""
     return get_learning_engine().analyze_recent_events(days_back)
 
-def learn_from_task(task: Dict, result: Dict) -> None:
+def learn_from_task(task: dict, result: dict) -> None:
     """Convenience function for task learning"""
     get_learning_engine().learn_from_task_execution(task, result)
 

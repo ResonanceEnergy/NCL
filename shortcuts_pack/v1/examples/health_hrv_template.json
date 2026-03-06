@@ -1,0 +1,14 @@
+{
+  "event_type": "ncl.health.hrv_trend",
+  "ingestion_method": "shortcut",
+  "permission": { "granted": true, "scope": "read:health" },
+  "retention_tier": "medium",
+  "privacy_level": "derived",
+  "provenance": { "source": "HealthKit" },
+  "payload": {
+    "timestamp": "{{CURRENT_DATETIME}}",
+    "hrv_ms": "{{HRV_VALUE}}",
+    "resting": true,
+    "source_device": "apple_watch"
+  }
+}

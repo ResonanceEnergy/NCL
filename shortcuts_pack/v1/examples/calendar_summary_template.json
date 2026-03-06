@@ -1,0 +1,16 @@
+{
+  "event_type": "ncl.calendar.event_summary",
+  "ingestion_method": "shortcut",
+  "permission": { "granted": true },
+  "retention_tier": "short",
+  "privacy_level": "metadata_only",
+  "provenance": { "source": "Shortcut" },
+  "payload": {
+    "date": "{{CURRENT_DATE}}",
+    "event_count": "{{CALENDAR_EVENT_COUNT}}",
+    "total_duration_minutes": "{{TOTAL_MINUTES}}",
+    "first_event_start": "{{FIRST_START}}",
+    "last_event_end": "{{LAST_END}}",
+    "categories": []
+  }
+}

@@ -33,14 +33,14 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 # Path setup
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from super_openclaw_agent import (
+from super_openclaw_agent import (  # noqa: E402
     ChannelConnector,
     ChannelType,
     InboundMessage,
@@ -55,14 +55,14 @@ LOG.setLevel(logging.DEBUG)
 # ── Try to import telegram library ───────────────────────────
 
 try:
-    from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
     from telegram.ext import (
         Application,
-        CommandHandler,
-        MessageHandler,
         CallbackQueryHandler,
-        filters,
+        CommandHandler,
         ContextTypes,
+        MessageHandler,
+        filters,
     )
     TELEGRAM_AVAILABLE = True
 except ImportError:
@@ -92,16 +92,16 @@ class TelegramConnector(ChannelConnector):
 
     def __init__(
         self,
-        token: Optional[str] = None,
-        allowed_user_ids: Optional[List[int]] = None,
+        token: str | None = None,
+        allowed_user_ids: list[int] | None = None,
         prefix: str = "/ncl",
     ):
         self.token = token or os.environ.get("NCL_TELEGRAM_TOKEN", "")
         self.prefix = prefix
-        self.allowed_user_ids: Set[int] = set(allowed_user_ids or [])
-        self._agent: Optional[SuperOpenClawAgent] = None
-        self._app: Optional[Any] = None  # telegram.ext.Application
-        self._task: Optional[asyncio.Task] = None
+        self.allowed_user_ids: set[int] = set(allowed_user_ids or [])
+        self._agent: SuperOpenClawAgent | None = None
+        self._app: Any | None = None  # telegram.ext.Application
+        self._task: asyncio.Task | None = None
 
         # Parse from env
         if not self.allowed_user_ids:
@@ -176,6 +176,7 @@ class TelegramConnector(ChannelConnector):
 
             # In groups, only respond to /ncl or @mention
             if update.message.chat.type in ("group", "supergroup"):
+                assert self._app is not None
                 bot_username = (await self._app.bot.get_me()).username
                 if not text.startswith("/ncl") and f"@{bot_username}" not in text:
                     return
@@ -248,7 +249,7 @@ class TelegramConnector(ChannelConnector):
                 "file_size": doc.file_size,
             })
 
-        result = await self._agent.process_message(msg)
+        result = await self._agent.process_message(msg)  # type: ignore[union-attr]
 
         reply_text = result.reply or "(no response)"
         # Telegram has a 4096 char limit
@@ -281,7 +282,7 @@ class TelegramConnector(ChannelConnector):
             },
         )
 
-        result = await self._agent.process_message(msg)
+        result = await self._agent.process_message(msg)  # type: ignore[union-attr]
         reply_text = result.reply or "(no response)"
         if len(reply_text) > 4000:
             reply_text = reply_text[:4000] + "\n... (truncated)"
@@ -296,6 +297,7 @@ class TelegramConnector(ChannelConnector):
 
     async def _run_polling(self):
         """Run the Telegram bot polling loop."""
+        assert self._app is not None
         try:
             await self._app.initialize()
             await self._app.start()

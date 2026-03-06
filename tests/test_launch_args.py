@@ -11,7 +11,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "ncl_agency_runtime" / "agents"))
 
-from launch import parse_args
+from launch import parse_args  # noqa: E402
 
 
 class TestLaunchParseArgs(unittest.TestCase):

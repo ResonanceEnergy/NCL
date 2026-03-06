@@ -36,9 +36,10 @@ print(f"  Token: {TOKEN[:4]}****{TOKEN[-4:]}", flush=True)
 
 # Imports — use bare names since agents dir is on sys.path
 print("  Loading agent...", flush=True)
-from super_openclaw_agent import create_agent
+from super_openclaw_agent import create_agent  # noqa: E402
+
 print("  Loading telegram connector...", flush=True)
-from telegram_connector import TelegramConnector, TELEGRAM_AVAILABLE
+from telegram_connector import TELEGRAM_AVAILABLE, TelegramConnector  # noqa: E402
 
 print(f"  Telegram lib: {'READY' if TELEGRAM_AVAILABLE else 'MISSING'}", flush=True)
 if not TELEGRAM_AVAILABLE:

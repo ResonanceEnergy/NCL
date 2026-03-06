@@ -1,0 +1,26 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/consent.change.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Consent Change Event",
+  "description": "Audit event emitted when a user grants or revokes a permission.",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.consent.change" },
+        "payload": {
+          "type": "object",
+          "required": ["timestamp", "scope", "action"],
+          "properties": {
+            "timestamp": { "type": "string", "format": "date-time" },
+            "scope": { "type": "string", "description": "Permission scope changed, e.g. read:health" },
+            "action": { "type": "string", "enum": ["granted", "revoked"] },
+            "reason": { "type": "string" },
+            "previous_state": { "type": "string", "enum": ["granted", "revoked", "unknown"] }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

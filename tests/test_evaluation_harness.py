@@ -1,9 +1,10 @@
 """Tests for NUREALCORTEXLINK Golden Task Evaluation Harness."""
 
-import pytest
 import json
-from pathlib import Path
-from evaluation_harness import GoldenTaskEvaluator, GoldenTask, EvaluationResult
+
+import pytest
+
+from evaluation_harness import EvaluationResult, GoldenTask, GoldenTaskEvaluator
 
 
 class TestGoldenTaskEvaluator:
@@ -121,3 +122,153 @@ class TestEvaluationResult:
         assert result.failures == ["minor_issue"]
         assert result.actual_output == {"result": "actual"}
         assert result.expected_output == {"result": "expected"}
+
+
+# ── _simulate_agent_output ─────────────────────────────────
+
+
+class TestSimulateAgentOutput:
+
+    @pytest.fixture
+    def evaluator(self, tmp_path):
+        """Evaluator with golden tasks for multiple IDs."""
+        tasks_dir = tmp_path / "golden_tasks"
+        tasks_dir.mkdir()
+        for i in range(1, 6):
+            tid = f"golden_{i:04d}"
+            data = {
+                "id": tid,
+                "name": f"Task {i}",
+                "input": {"events": []},
+                "expected": {},
+                "failure_conditions": [],
+            }
+            (tasks_dir / f"golden_{i:04d}.json").write_text(json.dumps(data))
+        return GoldenTaskEvaluator(tasks_dir)
+
+    def test_golden_0001_returns_summary(self, evaluator):
+        task = evaluator.tasks["golden_0001"]
+        out = evaluator._simulate_agent_output(task)
+        assert "summary" in out
+
+    def test_golden_0002_returns_action_items(self, evaluator):
+        task = evaluator.tasks["golden_0002"]
+        out = evaluator._simulate_agent_output(task)
+        assert isinstance(out.get("action_items"), list)
+
+    def test_golden_0003_returns_categories(self, evaluator):
+        task = evaluator.tasks["golden_0003"]
+        out = evaluator._simulate_agent_output(task)
+        assert isinstance(out.get("categories"), dict)
+
+    def test_golden_0004_returns_insights(self, evaluator):
+        task = evaluator.tasks["golden_0004"]
+        out = evaluator._simulate_agent_output(task)
+        insights = out.get("insights", [])
+        assert len(insights) > 0
+
+    def test_golden_0005_returns_pattern(self, evaluator):
+        task = evaluator.tasks["golden_0005"]
+        out = evaluator._simulate_agent_output(task)
+        assert "pattern" in out
+        assert "severity" in out
+
+    def test_unknown_task_returns_empty(self, evaluator, tmp_path):
+        tasks_dir = tmp_path / "golden_tasks"
+        data = {"id": "golden_9999", "name": "Unknown", "input": {}, "expected": {}, "failure_conditions": []}
+        (tasks_dir / "golden_9999.json").write_text(json.dumps(data))
+        evaluator2 = GoldenTaskEvaluator(tasks_dir)
+        task = evaluator2.tasks["golden_9999"]
+        assert evaluator2._simulate_agent_output(task) == {}
+
+
+# ── _evaluate_output task-specific scoring ─────────────────
+
+
+class TestEvaluateOutput:
+
+    def _make_task(self, tid, expected):
+        return GoldenTask(
+            id=tid,
+            name=f"Task {tid}",
+            input_data={},
+            expected_output=expected,
+            failure_conditions=["missing_core_fact"],
+        )
+
+    def test_non_dict_output_fails(self):
+        task = self._make_task("golden_0001", {"summary": "test"})
+        evaluator = GoldenTaskEvaluator.__new__(GoldenTaskEvaluator)
+        passed, score, failures = evaluator._evaluate_output(task, "not a dict")
+        assert passed is False
+        assert score == 0.0
+        assert "output_not_dict" in failures
+
+    def test_golden_0001_exact_match(self):
+        task = self._make_task("golden_0001", {"summary": "Call Alice"})
+        evaluator = GoldenTaskEvaluator.__new__(GoldenTaskEvaluator)
+        passed, score, _failures = evaluator._evaluate_output(task, {"summary": "Call Alice about meeting"})
+        assert passed is True
+        assert score == 1.0
+
+    def test_golden_0001_missing_fact(self):
+        task = self._make_task("golden_0001", {"summary": "Call Alice"})
+        evaluator = GoldenTaskEvaluator.__new__(GoldenTaskEvaluator)
+        _passed, _score, failures = evaluator._evaluate_output(task, {"summary": "Buy milk"})
+        assert _passed is False
+        assert "missing_core_fact" in failures
+
+    def test_golden_0002_all_items_present(self):
+        items = ["item1", "item2"]
+        task = self._make_task("golden_0002", {"action_items": items})
+        evaluator = GoldenTaskEvaluator.__new__(GoldenTaskEvaluator)
+        passed, score, _failures = evaluator._evaluate_output(task, {"action_items": items})
+        assert passed is True
+        assert score == 1.0
+
+    def test_golden_0002_missing_items(self):
+        task = self._make_task("golden_0002", {"action_items": ["a", "b", "c"]})
+        evaluator = GoldenTaskEvaluator.__new__(GoldenTaskEvaluator)
+        _passed, score, failures = evaluator._evaluate_output(task, {"action_items": ["a"]})
+        assert "missing_action_item" in failures
+        assert score < 1.0
+
+    def test_golden_0004_all_code_phases(self):
+        task = self._make_task("golden_0004", {})
+        evaluator = GoldenTaskEvaluator.__new__(GoldenTaskEvaluator)
+        insights = [
+            "Capture: note this",
+            "Organize: sort that",
+            "Distill: key insight",
+            "Express: share findings",
+        ]
+        passed, score, _failures = evaluator._evaluate_output(task, {"insights": insights})
+        assert passed is True
+        assert score == 1.0
+
+    def test_golden_0004_missing_phase(self):
+        task = self._make_task("golden_0004", {})
+        evaluator = GoldenTaskEvaluator.__new__(GoldenTaskEvaluator)
+        _passed, _score, failures = evaluator._evaluate_output(task, {"insights": ["Capture: only one"]})
+        assert "missing_code_phase" in failures
+
+    def test_golden_0005_correct_pattern(self):
+        expected = {"pattern": "elevated_hr", "severity": "concerning"}
+        task = self._make_task("golden_0005", expected)
+        evaluator = GoldenTaskEvaluator.__new__(GoldenTaskEvaluator)
+        passed, _score, _failures = evaluator._evaluate_output(task, {"pattern": "elevated_hr", "severity": "concerning"})
+        assert passed is True
+
+    def test_golden_0005_wrong_pattern(self):
+        expected = {"pattern": "elevated_hr", "severity": "concerning"}
+        task = self._make_task("golden_0005", expected)
+        evaluator = GoldenTaskEvaluator.__new__(GoldenTaskEvaluator)
+        _passed, _score, failures = evaluator._evaluate_output(task, {"pattern": "wrong", "severity": "concerning"})
+        assert "missed_pattern" in failures
+
+    def test_golden_0005_wrong_severity(self):
+        expected = {"pattern": "elevated_hr", "severity": "concerning"}
+        task = self._make_task("golden_0005", expected)
+        evaluator = GoldenTaskEvaluator.__new__(GoldenTaskEvaluator)
+        _passed, _score, failures = evaluator._evaluate_output(task, {"pattern": "elevated_hr", "severity": "mild"})
+        assert "incorrect_severity" in failures

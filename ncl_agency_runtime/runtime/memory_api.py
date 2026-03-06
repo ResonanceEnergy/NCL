@@ -3,20 +3,23 @@
 NCL Memory API - High-level memory operations for cognitive augmentation
 """
 
-import json
-import time
-from typing import Dict, List, Any, Optional
-from datetime import datetime, timedelta
 import sys
+import time
+from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
 try:
     from ncl_memory import (
-        get_memory_manager, store_episodic_memory, store_semantic_memory,
-        store_working_memory, recall_memory, search_memories, MemoryUnit
+        MemoryUnit,
+        get_memory_manager,
+        search_memories,
+        store_episodic_memory,
+        store_semantic_memory,
+        store_working_memory,
     )
     MEMORY_ENABLED = True
 except ImportError:
@@ -30,7 +33,7 @@ class MemoryAPI:
     def __init__(self):
         self.memory_manager = get_memory_manager() if MEMORY_ENABLED else None
 
-    def store_event_memory(self, event: Dict) -> Optional[str]:
+    def store_event_memory(self, event: dict) -> str | None:
         """Store an event as episodic memory"""
         if not MEMORY_ENABLED:
             return None
@@ -48,7 +51,7 @@ class MemoryAPI:
 
         return store_episodic_memory(event, tags, context)
 
-    def store_task_memory(self, task: Dict, result: Any) -> Optional[str]:
+    def store_task_memory(self, task: dict, result: Any) -> str | None:
         """Store task execution as procedural memory"""
         if not MEMORY_ENABLED:
             return None
@@ -69,7 +72,7 @@ class MemoryAPI:
 
         return store_episodic_memory(content, tags, context)
 
-    def store_learning(self, concept: str, knowledge: Any, confidence: float = 0.8) -> Optional[str]:
+    def store_learning(self, concept: str, knowledge: Any, confidence: float = 0.8) -> str | None:
         """Store learned knowledge as semantic memory"""
         if not MEMORY_ENABLED:
             return None
@@ -89,7 +92,7 @@ class MemoryAPI:
 
         return store_semantic_memory(content, tags, context)
 
-    def store_working_context(self, context_type: str, data: Any) -> Optional[str]:
+    def store_working_context(self, context_type: str, data: Any) -> str | None:
         """Store temporary working context"""
         if not MEMORY_ENABLED:
             return None
@@ -103,7 +106,7 @@ class MemoryAPI:
 
         return store_working_memory(data, tags, context)
 
-    def recall_event_pattern(self, event_type: str, days_back: int = 7) -> List[Dict]:
+    def recall_event_pattern(self, event_type: str, days_back: int = 7) -> list[dict]:
         """Recall similar events from recent history"""
         if not MEMORY_ENABLED:
             return []
@@ -116,7 +119,7 @@ class MemoryAPI:
         memories = search_memories(query, limit=20)
         return [self._memory_to_dict(mem) for mem in memories]
 
-    def find_similar_tasks(self, task_type: str) -> List[Dict]:
+    def find_similar_tasks(self, task_type: str) -> list[dict]:
         """Find similar task executions"""
         if not MEMORY_ENABLED:
             return []
@@ -128,7 +131,7 @@ class MemoryAPI:
         memories = search_memories(query, limit=10)
         return [self._memory_to_dict(mem) for mem in memories]
 
-    def get_recent_learnings(self, limit: int = 10) -> List[Dict]:
+    def get_recent_learnings(self, limit: int = 10) -> list[dict]:
         """Get recently learned knowledge"""
         if not MEMORY_ENABLED:
             return []
@@ -140,7 +143,7 @@ class MemoryAPI:
         memories = search_memories(query, limit=limit)
         return [self._memory_to_dict(mem) for mem in memories]
 
-    def search_knowledge(self, query_text: str, limit: int = 20) -> List[Dict]:
+    def search_knowledge(self, query_text: str, limit: int = 20) -> list[dict]:
         """Search semantic knowledge"""
         if not MEMORY_ENABLED:
             return []
@@ -153,11 +156,12 @@ class MemoryAPI:
         memories = search_memories(query, limit=limit)
         return [self._memory_to_dict(mem) for mem in memories]
 
-    def get_memory_stats(self) -> Dict:
+    def get_memory_stats(self) -> dict:
         """Get memory system statistics"""
         if not MEMORY_ENABLED:
             return {"enabled": False}
 
+        assert self.memory_manager is not None
         stats = self.memory_manager.get_memory_stats()
         stats["enabled"] = True
         return stats
@@ -167,14 +171,16 @@ class MemoryAPI:
         if not MEMORY_ENABLED:
             return 0
 
+        assert self.memory_manager is not None
         return self.memory_manager.consolidate_memories()
 
     def prune_memories(self) -> None:
         """Trigger memory pruning"""
         if MEMORY_ENABLED:
+            assert self.memory_manager is not None
             self.memory_manager.prune_memories()
 
-    def store_chat_memory(self, chat_data: Dict) -> Optional[str]:
+    def store_chat_memory(self, chat_data: dict) -> str | None:
         """Store a chat conversation as episodic memory"""
         if not MEMORY_ENABLED:
             return None
@@ -217,7 +223,7 @@ class MemoryAPI:
 
         return store_episodic_memory(content, tags, context)
 
-    def store_chat_insight(self, conversation_id: str, insight: str, confidence: float = 0.8) -> Optional[str]:
+    def store_chat_insight(self, conversation_id: str, insight: str, confidence: float = 0.8) -> str | None:
         """Store a learned insight from chat analysis"""
         if not MEMORY_ENABLED:
             return None
@@ -238,7 +244,7 @@ class MemoryAPI:
 
         return store_semantic_memory(content, tags, context)
 
-    def recall_chat_history(self, participant: str = None, topic: str = None, limit: int = 10) -> List[Dict]:
+    def recall_chat_history(self, participant: str | None = None, topic: str | None = None, limit: int = 10) -> list[dict]:
         """Recall relevant chat conversations"""
         if not MEMORY_ENABLED:
             return []
@@ -253,7 +259,7 @@ class MemoryAPI:
         memories = search_memories(query, limit=limit)
         return [self._memory_to_dict(mem) for mem in memories]
 
-    def search_chat_content(self, query_text: str, limit: int = 20) -> List[Dict]:
+    def search_chat_content(self, query_text: str, limit: int = 20) -> list[dict]:
         """Search through chat content"""
         if not MEMORY_ENABLED:
             return []
@@ -267,13 +273,13 @@ class MemoryAPI:
         memories = search_memories(query, limit=limit)
         return [self._memory_to_dict(mem) for mem in memories]
 
-    def _summarize_conversation(self, messages: List[Dict]) -> str:
+    def _summarize_conversation(self, messages: list[dict]) -> str:
         """Generate a simple summary of the conversation"""
         if not messages:
             return "Empty conversation"
 
         # Simple summarization - count messages by participant
-        participant_counts = {}
+        participant_counts: dict[str, int] = {}
         for msg in messages:
             participant = msg.get("participant", "unknown")
             participant_counts[participant] = participant_counts.get(participant, 0) + 1
@@ -284,7 +290,7 @@ class MemoryAPI:
 
         return f"Conversation with {len(participant_counts)} participants - " + ", ".join(summary_parts)
 
-    def _extract_topics(self, messages: List[Dict]) -> List[str]:
+    def _extract_topics(self, messages: list[dict]) -> list[str]:
         """Extract key topics from conversation (simple keyword-based)"""
         all_text = " ".join([msg.get("content", "") for msg in messages])
         words = all_text.lower().split()
@@ -297,7 +303,24 @@ class MemoryAPI:
         word_counts = Counter(filtered_words)
         return [word for word, count in word_counts.most_common(5) if count > 1]
 
-    def _calculate_chat_importance(self, chat_data: Dict) -> float:
+    def _calculate_event_importance(self, event: dict) -> float:
+        """Calculate importance score for an event"""
+        importance = 0.5  # Base importance
+
+        event_type = event.get("event_type", "")
+        # Higher importance for certain event types
+        high_importance_types = ["focus", "decision", "milestone", "error", "alert"]
+        if any(t in event_type.lower() for t in high_importance_types):
+            importance += 0.3
+
+        # Data richness adds importance
+        data = event.get("data", {})
+        if isinstance(data, dict) and len(data) > 3:
+            importance += 0.1
+
+        return min(1.0, max(0.1, importance))
+
+    def _calculate_chat_importance(self, chat_data: dict) -> float:
         """Calculate importance score for a chat conversation"""
         importance = 0.5  # Base importance
 
@@ -328,7 +351,7 @@ class MemoryAPI:
 
         return min(1.0, max(0.1, importance))
 
-    def _memory_to_dict(self, memory: MemoryUnit) -> Dict:
+    def _memory_to_dict(self, memory: MemoryUnit) -> dict:
         """Convert memory unit to dictionary"""
         return {
             "id": memory.id,
@@ -355,39 +378,39 @@ def get_memory_api() -> MemoryAPI:
         _memory_api = MemoryAPI()
     return _memory_api
 
-def store_event(event: Dict) -> Optional[str]:
+def store_event(event: dict) -> str | None:
     """Convenience function for storing events"""
     return get_memory_api().store_event_memory(event)
 
-def store_task_execution(task: Dict, result: Any) -> Optional[str]:
+def store_task_execution(task: dict, result: Any) -> str | None:
     """Convenience function for storing task executions"""
     return get_memory_api().store_task_memory(task, result)
 
-def learn_knowledge(concept: str, knowledge: Any, confidence: float = 0.8) -> Optional[str]:
+def learn_knowledge(concept: str, knowledge: Any, confidence: float = 0.8) -> str | None:
     """Convenience function for storing learned knowledge"""
     return get_memory_api().store_learning(concept, knowledge, confidence)
 
-def recall_similar_events(event_type: str, days_back: int = 7) -> List[Dict]:
+def recall_similar_events(event_type: str, days_back: int = 7) -> list[dict]:
     """Convenience function for recalling similar events"""
     return get_memory_api().recall_event_pattern(event_type, days_back)
 
-def find_similar_tasks(task_type: str) -> List[Dict]:
+def find_similar_tasks(task_type: str) -> list[dict]:
     """Convenience function for finding similar tasks"""
     return get_memory_api().find_similar_tasks(task_type)
 
-def store_chat_conversation(chat_data: Dict) -> Optional[str]:
+def store_chat_conversation(chat_data: dict) -> str | None:
     """Convenience function for storing chat conversations"""
     return get_memory_api().store_chat_memory(chat_data)
 
-def learn_from_chat(conversation_id: str, insight: str, confidence: float = 0.8) -> Optional[str]:
+def learn_from_chat(conversation_id: str, insight: str, confidence: float = 0.8) -> str | None:
     """Convenience function for storing chat insights"""
     return get_memory_api().store_chat_insight(conversation_id, insight, confidence)
 
-def recall_chat_history(participant: str = None, topic: str = None, limit: int = 10) -> List[Dict]:
+def recall_chat_history(participant: str | None = None, topic: str | None = None, limit: int = 10) -> list[dict]:
     """Convenience function for recalling chat conversations"""
     return get_memory_api().recall_chat_history(participant, topic, limit)
 
-def search_chat_content(query: str, limit: int = 20) -> List[Dict]:
+def search_chat_content(query: str, limit: int = 20) -> list[dict]:
     """Convenience function for searching chat content"""
     return get_memory_api().search_chat_content(query, limit)
 

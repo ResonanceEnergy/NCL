@@ -3,7 +3,6 @@
 Tests for tools/export.py — anonymize_event, PII redaction, and export_data.
 """
 import json
-import os
 import sys
 import tempfile
 import unittest
@@ -14,7 +13,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "tools"))
 
-from export import anonymize_event, export_data
+from export import anonymize_event, export_data  # noqa: E402
 
 
 class TestAnonymizeEvent(unittest.TestCase):

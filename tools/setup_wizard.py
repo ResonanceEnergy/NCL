@@ -6,9 +6,8 @@ and optionally starts the relay server.
 """
 import json
 import os
-import sys
-import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 NCL_ROOT = Path(os.path.expanduser("~/NCL"))
@@ -111,10 +110,9 @@ def step_install_deps(auto=False):
         else:
             print("  Skipped. Run: pip install -r requirements-dev.txt")
 
-    if optional_missing and not auto:
-        if prompt_yn(f"Install {len(optional_missing)} optional package(s)?", default=False):
-            subprocess.run([sys.executable, "-m", "pip", "install"] + optional_missing,
-                          check=False)
+    if optional_missing and not auto and prompt_yn(f"Install {len(optional_missing)} optional package(s)?", default=False):
+        subprocess.run([sys.executable, "-m", "pip", "install", *optional_missing],
+                      check=False)
 
 
 def step_validate_config():
@@ -171,7 +169,7 @@ def step_validate_imports():
             else:
                 print(f"  MISS {mod}")
                 all_ok = False
-        except Exception:
+        except Exception:  # noqa: S110
             pass
 
     return all_ok

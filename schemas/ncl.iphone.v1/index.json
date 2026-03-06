@@ -46,6 +46,14 @@
     "ncl.health.export_pipeline": "./health.export_pipeline.json",
     "ncl.sleep.regularity_score": "./sleep.regularity_score.json",
     "ncl.health.work_capacity_estimate": "./health.work_capacity_estimate.json",
-    "ncl.health.vs_output_correlation": "./health.vs_output_correlation.json"
+    "ncl.health.vs_output_correlation": "./health.vs_output_correlation.json",
+    "ncl.calendar.event_summary": "./calendar.event_summary.json",
+    "ncl.calendar.schedule_density": "./calendar.schedule_density.json",
+    "ncl.call.metadata": "./call.metadata.json",
+    "ncl.call.daily_summary": "./call.daily_summary.json",
+    "ncl.connectivity.place_fingerprint": "./connectivity.place_fingerprint.json",
+    "ncl.microphone.presence_label": "./microphone.presence_label.json",
+    "ncl.system.focus_adherence": "./system.focus_adherence.json",
+    "ncl.consent.change": "./consent.change.json"
   }
 }

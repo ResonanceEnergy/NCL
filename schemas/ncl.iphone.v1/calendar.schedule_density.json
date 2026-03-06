@@ -1,0 +1,27 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/calendar.schedule_density.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Schedule Density",
+  "description": "Derived metric: how tightly packed the day's schedule is.",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.calendar.schedule_density" },
+        "payload": {
+          "type": "object",
+          "required": ["date", "density_score"],
+          "properties": {
+            "date": { "type": "string", "format": "date" },
+            "density_score": { "type": "number", "minimum": 0, "maximum": 1.0 },
+            "scheduled_minutes": { "type": "integer", "minimum": 0 },
+            "free_minutes": { "type": "integer", "minimum": 0 },
+            "back_to_back_count": { "type": "integer", "minimum": 0 },
+            "time_to_first_work_minutes": { "type": "number", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

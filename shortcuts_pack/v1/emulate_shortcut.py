@@ -3,8 +3,7 @@
 import argparse
 import json
 import os
-import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import uuid4
 
 OUT_DIR = os.path.join(os.path.dirname(__file__), "events")
@@ -14,7 +13,7 @@ def make_envelope(event_type: str, payload: dict, overrides: dict | None = None)
         "event_id": str(uuid4()),
         "event_type": event_type,
         "schema_version": "ncl.iphone.v1",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "ingestion_method": "shortcut",
         "permission": {"granted": True},
         "retention_tier": "short",
@@ -46,7 +45,7 @@ if __name__ == "__main__":
     payload = {}
     event = None
     if args.payload:
-        with open(args.payload, "r", encoding="utf-8") as fh:
+        with open(args.payload, encoding="utf-8") as fh:
             obj = json.load(fh)
         # If the provided file already looks like a full NCL envelope, use it (but fill defaults).
         if isinstance(obj, dict) and ("event_type" in obj or ("payload" in obj and "schema_version" in obj)):
@@ -55,7 +54,7 @@ if __name__ == "__main__":
             if "event_id" not in event:
                 event["event_id"] = str(uuid4())
             if "timestamp" not in event:
-                event["timestamp"] = datetime.now(timezone.utc).isoformat()
+                event["timestamp"] = datetime.now(UTC).isoformat()
             if "schema_version" not in event:
                 event["schema_version"] = "ncl.iphone.v1"
             if "ingestion_method" not in event:

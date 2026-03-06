@@ -2,7 +2,7 @@ name: NCL CI
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main, dev, feat/golden-tasks]
   pull_request:
     branches: [main]
 
@@ -29,17 +29,17 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
-          pip install ruff mypy
+          pip install ruff mypy pytest-cov
 
       - name: Lint with ruff
         run: ruff check .
 
       - name: Type check with mypy
-        run: mypy ncl_memory.py ncl_agency_runtime/runtime/ tools/ --ignore-missing-imports || true
+        run: mypy ncl_memory.py lib_ncl.py ncl_agency_runtime/ --ignore-missing-imports
 
-      - name: Run tests
+      - name: Run tests with coverage
         run: |
-          python -m pytest tests/ -v --tb=short -x
+          python -m pytest tests/ -v --tb=short -x --cov=ncl_memory --cov=lib_ncl --cov=ncl_agency_runtime --cov=evaluation_harness --cov=tools --cov-fail-under=50
 
       - name: Validate golden task schemas
         run: |

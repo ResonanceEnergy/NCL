@@ -11,14 +11,13 @@ Usage:
 Author: NUREALCORTEXLINK Evaluation System
 """
 
+import argparse
 import json
-import os
 import sys
-from pathlib import Path
-from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 from enum import Enum
-import argparse
+from pathlib import Path
+from typing import Any
 
 
 class TaskType(Enum):
@@ -33,13 +32,13 @@ class TaskType(Enum):
 class GoldenTask:
     id: str
     name: str
-    input_data: Dict[str, Any]
-    expected_output: Dict[str, Any]
-    failure_conditions: List[str]
+    input_data: dict[str, Any]
+    expected_output: dict[str, Any]
+    failure_conditions: list[str]
 
     @classmethod
     def from_file(cls, filepath: Path) -> 'GoldenTask':
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(filepath, encoding='utf-8') as f:
             data = json.load(f)
         return cls(
             id=data['id'],
@@ -55,9 +54,9 @@ class EvaluationResult:
     task_id: str
     passed: bool
     score: float
-    failures: List[str]
-    actual_output: Dict[str, Any]
-    expected_output: Dict[str, Any]
+    failures: list[str]
+    actual_output: dict[str, Any]
+    expected_output: dict[str, Any]
 
 
 class GoldenTaskEvaluator:
@@ -67,7 +66,7 @@ class GoldenTaskEvaluator:
         self.tasks_dir = tasks_dir
         self.tasks = self._load_tasks()
 
-    def _load_tasks(self) -> Dict[str, GoldenTask]:
+    def _load_tasks(self) -> dict[str, GoldenTask]:
         """Load all golden task files."""
         tasks = {}
         for json_file in self.tasks_dir.glob("golden_*.json"):
@@ -75,7 +74,7 @@ class GoldenTaskEvaluator:
             tasks[task.id] = task
         return tasks
 
-    def run_task(self, task_id: str, agent_output: Optional[Dict[str, Any]] = None) -> EvaluationResult:
+    def run_task(self, task_id: str, agent_output: dict[str, Any] | None = None) -> EvaluationResult:
         """Run a single golden task evaluation."""
         if task_id not in self.tasks:
             raise ValueError(f"Task {task_id} not found")
@@ -98,7 +97,7 @@ class GoldenTaskEvaluator:
             expected_output=task.expected_output
         )
 
-    def _simulate_agent_output(self, task: GoldenTask) -> Dict[str, Any]:
+    def _simulate_agent_output(self, task: GoldenTask) -> dict[str, Any]:
         """Simulate AI agent output for demonstration purposes."""
         # This would be replaced with actual AI agent calls
         if task.id == "golden_0001":
@@ -147,7 +146,7 @@ class GoldenTaskEvaluator:
         else:
             return {}
 
-    def _evaluate_output(self, task: GoldenTask, actual_output: Dict[str, Any]) -> tuple[bool, float, List[str]]:
+    def _evaluate_output(self, task: GoldenTask, actual_output: dict[str, Any]) -> tuple[bool, float, list[str]]:
         """Evaluate actual output against expected output."""
         failures = []
         score = 1.0
@@ -194,7 +193,6 @@ class GoldenTaskEvaluator:
 
         elif task.id == "golden_0004":
             # Check CODE methodology coverage
-            expected_insights = task.expected_output.get("insights", [])
             actual_insights = actual_output.get("insights", [])
             code_phases = ["Capture:", "Organize:", "Distill:", "Express:"]
             covered_phases = sum(1 for phase in code_phases if any(phase in insight for insight in actual_insights))
@@ -219,7 +217,7 @@ class GoldenTaskEvaluator:
         passed = score >= 0.7 and not failures
         return passed, max(0.0, score), failures
 
-    def run_all_tasks(self, verbose: bool = False) -> List[EvaluationResult]:
+    def run_all_tasks(self, verbose: bool = False) -> list[EvaluationResult]:
         """Run all available golden tasks."""
         results = []
         for task_id in sorted(self.tasks.keys()):
@@ -231,7 +229,7 @@ class GoldenTaskEvaluator:
                     print(f"  Failures: {', '.join(result.failures)}")
         return results
 
-    def generate_report(self, results: List[EvaluationResult]) -> str:
+    def generate_report(self, results: list[EvaluationResult]) -> str:
         """Generate a comprehensive evaluation report."""
         total_tasks = len(results)
         passed_tasks = sum(1 for r in results if r.passed)

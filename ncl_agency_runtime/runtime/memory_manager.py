@@ -4,18 +4,16 @@ NCL Memory Manager - Maintenance and reporting for the memory system
 """
 
 import argparse
-import json
-from pathlib import Path
 import sys
-from datetime import datetime, timedelta
+from pathlib import Path
 
 # Add parent directories to path for imports
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
 try:
-    from ncl_memory import get_memory_manager
-    from ncl_agency_runtime.runtime.memory_api import get_memory_api
     from ncl_agency_runtime.runtime.learning_engine import get_learning_engine
+    from ncl_agency_runtime.runtime.memory_api import get_memory_api
+    from ncl_memory import get_memory_manager
     MEMORY_ENABLED = True
 except ImportError:
     print("Warning: Memory system not available")
@@ -32,7 +30,7 @@ class MemoryManagerCLI:
 
     def stats(self) -> None:
         """Show memory system statistics"""
-        if not MEMORY_ENABLED:
+        if self.memory_api is None:
             print("Memory system not available")
             return
 
@@ -46,7 +44,7 @@ class MemoryManagerCLI:
 
     def consolidate(self) -> None:
         """Consolidate memories from short-term to long-term"""
-        if not MEMORY_ENABLED:
+        if self.memory_manager is None:
             print("Memory system not available")
             return
 
@@ -55,7 +53,7 @@ class MemoryManagerCLI:
 
     def prune(self) -> None:
         """Prune low-importance memories"""
-        if not MEMORY_ENABLED:
+        if self.memory_manager is None:
             print("Memory system not available")
             return
 
@@ -64,7 +62,7 @@ class MemoryManagerCLI:
 
     def analyze(self, days: int = 7) -> None:
         """Analyze recent patterns"""
-        if not MEMORY_ENABLED:
+        if self.learning_engine is None:
             print("Memory system not available")
             return
 
@@ -73,7 +71,7 @@ class MemoryManagerCLI:
         print(f"=== Pattern Analysis (Last {days} days) ===")
         print(f"Total Events: {analysis['total_events']}")
 
-        print(f"\nTop Event Types:")
+        print("\nTop Event Types:")
         for event_type, count in analysis['patterns'].get('event_types', {}).items():
             print(f"  {event_type}: {count}")
 
@@ -87,7 +85,7 @@ class MemoryManagerCLI:
 
     def search(self, query: str, limit: int = 10) -> None:
         """Search memories"""
-        if not MEMORY_ENABLED:
+        if self.memory_manager is None:
             print("Memory system not available")
             return
 
@@ -109,7 +107,7 @@ class MemoryManagerCLI:
 
     def learnings(self, limit: int = 10) -> None:
         """Show recent learnings"""
-        if not MEMORY_ENABLED:
+        if self.memory_manager is None:
             print("Memory system not available")
             return
 
@@ -133,7 +131,7 @@ class MemoryManagerCLI:
 
     def export(self, output_file: str) -> None:
         """Export memory data for backup/analysis"""
-        if not MEMORY_ENABLED:
+        if self.memory_manager is None:
             print("Memory system not available")
             return
 
@@ -143,7 +141,7 @@ class MemoryManagerCLI:
 
     def maintenance(self) -> None:
         """Run full maintenance cycle"""
-        if not MEMORY_ENABLED:
+        if self.memory_manager is None:
             print("Memory system not available")
             return
 
@@ -158,6 +156,7 @@ class MemoryManagerCLI:
         print("✓ Pruned old memories")
 
         # Analyze recent patterns
+        assert self.learning_engine is not None
         analysis = self.learning_engine.analyze_recent_events(days_back=7)
         print(f"✓ Analyzed patterns: {analysis['total_events']} events, {len(analysis['insights'])} insights")
 

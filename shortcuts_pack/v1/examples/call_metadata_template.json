@@ -1,0 +1,15 @@
+{
+  "event_type": "ncl.call.metadata",
+  "ingestion_method": "shortcut",
+  "permission": { "granted": true },
+  "retention_tier": "short",
+  "privacy_level": "metadata_only",
+  "provenance": { "source": "Shortcut" },
+  "payload": {
+    "timestamp": "{{CURRENT_DATETIME}}",
+    "direction": "{{CALL_DIRECTION}}",
+    "duration_seconds": "{{CALL_DURATION}}",
+    "contact_hash": "{{CONTACT_HASH}}",
+    "is_video": false
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "event_type": "ncl.connectivity.place_fingerprint",
+  "ingestion_method": "shortcut",
+  "permission": { "granted": true },
+  "retention_tier": "short",
+  "privacy_level": "metadata_only",
+  "provenance": { "source": "Shortcut" },
+  "payload": {
+    "timestamp": "{{CURRENT_DATETIME}}",
+    "place_hash": "{{WIFI_SSID_SHA256}}",
+    "is_known_place": false,
+    "ble_device_count": 0,
+    "social_density_estimate": "unknown"
+  }
+}

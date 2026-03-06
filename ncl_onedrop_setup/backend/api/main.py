@@ -1,8 +1,8 @@
 
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
-import json
-from pathlib import Path
 
 app = FastAPI(title="NCL NuraulCortexLink API", version="0.1.0")
 

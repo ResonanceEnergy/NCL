@@ -8,19 +8,19 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "tools"))
 
-from system_health_check import NCLHealthChecker
+from system_health_check import NCLHealthChecker  # noqa: E402
 
 
 class TestNCLHealthCheckerInit(unittest.TestCase):
 
     def test_default_config_when_file_missing(self):
-        checker = NCLHealthChecker(config_path="/tmp/nonexistent_config.json")
+        checker = NCLHealthChecker(config_path="/tmp/nonexistent_config.json")  # noqa: S108
         self.assertIn("network", checker.config)
         self.assertIn("paths", checker.config)
 
@@ -28,7 +28,7 @@ class TestNCLHealthCheckerInit(unittest.TestCase):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump({
                 "network": {"relay_port": 9999, "onedrop_port": 1111},
-                "paths": {"root": "/tmp/test_ncl"},
+                "paths": {"root": "/tmp/test_ncl"},  # noqa: S108
             }, f)
             f.flush()
             checker = NCLHealthChecker(config_path=f.name)
@@ -115,6 +115,37 @@ class TestCheckGoldenTasks(unittest.TestCase):
         with patch("os.path.exists", return_value=False):
             result = checker.check_golden_tasks()
         self.assertFalse(result)
+
+    def test_valid_golden_tasks(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_dir = Path(tmpdir) / "evaluation" / "golden_tasks"
+            task_dir.mkdir(parents=True)
+            for i in range(1, 4):
+                (task_dir / f"golden_{i:04d}.json").write_text("{}")
+
+            checker = NCLHealthChecker(config_path="/dev/null")
+            old_cwd = os.getcwd()
+            os.chdir(tmpdir)
+            try:
+                result = checker.check_golden_tasks()
+                self.assertTrue(result)
+                self.assertEqual(checker.results["golden_tasks"]["count"], 3)
+            finally:
+                os.chdir(old_cwd)
+
+    def test_empty_golden_tasks_dir(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_dir = Path(tmpdir) / "evaluation" / "golden_tasks"
+            task_dir.mkdir(parents=True)
+
+            checker = NCLHealthChecker(config_path="/dev/null")
+            old_cwd = os.getcwd()
+            os.chdir(tmpdir)
+            try:
+                result = checker.check_golden_tasks()
+                self.assertFalse(result)
+            finally:
+                os.chdir(old_cwd)
 
 
 class TestCheckApiEndpoints(unittest.TestCase):

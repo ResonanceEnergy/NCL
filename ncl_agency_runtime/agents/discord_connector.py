@@ -33,14 +33,14 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 # Path setup
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from super_openclaw_agent import (
+from super_openclaw_agent import (  # noqa: E402
     ChannelConnector,
     ChannelType,
     InboundMessage,
@@ -84,16 +84,16 @@ class DiscordConnector(ChannelConnector):
 
     def __init__(
         self,
-        token: Optional[str] = None,
-        listen_channel_ids: Optional[List[int]] = None,
+        token: str | None = None,
+        listen_channel_ids: list[int] | None = None,
         prefix: str = "!ncl",
     ):
         self.token = token or os.environ.get("NCL_DISCORD_TOKEN", "")
         self.prefix = prefix
-        self.listen_channel_ids: Set[int] = set(listen_channel_ids or [])
-        self._agent: Optional[SuperOpenClawAgent] = None
-        self._client: Optional[Any] = None  # discord.Client
-        self._task: Optional[asyncio.Task] = None
+        self.listen_channel_ids: set[int] = set(listen_channel_ids or [])
+        self._agent: SuperOpenClawAgent | None = None
+        self._client: Any | None = None  # discord.Client
+        self._task: asyncio.Task | None = None
 
         # Parse channel IDs from env if not provided
         if not self.listen_channel_ids:
@@ -124,19 +124,20 @@ class DiscordConnector(ChannelConnector):
 
         @self._client.event
         async def on_ready():
+            assert self._client is not None
             LOG.info("Discord bot connected as %s (ID: %s)",
                      self._client.user.name, self._client.user.id)
             guilds = [g.name for g in self._client.guilds]
             LOG.info("Serving guilds: %s", ", ".join(guilds))
             await agent.event_bus.publish("discord.connected", {
-                "bot_user": str(self._client.user),
+                "bot_user": str(self._client.user),  # type: ignore[union-attr]
                 "guilds": guilds,
             })
 
         @self._client.event
         async def on_message(message: discord.Message):
             # Ignore our own messages
-            if message.author == self._client.user:
+            if message.author == self._client.user:  # type: ignore[union-attr]
                 return
 
             # Channel filter
@@ -146,7 +147,7 @@ class DiscordConnector(ChannelConnector):
             # Check for prefix or direct mention
             text = message.content.strip()
             is_command = text.lower().startswith(self.prefix)
-            is_mention = self._client.user in message.mentions
+            is_mention = self._client.user in message.mentions  # type: ignore[union-attr]
 
             if not is_command and not is_mention:
                 return  # not addressed to us
@@ -155,8 +156,8 @@ class DiscordConnector(ChannelConnector):
             if is_command:
                 text = text[len(self.prefix):].strip()
             elif is_mention:
-                text = text.replace(f"<@{self._client.user.id}>", "").strip()
-                text = text.replace(f"<@!{self._client.user.id}>", "").strip()
+                text = text.replace(f"<@{self._client.user.id}>", "").strip()  # type: ignore[union-attr]
+                text = text.replace(f"<@!{self._client.user.id}>", "").strip()  # type: ignore[union-attr]
 
             if not text:
                 text = "help"
@@ -208,7 +209,7 @@ class DiscordConnector(ChannelConnector):
 
     async def _run_bot(self):
         try:
-            await self._client.start(self.token)
+            await self._client.start(self.token)  # type: ignore[union-attr]
         except Exception as exc:
             LOG.error("Discord bot crashed: %s", exc)
 

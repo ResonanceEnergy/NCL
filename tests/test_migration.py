@@ -2,10 +2,10 @@
 """tests/test_migration.py — Verify memory DB schema stability and migration paths."""
 
 import json
-import sqlite3
-import tempfile
 import os
+import sqlite3
 import sys
+import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -87,19 +87,25 @@ def test_memory_storage_creates_tables():
     with tempfile.TemporaryDirectory() as tmpdir:
         storage = MemoryStorage(tmpdir)
         # Check short-term DB has 'memories' table
-        with sqlite3.connect(str(storage.short_term_db)) as conn:
+        conn = sqlite3.connect(str(storage.short_term_db))
+        try:
             cursor = conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'"
             )
             tables = {row[0] for row in cursor}
+        finally:
+            conn.close()
         assert "memories" in tables
 
         # Check long-term DB has 'memories' table
-        with sqlite3.connect(str(storage.long_term_db)) as conn:
+        conn = sqlite3.connect(str(storage.long_term_db))
+        try:
             cursor = conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'"
             )
             tables = {row[0] for row in cursor}
+        finally:
+            conn.close()
         assert "memories" in tables
 
 
@@ -114,9 +120,12 @@ def test_memory_storage_store_and_retrieve():
         storage.store_short_term(mem)
 
         # Query directly
-        with sqlite3.connect(str(storage.short_term_db)) as conn:
+        conn = sqlite3.connect(str(storage.short_term_db))
+        try:
             cursor = conn.execute("SELECT data FROM memories WHERE id = ?", (mem.id,))
             row = cursor.fetchone()
+        finally:
+            conn.close()
         assert row is not None
         data = json.loads(row[0])
         assert data["content"] == "stored item"
@@ -135,9 +144,12 @@ def test_memory_storage_idempotent_init():
         # Re-initialise
         storage._init_databases()
 
-        with sqlite3.connect(str(storage.short_term_db)) as conn:
+        conn = sqlite3.connect(str(storage.short_term_db))
+        try:
             cursor = conn.execute("SELECT COUNT(*) FROM memories")
             count = cursor.fetchone()[0]
+        finally:
+            conn.close()
         assert count >= 1
 
 

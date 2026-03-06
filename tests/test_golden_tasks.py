@@ -2,9 +2,6 @@
 """tests/test_golden_tasks.py — Validate golden task JSON files are well-formed."""
 
 import json
-import glob
-import os
-import sys
 from pathlib import Path
 
 import pytest

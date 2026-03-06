@@ -9,7 +9,7 @@ import sys
 import types
 import unittest
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 # ── Path setup ────────────────────────────────────────────
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -43,7 +43,7 @@ class TestTelegramConnector(unittest.TestCase):
         import importlib
         if "telegram_connector" in sys.modules:
             importlib.reload(sys.modules["telegram_connector"])
-        from telegram_connector import TelegramConnector, ChannelType
+        from telegram_connector import ChannelType, TelegramConnector
         self.TelegramConnector = TelegramConnector
         self.ChannelType = ChannelType
 
@@ -141,7 +141,7 @@ class TestTelegramConnector(unittest.TestCase):
     # ── Send without app ────────────────────────────────
 
     def test_send_without_app_does_not_crash(self):
-        from super_openclaw_agent import OutboundMessage, ChannelType
+        from super_openclaw_agent import ChannelType, OutboundMessage
         tc = self.TelegramConnector(token="t")
         msg = OutboundMessage(
             channel=ChannelType.TELEGRAM,

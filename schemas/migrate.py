@@ -5,7 +5,6 @@ Manages versioned schema migrations for event data, memory store, and config.
 """
 import json
 import os
-import sys
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -36,7 +35,7 @@ def list_migrations():
     return [f for f in files if not f.name.startswith(".")]
 
 
-def create_migration(name: str, description: str, up_actions: list, down_actions: list = None):
+def create_migration(name: str, description: str, up_actions: list, down_actions: list | None = None):
     """Create a new versioned migration file."""
     ensure_migrations_dir()
     seq = len(list_migrations()) + 1

@@ -1,11 +1,16 @@
 {
   "pack_name": "NCL Shortcuts Pack v1",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "shortcuts": [
     { "id": "pickup", "title": "Emit Pickup Event", "event_type": "ncl.device.pickup" },
     { "id": "screentime_snapshot", "title": "Emit ScreenTime Snapshot", "event_type": "ncl.screentime.session" },
     { "id": "notification_snapshot", "title": "Emit Notification Summary", "event_type": "ncl.notification.summary_daily" },
     { "id": "nfc_ritual", "title": "NFC Ritual Event", "event_type": "ncl.nfc.ritual" },
-    { "id": "focus_change", "title": "Emit Focus Change", "event_type": "ncl.system.focus_change" }
+    { "id": "focus_change", "title": "Emit Focus Change", "event_type": "ncl.system.focus_change" },
+    { "id": "calendar_summary", "title": "Emit Calendar Summary", "event_type": "ncl.calendar.event_summary" },
+    { "id": "call_metadata", "title": "Emit Call Metadata", "event_type": "ncl.call.metadata" },
+    { "id": "place_fingerprint", "title": "Emit Place Fingerprint", "event_type": "ncl.connectivity.place_fingerprint" },
+    { "id": "health_hrv", "title": "Emit HRV Trend", "event_type": "ncl.health.hrv_trend" },
+    { "id": "health_steps", "title": "Emit Steps Count", "event_type": "ncl.activity.steps" }
   ]
 }

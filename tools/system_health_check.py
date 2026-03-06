@@ -6,11 +6,13 @@ Comprehensive diagnostic tool for NUREALCORTEXLINK system components.
 
 import json
 import os
-import sys
 import subprocess
-import requests
-from pathlib import Path
+import sys
 import time
+from pathlib import Path
+
+import requests
+
 
 class NCLHealthChecker:
     def __init__(self, config_path="ncl_config.json"):
@@ -20,9 +22,9 @@ class NCLHealthChecker:
     def load_config(self, config_path):
         """Load system configuration"""
         try:
-            with open(config_path, 'r') as f:
+            with open(config_path) as f:
                 return json.load(f)
-        except FileNotFoundError:
+        except (FileNotFoundError, PermissionError, json.JSONDecodeError):
             print(f"Warning: Config file {config_path} not found, using defaults")
             return {
                 "network": {"relay_port": 8787, "onedrop_port": 8123},
@@ -80,7 +82,7 @@ class NCLHealthChecker:
             return False
 
         try:
-            with open(schema_index, 'r') as f:
+            with open(schema_index) as f:
                 catalog = json.load(f)
 
             schema_count = len(catalog.get('schemas', {}))
@@ -122,7 +124,7 @@ class NCLHealthChecker:
                     results[name] = {'status': 'PASS', 'response': response.json()}
                 else:
                     results[name] = {'status': 'FAIL', 'code': response.status_code}
-            except requests.exceptions.RequestException as e:
+            except Exception as e:
                 results[name] = {'status': 'DOWN', 'error': str(e)}
 
         self.results['api_endpoints'] = results
@@ -136,7 +138,7 @@ class NCLHealthChecker:
             return False
 
         try:
-            with open(manifest_path, 'r') as f:
+            with open(manifest_path) as f:
                 manifest = json.load(f)
 
             shortcut_count = len(manifest.get('shortcuts', []))

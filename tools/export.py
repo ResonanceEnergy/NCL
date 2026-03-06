@@ -4,15 +4,14 @@ NCL Data Export Tool
 Export event logs, memory, audit trails, and reports to portable archive.
 Privacy-aware: respects sensitivity levels and anonymization settings.
 """
+import hashlib
 import json
 import os
 import sys
-import shutil
-import hashlib
 import zipfile
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -55,8 +54,8 @@ def anonymize_event(event: dict, level: str = "P2") -> dict:
 def export_data(ncl_root: Path, output_path: Path,
                 include_events: bool = True, include_memory: bool = True,
                 include_audit: bool = True, include_reports: bool = True,
-                anonymize: bool = True, date_from: Optional[str] = None,
-                date_to: Optional[str] = None) -> Dict[str, Any]:
+                anonymize: bool = True, date_from: str | None = None,
+                date_to: str | None = None) -> dict[str, Any]:
     """Export NCL data to a zip archive.
 
     Returns the manifest dict describing what was exported.

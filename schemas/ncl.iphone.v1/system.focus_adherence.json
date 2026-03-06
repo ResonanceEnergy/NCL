@@ -1,0 +1,27 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/system.focus_adherence.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Focus Mode Adherence",
+  "description": "Derived metric: how well the user adheres to scheduled Focus modes.",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.system.focus_adherence" },
+        "payload": {
+          "type": "object",
+          "required": ["date", "adherence_score"],
+          "properties": {
+            "date": { "type": "string", "format": "date" },
+            "adherence_score": { "type": "number", "minimum": 0, "maximum": 1.0 },
+            "scheduled_focus_minutes": { "type": "integer", "minimum": 0 },
+            "actual_focus_minutes": { "type": "integer", "minimum": 0 },
+            "override_count": { "type": "integer", "minimum": 0 },
+            "role_shift_events": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}
