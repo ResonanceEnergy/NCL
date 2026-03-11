@@ -47,6 +47,8 @@ class ProphetStrategy(ModelStrategy):
     def predict(
         self, h: int, quantiles: Optional[Sequence[float]] = None
     ) -> ForecastResult:
+        if self._model is None:
+            raise RuntimeError("Call fit() before predict()")
         future = self._model.make_future_dataframe(periods=h, freq=self._freq)
         fcst = self._model.predict(future)
         tail = fcst.tail(h)
@@ -62,6 +64,6 @@ class ProphetStrategy(ModelStrategy):
 
         return ForecastResult(
             yhat=yhat,
-            q=q_dict,
+            quantiles=q_dict,
             meta={"impl": "Prophet"},
         )

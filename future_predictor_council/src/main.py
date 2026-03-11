@@ -56,27 +56,29 @@ def cmd_backtest(args):
     import pandas as pd
     from pathlib import Path
     from .council.strategy_statsforecast import StatsForecastStrategy
-    from .eval import rolling_backtest
+    from .eval.rolling_backtest import rolling_backtest
     from .reports import ReportGenerator
     from .flywheel_feed import emit_status
 
     emit_status("backtest", f"Running h={args.h}, freq={args.freq}")
     df = pd.read_csv(args.data, parse_dates=["ds"])
     model = StatsForecastStrategy(season_length=args.season)
-    report = rolling_backtest(
-        df, model, freq=args.freq, h=args.h, n_windows=args.windows, seasonal_m=args.season
+    result = rolling_backtest(
+        model, df, h=args.h, n_windows=args.windows, freq=args.freq, seasonality=args.season
     )
 
     Path("data/artifacts").mkdir(parents=True, exist_ok=True)
     out = "data/artifacts/backtest_report.csv"
-    report.to_csv(out, index=False)
+    report_df = pd.DataFrame(result.windows)
+    report_df.to_csv(out, index=False)
 
     rg = ReportGenerator()
-    rg.generate_backtest_report(report)
+    rg.generate_backtest_report(report_df)
 
     emit_status("idle", f"Backtest complete — {out}")
-    print(report.to_string(index=False))
-    print(f"\nSaved: {out}")
+    print(report_df.to_string(index=False))
+    print(f"\nAvg MASE: {result.avg_mase:.4f}  Avg sMAPE: {result.avg_smape:.4f}")
+    print(f"Saved: {out}")
 
 
 def cmd_ingest(args):
