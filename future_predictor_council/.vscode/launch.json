@@ -1,0 +1,21 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "CLI Backtest",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "src.cli",
+      "args": ["--data", "data/raw/example.csv", "--freq", "D", "--h", "14"],
+      "cwd": "${workspaceFolder}/future_predictor_council"
+    },
+    {
+      "name": "API Server",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": ["src.serve:app", "--host", "0.0.0.0", "--port", "8000", "--reload"],
+      "cwd": "${workspaceFolder}/future_predictor_council"
+    }
+  ]
+}

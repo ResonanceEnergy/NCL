@@ -1,0 +1,102 @@
+# Demo Scenario — Council Forecast → Writeback Preview → Approval Gate
+
+# This scenario demonstrates the full Future Predictor Council pipeline:
+# 1. Council produces a 28-day forecast with prediction intervals
+# 2. Causal what-if: "What if promo increases by 10%?"
+# 3. Writeback preview: show the diff before committing
+# 4. Human approval gate: operator reviews and approves/rejects
+
+scenario:
+  name: "demand_forecast_promo_whatif"
+  description: "28-day demand forecast with promo intervention scenario"
+  version: "1.0"
+
+# ── Step 1: Council Forecast ────────────────────────────
+forecast:
+  data: "data/raw/example.csv"
+  series_filter: "series_A"
+  freq: "D"
+  horizon: 28
+  quantiles: [0.1, 0.5, 0.9]
+  council_members:
+    - strategy: "statsforecast"
+      weight: 0.4
+      params: {}
+    - strategy: "patchtst"
+      weight: 0.35
+      params:
+        input_size: 36
+        max_steps: 200
+    - strategy: "timesfm"
+      weight: 0.25
+      params: {}
+      requires_cloud: true
+      cloud_instance: "r6i.2xlarge"
+  success_criteria:
+    mase_threshold: 0.85
+    smape_threshold: 15.0
+
+# ── Step 2: Causal What-If ──────────────────────────────
+whatif:
+  intervention:
+    variable: "promo"
+    change: "+10%"
+    description: "Increase promotional activity by 10%"
+  causal_method: "backdoor.linear_regression"
+  refutation_tests:
+    - "placebo_treatment_refuter"
+    - "random_common_cause"
+    - "data_subset_refuter"
+  expected_outcome: "demand increase between 3-8%"
+
+# ── Step 3: Writeback Preview ───────────────────────────
+writeback_preview:
+  show_diff: true
+  diff_format: "side_by_side"
+  fields:
+    - name: "forecast_baseline"
+      description: "Council forecast without intervention"
+    - name: "forecast_with_promo"
+      description: "Council forecast with +10% promo"
+    - name: "delta"
+      description: "Difference (with_promo - baseline)"
+    - name: "confidence"
+      description: "Prediction interval width at q90-q10"
+
+# ── Step 4: Approval Gate ───────────────────────────────
+approval:
+  required: true
+  approvers:
+    - role: "mission_control"
+      required: true
+    - role: "business_stakeholder"
+      required: true
+  timeout_hours: 24
+  escalation:
+    after_hours: 12
+    escalate_to: "executive_sponsor"
+  on_approve: "commit_writeback"
+  on_reject: "discard_scenario"
+  audit:
+    log_decision: true
+    log_rationale: true
+    immutable: true
+
+# ── Execution Order ─────────────────────────────────────
+execution:
+  steps:
+    - step: 1
+      action: "run_council_forecast"
+      gate: "mase < mase_threshold"
+    - step: 2
+      action: "run_whatif_scenario"
+      gate: "refutation_tests_pass"
+    - step: 3
+      action: "generate_writeback_preview"
+      gate: "none"
+    - step: 4
+      action: "request_approval"
+      gate: "approval_granted"
+    - step: 5
+      action: "commit_or_discard"
+      gate: "none"
