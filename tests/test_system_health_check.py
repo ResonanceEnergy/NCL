@@ -71,7 +71,8 @@ class TestCheckDirectoryStructure(unittest.TestCase):
             # Create all required dirs
             required_dirs = [
                 "data/event_log", "data/quarantine", "data/derived",
-                "agents", "missions", "policies", "dist", "audit"
+                "agents", "missions", "policies", "dist", "audit",
+                "workspaces", "_config",
             ]
             for d in required_dirs:
                 (Path(tmpdir) / d).mkdir(parents=True, exist_ok=True)

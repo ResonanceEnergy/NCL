@@ -59,7 +59,9 @@ class NCLHealthChecker:
             'missions',
             'policies',
             'dist',
-            'audit'
+            'audit',
+            'workspaces',
+            '_config',
         ]
 
         missing_dirs = []
@@ -219,6 +221,40 @@ class NCLHealthChecker:
         }
         return len(missing) == 0
 
+    def check_icm_workspaces(self):
+        """Check ICM workspace structure (Interpretable Context Methodology)"""
+        workspaces = {
+            'mission-ops': ['01-intake', '02-dispatch', '03-execute', '04-report'],
+            'data-pipeline': ['01-capture', '02-validate', '03-process', '04-synthesize'],
+            'agent-dev': ['01-design', '02-implement', '03-test', '04-harden'],
+            'daily-ops': ['01-collect', '02-analyze', '03-brief', '04-action'],
+        }
+
+        missing = []
+        for ws_name, stages in workspaces.items():
+            ws_ctx = f"workspaces/{ws_name}/CONTEXT.md"
+            if not os.path.exists(ws_ctx):
+                missing.append(ws_ctx)
+            for stage in stages:
+                stage_ctx = f"workspaces/{ws_name}/stages/{stage}/CONTEXT.md"
+                stage_out = f"workspaces/{ws_name}/stages/{stage}/output"
+                if not os.path.exists(stage_ctx):
+                    missing.append(stage_ctx)
+                if not os.path.isdir(stage_out):
+                    missing.append(stage_out)
+
+        # Check root ICM files
+        for root_file in ['CLAUDE.md', 'CONTEXT.md', '_config/CONVENTIONS.md']:
+            if not os.path.exists(root_file):
+                missing.append(root_file)
+
+        self.results['icm_workspaces'] = {
+            'status': 'PASS' if not missing else 'WARN',
+            'missing': missing,
+            'workspace_count': len(workspaces),
+        }
+        return len(missing) == 0
+
     def run_all_checks(self):
         """Run all health checks"""
         print("🔍 NCL System Health Check")
@@ -233,7 +269,8 @@ class NCLHealthChecker:
             ("Shortcuts Pack", self.check_shortcuts_pack),
             ("Test Suite", self.run_tests),
             ("Agency Runtime", self.check_agency_runtime),
-            ("One-Drop Setup", self.check_onedrop_setup)
+            ("One-Drop Setup", self.check_onedrop_setup),
+            ("ICM Workspaces", self.check_icm_workspaces)
         ]
 
         all_pass = True
