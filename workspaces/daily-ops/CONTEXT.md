@@ -21,6 +21,17 @@ dispatches follow-up actions.
 
 Each stage writes to its `output/` folder. The next stage reads from there.
 
+## Code Implementation
+
+| Stage | Primary Code | Key Functions |
+|-------|-------------|---------------|
+| 01-collect | `ncl_agency_runtime/runtime/autonomous_daemon.py` | `DaemonPhase`, event log loading, relay health polling |
+| 02-analyze | `ncl_agency_runtime/runtime/autonomous_daemon.py` | `_handle_drift()`, `_scan_roadmap_gaps()`, `_scan_config_completeness()` |
+| 03-brief | `ncl_agency_runtime/runtime/mission_runner.py` | `make_daily_brief()`, `make_weekly_brief()` |
+| 04-action | `ncl_agency_runtime/runtime/ncc_orchestrator.py` | `dispatch_labour()`, `route_to_pillar()` |
+
+Labour pool: `ncl_agency_runtime/runtime/digital_labour.py` → `DigitalLabourPool.submit_task()`
+
 ## Shared Resources
 
 | Resource | Location | What It Provides |

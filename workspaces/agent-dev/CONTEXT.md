@@ -20,6 +20,17 @@ from design through implementation, testing, and hardening.
 
 Each stage writes to its `output/` folder. The next stage reads from there.
 
+## Code Implementation
+
+| Stage | Primary Code | Key Functions |
+|-------|-------------|---------------|
+| 01-design | `ncl_agency_runtime/agents/super_openclaw_agent.py` | `Skill(ABC)`, `SkillResult`, `SkillRouter`, `PolicyGate` |
+| 02-implement | `ncl_agency_runtime/agents/super_openclaw_agent.py` | `SuperOpenClawAgent`, `create_agent()`, 14 built-in skills |
+| 03-test | `evaluation_harness.py` + `evaluation/golden_tasks/` | `evaluate_task()`, 64 golden tasks, pass/fail + scoring |
+| 04-harden | `tests/test_agent_hardening.py` | Kill-switch, rate limit, memory isolation, crash recovery |
+
+Connectors: `discord_connector.py`, `telegram_connector.py` (multi-channel)
+
 ## Shared Resources
 
 | Resource | Location | What It Provides |

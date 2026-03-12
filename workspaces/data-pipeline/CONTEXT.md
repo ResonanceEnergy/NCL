@@ -21,6 +21,17 @@ and synthesizes into the knowledge graph.
 
 Each stage writes to its `output/` folder. The next stage reads from there.
 
+## Code Implementation
+
+| Stage | Primary Code | Key Functions |
+|-------|-------------|---------------|
+| 01-capture | `ncl_agency_runtime/runtime/relay_server.py` | `do_POST()`, `_store_single_event()`, `RateLimiter` |
+| 02-validate | `tools/validate_events.py` | `validate_instance()`, `load_catalog()` |
+| 03-process | `ncl_agency_runtime/runtime/relay_server.py` | `validate_minimal()`, dedup by `event_id` |
+| 04-synthesize | `ncl_memory.py` | `MemoryManager`, `MemoryIndex`, consolidation pipeline |
+
+Relay server: `http://localhost:8787/event` (POST), authenticated via Bearer token
+
 ## Shared Resources
 
 | Resource | Location | What It Provides |

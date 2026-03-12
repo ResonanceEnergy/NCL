@@ -19,7 +19,16 @@ Takes a mission definition from intake through dispatch, execution, and reportin
 ```
 
 Each stage writes to its `output/` folder. The next stage reads from there.
+## Code Implementation
 
+| Stage | Primary Code | Key Functions |
+|-------|-------------|---------------|
+| 01-intake | `ncl_agency_runtime/missions/queue/` | Mission JSON files, `MissionStatus.record()` |
+| 02-dispatch | `ncl_agency_runtime/runtime/mission_runner.py` | `route_mission()`, `MISSION_HANDLERS` dict |
+| 03-execute | `ncl_agency_runtime/runtime/mission_runner.py` | `run_with_retry()`, `_execute_daily_brief()` |
+| 04-report | `ncl_agency_runtime/runtime/mission_runner.py` | `make_daily_brief()`, `make_weekly_brief()` |
+
+Cross-pillar dispatch: `ncl_agency_runtime/runtime/ncc_orchestrator.py` → `route_to_pillar()`
 ## Shared Resources
 
 | Resource | Location | What It Provides |
