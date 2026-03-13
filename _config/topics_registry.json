@@ -1,0 +1,459 @@
+{
+  "_meta": {
+    "description": "Canonical topics registry — single source of truth for ALL topic classification across NCL and FPC intelligence engines.",
+    "version": "1.0.0",
+    "updated": "2026-03-13",
+    "usage": "FPC intelligence engines import domains/keywords from here. MASTER_TOPICS_LIST.md is the human-readable reference generated from this file.",
+    "owner": "NCL/_config"
+  },
+
+  "domains": {
+    "ai_technology": {
+      "label": "AI & Technology",
+      "description": "Artificial intelligence, machine learning, LLMs, neural networks, and deep learning",
+      "pillar": "NCL_BRAIN",
+      "division": "RESEARCH",
+      "keywords": [
+        "ai", "llm", "gpt", "machine learning", "neural", "deep learning",
+        "transformer", "diffusion", "openai", "anthropic", "gemini", "claude",
+        "inference", "training", "model", "artificial intelligence",
+        "chatgpt", "language model", "text generation", "chat", "prompt",
+        "conversation", "tech", "coding", "developer", "machinelearning",
+        "robot", "automation", "software", "startup", "deeplearning",
+        "google", "apple", "microsoft", "computer", "internet",
+        "copilot", "cursor", "devin", "replit", "code assistant",
+        "ai coding", "programming", "developer tool", "ide"
+      ],
+      "subreddits": ["artificial", "MachineLearning", "LocalLLaMA", "singularity", "technology", "programming", "Python"],
+      "github_topics": ["artificial-intelligence", "machine-learning", "large-language-models", "deep-learning", "agents"],
+      "watched_repos": [
+        "langchain-ai/langchain", "openai/openai-python",
+        "anthropics/anthropic-sdk-python", "microsoft/autogen",
+        "crewAIInc/crewAI", "run-llama/llama_index"
+      ],
+      "substack_publications": {
+        "thealgorithmicbridge": "The Algorithmic Bridge",
+        "importai": "Import AI (Jack Clark)",
+        "chinai": "ChinAI Newsletter"
+      },
+      "scraper_keywords": "autonomous agents, multi-agent systems, agent architecture, agent orchestration, agentic AI, tool-use agents, agent evaluation, agent hardening, skill-based dispatch, agent self-healing, MCP protocol, function calling agents, agent memory systems, agent governance, dead letter queue agents"
+    },
+
+    "finance_markets": {
+      "label": "Finance & Markets",
+      "description": "Stocks, crypto, trading, economics, quantitative finance",
+      "pillar": "AAC_BANK",
+      "division": "FINANCE",
+      "keywords": [
+        "market", "stock", "crypto", "bitcoin", "trading", "portfolio",
+        "hedge", "etf", "yield", "nasdaq", "s&p", "fed", "inflation",
+        "recession", "bull", "bear", "earnings", "ipo",
+        "finance", "investing", "stocks", "money",
+        "realestate", "wealth", "budget", "entrepreneur",
+        "company", "ceo", "merger", "acquisition", "business", "trade"
+      ],
+      "subreddits": ["CryptoCurrency", "wallstreetbets"],
+      "scraper_keywords": "algorithmic trading, statistical arbitrage, cryptocurrency trading, quantitative finance, ML trading signals, cross-exchange arbitrage, sentiment analysis trading, risk management trading, paper trading, DeFi, superstonk DD, basis trading, LSTM price prediction, reinforcement learning trading, XGBoost trading, market regime detection"
+    },
+
+    "geopolitics": {
+      "label": "Geopolitics & International Relations",
+      "description": "International relations, conflict, diplomacy, trade policy",
+      "pillar": "NCC_COMMAND",
+      "division": "STRATEGY",
+      "keywords": [
+        "geopolitics", "china", "russia", "nato", "trade war", "sanctions",
+        "diplomacy", "sovereignty", "conflict", "treaty", "election",
+        "tariff", "belt and road", "indo-pacific",
+        "geopolitical", "military", "alliance", "war"
+      ],
+      "subreddits": ["geopolitics"],
+      "scraper_keywords": "geopolitics, international relations, trade war, sanctions, diplomacy, conflict analysis, election impact, tariff analysis, indo-pacific strategy"
+    },
+
+    "science_research": {
+      "label": "Science & Research",
+      "description": "Scientific research, physics, biology, chemistry, breakthroughs",
+      "pillar": "NCL_BRAIN",
+      "division": "RESEARCH",
+      "keywords": [
+        "research", "paper", "breakthrough", "quantum", "physics", "biology",
+        "chemistry", "nature", "science", "arxiv", "peer review",
+        "experiment", "discovery", "crispr", "fusion",
+        "nasa", "space", "study", "climate", "planet",
+        "academic", "citation", "literature"
+      ],
+      "subreddits": ["science"],
+      "scraper_keywords": "scientific research, quantum computing, CRISPR, fusion energy, arxiv papers, peer review, breakthrough discovery, experimental physics, computational biology"
+    },
+
+    "entrepreneurship": {
+      "label": "Entrepreneurship & Startups",
+      "description": "Startups, venture capital, growth, innovation",
+      "pillar": "SUPER_AGENCY",
+      "division": "INNOVATION",
+      "keywords": [
+        "startup", "founder", "venture", "fundraise", "pivot", "scale",
+        "moonshot", "disrupt", "10x", "mtp", "exponential",
+        "diamandis", "abundance", "yc", "a16z",
+        "vc", "growth", "product", "market-fit"
+      ],
+      "substack_publications": {
+        "notboring": "Not Boring (Packy McCormick)",
+        "thegeneralist": "The Generalist"
+      },
+      "scraper_keywords": "startup strategy, venture capital, Y Combinator, exponential thinking, founder lessons, moonshot projects, abundance mindset, product market fit"
+    },
+
+    "security_intelligence": {
+      "label": "Cybersecurity & Intelligence",
+      "description": "Infosec, OSINT, threat intelligence, privacy",
+      "pillar": "NCC_COMMAND",
+      "division": "INTELLIGENCE",
+      "keywords": [
+        "cyber", "breach", "hack", "vulnerability", "zero-day", "ransomware",
+        "apt", "osint", "sigint", "threat", "attack", "exploit",
+        "infosec", "malware", "phishing",
+        "security", "pentest", "cve", "firewall", "encryption", "auth", "oauth",
+        "privacy", "surveillance"
+      ],
+      "scraper_keywords": "zero trust architecture, NIST 800-53, MITRE ATT&CK, incident response, threat intelligence, OSINT, vulnerability management, ransomware, APT, infosec, cybersecurity framework"
+    },
+
+    "health_longevity": {
+      "label": "Health, Longevity & Wellness",
+      "description": "Health optimization, longevity, biohacking, fitness, mental health",
+      "pillar": "NCL_BRAIN",
+      "division": "RESEARCH",
+      "keywords": [
+        "longevity", "health", "biohack", "supplement", "sleep", "exercise",
+        "aging", "lifespan", "rapamycin", "nad", "bryan johnson",
+        "peter attia", "huberman", "nutrition", "fasting",
+        "fitness", "gym", "yoga", "wellness", "mindset", "selfcare",
+        "mentalhealth", "covid", "vaccine", "disease", "medical",
+        "hospital", "fda", "drug", "cancer", "outbreak"
+      ],
+      "scraper_keywords": "longevity research, biohacking, health optimization, HRV analysis, sleep science, Peter Attia, Andrew Huberman, Bryan Johnson, rapamycin, NAD, fasting protocols, quantified self"
+    },
+
+    "philosophy_wisdom": {
+      "label": "Philosophy & Strategic Wisdom",
+      "description": "Mental models, stoicism, first principles, decision science",
+      "pillar": "NCL_BRAIN",
+      "division": "KNOWLEDGE",
+      "keywords": [
+        "philosophy", "wisdom", "stoic", "mental model", "thinking",
+        "framework", "first principles", "heuristic", "cognitive",
+        "metacognition", "epistemology", "rationality"
+      ],
+      "substack_publications": {
+        "astralcodexten": "Astral Codex Ten"
+      },
+      "scraper_keywords": "mental models, first principles thinking, stoicism, systems thinking, antifragility, Bayesian reasoning, cognitive biases, strategic decision making, Art of War, 48 Laws of Power"
+    },
+
+    "personal_brand": {
+      "label": "Personal Brand & Creator Economy",
+      "description": "Content strategy, audience building, creator economy, social media",
+      "pillar": "SUPER_AGENCY",
+      "division": "COMMUNICATIONS",
+      "keywords": [
+        "brand", "audience", "content strategy", "newsletter", "podcast",
+        "youtube", "twitter", "followers", "engagement", "influence",
+        "creator", "personal brand", "thought leader",
+        "influencer", "content", "collab", "ugc", "reel", "viral",
+        "storytelling", "monetize",
+        "jasper", "copy.ai", "adcreative", "marketing",
+        "seo", "copywriting", "ad", "content marketing"
+      ],
+      "scraper_keywords": "personal brand building, content strategy, creator economy, newsletter growth, audience building, social media strategy, SEO, copywriting, content marketing"
+    },
+
+    "operations_productivity": {
+      "label": "Operations & Productivity",
+      "description": "DevOps, automation, workflows, tooling, efficiency",
+      "pillar": "DIGITAL_LABOUR",
+      "division": "OPERATIONS",
+      "keywords": [
+        "productivity", "automation", "workflow", "systems", "ops",
+        "devops", "ci/cd", "infrastructure", "tooling", "efficiency",
+        "notion", "obsidian", "zapier", "make",
+        "n8n", "integration", "no-code", "low-code", "agent builder",
+        "presentation", "document", "workspace", "tome", "gamma", "beautiful.ai"
+      ],
+      "scraper_keywords": "productivity systems, automation workflows, DevOps, CI/CD pipelines, no-code platforms, Zapier, Make, n8n, workflow automation, tooling efficiency"
+    },
+
+    "creative_media": {
+      "label": "Creative & Media",
+      "description": "Design, art, music, video, generative AI creativity tools",
+      "pillar": "SUPER_AGENCY",
+      "division": "COMMUNICATIONS",
+      "keywords": [
+        "design", "art", "music", "film", "creative", "visual",
+        "midjourney", "dall-e", "stable diffusion", "sora", "runway",
+        "generative", "video", "animation",
+        "ai art", "text to image", "flux", "ideogram",
+        "pika", "kling", "video generation", "text to video", "luma",
+        "elevenlabs", "suno", "udio", "ai music", "text to speech",
+        "voice clone", "audio generation", "ai voice",
+        "canva", "figma", "looka", "brand", "logo", "ui", "ux",
+        "graphic", "template", "photography", "illustration", "digital"
+      ],
+      "scraper_keywords": "AI art generation, Midjourney, DALL-E, Stable Diffusion, Sora, video generation, AI music, ElevenLabs, text to speech, generative AI design, Canva, Figma"
+    },
+
+    "energy_climate": {
+      "label": "Energy & Climate",
+      "description": "Renewable energy, alternative technology, climate science",
+      "pillar": "NCL_BRAIN",
+      "division": "RESEARCH",
+      "keywords": [
+        "energy", "solar", "nuclear", "battery", "grid", "oil",
+        "renewable", "fusion", "hydrogen", "climate",
+        "microhydro", "tesla", "plasma", "electric universe"
+      ],
+      "subreddits": ["energy"],
+      "scraper_keywords": "renewable energy, microhydro power, GEET plasma reactor, electric universe theory, Tesla technology, off-grid energy, digital twin energy, alternative energy research, fusion energy, solar power"
+    },
+
+    "data_engineering": {
+      "label": "Data Engineering & Pipelines",
+      "description": "ETL, data pipelines, databases, data quality, warehousing",
+      "pillar": "NCL_BRAIN",
+      "division": "RESEARCH",
+      "keywords": [
+        "etl", "spark", "kafka", "airflow", "dbt",
+        "data-pipeline", "warehouse", "lakehouse",
+        "data analysis", "analytics", "visualization",
+        "spreadsheet", "csv", "dashboard",
+        "julius", "tableau"
+      ],
+      "scraper_keywords": "NDJSON event logging, JSON Schema validation, data pipeline architecture, event driven architecture, data quality, DuckDB Parquet, ETL, data warehouse, stream processing, data governance"
+    },
+
+    "blockchain_web3": {
+      "label": "Blockchain & Web3",
+      "description": "Blockchain, DeFi, smart contracts, tokenomics",
+      "pillar": "AAC_BANK",
+      "division": "FINANCE",
+      "keywords": [
+        "blockchain", "ethereum", "solidity", "defi", "web3",
+        "crypto", "smart-contract", "nft", "token"
+      ],
+      "subreddits": ["CryptoCurrency"],
+      "scraper_keywords": "blockchain, DeFi yield farming, smart contracts, Solidity, Web3, NFT, tokenomics, on-chain analysis"
+    },
+
+    "mobile_development": {
+      "label": "Mobile Development",
+      "description": "iOS, Android, SwiftUI, React Native, mobile apps",
+      "pillar": "NCL_BRAIN",
+      "division": "RESEARCH",
+      "keywords": [
+        "ios", "android", "swift", "kotlin", "flutter", "react-native",
+        "iphone", "app", "swiftui", "mobile"
+      ],
+      "scraper_keywords": "SwiftUI, HealthKit, iOS Shortcuts automation, iPhone data pipeline, React Native, Flutter, mobile app development"
+    },
+
+    "agent_frameworks": {
+      "label": "Agent Frameworks & Multi-Agent",
+      "description": "Agent frameworks, multi-agent systems, autonomous AI, swarm intelligence",
+      "pillar": "NCC_COMMAND",
+      "division": "STRATEGY",
+      "keywords": [
+        "autogpt", "crewai", "langgraph", "agent", "agentic",
+        "multi-agent", "swarm", "autonomous", "openai agents"
+      ],
+      "watched_repos": [
+        "microsoft/autogen", "crewAIInc/crewAI"
+      ],
+      "scraper_keywords": "AutoGPT, CrewAI, LangGraph, multi-agent systems, agentic AI, swarm intelligence, autonomous agents, OpenAI agents SDK"
+    },
+
+    "open_source_models": {
+      "label": "Open Source AI Models",
+      "description": "Open weight models, local LLMs, fine-tuning, HuggingFace",
+      "pillar": "NCL_BRAIN",
+      "division": "RESEARCH",
+      "keywords": [
+        "llama", "mistral", "phi", "open source", "open-source",
+        "open weight", "huggingface", "ollama", "local"
+      ],
+      "scraper_keywords": "LLaMA, Mistral, Phi, open source LLM, HuggingFace, Ollama, local AI models, fine-tuning, open weight models"
+    },
+
+    "multimodal_ai": {
+      "label": "Multi-Modal AI",
+      "description": "Vision-language models, omni-models, multi-modal reasoning",
+      "pillar": "NCC_COMMAND",
+      "division": "INTELLIGENCE",
+      "keywords": [
+        "gpt-4o", "gemini pro", "multi-modal", "multimodal",
+        "vision", "omni", "all-in-one"
+      ],
+      "scraper_keywords": "GPT-4o, Gemini Pro, multi-modal AI, vision-language models, omni models, multi-modal reasoning"
+    },
+
+    "systems_infrastructure": {
+      "label": "Systems & Infrastructure",
+      "description": "Rust, compilers, OS, embedded systems, WASM",
+      "pillar": "DIGITAL_LABOUR",
+      "division": "OPERATIONS",
+      "keywords": [
+        "rust", "kernel", "os", "embedded", "wasm", "compiler"
+      ],
+      "watched_repos": [
+        "astral-sh/ruff", "astral-sh/uv"
+      ],
+      "scraper_keywords": "Rust, WASM, embedded systems, systems programming, kernels, compilers"
+    },
+
+    "web_frameworks": {
+      "label": "Web Frameworks & Frontend",
+      "description": "React, Vue, Django, FastAPI, frontend/backend development",
+      "pillar": "DIGITAL_LABOUR",
+      "division": "OPERATIONS",
+      "keywords": [
+        "react", "vue", "svelte", "next", "nuxt", "django",
+        "fastapi", "flask", "express", "rails", "frontend"
+      ],
+      "watched_repos": [
+        "tiangolo/fastapi", "pydantic/pydantic"
+      ],
+      "scraper_keywords": "React, Vue, Svelte, Next.js, Django, FastAPI, Flask, frontend development, web frameworks, full-stack"
+    },
+
+    "education_learning": {
+      "label": "Education & Learning",
+      "description": "Tutorials, courses, learning platforms, knowledge sharing",
+      "pillar": "NCL_BRAIN",
+      "division": "KNOWLEDGE",
+      "keywords": [
+        "education", "learn", "study", "tutorial", "tips",
+        "howto", "knowledge", "course", "edutok", "booktok",
+        "university", "hack"
+      ],
+      "scraper_keywords": "online education, tutorials, e-learning, knowledge sharing, skill development, course creation"
+    },
+
+    "entertainment_culture": {
+      "label": "Entertainment & Culture",
+      "description": "Movies, music, shows, celebrities, cultural trends",
+      "pillar": "SUPER_AGENCY",
+      "division": "COMMUNICATIONS",
+      "keywords": [
+        "movie", "show", "film", "music", "concert",
+        "celebrity", "trailer", "netflix", "disney",
+        "album", "actor", "awards",
+        "trend", "viral", "challenge", "dance", "fyp",
+        "foryou", "aesthetic", "vibe", "core"
+      ],
+      "scraper_keywords": "entertainment industry, pop culture, streaming trends, viral content, cultural trends, celebrity news"
+    },
+
+    "sports": {
+      "label": "Sports",
+      "description": "Professional sports, scores, championships, player analysis",
+      "pillar": "SUPER_AGENCY",
+      "division": "COMMUNICATIONS",
+      "keywords": [
+        "game", "nba", "nfl", "mlb", "soccer", "football",
+        "basketball", "score", "championship", "player",
+        "match", "team", "world cup"
+      ],
+      "scraper_keywords": "professional sports, NBA, NFL, soccer, championship, sports analytics, player performance"
+    },
+
+    "politics": {
+      "label": "Politics & Government",
+      "description": "Elections, policy, government, political movements",
+      "pillar": "NCC_COMMAND",
+      "division": "STRATEGY",
+      "keywords": [
+        "election", "president", "vote", "congress", "senate",
+        "law", "bill", "policy", "democrat", "republican",
+        "trump", "biden", "government",
+        "politics", "news", "activist", "protest",
+        "breaking", "worldnews"
+      ],
+      "scraper_keywords": "political analysis, election forecasting, policy analysis, government regulation, political movements"
+    },
+
+    "lifestyle": {
+      "label": "Lifestyle & Personal",
+      "description": "Travel, fashion, food, home, aesthetics",
+      "pillar": "SUPER_AGENCY",
+      "division": "COMMUNICATIONS",
+      "keywords": [
+        "lifestyle", "travel", "fashion", "food", "home",
+        "aesthetic", "minimal", "luxury"
+      ],
+      "scraper_keywords": "lifestyle trends, travel, fashion, food trends, minimalism, luxury lifestyle"
+    },
+
+    "forecasting": {
+      "label": "Time Series Forecasting",
+      "description": "Statistical and neural forecasting, backtesting, ensemble methods",
+      "pillar": "NCL_BRAIN",
+      "division": "RESEARCH",
+      "keywords": [
+        "forecast", "arima", "ets", "theta", "timesfm", "chronos",
+        "patchtst", "prophet", "neuralforecast", "statsforecast",
+        "mase", "smape", "backtest", "ensemble", "prediction"
+      ],
+      "scraper_keywords": "time series forecasting, AutoARIMA, StatsForecast, NeuralForecast, TimesFM, Chronos, PatchTST, temporal fusion transformer, rolling backtest, forecast accuracy MASE, council voting ensemble"
+    }
+  },
+
+  "platform_sources": {
+    "reddit": {
+      "default_subreddits": [
+        "artificial", "MachineLearning", "LocalLLaMA", "singularity",
+        "technology", "Futurology", "programming", "Python", "rust",
+        "CryptoCurrency", "wallstreetbets", "science", "geopolitics", "energy"
+      ]
+    },
+    "substack": {
+      "default_publications": {
+        "natesnewsletter": "Nate B Jones",
+        "platformer": "Platformer (Casey Newton)",
+        "thealgorithmicbridge": "The Algorithmic Bridge",
+        "importai": "Import AI (Jack Clark)",
+        "chinai": "ChinAI Newsletter",
+        "astralcodexten": "Astral Codex Ten",
+        "thegeneralist": "The Generalist",
+        "stratechery": "Stratechery",
+        "notboring": "Not Boring (Packy McCormick)",
+        "exponentialview": "Exponential View"
+      }
+    },
+    "github": {
+      "trending_feeds": [
+        "https://github.com/trending?since=daily",
+        "https://github.com/trending?since=weekly"
+      ],
+      "topic_pages": [
+        "https://github.com/topics/artificial-intelligence",
+        "https://github.com/topics/machine-learning",
+        "https://github.com/topics/large-language-models"
+      ],
+      "watched_repos": [
+        "langchain-ai/langchain", "openai/openai-python",
+        "anthropics/anthropic-sdk-python", "microsoft/autogen",
+        "crewAIInc/crewAI", "run-llama/llama_index",
+        "astral-sh/ruff", "astral-sh/uv",
+        "tiangolo/fastapi", "pydantic/pydantic"
+      ]
+    },
+    "rss_feeds": [
+      "https://feeds.feedburner.com/TechCrunch/",
+      "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml"
+    ],
+    "fred_indicators": [
+      "GDP", "CPIAUCSL", "UNRATE", "DFF", "T10Y2Y",
+      "VIXCLS", "DCOILWTICO", "GOLDAMGBD228NLBM"
+    ]
+  }
+}

@@ -177,6 +177,47 @@ class AgentDispatch:
 
 
 # ── Routing Table ───────────────────────────────────────────────
+# Keywords loaded from canonical registry: _config/topics_registry.json
+
+# Map ToolCategory value → registry domain names for keyword loading
+_CATEGORY_REGISTRY_MAP: dict[str, list[str]] = {
+    "text_generation": ["ai_technology"],
+    "image_generation": ["creative_media"],
+    "video_generation": ["creative_media"],
+    "audio_generation": ["creative_media"],
+    "code_assistant": ["ai_technology", "operations_productivity"],
+    "productivity": ["operations_productivity"],
+    "research": ["science_research"],
+    "automation": ["operations_productivity"],
+    "design": ["creative_media"],
+    "data_analysis": ["data_engineering"],
+    "marketing": ["personal_brand"],
+    "multi_modal": ["multimodal_ai"],
+    "agent_framework": ["agent_frameworks"],
+    "open_source": ["open_source_models"],
+}
+
+_CATEGORY_KEYWORDS_LOADED = False
+
+
+def _load_category_keywords() -> dict[str, list[str]]:
+    """Load keywords from canonical registry, keyed by ToolCategory value."""
+    from .topics_registry import get_keywords_mapped
+    return get_keywords_mapped(_CATEGORY_REGISTRY_MAP)
+
+
+def _ensure_category_keywords() -> None:
+    """Populate CATEGORY_ROUTING keywords from registry on first use."""
+    global _CATEGORY_KEYWORDS_LOADED
+    if _CATEGORY_KEYWORDS_LOADED:
+        return
+    kw_map = _load_category_keywords()
+    for rule in CATEGORY_ROUTING:
+        cat_key = rule.category.value
+        if cat_key in kw_map and not rule.keywords:
+            rule.keywords = kw_map[cat_key]
+    _CATEGORY_KEYWORDS_LOADED = True
+
 
 CATEGORY_ROUTING: list[CategoryRule] = [
     CategoryRule(
@@ -184,119 +225,105 @@ CATEGORY_ROUTING: list[CategoryRule] = [
         division=RoutingTarget.RESEARCH,
         pillar=PillarMapping.NCL_BRAIN,
         primary_agents=["ai", "sb"],  # BEACON + CORTEX
-        keywords=["chatgpt", "claude", "gemini", "llm", "language model", "gpt",
-                  "text generation", "chat", "prompt", "conversation"],
+        keywords=[],  # loaded from registry
     ),
     CategoryRule(
         category=ToolCategory.IMAGE_GENERATION,
         division=RoutingTarget.COMMUNICATIONS,
         pillar=PillarMapping.SUPER_AGENCY,
         primary_agents=["ux", "dx"],  # MUSE + creative
-        keywords=["midjourney", "dall-e", "stable diffusion", "image generation",
-                  "ai art", "text to image", "flux", "ideogram"],
+        keywords=[],  # loaded from registry
     ),
     CategoryRule(
         category=ToolCategory.VIDEO_GENERATION,
         division=RoutingTarget.COMMUNICATIONS,
         pillar=PillarMapping.SUPER_AGENCY,
         primary_agents=["ux", "ai"],  # MUSE + BEACON
-        keywords=["sora", "runway", "pika", "kling", "video generation",
-                  "text to video", "ai video", "luma"],
+        keywords=[],  # loaded from registry
     ),
     CategoryRule(
         category=ToolCategory.AUDIO_GENERATION,
         division=RoutingTarget.COMMUNICATIONS,
         pillar=PillarMapping.SUPER_AGENCY,
         primary_agents=["ux", "sb"],  # MUSE + CORTEX
-        keywords=["elevenlabs", "suno", "udio", "ai music", "text to speech",
-                  "voice clone", "audio generation", "ai voice"],
+        keywords=[],  # loaded from registry
     ),
     CategoryRule(
         category=ToolCategory.CODE_ASSISTANT,
         division=RoutingTarget.OPERATIONS,
         pillar=PillarMapping.DIGITAL_LABOUR,
         primary_agents=["so", "dx"],  # Launch squadron ops + dev
-        keywords=["copilot", "cursor", "devin", "replit", "code assistant",
-                  "ai coding", "programming", "developer tool", "ide"],
+        keywords=[],  # loaded from registry
     ),
     CategoryRule(
         category=ToolCategory.PRODUCTIVITY,
         division=RoutingTarget.OPERATIONS,
         pillar=PillarMapping.DIGITAL_LABOUR,
         primary_agents=["so", "hr"],  # Ops + NIGHTFALL
-        keywords=["notion", "gamma", "beautiful.ai", "productivity",
-                  "presentation", "document", "workspace", "tome"],
+        keywords=[],  # loaded from registry
     ),
     CategoryRule(
         category=ToolCategory.RESEARCH,
         division=RoutingTarget.RESEARCH,
         pillar=PillarMapping.NCL_BRAIN,
         primary_agents=["ds", "sb"],  # Data Scientist + CORTEX
-        keywords=["perplexity", "elicit", "consensus", "research",
-                  "academic", "paper", "citation", "literature"],
+        keywords=[],  # loaded from registry
     ),
     CategoryRule(
         category=ToolCategory.AUTOMATION,
         division=RoutingTarget.OPERATIONS,
         pillar=PillarMapping.DIGITAL_LABOUR,
         primary_agents=["so", "ai"],  # Ops + BEACON
-        keywords=["zapier", "make", "n8n", "automation", "workflow",
-                  "integration", "no-code", "low-code", "agent builder"],
+        keywords=[],  # loaded from registry
     ),
     CategoryRule(
         category=ToolCategory.DESIGN,
         division=RoutingTarget.COMMUNICATIONS,
         pillar=PillarMapping.SUPER_AGENCY,
         primary_agents=["ux", "dx"],  # MUSE + creative
-        keywords=["canva", "figma", "looka", "design", "brand",
-                  "logo", "ui", "ux", "graphic", "template"],
+        keywords=[],  # loaded from registry
     ),
     CategoryRule(
         category=ToolCategory.DATA_ANALYSIS,
         division=RoutingTarget.RESEARCH,
         pillar=PillarMapping.NCL_BRAIN,
         primary_agents=["ds", "fo"],  # Data Scientist + Forecaster
-        keywords=["julius", "tableau", "data analysis", "analytics",
-                  "visualization", "spreadsheet", "csv", "dashboard"],
+        keywords=[],  # loaded from registry
     ),
     CategoryRule(
         category=ToolCategory.MARKETING,
         division=RoutingTarget.INNOVATION,
         pillar=PillarMapping.SUPER_AGENCY,
         primary_agents=["ne", "dx"],  # Network + creative
-        keywords=["jasper", "copy.ai", "adcreative", "marketing",
-                  "seo", "copywriting", "ad", "content marketing"],
+        keywords=[],  # loaded from registry
     ),
     CategoryRule(
         category=ToolCategory.MULTI_MODAL,
         division=RoutingTarget.INTELLIGENCE,
         pillar=PillarMapping.NCC_COMMAND,
         primary_agents=["ai", "wp"],  # BEACON + WOLFRAM
-        keywords=["gpt-4o", "gemini pro", "multi-modal", "multimodal",
-                  "vision", "omni", "all-in-one"],
+        keywords=[],  # loaded from registry
     ),
     CategoryRule(
         category=ToolCategory.AGENT_FRAMEWORK,
         division=RoutingTarget.STRATEGY,
         pillar=PillarMapping.NCC_COMMAND,
         primary_agents=["ai", "sa"],  # BEACON + NEXUS
-        keywords=["autogpt", "crewai", "langgraph", "agent", "agentic",
-                  "multi-agent", "swarm", "autonomous", "openai agents"],
+        keywords=[],  # loaded from registry
     ),
     CategoryRule(
         category=ToolCategory.OPEN_SOURCE,
         division=RoutingTarget.RESEARCH,
         pillar=PillarMapping.NCL_BRAIN,
         primary_agents=["ai", "ds"],  # BEACON + Data Scientist
-        keywords=["llama", "mistral", "phi", "open source", "open-source",
-                  "open weight", "huggingface", "ollama", "local"],
+        keywords=[],  # loaded from registry
     ),
     CategoryRule(
         category=ToolCategory.GENERAL,
         division=RoutingTarget.KNOWLEDGE,
         pillar=PillarMapping.NCL_BRAIN,
         primary_agents=["sb"],  # CORTEX
-        keywords=[],
+        keywords=[],  # Catch-all — stays empty
     ),
 ]
 
@@ -424,6 +451,7 @@ class VideoClassifier:
 
     def _determine_category(self, video: VideoEntry, tools: list[ToolMention]) -> ToolCategory:
         """Determine primary tool category from tools or keyword analysis."""
+        _ensure_category_keywords()
         # If we have primary tools, use the most common category
         primary_tools = [t for t in tools if t.is_primary]
         if primary_tools:

@@ -3,6 +3,11 @@
 > **Purpose:** Comprehensive topic taxonomy extracted from all 21 ResonanceEnergy repositories.
 > Feed this to data scrapers for maximum coherence. Slice through the noise.
 >
+> **Canonical Source:** [`_config/topics_registry.json`](_config/topics_registry.json) is the single source of truth.
+> All FPC intelligence engines load keywords from the registry at runtime.
+> This markdown file is the **human-readable companion** — update the JSON registry first,
+> then sync this file to match.
+>
 > **Generated:** 2026-03-13
 > **Source repos scanned:** 21 (all public ResonanceEnergy repos + SuperAgency-Shared)
 

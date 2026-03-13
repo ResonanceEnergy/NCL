@@ -12,11 +12,18 @@ pillars (NCL-Brain, AAC-Bank, Super Agency), and functional divisions
 from __future__ import annotations
 
 import hashlib
+import json
+import logging
 import time
+import urllib.error
+import urllib.request
 import uuid
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any
+from pathlib import Path
+from typing import Any, ClassVar
+from xml.etree import ElementTree
 
 # ── Enums ───────────────────────────────────────────────────────
 
@@ -189,6 +196,32 @@ class AgentDispatch:
 
 # Domain → (Division, Pillar, Primary Agents, Secondary Agents, Keywords)
 # Agent codenames from the 30-agent council
+# Keywords loaded from canonical registry: _config/topics_registry.json
+
+# Map ContentDomain → registry domain names for keyword loading
+_DOMAIN_REGISTRY_MAP: dict[str, list[str]] = {
+    "ai_technology": ["ai_technology"],
+    "finance_markets": ["finance_markets"],
+    "geopolitics": ["geopolitics"],
+    "science_research": ["science_research"],
+    "entrepreneurship": ["entrepreneurship"],
+    "security_intelligence": ["security_intelligence"],
+    "philosophy_wisdom": ["philosophy_wisdom"],
+    "health_longevity": ["health_longevity"],
+    "personal_brand": ["personal_brand"],
+    "operations_productivity": ["operations_productivity"],
+    "creative_media": ["creative_media"],
+}
+
+_ROUTING_KEYWORDS_LOADED = False
+
+
+def _load_routing_keywords() -> dict[str, list[str]]:
+    """Load keywords from canonical registry, keyed by ContentDomain value."""
+    from .topics_registry import get_keywords_mapped
+    return get_keywords_mapped(_DOMAIN_REGISTRY_MAP)
+
+
 ROUTING_TABLE: list[RoutingRule] = [
     RoutingRule(
         domain=ContentDomain.AI_TECHNOLOGY,
@@ -196,9 +229,7 @@ ROUTING_TABLE: list[RoutingRule] = [
         pillar=PillarTarget.NCL_BRAIN,
         primary_agents=["ai", "ds"],   # BEACON (AI Daily Brief), DataScience
         secondary_agents=["wp", "sb"],  # WOLFRAM, CORTEX (Second Brain)
-        keywords=["ai", "llm", "gpt", "machine learning", "neural", "deep learning",
-                  "transformer", "diffusion", "openai", "anthropic", "gemini", "claude",
-                  "inference", "training", "model", "artificial intelligence"],
+        keywords=[],  # loaded from registry
     ),
     RoutingRule(
         domain=ContentDomain.FINANCE_MARKETS,
@@ -206,9 +237,7 @@ ROUTING_TABLE: list[RoutingRule] = [
         pillar=PillarTarget.AAC_BANK,
         primary_agents=["fo", "ne"],   # Forecasting, Network
         secondary_agents=["mc", "an"],  # MissionControl, COUNCILOR
-        keywords=["market", "stock", "crypto", "bitcoin", "trading", "portfolio",
-                  "hedge", "etf", "yield", "nasdaq", "s&p", "fed", "inflation",
-                  "recession", "bull", "bear", "earnings", "ipo"],
+        keywords=[],  # loaded from registry
     ),
     RoutingRule(
         domain=ContentDomain.GEOPOLITICS,
@@ -216,9 +245,7 @@ ROUTING_TABLE: list[RoutingRule] = [
         pillar=PillarTarget.NCC_COMMAND,
         primary_agents=["jx", "nc"],   # MANDARIN (Geopolitical), SENTINEL (NCC)
         secondary_agents=["sg", "rd"],  # CIPHER, AEGIS (Unit 8200)
-        keywords=["geopolitics", "china", "russia", "nato", "trade war", "sanctions",
-                  "diplomacy", "sovereignty", "conflict", "treaty", "election",
-                  "tariff", "belt and road", "indo-pacific"],
+        keywords=[],  # loaded from registry
     ),
     RoutingRule(
         domain=ContentDomain.SCIENCE_RESEARCH,
@@ -226,9 +253,7 @@ ROUTING_TABLE: list[RoutingRule] = [
         pillar=PillarTarget.NCL_BRAIN,
         primary_agents=["wp", "ds"],   # WOLFRAM, DataScience
         secondary_agents=["sb", "ai"],  # CORTEX, BEACON
-        keywords=["research", "paper", "breakthrough", "quantum", "physics", "biology",
-                  "chemistry", "nature", "science", "arxiv", "peer review",
-                  "experiment", "discovery", "crispr", "fusion"],
+        keywords=[],  # loaded from registry
     ),
     RoutingRule(
         domain=ContentDomain.ENTREPRENEURSHIP,
@@ -236,9 +261,7 @@ ROUTING_TABLE: list[RoutingRule] = [
         pillar=PillarTarget.SUPER_AGENCY,
         primary_agents=["ai", "sa"],   # BEACON (exponential), NEXUS (Super Agency)
         secondary_agents=["ux", "sp"],  # MUSE, NAVIGATOR
-        keywords=["startup", "founder", "venture", "fundraise", "pivot", "scale",
-                  "moonshot", "disrupt", "10x", "mtp", "exponential",
-                  "diamandis", "abundance", "yc", "a16z"],
+        keywords=[],  # loaded from registry
     ),
     RoutingRule(
         domain=ContentDomain.SECURITY_INTELLIGENCE,
@@ -246,9 +269,7 @@ ROUTING_TABLE: list[RoutingRule] = [
         pillar=PillarTarget.NCC_COMMAND,
         primary_agents=["sg", "rd"],   # CIPHER, AEGIS (Unit 8200)
         secondary_agents=["nc", "em"],  # SENTINEL, WATCHTOWER
-        keywords=["cyber", "breach", "hack", "vulnerability", "zero-day", "ransomware",
-                  "apt", "osint", "sigint", "threat", "attack", "exploit",
-                  "infosec", "malware", "phishing"],
+        keywords=[],  # loaded from registry
     ),
     RoutingRule(
         domain=ContentDomain.PHILOSOPHY_WISDOM,
@@ -256,9 +277,7 @@ ROUTING_TABLE: list[RoutingRule] = [
         pillar=PillarTarget.NCL_BRAIN,
         primary_agents=["sb", "an"],   # CORTEX (Second Brain), COUNCILOR
         secondary_agents=["ir", "ux"],  # MINDGATE, MUSE
-        keywords=["philosophy", "wisdom", "stoic", "mental model", "thinking",
-                  "framework", "first principles", "heuristic", "cognitive",
-                  "metacognition", "epistemology", "rationality"],
+        keywords=[],  # loaded from registry
     ),
     RoutingRule(
         domain=ContentDomain.HEALTH_LONGEVITY,
@@ -266,9 +285,7 @@ ROUTING_TABLE: list[RoutingRule] = [
         pillar=PillarTarget.NCL_BRAIN,
         primary_agents=["ai", "sb"],   # BEACON (longevity), CORTEX
         secondary_agents=["wp", "es"],  # WOLFRAM, SANCTUM
-        keywords=["longevity", "health", "biohack", "supplement", "sleep", "exercise",
-                  "aging", "lifespan", "rapamycin", "nad", "bryan johnson",
-                  "peter attia", "huberman", "nutrition", "fasting"],
+        keywords=[],  # loaded from registry
     ),
     RoutingRule(
         domain=ContentDomain.PERSONAL_BRAND,
@@ -276,9 +293,7 @@ ROUTING_TABLE: list[RoutingRule] = [
         pillar=PillarTarget.SUPER_AGENCY,
         primary_agents=["ux", "dx"],   # MUSE, DevEx
         secondary_agents=["sb", "si"],  # CORTEX, BRIDGE
-        keywords=["brand", "audience", "content strategy", "newsletter", "podcast",
-                  "youtube", "twitter", "followers", "engagement", "influence",
-                  "creator", "personal brand", "thought leader"],
+        keywords=[],  # loaded from registry
     ),
     RoutingRule(
         domain=ContentDomain.OPERATIONS_PRODUCTIVITY,
@@ -286,9 +301,7 @@ ROUTING_TABLE: list[RoutingRule] = [
         pillar=PillarTarget.DIGITAL_LABOUR,
         primary_agents=["so", "hr"],   # SysOps, NIGHTFALL
         secondary_agents=["rt", "es"],  # SPECTRE, SANCTUM
-        keywords=["productivity", "automation", "workflow", "systems", "ops",
-                  "devops", "ci/cd", "infrastructure", "tooling", "efficiency",
-                  "notion", "obsidian", "zapier", "make"],
+        keywords=[],  # loaded from registry
     ),
     RoutingRule(
         domain=ContentDomain.CREATIVE_MEDIA,
@@ -296,9 +309,7 @@ ROUTING_TABLE: list[RoutingRule] = [
         pillar=PillarTarget.SUPER_AGENCY,
         primary_agents=["ux", "sb"],   # MUSE, CORTEX
         secondary_agents=["si", "dx"],  # BRIDGE, DevEx
-        keywords=["design", "art", "music", "film", "creative", "visual",
-                  "midjourney", "dall-e", "stable diffusion", "sora", "runway",
-                  "generative", "video", "animation"],
+        keywords=[],  # loaded from registry
     ),
     RoutingRule(
         domain=ContentDomain.GENERAL,
@@ -306,9 +317,22 @@ ROUTING_TABLE: list[RoutingRule] = [
         pillar=PillarTarget.NCL_BRAIN,
         primary_agents=["sb"],         # CORTEX (Second Brain captures everything)
         secondary_agents=["mc"],       # MissionControl
-        keywords=[],                   # Catch-all
+        keywords=[],                   # Catch-all — stays empty
     ),
 ]
+
+
+def _ensure_routing_keywords() -> None:
+    """Populate ROUTING_TABLE keywords from registry on first use."""
+    global _ROUTING_KEYWORDS_LOADED
+    if _ROUTING_KEYWORDS_LOADED:
+        return
+    kw_map = _load_routing_keywords()
+    for rule in ROUTING_TABLE:
+        domain_key = rule.domain.value
+        if domain_key in kw_map and not rule.keywords:
+            rule.keywords = kw_map[domain_key]
+    _ROUTING_KEYWORDS_LOADED = True
 
 
 # ── Engine Classes ──────────────────────────────────────────────
@@ -386,6 +410,7 @@ class ContentClassifier:
 
     def _detect_domain(self, post: XPost) -> ContentDomain:
         """Match post content against routing table keywords."""
+        _ensure_routing_keywords()
         content_lower = post.content.lower()
         tags_lower = {h.lower() for h in post.hashtags}
         best_domain = ContentDomain.GENERAL
@@ -766,3 +791,117 @@ class XIntelligenceEngine:
             "pillars": len(PillarTarget),
             "engagement_types": len(EngagementType),
         }
+
+
+# ── RSS Feed Scraper ────────────────────────────────────────────
+
+_logger = logging.getLogger(__name__)
+_FPC_ROOT = Path(__file__).resolve().parent.parent
+
+
+class XFeedScraper:
+    """Collect X/Twitter posts via public RSS proxy endpoints.
+
+    Uses nitter-style RSS feeds or any RSS proxy that mirrors
+    X timelines. Falls back to curated RSS search feeds.
+    No API key required.
+    """
+
+    # Curated high-signal accounts to monitor
+    TRACKED_ACCOUNTS: ClassVar[list[str]] = [
+        "elonmusk", "sama", "AndrewYNg", "ylecun",
+        "kabore", "lexfridman", "naval", "balaboronline",
+        "peterthiel", "chaaboroughgh",
+    ]
+
+    # Public nitter instances (rotate if one goes down)
+    NITTER_INSTANCES: ClassVar[list[str]] = [
+        "nitter.net",
+        "nitter.unixfox.eu",
+    ]
+
+    def __init__(self, accounts: list[str] | None = None,
+                 cache_dir: Path | None = None) -> None:
+        self._accounts = accounts or self.TRACKED_ACCOUNTS
+        self._cache_dir = cache_dir or (_FPC_ROOT / "data" / "x_cache")
+        self._cache_dir.mkdir(parents=True, exist_ok=True)
+        self._engine = XIntelligenceEngine()
+        self._last_request: float = 0.0
+        self._rate_limit_s: float = 5.0
+
+    def collect_and_process(self) -> dict[str, Any]:
+        """Scrape tracked accounts and run through full pipeline."""
+        total_ingested = 0
+        for account in self._accounts:
+            posts = self._fetch_account_rss(account)
+            for post in posts:
+                result = self._engine.full_pipeline(post)
+                if result.get("status") == "routed":
+                    total_ingested += 1
+
+        digest = self._engine.generate_digest()
+        self._cache_digest(digest)
+        return {
+            "total_scraped": total_ingested,
+            "digest": digest,
+            "routing": self._engine.routing_summary(),
+        }
+
+    def _fetch_account_rss(self, account: str) -> list[XPost]:
+        """Try nitter RSS feeds for a given account."""
+        posts: list[XPost] = []
+        for instance in self.NITTER_INSTANCES:
+            url = f"https://{instance}/{account}/rss"
+            try:
+                self._rate_limit()
+                req = urllib.request.Request(  # noqa: S310
+                    url, headers={"User-Agent": "NCL-FPC/1.0"})
+                with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
+                    xml_data = resp.read()
+                    root = ElementTree.fromstring(xml_data)  # noqa: S314
+
+                    for item in root.iter("item"):
+                        title_el = item.find("title")
+                        link_el = item.find("link")
+                        desc_el = item.find("description")
+                        pub_date_el = item.find("pubDate")
+
+                        content = ""
+                        if desc_el is not None and desc_el.text:
+                            content = desc_el.text[:500]
+                        elif title_el is not None and title_el.text:
+                            content = title_el.text
+
+                        link = link_el.text if link_el is not None and link_el.text else ""
+
+                        posts.append(XPost(
+                            post_id=hashlib.sha256(link.encode()).hexdigest()[:16],
+                            author_handle=account,
+                            author_name=account,
+                            content=content,
+                            engagement_type=EngagementType.ORIGINAL,
+                            timestamp=pub_date_el.text if pub_date_el is not None and pub_date_el.text else "",
+                            url=link,
+                        ))
+                    break  # Success — stop trying other instances
+            except Exception as exc:
+                _logger.debug("Nitter %s/%s failed: %s", instance, account, exc)
+                continue
+
+        return posts[:10]
+
+    def _rate_limit(self) -> None:
+        elapsed = time.time() - self._last_request
+        if elapsed < self._rate_limit_s:
+            time.sleep(self._rate_limit_s - elapsed)
+        self._last_request = time.time()
+
+    def _cache_digest(self, digest: dict[str, Any]) -> None:
+        cache_file = self._cache_dir / f"x_{datetime.now(UTC).strftime('%Y%m%d')}.json"
+        try:
+            cache_file.write_text(
+                json.dumps(digest, indent=2, default=str),
+                encoding="utf-8",
+            )
+        except Exception as exc:
+            _logger.warning("Failed to cache X digest: %s", exc)
