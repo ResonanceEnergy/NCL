@@ -20,7 +20,10 @@
     "relay_port": 8787,
     "onedrop_port": 8123,
     "local_only": true,
-    "allowed_origins": ["localhost", "127.0.0.1"]
+    "allowed_origins": [
+      "localhost",
+      "127.0.0.1"
+    ]
   },
   "schemas": {
     "catalog_path": "./schemas/ncl.iphone.v1/index.json",
@@ -36,7 +39,7 @@
     "enabled": true,
     "missions_path": "./ncl_agency_runtime/missions",
     "default_mission": "daily_brief_today.json",
-    "auto_start": false
+    "auto_start": true
   },
   "onedrop": {
     "enabled": true,
@@ -67,6 +70,174 @@
     "rate_limiting": {
       "events_per_minute": 60,
       "api_calls_per_minute": 30
+    }
+  },
+  "strategic_doctrine": {
+    "pillars": [
+      "art_of_war",
+      "laws_of_power",
+      "seven_habits"
+    ],
+    "mission_philosophy": {
+      "retry_with_conviction": true,
+      "dead_letter_on_exhaust": true,
+      "evidence_trail": true,
+      "proactive_briefs": true
+    },
+    "security_philosophy": {
+      "zero_trust_default": true,
+      "opaque_errors": true,
+      "kill_switch_ready": true,
+      "earned_trust_model": true
+    },
+    "memory_philosophy": {
+      "understand_before_acting": true,
+      "consolidation_is_renewal": true,
+      "prune_to_sharpen": true,
+      "importance_driven_storage": true
+    },
+    "motto": "Know the terrain, control the timing, sharpen the blade."
+  },
+  "creator_doctrine": {
+    "sources": [
+      "chris_williamson",
+      "diary_of_a_ceo",
+      "andrei_jikh",
+      "tom_bilyeu",
+      "nate_b_jones",
+      "j_bravo",
+      "agentic_lab",
+      "ian_carroll",
+      "dario_amodei",
+      "spencer_gatten"
+    ],
+    "youtube_pipeline": {
+      "enabled": true,
+      "digest_path": "./data/youtube_digest.ndjson",
+      "seen_path": "./data/youtube_seen.json",
+      "schedule": "daily_06:00"
+    },
+    "channels": {
+      "modern_wisdom": {
+        "name": "Chris Williamson — Modern Wisdom",
+        "rss": "https://www.youtube.com/feeds/videos.xml?channel_id=UCIaH-gZIVC432YRjNVvnyCA",
+        "subscription": false
+      },
+      "doac": {
+        "name": "The Diary Of A CEO — Steven Bartlett",
+        "rss": "https://www.youtube.com/feeds/videos.xml?channel_id=UCGq-a57w-aPwyi3pW7XLiHw",
+        "subscription": true
+      },
+      "andrei_jikh": {
+        "name": "Andrei Jikh",
+        "rss": "https://www.youtube.com/feeds/videos.xml?channel_id=UCGy7SkBjcIAgTiwkXEtPnYg",
+        "subscription": false
+      },
+      "tom_bilyeu": {
+        "name": "Tom Bilyeu — Impact Theory",
+        "rss": "https://www.youtube.com/feeds/videos.xml?channel_id=UCnYMOamNKLGVlJgRUbamveA",
+        "subscription": false
+      },
+      "nate_b_jones": {
+        "name": "Nate B Jones — AI News & Strategy",
+        "rss": "https://www.youtube.com/feeds/videos.xml?channel_id=UC0C-17n9iuUQPylguM1d-lQ",
+        "subscription": false
+      },
+      "j_bravo": {
+        "name": "J Bravo",
+        "rss": "https://www.youtube.com/feeds/videos.xml?channel_id=UCXmAl7cO_eWT_JFxgI74lgA",
+        "subscription": false
+      },
+      "agentic_lab": {
+        "name": "Agentic Lab",
+        "rss": "https://www.youtube.com/feeds/videos.xml?channel_id=UC2xbIQqhPKUR4TYSw1ZuzcQ",
+        "subscription": false
+      },
+      "ian_carroll": {
+        "name": "Ian Carroll",
+        "rss": "https://www.youtube.com/feeds/videos.xml?channel_id=UCuMsEqN_YA5TTKbtpOHrr0g",
+        "subscription": false
+      },
+      "spencer_gatten": {
+        "name": "Spencer Gatten",
+        "rss": "https://www.youtube.com/feeds/videos.xml?channel_id=UCU0FLw38pXj6tRct2yygWlA",
+        "subscription": false
+      }
+    },
+    "council_advisors": {
+      "dario_amodei": {
+        "name": "Dario Amodei",
+        "role": "Visionary & Trusted Council Advisor",
+        "organisation": "Anthropic",
+        "focus": "AI safety, alignment, responsible scaling, interpretability"
+      }
+    },
+    "philosophy": {
+      "environment_over_willpower": true,
+      "compound_daily": true,
+      "out_fail_competition": true,
+      "context_not_control": true,
+      "disagreeable_truth": true
+    },
+    "motto": "Curate ruthlessly, learn relentlessly, compound daily."
+  },
+  "ncc": {
+    "enabled": true,
+    "governance": {
+      "pdca_cadence": "weekly",
+      "audit_enabled": true,
+      "doctrine_enforcement": true,
+      "motto": "If it isn't governed, it isn't real."
+    },
+    "triad": {
+      "ncl": {
+        "role": "Brain",
+        "description": "Cognitive augmentation, second brain, memory, learning",
+        "endpoint": "ncl_agency_runtime.agents.super_openclaw_agent",
+        "version": "3.0.0",
+        "auto_boot": true
+      },
+      "aac": {
+        "role": "Bank",
+        "description": "Algorithmic Asset Command — trading, portfolio, 8 exchanges, 52 strategies",
+        "endpoint": "aac",
+        "version": "2.7.0",
+        "auto_boot": true
+      },
+      "super_agency": {
+        "role": "Agency",
+        "description": "Agent workforce orchestration, multi-agent coordination",
+        "endpoint": "super_agency",
+        "version": "1.0.0",
+        "auto_boot": true
+      }
+    },
+    "digital_labour": {
+      "enabled": true,
+      "max_workers": 4,
+      "task_timeout_seconds": 300,
+      "max_retries": 3,
+      "auto_boot": true
+    },
+    "inter_pillar_bus": {
+      "audit_path": "~/NCL/audit/bus_audit.ndjson",
+      "message_ttl_seconds": 300,
+      "dead_letter_enabled": true
+    }
+  },
+  "clawhub": {
+    "enabled": true,
+    "api_base_url": "https://clawhub.ai",
+    "registry_source": "22857+ skills from clawhub.ai",
+    "curated_skills_count": 24,
+    "auto_register": true,
+    "skills_by_layer": {
+      "brain": ["clawhub_search", "clawhub_multi_search", "clawhub_find_skills", "clawhub_ontology", "clawhub_skill_creator", "clawhub_mcp"],
+      "senses": ["clawhub_browser", "clawhub_weather", "clawhub_whisper", "clawhub_brave_search", "clawhub_api_gateway"],
+      "muscles": ["clawhub_google_workspace", "clawhub_notion", "clawhub_obsidian", "clawhub_pdf", "clawhub_image_gen", "clawhub_automation", "clawhub_humanizer", "clawhub_sonos"],
+      "memory": ["clawhub_ontology", "clawhub_obsidian"],
+      "immune": ["clawhub_skill_vetter"],
+      "regeneration": ["clawhub_proactive", "clawhub_self_improving", "clawhub_auto_updater"]
     }
   }
 }

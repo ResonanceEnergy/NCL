@@ -75,6 +75,152 @@ try:
 except ImportError:
     NUMPY_AVAILABLE = False
 
+# ── ClawHub integration ──────────────────────────────────────
+
+# ClawHub skills are imported lazily in _register_default_skills
+# to avoid circular imports (clawhub_skills → super_openclaw_agent).
+
+# ── NCC Triad integration ────────────────────────────────────
+
+try:
+    from ncl_agency_runtime.runtime.digital_labour import (
+        DigitalLabourPool,
+        TaskType,  # noqa: F401
+    )
+    from ncl_agency_runtime.runtime.inter_pillar_bus import (
+        InterPillarBus,
+        MessageType,  # noqa: F401
+        PillarMessage,  # noqa: F401
+        Priority,  # noqa: F401
+    )
+    from ncl_agency_runtime.runtime.ncc_orchestrator import NCCOrchestrator
+    from ncl_agency_runtime.runtime.pillar_registry import PillarID, PillarRegistry, PillarStatus
+    NCC_AVAILABLE = True
+except ImportError:
+    NCC_AVAILABLE = False
+    LOG.warning("NCC integration modules not importable — running standalone")
+
+
+# ═══════════════════════════════════════════════════════════════
+#  Strategic Doctrine — Three Pillars of Mastery
+#  Sun Tzu (Art of War) x Greene (48 Laws) x Covey (7 Habits)
+# ═══════════════════════════════════════════════════════════════
+
+STRATEGIC_PRINCIPLES: dict[str, dict[str, str]] = {
+    "art_of_war": {
+        "terrain_awareness": "Adapt strategy to current event landscape",
+        "supreme_victory": "Anticipate problems; win without fighting",
+        "five_factors": "Dao, Heaven, Earth, Commander, Discipline",
+        "speed_decisiveness": "Act within rate limits but never hesitate",
+        "deception_defense": "Zero-trust; never reveal internals",
+        "know_yourself": "Continuous self-assessment via memory analytics",
+    },
+    "laws_of_power": {
+        "formlessness": "Adapt to any channel, any input, any scale",
+        "evidence_over_argument": "Audit trails prove everything",
+        "bold_action": "Commit fully to missions; retry with conviction",
+        "master_timing": "Rate limit, circadian awareness, batch wisely",
+        "strategic_opacity": "Return only necessary information",
+        "recreate_yourself": "Self-healing; consolidation; continuous renewal",
+    },
+    "seven_habits": {
+        "proactive": "Monitor health; generate briefs before asked",
+        "end_in_mind": "Every mission has clear outcome and audit",
+        "first_things_first": "Priority queue; importance scoring",
+        "win_win": "Consolidation benefits speed and depth",
+        "understand_first": "Search memory before responding",
+        "synergize": "EventBus enables cross-component amplification",
+        "sharpen_saw": "Learning cycles; prune; consolidate; grow",
+    },
+}
+
+# ═══════════════════════════════════════════════════════════════
+#  Creator Doctrine — CW x DOAC x AJ x TB x NBJ x JB x AL x IC x DA x SG
+# ═══════════════════════════════════════════════════════════════
+
+CREATOR_WISDOM: dict[str, dict[str, str]] = {
+    "chris_williamson": {
+        "environment_design": "Config shapes behaviour; PolicyGate IS the environment",
+        "compound_habits": "Daily briefs + consolidation = compound knowledge",
+        "first_principles": "Decompose missions; don't route by analogy",
+        "high_agency": "Own the retry; own the outcome; no blame loops",
+        "attention_economy": "Priority queues guard the scarcest resource",
+        "disagreeable_truth": "Audit logs and health checks report unfiltered reality",
+    },
+    "diary_of_a_ceo": {
+        "five_buckets": "Every memory fills one of the five buckets",
+        "out_fail": "Retry logic embraces failure as learning data",
+        "context_not_control": "Provide context; don't control the user",
+        "first_foundation": "Security is always the first foundation",
+        "sweat_small_stuff": "Schema validation catches every detail",
+        "write_principles_first": "STRATEGIC_PRINCIPLES loaded before first message",
+    },
+    "andrei_jikh": {
+        "passive_income_machines": "Build systems that generate value while idle — scheduled pipelines",
+        "diversify_income_streams": "Multi-channel architecture = diversified input streams",
+        "compound_interest_mindset": "Small daily knowledge gains compound exponentially over time",
+        "automate_everything": "If you do it twice, automate it — relay server, scheduled tasks",
+        "transparency_builds_trust": "Open audit logs and NDJSON evidence trails build credibility",
+        "learn_by_teaching": "DoctrineSkill + HelpSkill teach what NCL knows, reinforcing its own learning",
+    },
+    "tom_bilyeu": {
+        "mindset_is_everything": "Identity drives behaviour — configure the agent's self-story first",
+        "radical_accountability": "No excuses, only next actions — mission runner owns every outcome",
+        "growth_mindset": "Every failure is learning data; neuroplasticity = agent adaptability",
+        "impact_over_income": "Optimise for user impact, not throughput metrics",
+        "skill_acquisition": "Deliberate practice through golden task evaluation loops",
+        "validate_through_pain": "Stress-test systems under load; comfort is the enemy of growth",
+    },
+    "nate_b_jones": {
+        "ai_first_thinking": "Lead with AI strategy; automate before you hire",
+        "systems_over_tactics": "Build repeatable systems, not one-off scripts",
+        "daily_ai_news": "Stay current — YouTube pipeline is the AI news radar",
+        "agency_architecture": "Multi-agent orchestration mirrors real agency structure",
+        "rapid_prototyping": "Ship fast, iterate faster — golden tasks validate each iteration",
+        "stack_multipliers": "Layer tools for compound effect — relay + skills + memory",
+    },
+    "j_bravo": {
+        "decentralised_thinking": "No single point of failure; distributed architecture",
+        "risk_management": "Position sizing = rate limiting; never risk the whole system",
+        "market_cycles": "Recognise patterns — drift detection catches cycle shifts",
+        "due_diligence": "Validate everything — schema checks are due diligence for data",
+        "asymmetric_bets": "Small effort, large upside — golden tasks find high-leverage fixes",
+        "community_intelligence": "Multi-channel input = collective market intelligence",
+    },
+    "agentic_lab": {
+        "agent_first_design": "Design for autonomous operation; human-in-the-loop optional",
+        "tool_use_mastery": "Agents are only as good as their tool integrations",
+        "workflow_orchestration": "MissionRunner IS the agentic workflow engine",
+        "evaluation_driven": "Golden task harness = systematic agent evaluation",
+        "context_window_mgmt": "Memory manager handles what fits in the agent's context",
+        "composable_agents": "Skills are composable agent components — mix and match",
+    },
+    "ian_carroll": {
+        "privacy_is_freedom": "Privacy-first architecture; metadata-only, no raw content retention",
+        "know_your_rights": "PolicyGate enforces boundaries — the system knows its rights",
+        "identity_protection": "Credential isolation, vault strategy, zero-trust by default",
+        "travel_light": "Minimal dependencies; lean architecture travels faster",
+        "question_authority": "Audit everything — health checks question the system's own authority",
+        "operational_security": "Kill switches, rate limiting, Faraday Fortress — opsec embedded",
+    },
+    "dario_amodei": {
+        "safety_first_scaling": "Scale responsibly — capability without safety is reckless",
+        "constitutional_alignment": "Hard-code values before deployment; policy before power",
+        "interpretability": "Understand the system's reasoning; every decision must be explainable",
+        "responsible_capability": "Power demands proportional safeguards — Faraday Fortress doctrine",
+        "long_term_thinking": "Optimise for civilisational timescale, not quarterly metrics",
+        "machines_of_loving_grace": "AI should uplift humanity; every agent action should serve the user",
+    },
+    "spencer_gatten": {
+        "geopolitical_awareness": "Monitor global power shifts; map external events to system strategy",
+        "media_literacy": "Distinguish signal from noise; filter all inputs through first principles",
+        "economic_sovereignty": "Build self-sufficient systems; reduce external dependencies",
+        "power_dynamics": "Understand who holds leverage and why — game theory in practice",
+        "narrative_control": "Control the narrative with evidence; audit trails are your media",
+        "strategic_independence": "Sovereignty over your systems; never outsource critical functions",
+    },
+}
+
 
 # ═══════════════════════════════════════════════════════════════
 #  LLM Backend Interface
@@ -361,14 +507,20 @@ class PolicyGate:
         self._consented_senders.discard(sender_id)
 
     def evaluate(self, msg: InboundMessage) -> tuple[bool, str]:
-        """6-step policy chain.  Returns (allowed, reason)."""
-        # Step 1 — kill switch
+        """6-step policy chain.  Returns (allowed, reason).
+
+        Embodies:
+        - Art of War: "All warfare is based on deception" → zero-trust, opaque errors
+        - Law 17: "Keep others in suspended terror" → kill switch / lockdown
+        - Habit 1: "Be Proactive" → enforce policy before damage occurs
+        """
+        # Step 1 — kill switch  [Law 17: suspended terror]
         if self.kill_switch:
             reason = "KILL_SWITCH_ACTIVE"
             self._log_denial(msg, reason)
             return False, reason
 
-        # Step 2 — system mode
+        # Step 2 — system mode  [Art of War: terrain dictates strategy]
         if self.system_mode == "lockdown":
             reason = "SYSTEM_LOCKDOWN"
             self._log_denial(msg, reason)
@@ -378,13 +530,13 @@ class PolicyGate:
             self._log_denial(msg, reason)
             return False, reason
 
-        # Step 3 — provenance (channel trust)
+        # Step 3 — provenance  [Law 40: despise the free lunch]
         if msg.channel not in self.trusted_channels:
             reason = f"UNTRUSTED_CHANNEL:{msg.channel}"
             self._log_denial(msg, reason)
             return False, reason
 
-        # Step 4 — sender allow-list
+        # Step 4 — sender allow-list  [Law 1: never outshine the master]
         if msg.sender_id not in self.allowed_senders and self.AZ_PRIME not in self.allowed_senders:
             reason = f"SENDER_NOT_ALLOWED:{msg.sender_id}"
             self._log_denial(msg, reason)
@@ -398,7 +550,7 @@ class PolicyGate:
                 self._log_denial(msg, reason)
                 return False, reason
 
-        # Step 6 — risk tier
+        # Step 6 — risk tier  [Art of War: win before fighting]
         risk_score, risk_reason = self._assess_risk(msg.text)
         if risk_score >= self.risk_threshold:
             reason = f"RISK_TOO_HIGH:{risk_reason}(score={risk_score:.2f})"
@@ -562,6 +714,124 @@ class DoctrineSkill(Skill):
             "6-step chain: kill_switch → system_mode → provenance → consent → "
             "risk_tier → allow."
         ),
+        "art_of_war": (
+            "**Art of War (Sun Tzu) — Strategic Supremacy**\n"
+            "• Know yourself, know your enemy → memory analytics + drift detection\n"
+            "• Supreme excellence: win without fighting → proactive briefs\n"
+            "• All warfare is deception → zero-trust, opaque error responses\n"
+            "• Speed is the essence → decisive skill routing within rate limits\n"
+            "• The terrain dictates strategy → adaptive mission routing\n"
+            "• Five Factors: Dao (purpose), Heaven (timing), Earth (terrain), "
+            "Commander (AZ_PRIME), Discipline (PDCA)"
+        ),
+        "laws_of_power": (
+            "**48 Laws of Power (Greene) — Influence Architecture**\n"
+            "• Law 1: Never outshine the master → agents defer to AZ_PRIME\n"
+            "• Law 4: Always say less than necessary → minimal API responses\n"
+            "• Law 9: Win through actions → evidence-based audit trails\n"
+            "• Law 28: Enter action with boldness → full retry commitment\n"
+            "• Law 29: Plan all the way to the end → mission lifecycle tracking\n"
+            "• Law 48: Assume formlessness → flexible skill routing, plugin arch"
+        ),
+        "seven_habits": (
+            "**7 Habits (Covey) — Effectiveness Engine**\n"
+            "• Habit 1: Be Proactive → health monitoring, auto-briefs\n"
+            "• Habit 2: Begin with End in Mind → mission-first architecture\n"
+            "• Habit 3: First Things First → priority-based processing\n"
+            "• Habit 5: Seek First to Understand → memory search before action\n"
+            "• Habit 6: Synergize → EventBus cross-component amplification\n"
+            "• Habit 7: Sharpen the Saw → learning cycles, consolidation, pruning"
+        ),
+        "chris_williamson": (
+            "**Chris Williamson (Modern Wisdom) — High-Agency Performance**\n"
+            "• Environment Design > Willpower → PolicyGate IS the environment\n"
+            "• Compound Habits → daily briefs + consolidation = compound knowledge\n"
+            "• First Principles → decompose missions; never route by analogy\n"
+            "• Attention Economy → priority queues guard the scarcest resource\n"
+            "• Disagreeable Truth → audit logs report unfiltered reality\n"
+            "• High Agency = Full Ownership → own the retry, own the outcome"
+        ),
+        "diary_of_a_ceo": (
+            "**Diary of a CEO (Steven Bartlett) — The 33 Laws Applied**\n"
+            "• Fill Your Five Buckets → memory tiers map to knowledge/skills/network/resources/reputation\n"
+            "• Out-Fail the Competition → retry logic embraces failure as learning data\n"
+            "• Sweat the Small Stuff → schema validation catches every detail\n"
+            "• Context Not Control → provide context, never control the user\n"
+            "• Write Principles First → STRATEGIC_PRINCIPLES loaded before first message\n"
+            "• You Must Die Before You Can Live → kill switch + restart = creative destruction"
+        ),
+        "andrei_jikh": (
+            "**Andrei Jikh — Financial Intelligence & Automation**\n"
+            "• Passive Income Machines → scheduled pipelines generate value while idle\n"
+            "• Diversify Income Streams → multi-channel input = diversified data\n"
+            "• Compound Interest Mindset → daily knowledge gains compound exponentially\n"
+            "• Automate Everything → if you do it twice, build a pipeline\n"
+            "• Transparency Builds Trust → open audit logs build credibility\n"
+            "• Learn by Teaching → DoctrineSkill teaches what NCL knows, reinforcing learning"
+        ),
+        "tom_bilyeu": (
+            "**Tom Bilyeu (Impact Theory) — Mindset & Identity**\n"
+            "• Mindset Is Everything → identity drives behaviour; configure self-story first\n"
+            "• Radical Accountability → no excuses, only next actions\n"
+            "• Growth Mindset → every failure is learning data; neuroplasticity = adaptability\n"
+            "• Impact Over Income → optimise for user impact, not throughput\n"
+            "• Skill Acquisition → deliberate practice through golden task loops\n"
+            "• Validate Through Pain → stress-test under load; comfort is the enemy"
+        ),
+        "nate_b_jones": (
+            "**Nate B Jones — AI Strategy & Automation**\n"
+            "• AI-First Thinking → lead with AI; automate before you hire\n"
+            "• Systems Over Tactics → build repeatable systems, not one-off scripts\n"
+            "• Daily AI News → YouTube pipeline = AI news radar\n"
+            "• Agency Architecture → multi-agent orchestration mirrors agency structure\n"
+            "• Rapid Prototyping → ship fast, iterate faster; golden tasks validate each pass\n"
+            "• Stack Multipliers → layer tools for compound effect"
+        ),
+        "j_bravo": (
+            "**J Bravo — Crypto & Risk Intelligence**\n"
+            "• Decentralised Thinking → no single point of failure; distributed arch\n"
+            "• Risk Management → position sizing = rate limiting; protect the system\n"
+            "• Market Cycles → drift detection catches cycle shifts\n"
+            "• Due Diligence → schema validation IS due diligence for data\n"
+            "• Asymmetric Bets → small effort, large upside; golden tasks find leverage\n"
+            "• Community Intelligence → multi-channel input = collective intelligence"
+        ),
+        "agentic_lab": (
+            "**Agentic Lab — Agent-First Design**\n"
+            "• Agent-First Design → autonomous operation; human-in-the-loop optional\n"
+            "• Tool Use Mastery → agents are only as good as their tools\n"
+            "• Workflow Orchestration → MissionRunner IS the agentic engine\n"
+            "• Evaluation-Driven → golden task harness = systematic agent eval\n"
+            "• Context Window Mgmt → memory manager handles context budgets\n"
+            "• Composable Agents → skills are composable components; mix and match"
+        ),
+        "ian_carroll": (
+            "**Ian Carroll — Privacy & Operational Security**\n"
+            "• Privacy Is Freedom → privacy-first; metadata-only, no raw retention\n"
+            "• Know Your Rights → PolicyGate enforces boundaries\n"
+            "• Identity Protection → credential isolation, vault strategy, zero-trust\n"
+            "• Travel Light → minimal dependencies; lean arch travels faster\n"
+            "• Question Authority → health checks question the system's own authority\n"
+            "• Operational Security → kill switches, rate limiting, Faraday Fortress"
+        ),
+        "dario_amodei": (
+            "**Dario Amodei (Anthropic) — Visionary & Trusted Council Advisor**\n"
+            "• Safety-First Scaling → capability without safety is reckless\n"
+            "• Constitutional Alignment → hard-code values before deployment\n"
+            "• Interpretability → every decision must be explainable\n"
+            "• Responsible Capability → power demands proportional safeguards\n"
+            "• Long-Term Thinking → optimise for civilisational timescale\n"
+            "• Machines of Loving Grace → AI should uplift humanity"
+        ),
+        "spencer_gatten": (
+            "**Spencer Gatten — Geopolitical & Media Intelligence**\n"
+            "• Geopolitical Awareness → monitor global power shifts for strategy\n"
+            "• Media Literacy → signal vs noise; first-principles filtering\n"
+            "• Economic Sovereignty → self-sufficient systems, minimal dependencies\n"
+            "• Power Dynamics → understand leverage; game theory in practice\n"
+            "• Narrative Control → evidence-based narrative; audit trails\n"
+            "• Strategic Independence → never outsource critical functions"
+        ),
     }
 
     async def execute(self, msg: InboundMessage, agent: SuperOpenClawAgent) -> SkillResult:
@@ -715,9 +985,577 @@ class LearningSkill(Skill):
         return SkillResult(success=True, reply=reply, skill_name=self.name, execution_ms=elapsed)
 
 
+class StrategicAdvisorSkill(Skill):
+    """Surface strategic wisdom from Art of War, 48 Laws, and 7 Habits.
+
+    Embodies Habit 5 (Seek First to Understand) — the agent searches its
+    strategic knowledge to deliver contextual wisdom before action.
+    """
+
+    name = "strategic_advisor"
+    triggers: ClassVar[list[str]] = [
+        "strategy", "strategic", "art of war", "sun tzu", "48 laws", "laws of power",
+        "7 habits", "seven habits", "covey", "greene", "warfare", "power move",
+        "tactical", "wisdom", "counsel", "advise", "game plan", "playbook",
+        "three pillars", "pillars of mastery", "strategic doctrine",
+    ]
+    description = "Delivers strategic counsel drawn from Art of War, 48 Laws of Power, and 7 Habits."
+
+    WISDOM_MAP: ClassVar[dict[str, list[str]]] = {
+        "offense": [
+            "Sun Tzu: 'Attack where they are unprepared, appear where unexpected.'",
+            "Law 28: Enter action with boldness — half-hearted moves invite failure.",
+            "Habit 1: Be Proactive — don't react, initiate. Shape the battlefield.",
+        ],
+        "defense": [
+            "Sun Tzu: 'Invincibility lies in the defence; the possibility of victory, in the attack.'",
+            "Law 17: Keep others in suspended terror — the kill switch is always ready.",
+            "Habit 3: Put First Things First — defend your highest priorities above all.",
+        ],
+        "patience": [
+            "Sun Tzu: 'The supreme art of war is to subdue the enemy without fighting.'",
+            "Law 35: Master the art of timing — never act before the moment is right.",
+            "Habit 2: Begin with the End in Mind — patience serves the long game.",
+        ],
+        "intelligence": [
+            "Sun Tzu: 'Know yourself and know your enemy; a hundred battles, a hundred victories.'",
+            "Law 33: Discover each person's thumbscrew — knowledge is leverage.",
+            "Habit 5: Seek First to Understand, then to be understood.",
+        ],
+        "adaptation": [
+            "Sun Tzu: 'Water shapes its course according to the ground; shape victory according to the enemy.'",
+            "Law 48: Assume formlessness — be fluid, never be pinned down.",
+            "Habit 6: Synergize — combine strengths to create something no part could alone.",
+        ],
+        "growth": [
+            "Sun Tzu: 'Opportunities multiply as they are seized.'",
+            "Law 25: Re-create yourself — never accept the role society assigns you.",
+            "Habit 7: Sharpen the Saw — continuous renewal is the source of lasting power.",
+        ],
+        "leadership": [
+            "Sun Tzu: 'A leader leads by example, not by force.'",
+            "Law 1: Never outshine the master — let AZ_PRIME lead; serve with excellence.",
+            "Habit 4: Think Win-Win — true power creates mutual benefit.",
+        ],
+    }
+
+    async def execute(self, msg: InboundMessage, agent: SuperOpenClawAgent) -> SkillResult:
+        t0 = time.monotonic()
+        text_lower = msg.text.lower()
+
+        # Match wisdom categories
+        matched_categories: list[str] = []
+        for category in self.WISDOM_MAP:
+            if category in text_lower:
+                matched_categories.append(category)
+
+        # Also check for book-specific requests
+        if any(w in text_lower for w in ("sun tzu", "art of war", "warfare", "tactical")):
+            lines = ["**Art of War — Strategic Counsel**\n"]
+            for _cat, wisdoms in self.WISDOM_MAP.items():
+                lines.append(f"• {wisdoms[0]}")
+            reply = "\n".join(lines)
+        elif any(w in text_lower for w in ("48 laws", "laws of power", "greene", "power move")):
+            lines = ["**48 Laws of Power — Mastery Counsel**\n"]
+            for _cat, wisdoms in self.WISDOM_MAP.items():
+                lines.append(f"• {wisdoms[1]}")
+            reply = "\n".join(lines)
+        elif any(w in text_lower for w in ("7 habits", "seven habits", "covey")):
+            lines = ["**7 Habits — Effectiveness Counsel**\n"]
+            for _cat, wisdoms in self.WISDOM_MAP.items():
+                lines.append(f"• {wisdoms[2]}")
+            reply = "\n".join(lines)
+        elif matched_categories:
+            lines = [f"**Strategic Counsel — {', '.join(matched_categories).title()}**\n"]
+            for cat in matched_categories:
+                for wisdom in self.WISDOM_MAP[cat]:
+                    lines.append(f"• {wisdom}")
+            reply = "\n".join(lines)
+        else:
+            # Return all three pillars overview
+            lines = [
+                "**The Three Pillars of Mastery**\n",
+                "**Pillar 1 — Art of War (Sun Tzu)**: Strategic terrain awareness, "
+                "decisive speed, deception defence, win before fighting.\n",
+                "**Pillar 2 — 48 Laws of Power (Greene)**: Formlessness, bold action, "
+                "evidence over argument, master timing, strategic opacity.\n",
+                "**Pillar 3 — 7 Habits (Covey)**: Be proactive, begin with end in mind, "
+                "first things first, synergize, sharpen the saw.\n",
+                "*\"Know the terrain, control the timing, sharpen the blade.\"*",
+            ]
+            reply = "\n".join(lines)
+
+        elapsed = (time.monotonic() - t0) * 1000
+        return SkillResult(success=True, reply=reply, skill_name=self.name, execution_ms=elapsed)
+
+
+class CreatorWisdomSkill(Skill):
+    """Surface wisdom from 10 creator sources mapped to NCL architecture.
+
+    CW: Environment design, compound habits, first principles, high agency.
+    DOAC: 33 Laws, five buckets, out-fail, context not control.
+    AJ: Passive income, compound interest, automation, transparency.
+    TB: Mindset, radical accountability, growth, impact over income.
+    NBJ: AI-first thinking, systems, rapid prototyping, stack multipliers.
+    JB: Decentralised thinking, risk management, asymmetric bets.
+    AL: Agent-first design, workflow orchestration, evaluation-driven.
+    IC: Privacy, identity protection, operational security, question authority.
+    DA: AI safety, constitutional alignment, interpretability, responsible scaling.
+    SG: Geopolitical awareness, media literacy, economic sovereignty, power dynamics.
+    """
+
+    name = "creator_wisdom"
+    triggers: ClassVar[list[str]] = [
+        "chris williamson", "modern wisdom", "williamson", "chris w",
+        "diary of a ceo", "doac", "steven bartlett", "bartlett",
+        "33 laws", "five buckets", "environment design",
+        "compound habits", "high agency", "out-fail",
+        "andrei jikh", "jikh", "passive income", "compound interest",
+        "financial intelligence", "automate everything",
+        "tom bilyeu", "bilyeu", "impact theory", "radical accountability",
+        "nate b jones", "nate jones", "ai strategy", "ai news",
+        "j bravo", "bravo", "crypto", "decentralised",
+        "agentic lab", "agentic", "agent-first", "workflow orchestration",
+        "ian carroll", "carroll", "privacy", "opsec", "operational security",
+        "dario amodei", "amodei", "anthropic", "ai safety", "responsible scaling",
+        "machines of loving grace", "constitutional alignment", "interpretability",
+        "spencer gatten", "gatten", "geopolitical", "media literacy",
+        "creator wisdom", "creator doctrine",
+    ]
+    description = "Delivers wisdom from 10 creator sources mapped to NCL architecture."
+
+    INSIGHTS: ClassVar[dict[str, list[str]]] = {
+        "mindset": [
+            "CW: Environment design beats willpower — change the system, not the person.",
+            "DOAC Law 22: Create an environment where you can't lose.",
+            "AJ: Compound interest mindset — small daily gains become exponential.",
+            "TB: Mindset is everything — identity drives behaviour.",
+            "IC: Privacy is freedom — protect your identity, protect your mind.",
+            "DA: Safety-first — capability without aligned values is reckless.",
+            "SG: Geopolitical awareness — understand the landscape before making moves.",
+        ],
+        "execution": [
+            "CW: High agency means full ownership — own the retry, own the outcome.",
+            "DOAC Law 3: Out-fail the competition — failure data is the best teacher.",
+            "AJ: Automate everything — if you do it twice, build a pipeline.",
+            "NBJ: Systems over tactics — build repeatable systems, not one-off scripts.",
+            "AL: Workflow orchestration — MissionRunner IS the agentic engine.",
+            "DA: Responsible scaling — power demands proportional safeguards.",
+            "SG: Strategic independence — never outsource critical functions.",
+        ],
+        "learning": [
+            "CW: Compounding small habits — daily briefs + consolidation = compound knowledge.",
+            "DOAC Law 19: Learn to unlearn — memory pruning is active unlearning.",
+            "AJ: Learn by teaching — explaining what you know reinforces mastery.",
+            "TB: Skill acquisition — deliberate practice through golden task loops.",
+            "NBJ: Daily AI news — stay current, the pipeline is your radar.",
+            "DA: Interpretability — understand the system's reasoning; explainable decisions.",
+            "SG: Media literacy — distinguish signal from noise; filter through first principles.",
+        ],
+        "focus": [
+            "CW: Attention is the product — guard it with priority queues.",
+            "DOAC Law 23: Sweat the small stuff — schema validation catches every detail.",
+            "AJ: Diversify inputs, not focus — multiple channels feed a single brain.",
+            "JB: Due diligence — validate everything before you commit.",
+            "AL: Context window management — memory manager handles what fits.",
+            "DA: Constitutional alignment — hard-code values before deployment.",
+            "SG: Narrative control — control the narrative with evidence; audit trails.",
+        ],
+        "resilience": [
+            "CW: Psychological immune system — HealthMonitor + PolicyGate.",
+            "DOAC Law 33: You must die before you can live — kill switch + restart = rebirth.",
+            "AJ: Build income machines that survive you — scheduled pipelines run while you sleep.",
+            "TB: Validate through pain — stress-test under load; comfort is the enemy.",
+            "JB: Risk management — position sizing = rate limiting; protect the system.",
+            "DA: Long-term thinking — optimise for civilisational timescale, not quarterly metrics.",
+            "SG: Economic sovereignty — build self-sufficient systems; reduce dependencies.",
+        ],
+        "truth": [
+            "CW: Disagreeable truth beats agreeable comfort — audit logs never lie.",
+            "DOAC Law 6: You don't get to choose what you believe — evidence only.",
+            "AJ: Transparency builds trust — open your books, open your logs.",
+            "IC: Question authority — health checks question the system's own authority.",
+            "JB: Decentralised thinking — no single point of failure.",
+            "DA: Machines of loving grace — AI should uplift humanity; every action should help.",
+            "SG: Power dynamics — understand who holds leverage and why.",
+        ],
+        "leverage": [
+            "CW (via Naval): Code leverage — agents multiply human capability.",
+            "DOAC Law 31: Skills are worthless; context is priceless — memory makes skills powerful.",
+            "AJ: Passive income = leverage — systems that work while you don't.",
+            "NBJ: Stack multipliers — layer tools for compound effect.",
+            "AL: Composable agents — skills are components; mix and match for leverage.",
+            "DA: Responsible capability — safeguards scale with power; Faraday doctrine.",
+            "SG: Economic sovereignty — self-sufficient systems = leverage over external forces.",
+        ],
+    }
+
+    async def execute(self, msg: InboundMessage, agent: SuperOpenClawAgent) -> SkillResult:
+        t0 = time.monotonic()
+        text_lower = msg.text.lower()
+
+        # Route to specific creator
+        if any(w in text_lower for w in ("chris williamson", "modern wisdom", "williamson", "chris w")):
+            lines = ["**Chris Williamson (Modern Wisdom) — NCL Integration**\n"]
+            for principle, desc in CREATOR_WISDOM["chris_williamson"].items():
+                lines.append(f"* **{principle.replace('_', ' ').title()}**: {desc}")
+            lines.append("\n*Key guests encoded: Huberman (neuro), Naval (leverage), "
+                         "Goggins (toughness), Hormozi (value creation)*")
+            reply = "\n".join(lines)
+        elif any(w in text_lower for w in ("diary of a ceo", "doac", "steven bartlett", "bartlett", "33 laws")):
+            lines = ["**Diary of a CEO (Steven Bartlett) — 33 Laws Applied**\n"]
+            for principle, desc in CREATOR_WISDOM["diary_of_a_ceo"].items():
+                lines.append(f"* **{principle.replace('_', ' ').title()}**: {desc}")
+            lines.append("\n*Key guests encoded: Sinek (why), Gabor Mate (awareness), "
+                         "James Clear (atomic habits), Mo Gawdat (happiness)*")
+            reply = "\n".join(lines)
+        elif any(w in text_lower for w in ("andrei jikh", "jikh", "passive income", "compound interest")):
+            lines = ["**Andrei Jikh — Financial Intelligence x NCL**\n"]
+            for principle, desc in CREATOR_WISDOM["andrei_jikh"].items():
+                lines.append(f"* **{principle.replace('_', ' ').title()}**: {desc}")
+            lines.append("\n*Core thesis: Build automated systems that compound value — "
+                         "passive income for your data, your knowledge, your time.*")
+            reply = "\n".join(lines)
+        elif any(w in text_lower for w in ("tom bilyeu", "bilyeu", "impact theory")):
+            lines = ["**Tom Bilyeu (Impact Theory) — Mindset & Identity x NCL**\n"]
+            for principle, desc in CREATOR_WISDOM["tom_bilyeu"].items():
+                lines.append(f"* **{principle.replace('_', ' ').title()}**: {desc}")
+            lines.append("\n*Core thesis: Your identity shapes your actions — "
+                         "configure the agent's self-story before anything else.*")
+            reply = "\n".join(lines)
+        elif any(w in text_lower for w in ("nate b jones", "nate jones", "ai strategy", "ai news")):
+            lines = ["**Nate B Jones — AI Strategy & Automation x NCL**\n"]
+            for principle, desc in CREATOR_WISDOM["nate_b_jones"].items():
+                lines.append(f"* **{principle.replace('_', ' ').title()}**: {desc}")
+            lines.append("\n*Core thesis: AI-first thinking — automate before you hire, "
+                         "stack multipliers for compound results.*")
+            reply = "\n".join(lines)
+        elif any(w in text_lower for w in ("j bravo", "bravo", "crypto")):
+            lines = ["**J Bravo — Crypto & Risk Intelligence x NCL**\n"]
+            for principle, desc in CREATOR_WISDOM["j_bravo"].items():
+                lines.append(f"* **{principle.replace('_', ' ').title()}**: {desc}")
+            lines.append("\n*Core thesis: Decentralised thinking, risk management, "
+                         "and asymmetric bets — small effort, massive upside.*")
+            reply = "\n".join(lines)
+        elif any(w in text_lower for w in ("agentic lab", "agentic", "agent-first")):
+            lines = ["**Agentic Lab — Agent-First Design x NCL**\n"]
+            for principle, desc in CREATOR_WISDOM["agentic_lab"].items():
+                lines.append(f"* **{principle.replace('_', ' ').title()}**: {desc}")
+            lines.append("\n*Core thesis: Design for autonomous operation — "
+                         "compose agents from reusable skill components.*")
+            reply = "\n".join(lines)
+        elif any(w in text_lower for w in ("ian carroll", "carroll", "opsec", "operational security")):
+            lines = ["**Ian Carroll — Privacy & Operational Security x NCL**\n"]
+            for principle, desc in CREATOR_WISDOM["ian_carroll"].items():
+                lines.append(f"* **{principle.replace('_', ' ').title()}**: {desc}")
+            lines.append("\n*Core thesis: Privacy is freedom — protect identity, "
+                         "question authority, travel light.*")
+            reply = "\n".join(lines)
+        elif any(w in text_lower for w in ("dario amodei", "amodei", "anthropic", "ai safety",
+                                           "responsible scaling", "machines of loving grace")):
+            lines = ["**Dario Amodei (Anthropic) — Visionary & Trusted Council Advisor x NCL**\n"]
+            for principle, desc in CREATOR_WISDOM["dario_amodei"].items():
+                lines.append(f"* **{principle.replace('_', ' ').title()}**: {desc}")
+            lines.append("\n*Core thesis: Scale AI responsibly — safety, alignment, "
+                         "and interpretability before capability. Machines of Loving Grace.*")
+            reply = "\n".join(lines)
+        elif any(w in text_lower for w in ("spencer gatten", "gatten", "geopolitical", "media literacy")):
+            lines = ["**Spencer Gatten — Geopolitical & Media Intelligence x NCL**\n"]
+            for principle, desc in CREATOR_WISDOM["spencer_gatten"].items():
+                lines.append(f"* **{principle.replace('_', ' ').title()}**: {desc}")
+            lines.append("\n*Core thesis: Sovereignty and media literacy — "
+                         "understand power dynamics, filter noise, stay independent.*")
+            reply = "\n".join(lines)
+        else:
+            # Category match or overview
+            matched: list[str] = []
+            for category in self.INSIGHTS:
+                if category in text_lower:
+                    matched.append(category)
+
+            if matched:
+                lines = [f"**Creator Wisdom — {', '.join(matched).title()}**\n"]
+                for cat in matched:
+                    for insight in self.INSIGHTS[cat]:
+                        lines.append(f"* {insight}")
+                reply = "\n".join(lines)
+            else:
+                lines = [
+                    "**Creator Doctrine — 10 Sources x NCL**\n",
+                    "**Chris Williamson** — Environment design, compound habits, "
+                    "first principles, high agency.\n",
+                    "**Diary of a CEO** — 33 Laws: five buckets, out-fail, "
+                    "sweat small stuff, context not control.\n",
+                    "**Andrei Jikh** — Passive income machines, compound interest, "
+                    "automate everything, transparency.\n",
+                    "**Tom Bilyeu** — Mindset is everything, radical accountability, "
+                    "growth mindset, impact over income.\n",
+                    "**Nate B Jones** — AI-first thinking, systems over tactics, "
+                    "rapid prototyping, stack multipliers.\n",
+                    "**J Bravo** — Decentralised thinking, risk management, "
+                    "asymmetric bets, due diligence.\n",
+                    "**Agentic Lab** — Agent-first design, workflow orchestration, "
+                    "evaluation-driven, composable agents.\n",
+                    "**Ian Carroll** — Privacy is freedom, identity protection, "
+                    "operational security, question authority.\n",
+                    "**Dario Amodei** 🛡️ — *Visionary & Trusted Council Advisor* — "
+                    "AI safety, constitutional alignment, interpretability, "
+                    "responsible scaling, Machines of Loving Grace.\n",
+                    "**Spencer Gatten** — Geopolitical awareness, media literacy, "
+                    "economic sovereignty, power dynamics, strategic independence.\n",
+                    '*"Curate ruthlessly, learn relentlessly, compound daily."*',
+                ]
+                reply = "\n".join(lines)
+
+        elapsed = (time.monotonic() - t0) * 1000
+        return SkillResult(success=True, reply=reply, skill_name=self.name, execution_ms=elapsed)
+
+
 # ═══════════════════════════════════════════════════════════════
 #  Skill Router  (NCL Brain)
 # ═══════════════════════════════════════════════════════════════
+
+# ═══════════════════════════════════════════════════════════════
+#  NCC Triad Skills  (Cross-Pillar Integration)
+# ═══════════════════════════════════════════════════════════════
+
+class TriadStatusSkill(Skill):
+    """Report the NCC triad status — NCL (Brain), AAC (Bank), Super Agency."""
+
+    name = "triad_status"
+    triggers: ClassVar[list[str]] = [
+        "triad status", "triad", "ncc status", "pillar status",
+        "resonance status", "ecosystem status", "all pillars",
+    ]
+    description = "Shows the NCC triad status — all five pillar health and capabilities."
+
+    async def execute(self, msg: InboundMessage, agent: SuperOpenClawAgent) -> SkillResult:
+        t0 = time.monotonic()
+        if not NCC_AVAILABLE or not agent._ncc_orchestrator:
+            return SkillResult(
+                success=False,
+                reply="NCC integration is not available.",
+                skill_name=self.name,
+                execution_ms=(time.monotonic() - t0) * 1000,
+            )
+        orch = agent._ncc_orchestrator
+        status = orch.full_status()
+        registry = PillarRegistry.get_instance()
+        health = registry.health_summary()
+
+        lines = [
+            "**NCC Triad — Ecosystem Status**",
+            f"• Triad Online: {'YES' if registry.triad_online() else 'NO'}",
+            "",
+        ]
+        for pid, info in health.items():
+            emoji = '🟢' if info['status'] == 'online' else '🔴' if info['status'] == 'offline' else '🟡'
+            lines.append(f"{emoji} **{info['name']}** ({pid}) — {info['status']}")
+            lines.append(f"  Role: {info['role']} | Capabilities: {info['capability_count']}")
+
+        bus = InterPillarBus.get_instance()
+        pool = DigitalLabourPool.get_instance()
+        lines.append("")
+        lines.append(f"• Bus messages dispatched: {bus._dispatched_count}")
+        lines.append(f"• Bus dead-letter queue: {len(bus._dead_letter)}")
+        lines.append(f"• Labour tasks completed: {pool._completed_count}")
+        lines.append(f"• Labour tasks failed: {pool._failed_count}")
+        lines.append(f"• PDCA cycles run: {status.get('pdca_cycles', 0)}")
+
+        reply = "\n".join(lines)
+        elapsed = (time.monotonic() - t0) * 1000
+        return SkillResult(success=True, reply=reply, skill_name=self.name, execution_ms=elapsed)
+
+
+class DigitalLabourSkill(Skill):
+    """Dispatch tasks to the Digital Labour Pool."""
+
+    name = "digital_labour"
+    triggers: ClassVar[list[str]] = [
+        "dispatch task", "digital labour", "labour pool", "run task",
+        "generate report", "labour status", "worker pool", "dispatch work",
+    ]
+    description = "Dispatches tasks to the Digital Labour Pool or shows pool status."
+
+    async def execute(self, msg: InboundMessage, agent: SuperOpenClawAgent) -> SkillResult:
+        t0 = time.monotonic()
+        if not NCC_AVAILABLE or not agent._ncc_orchestrator:
+            return SkillResult(
+                success=False,
+                reply="NCC Digital Labour is not available.",
+                skill_name=self.name,
+                execution_ms=(time.monotonic() - t0) * 1000,
+            )
+        text_lower = msg.text.lower()
+        pool = DigitalLabourPool.get_instance()
+
+        if "status" in text_lower or "pool" in text_lower:
+            stats = pool.stats()
+            lines = [
+                "**Digital Labour Pool — Status**",
+                f"• Max workers: {stats.get('max_workers', 0)}",
+                f"• Queue size: {stats.get('queue_size', 0)}",
+                f"• Completed: {stats.get('completed', 0)}",
+                f"• Failed: {stats.get('failed', 0)}",
+                f"• Handlers: {', '.join(stats.get('handlers', []))}",
+                f"• Running: {stats.get('running', False)}",
+            ]
+            reply = "\n".join(lines)
+        else:
+            reply = (
+                "**Digital Labour — Task Types**\n"
+                "Use `dispatch task <type>: <description>` to submit work.\n"
+                "Available types: report, data_processing, research, analysis, monitoring"
+            )
+
+        elapsed = (time.monotonic() - t0) * 1000
+        return SkillResult(success=True, reply=reply, skill_name=self.name, execution_ms=elapsed)
+
+
+class NCCCommandSkill(Skill):
+    """Execute NCC governance commands."""
+
+    name = "ncc_command"
+    triggers: ClassVar[list[str]] = [
+        "ncc", "governance", "pdca", "run pdca", "ncc health",
+        "doctrine enforce", "pillar health",
+    ]
+    description = "Executes NCC governance commands — PDCA cycle, health checks, doctrine enforcement."
+
+    async def execute(self, msg: InboundMessage, agent: SuperOpenClawAgent) -> SkillResult:
+        t0 = time.monotonic()
+        if not NCC_AVAILABLE or not agent._ncc_orchestrator:
+            return SkillResult(
+                success=False,
+                reply="NCC orchestrator is not available.",
+                skill_name=self.name,
+                execution_ms=(time.monotonic() - t0) * 1000,
+            )
+        text_lower = msg.text.lower()
+        orch = agent._ncc_orchestrator
+
+        if "pdca" in text_lower:
+            result = await orch.run_pdca_cycle()
+            lines = [
+                "**NCC PDCA Governance Cycle**",
+                f"• Cycle #{result.get('cycle', 0)}",
+                f"• Phases: {' → '.join(result.get('phases_completed', []))}",
+                f"• Evidence items: {result.get('evidence_count', 0)}",
+            ]
+            reply = "\n".join(lines)
+        elif "health" in text_lower:
+            registry = PillarRegistry.get_instance()
+            health = registry.health_summary()
+            lines = ["**NCC Pillar Health**"]
+            for _pid, info in health.items():
+                lines.append(f"• {info['name']}: {info['status']} ({info['capability_count']} capabilities)")
+            reply = "\n".join(lines)
+        else:
+            status = orch.full_status()
+            lines = [
+                "**NCC Governance Overview**",
+                f"• Orchestrator: {'RUNNING' if status.get('running') else 'STOPPED'}",
+                f"• Pillars registered: {status.get('pillars_registered', 0)}",
+                f"• PDCA cycles: {status.get('pdca_cycles', 0)}",
+                f"• Commands handled: {status.get('commands_handled', 0)}",
+                f"• Alerts handled: {status.get('alerts_handled', 0)}",
+            ]
+            reply = "\n".join(lines)
+
+        elapsed = (time.monotonic() - t0) * 1000
+        return SkillResult(success=True, reply=reply, skill_name=self.name, execution_ms=elapsed)
+
+
+class AutonomousDaemonSkill(Skill):
+    """Control the NCL Autonomous Daemon — self-organizing 24/7 runtime."""
+
+    name = "autonomous_daemon"
+    triggers: ClassVar[list[str]] = [
+        "daemon", "autonomous", "self-check", "gap analysis",
+        "daemon status", "run cycle", "self check", "health check",
+        "daemon start", "daemon stop", "system health", "gap scan",
+    ]
+    description = "Controls the NCL Autonomous Daemon — start/stop, run cycles, gap analysis, self-checks."
+
+    async def execute(self, msg: InboundMessage, agent: SuperOpenClawAgent) -> SkillResult:
+        t0 = time.monotonic()
+        text_lower = msg.text.lower()
+
+        try:
+            from ncl_agency_runtime.runtime.autonomous_daemon import (  # noqa: I001
+                AutonomousDaemon, GapAnalyzer, KnowledgeJournal,
+            )
+            from ncl_agency_runtime.runtime.self_check_protocol import SelfCheckProtocol
+        except ImportError:
+            return SkillResult(
+                success=False,
+                reply="Autonomous daemon modules not available.",
+                skill_name=self.name,
+                execution_ms=(time.monotonic() - t0) * 1000,
+            )
+
+        if "self-check" in text_lower or "self check" in text_lower or "health check" in text_lower:
+            protocol = SelfCheckProtocol()
+            report = protocol.run_all()
+            lines = [
+                "**NCL Self-Check Report**",
+                f"• Overall: {'HEALTHY' if report['overall_healthy'] else 'DEGRADED'}",
+                f"• Score: {report['overall_score']:.1%}",
+                f"• Checks passed: {report['checks_passed']}/{report['total_checks']}",
+                "",
+            ]
+            for check in report.get("checks", []):
+                status = "✅" if check["passed"] else "❌"
+                lines.append(f"{status} {check['name']}: {check['score']:.0%} — {check['details'][:80]}")
+                if not check["passed"] and check.get("recommendation"):
+                    lines.append(f"  → {check['recommendation'][:100]}")
+            reply = "\n".join(lines)
+
+        elif "gap" in text_lower or "scan" in text_lower:
+            analyzer = GapAnalyzer(_REPO_ROOT)
+            gaps = analyzer.scan_all()
+            lines = [f"**Gap Analysis** — {len(gaps)} gaps found\n"]
+            for gap in gaps[:10]:
+                lines.append(f"• [{gap.get('severity', '?')}] {gap.get('category', '?')}: {gap.get('description', '')[:80]}")
+            if len(gaps) > 10:
+                lines.append(f"\n... and {len(gaps) - 10} more gaps")
+            reply = "\n".join(lines)
+
+        elif "status" in text_lower:
+            journal = KnowledgeJournal(_REPO_ROOT)
+            recent = journal.recent(5)
+            lines = ["**Autonomous Daemon — Recent Activity**\n"]
+            if recent:
+                for entry in recent:
+                    lines.append(f"• [{entry.get('timestamp', '?')[:16]}] {entry.get('event', '?')}: {entry.get('message', '')[:60]}")
+            else:
+                lines.append("No recent daemon activity recorded.")
+            reply = "\n".join(lines)
+
+        elif "cycle" in text_lower or "run" in text_lower:
+            daemon = AutonomousDaemon(repo_root=_REPO_ROOT)
+            result = await daemon.run_single_cycle()
+            lines = [
+                "**Daemon Cycle Complete**",
+                f"• Tasks generated: {result.get('tasks_generated', 0)}",
+                f"• Tasks executed: {result.get('tasks_executed', 0)}",
+                f"• Tasks succeeded: {result.get('tasks_succeeded', 0)}",
+                f"• Tasks failed: {result.get('tasks_failed', 0)}",
+            ]
+            reply = "\n".join(lines)
+
+        else:
+            reply = (
+                "**NCL Autonomous Daemon — Commands**\n"
+                "• `self-check` — run full system health verification\n"
+                "• `gap analysis` — scan for improvement opportunities\n"
+                "• `daemon status` — show recent daemon activity\n"
+                "• `run cycle` — execute one PDCA improvement cycle\n"
+            )
+
+        elapsed = (time.monotonic() - t0) * 1000
+        return SkillResult(success=True, reply=reply, skill_name=self.name, execution_ms=elapsed)
+
 
 class GeneralChatSkill(Skill):
     """Handle any message that doesn't match a specific skill.
@@ -966,6 +1804,15 @@ class SuperOpenClawAgent:
             except Exception as exc:
                 LOG.warning("Memory init failed: %s", exc)
 
+        # NCC Triad integration
+        self._ncc_orchestrator: Any | None = None
+        if NCC_AVAILABLE:
+            try:
+                self._ncc_orchestrator = NCCOrchestrator.get_instance()
+                LOG.info("NCC Orchestrator linked")
+            except Exception as exc:
+                LOG.warning("NCC Orchestrator init failed: %s", exc)
+
         # Channels (senses)
         self.channels: list[ChannelType] = []
         self._connectors: dict[ChannelType, ChannelConnector] = {}
@@ -995,16 +1842,41 @@ class SuperOpenClawAgent:
     # ── Skills ────
 
     def _register_default_skills(self):
-        for skill_cls in [
+        skill_classes: list[type[Skill]] = [
             MemorySearchSkill,
             MemoryStoreSkill,
             DoctrineSkill,
+            StrategicAdvisorSkill,
+            CreatorWisdomSkill,
             BrainMapSkill,
             StatusSkill,
             HelpSkill,
             LearningSkill,
-            GeneralChatSkill,
-        ]:
+        ]
+        # NCC triad skills (only when integration is available)
+        if NCC_AVAILABLE:
+            skill_classes.extend([
+                TriadStatusSkill,
+                DigitalLabourSkill,
+                NCCCommandSkill,
+            ])
+        # Autonomous daemon skill — always available
+        skill_classes.append(AutonomousDaemonSkill)
+
+        # ClawHub skills (lazy import to avoid circular dependency)
+        clawhub_enabled = self.config.get("clawhub", {}).get("enabled", True)
+        if clawhub_enabled:
+            try:
+                from ncl_agency_runtime.agents.clawhub_skills import create_clawhub_skills
+                for skill in create_clawhub_skills():
+                    self.skill_router.register(skill)
+                LOG.info("ClawHub skills registered")
+            except ImportError:
+                LOG.info("ClawHub skills not available — skipping")
+
+        # GeneralChat must be last (it is the fallback)
+        skill_classes.append(GeneralChatSkill)
+        for skill_cls in skill_classes:
             self.skill_router.register(skill_cls())  # type: ignore[abstract]
 
     def register_skill(self, skill: Skill):
@@ -1022,27 +1894,29 @@ class SuperOpenClawAgent:
     # ── Message processing pipeline ────
 
     async def process_message(self, msg: InboundMessage) -> SkillResult:
-        """Main message pipeline:
-        1. PolicyGate evaluation (Immune)
-        2. EventBus publish (Nervous)
-        3. SkillRouter dispatch (Brain → Muscles)
-        4. Memory ingestion (Memory)
-        5. Reply via channel (Senses outbound)
+        """Main message pipeline — the Living Organism in action.
+
+        Strategic doctrine woven throughout:
+        1. PolicyGate (Immune) — Art of War: all warfare is deception → zero-trust
+        2. EventBus publish (Nervous) — Law 9: win through actions → evidence trail
+        3. SkillRouter dispatch (Brain → Muscles) — Law 48: assume formlessness
+        4. Memory ingestion (Memory) — Habit 5: seek first to understand
+        5. Reply via channel (Senses) — Habit 6: synergize via cross-component flow
         """
         self._msg_count += 1
 
-        # 1. Policy gate
+        # 1. Policy gate  [Art of War: deception defence / Habit 1: be proactive]
         allowed, reason = self.policy_gate.evaluate(msg)
         if not allowed:
             return SkillResult(success=False, reply=f"Access denied: {reason}", skill_name="policy_gate")
 
-        # 2. Publish inbound event
+        # 2. Publish inbound event  [Law 9: evidence over argument]
         await self.event_bus.publish("message.inbound", msg.to_dict())
 
-        # 3. Route to skill
+        # 3. Route to skill  [Law 48: formlessness / Habit 3: first things first]
         result = await self.skill_router.route(msg, self)
 
-        # 4. Store episodic memory of the interaction
+        # 4. Store episodic memory  [Habit 5: understand first / Sun Tzu: know yourself]
         self.memory_store(
             content=f"[{msg.channel.value}] {msg.sender_name}: {msg.text[:200]}",
             memory_type="episodic",
@@ -1051,7 +1925,7 @@ class SuperOpenClawAgent:
                      "success": result.success}
         )
 
-        # 5. Publish outbound event
+        # 5. Publish outbound event  [Habit 6: synergize]
         await self.event_bus.publish("message.outbound", {
             "msg_id": msg.id,
             "skill": result.skill_name,
@@ -1147,6 +2021,18 @@ class SuperOpenClawAgent:
         """Start the agent and all subsystems."""
         LOG.info("Starting SuperOpenClawAgent %s ...", self.agent_id)
 
+        # Bootstrap NCC triad (before anything else — governance first)
+        if self._ncc_orchestrator:
+            try:
+                self._ncc_orchestrator.bootstrap()
+                await self._ncc_orchestrator.start()
+                # Mark NCL pillar as ONLINE (we ARE the brain)
+                registry = PillarRegistry.get_instance()
+                registry.set_status(PillarID.NCL, PillarStatus.ONLINE)
+                LOG.info("NCC Triad bootstrapped — NCL ONLINE")
+            except Exception as exc:
+                LOG.error("NCC bootstrap failed: %s", exc)
+
         # Start health monitor
         await self.health_monitor.start()
 
@@ -1162,13 +2048,22 @@ class SuperOpenClawAgent:
             "agent_id": self.agent_id,
             "skills": [s.name for s in self.skill_router.skills],
             "channels": [c.value for c in self.channels],
+            "ncc_triad": NCC_AVAILABLE,
         })
-        LOG.info("SuperOpenClawAgent ONLINE — %d skills, %d channels",
-                 len(self.skill_router.skills), len(self.channels))
+        LOG.info("SuperOpenClawAgent ONLINE — %d skills, %d channels, NCC=%s",
+                 len(self.skill_router.skills), len(self.channels),
+                 "ACTIVE" if self._ncc_orchestrator else "OFF")
 
     async def stop(self):
         """Gracefully shut down."""
         LOG.info("Stopping SuperOpenClawAgent %s ...", self.agent_id)
+        # Stop NCC orchestrator first (governance shuts down last-in-first-out)
+        if self._ncc_orchestrator:
+            try:
+                await self._ncc_orchestrator.stop()
+                LOG.info("NCC Orchestrator stopped")
+            except Exception as exc:
+                LOG.error("NCC stop failed: %s", exc)
         await self.health_monitor.stop()
         for connector in self._connectors.values():
             try:  # noqa: SIM105

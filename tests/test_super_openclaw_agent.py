@@ -315,7 +315,8 @@ def test_health_monitor_check(agent):
 def test_create_agent_defaults():
     agent = create_agent()
     assert agent.agent_id.startswith("openclaw-")
-    assert len(agent.skill_router.skills) == 8  # 7 domain skills + GeneralChatSkill
+    # 13 domain skills + GeneralChatSkill + 8 ClawHub skills = 22
+    assert len(agent.skill_router.skills) == 22
     assert not agent.policy_gate.kill_switch
 
 
@@ -328,7 +329,7 @@ def test_create_agent_extra_skills():
             return SkillResult(success=True, reply="dummy", skill_name="dummy")
 
     agent = create_agent(extra_skills=[DummySkill()])
-    assert len(agent.skill_router.skills) == 9  # 8 default + 1 extra
+    assert len(agent.skill_router.skills) == 23  # 22 default + 1 extra
     assert agent.skill_router.match("dummy") is not None
 
 
