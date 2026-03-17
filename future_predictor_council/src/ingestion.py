@@ -7,7 +7,6 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -20,17 +19,17 @@ class Signal:
     content: str
     url: str
     timestamp: datetime
-    meta: Dict = field(default_factory=dict)
+    meta: dict = field(default_factory=dict)
 
 
 class RSSIngester:
     """Fetch and parse RSS/Atom feeds into Signal objects."""
 
-    def fetch(self, feed_url: str, max_items: int = 20) -> List[Signal]:
-        signals: List[Signal] = []
+    def fetch(self, feed_url: str, max_items: int = 20) -> list[Signal]:
+        signals: list[Signal] = []
         try:
             req = urllib.request.Request(feed_url, headers={"User-Agent": "FPC/0.3"})
-            with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310 — trusted feed URLs only
+            with urllib.request.urlopen(req, timeout=15) as resp:
                 tree = ET.parse(resp)
         except Exception:
             logger.warning("Failed to fetch RSS feed: %s", feed_url)
@@ -71,13 +70,13 @@ class RSSIngester:
 class APIIngester:
     """Fetch JSON from a generic REST endpoint."""
 
-    def fetch(self, url: str, headers: Optional[Dict[str, str]] = None) -> List[Signal]:
+    def fetch(self, url: str, headers: dict[str, str] | None = None) -> list[Signal]:
         hdrs = {"User-Agent": "FPC/0.3", "Accept": "application/json"}
         if headers:
             hdrs.update(headers)
         try:
             req = urllib.request.Request(url, headers=hdrs)
-            with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
+            with urllib.request.urlopen(req, timeout=15) as resp:
                 data = json.loads(resp.read().decode())
         except Exception:
             logger.warning("Failed to fetch API: %s", url)
@@ -106,10 +105,10 @@ class APIIngester:
 class CSVIngester:
     """Load a local CSV into Signal objects (one row = one signal)."""
 
-    def fetch(self, path: str, title_col: str = "title", content_col: str = "content") -> List[Signal]:
+    def fetch(self, path: str, title_col: str = "title", content_col: str = "content") -> list[Signal]:
         import csv
 
-        signals: List[Signal] = []
+        signals: list[Signal] = []
         csv_path = Path(path)
         if not csv_path.exists():
             logger.warning("CSV not found: %s", path)
@@ -142,16 +141,16 @@ class IngestionPipeline:
 
     def _load_sources(self, config_path: str):
         try:
-            with open(config_path, "r") as f:
+            with open(config_path) as f:
                 cfg = json.load(f)
         except FileNotFoundError:
             cfg = {}
-        self.rss_feeds: List[str] = cfg.get("rss_feeds", [])
-        self.api_endpoints: List[Dict] = cfg.get("api_endpoints", [])
+        self.rss_feeds: list[str] = cfg.get("rss_feeds", [])
+        self.api_endpoints: list[dict] = cfg.get("api_endpoints", [])
 
-    def run(self) -> List[Signal]:
+    def run(self) -> list[Signal]:
         """Run all configured ingesters and return combined signals."""
-        signals: List[Signal] = []
+        signals: list[Signal] = []
         for feed in self.rss_feeds:
             signals.extend(self.rss.fetch(feed))
         for ep in self.api_endpoints:

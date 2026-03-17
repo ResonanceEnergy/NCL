@@ -29,9 +29,9 @@ md_lines = [
     "**Revision:** 1.0",
     "",
     "## Purpose",
-    "Use the iPhone as NCL’s primary **UI + router + sensor hub**, capturing **high-signal, low-invasion** data streams via **consent, metadata-first collection, and event extraction**, enabling a local-first path toward symbiosis.",  # noqa: RUF001
+    "Use the iPhone as NCL’s primary **UI + router + sensor hub**, capturing **high-signal, low-invasion** data streams via **consent, metadata-first collection, and event extraction**, enabling a local-first path toward symbiosis.",
     "",
-    "## Non‑Negotiables",  # noqa: RUF001
+    "## Non‑Negotiables",
     "- Local-first default; cloud optional.",
     "- Metadata-first; avoid content capture.",
     "- Event extraction > raw streams.",

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from ncl_agency_runtime.agents.super_openclaw_agent import (
     InboundMessage,
@@ -31,8 +31,8 @@ from ncl_agency_runtime.tools.clawhub_client import ClawHubClient
 from ncl_agency_runtime.tools.clawhub_registry import (
     CURATED_SKILLS,
     get_mapping_by_slug,
-    get_mappings_by_layer,
-    get_mappings_by_priority,
+)
+from ncl_agency_runtime.tools.clawhub_registry import (
     summary as registry_summary,
 )
 

@@ -19,9 +19,19 @@ select = [
 ignore = [
     "E501",   # line-too-long (handled by formatter)
     "S101",   # assert in tests is fine
-    "S603",   # subprocess — needed for system commands
+    "S603",   # subprocess - needed for system commands
     "S607",   # start-process with partial path
     "B008",   # function-call-in-default-argument (argparse)
+    "S310",   # suspicious-url-open - urllib calls are intentional
+    "S104",   # hardcoded-bind-all - 0.0.0.0 is intentional for dev servers
+    "S314",   # suspicious-xml - xml.etree usage is internal/trusted
+    "S110",   # try-except-pass - acceptable in fault-tolerant agents
+    "SIM108", # if-else-block - ternary not always clearer
+    "B905",   # zip-without-strict - strict= not needed here
+    "RUF006", # asyncio-dangling-task - fire-and-forget is intentional
+    "RUF001", # ambiguous-unicode-character-string - em-dashes intentional
+    "RUF002", # ambiguous-unicode-character-docstring - em-dashes intentional
+    "RUF003", # ambiguous-unicode-character-comment - em-dashes intentional
 ]
 
 [lint.per-file-ignores]

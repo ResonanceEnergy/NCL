@@ -246,7 +246,7 @@ CONTENT_SIGNAL_ROUTING: list[ContentSignalRule] = [
     ContentSignalRule(
         content_type=ContentType.INDUSTRY_TREND,
         division=RoutingTarget.INNOVATION,
-        pillar=PillarMapping.SUPER_AGENCY,
+        pillar=PillarMapping.BIT_RAGE_SYSTEMS,
         primary_agents=["ai", "ne"],  # BEACON + ORACLE
         signal_types=[SignalType.COMPETITIVE_SHIFT, SignalType.PARADIGM_INDICATOR],
         keywords=["trend", "shift", "movement", "adoption", "wave",

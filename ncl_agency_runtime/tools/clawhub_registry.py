@@ -26,7 +26,7 @@ class SkillMapping:
     ncl_skill_name: str             # Name used inside NCL skill router
     ncl_triggers: list[str]         # Trigger keywords for NCL routing
     ncl_description: str            # Human-readable purpose within NCL
-    ncl_pillar: str                 # NCL_BRAIN | AAC_BANK | SUPER_AGENCY | NCC_COMMAND | DIGITAL_LABOUR
+    ncl_pillar: str                 # NCL_BRAIN | AAC_BANK | BIT_RAGE_SYSTEMS | NCC_COMMAND
     ncl_division: str               # INTELLIGENCE | OPERATIONS | RESEARCH | etc.
     ncl_layer: str                  # Which Living Organism layer: brain | muscles | senses | memory | immune
     priority: int = 1               # 1=critical, 2=important, 3=nice-to-have
@@ -113,7 +113,7 @@ CURATED_SKILLS: list[SkillMapping] = [
         ncl_triggers=["gmail", "google calendar", "google drive",
                        "google sheets", "google docs", "google contacts"],
         ncl_description="Google Workspace CLI — Gmail, Calendar, Drive, Contacts, Sheets, Docs",
-        ncl_pillar="SUPER_AGENCY", ncl_division="OPERATIONS", ncl_layer="muscles",
+        ncl_pillar="BIT_RAGE_SYSTEMS", ncl_division="OPERATIONS", ncl_layer="muscles",
         priority=1, tags=["google", "email", "calendar", "productivity"],
     ),
     SkillMapping(
@@ -140,7 +140,7 @@ CURATED_SKILLS: list[SkillMapping] = [
         ncl_triggers=["edit pdf", "create pdf", "pdf edit",
                        "merge pdf", "extract pdf"],
         ncl_description="Edit PDFs with natural-language instructions using nano-pdf CLI",
-        ncl_pillar="DIGITAL_LABOUR", ncl_division="OPERATIONS", ncl_layer="muscles",
+        ncl_pillar="BIT_RAGE_SYSTEMS", ncl_division="OPERATIONS", ncl_layer="muscles",
         priority=2, tags=["pdf", "documents"],
     ),
     SkillMapping(
@@ -149,7 +149,7 @@ CURATED_SKILLS: list[SkillMapping] = [
         ncl_triggers=["generate image", "create image", "edit image",
                        "make picture", "image generation"],
         ncl_description="Generate/edit images with Gemini 3 Pro (text-to-image + image-to-image)",
-        ncl_pillar="DIGITAL_LABOUR", ncl_division="CREATIVE", ncl_layer="muscles",
+        ncl_pillar="BIT_RAGE_SYSTEMS", ncl_division="CREATIVE", ncl_layer="muscles",
         priority=3, tags=["image", "creative", "ai"],
     ),
 
@@ -200,7 +200,7 @@ CURATED_SKILLS: list[SkillMapping] = [
         ncl_triggers=["automate", "automation workflow", "create workflow",
                        "zapier", "make.com", "n8n"],
         ncl_description="Design and implement automation workflows — Zapier, Make, n8n integration",
-        ncl_pillar="SUPER_AGENCY", ncl_division="OPERATIONS", ncl_layer="muscles",
+        ncl_pillar="BIT_RAGE_SYSTEMS", ncl_division="OPERATIONS", ncl_layer="muscles",
         priority=2, tags=["automation", "workflow", "integration"],
     ),
     SkillMapping(
@@ -209,7 +209,7 @@ CURATED_SKILLS: list[SkillMapping] = [
         ncl_triggers=["connect api", "api gateway", "oauth connect",
                        "airtable", "hubspot", "slack api"],
         ncl_description="Connect to 100+ APIs (Google, Microsoft, GitHub, Slack, etc.) with managed OAuth",
-        ncl_pillar="SUPER_AGENCY", ncl_division="OPERATIONS", ncl_layer="senses",
+        ncl_pillar="BIT_RAGE_SYSTEMS", ncl_division="OPERATIONS", ncl_layer="senses",
         priority=1, tags=["api", "oauth", "integration"],
     ),
     SkillMapping(
@@ -229,7 +229,7 @@ CURATED_SKILLS: list[SkillMapping] = [
         ncl_triggers=["humanize text", "make natural", "remove ai writing",
                        "humanize", "rewrite naturally"],
         ncl_description="Remove signs of AI-generated writing — make text sound natural and human",
-        ncl_pillar="DIGITAL_LABOUR", ncl_division="COMMUNICATIONS", ncl_layer="muscles",
+        ncl_pillar="BIT_RAGE_SYSTEMS", ncl_division="COMMUNICATIONS", ncl_layer="muscles",
         priority=2, tags=["writing", "content", "humanize"],
     ),
     SkillMapping(
@@ -258,7 +258,7 @@ CURATED_SKILLS: list[SkillMapping] = [
         ncl_triggers=["sonos", "play music", "speaker control",
                        "play sonos", "sonos volume"],
         ncl_description="Control Sonos speakers — discover, play, volume, group",
-        ncl_pillar="DIGITAL_LABOUR", ncl_division="OPERATIONS", ncl_layer="muscles",
+        ncl_pillar="BIT_RAGE_SYSTEMS", ncl_division="OPERATIONS", ncl_layer="muscles",
         priority=3, tags=["audio", "speakers", "smart-home"],
     ),
 

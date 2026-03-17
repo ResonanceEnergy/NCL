@@ -5,7 +5,7 @@ of model type and human-readable summary generation.
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -27,12 +27,12 @@ class ForecastExplainer:
         self,
         model: Any,
         X,
-        feature_names: Optional[List[str]] = None,
+        feature_names: list[str] | None = None,
         max_samples: int = 100,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Compute SHAP values for predictions on ``X``."""
-        import shap  # type: ignore[import-untyped]
         import numpy as np
+        import shap  # type: ignore[import-untyped]
 
         method = self.method
 
@@ -81,7 +81,7 @@ class ForecastExplainer:
         return result
 
     @staticmethod
-    def summary_text(explanation: Dict[str, Any], top_k: int = 5) -> str:
+    def summary_text(explanation: dict[str, Any], top_k: int = 5) -> str:
         """Convert a SHAP explanation into a human-readable summary."""
         lines = [f"Explainability method: {explanation.get('method', 'unknown')}"]
         lines.append(f"Base value: {explanation.get('base_value', 0):.4f}")

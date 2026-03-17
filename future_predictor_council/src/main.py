@@ -24,9 +24,9 @@ logger = logging.getLogger("fpc")
 
 def cmd_council(args):
     from .council_orchestrator import FuturePredictorCouncil, PredictionHorizon
+    from .flywheel_feed import emit_status
     from .reports import ReportGenerator
     from .tracker import PredictionTracker
-    from .flywheel_feed import emit_status
 
     horizon_map = {
         "short": PredictionHorizon.SHORT_TERM,
@@ -53,12 +53,14 @@ def cmd_council(args):
 
 
 def cmd_backtest(args):
-    import pandas as pd
     from pathlib import Path
+
+    import pandas as pd
+
     from .council.strategy_statsforecast import StatsForecastStrategy
     from .eval.rolling_backtest import rolling_backtest
-    from .reports import ReportGenerator
     from .flywheel_feed import emit_status
+    from .reports import ReportGenerator
 
     emit_status("backtest", f"Running h={args.h}, freq={args.freq}")
     df = pd.read_csv(args.data, parse_dates=["ds"])
@@ -82,8 +84,8 @@ def cmd_backtest(args):
 
 
 def cmd_ingest(args):
-    from .ingestion import IngestionPipeline
     from .flywheel_feed import emit_status
+    from .ingestion import IngestionPipeline
 
     emit_status("ingestion", "Fetching signals")
     pipeline = IngestionPipeline(args.config)

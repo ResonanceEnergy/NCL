@@ -110,7 +110,7 @@ def cmd_serve(args):
     import uvicorn
 
     logger.info("Starting API server on %s:%d", args.host, args.port)
-    uvicorn.run("future_predictor_council.src.serve.api:app", host=args.host, port=int(args.port), reload=args.reload)
+    uvicorn.run("ncl_agency_runtime.fpc.serve.api:app", host=args.host, port=int(args.port), reload=args.reload)
 
 
 def cmd_status(_args):

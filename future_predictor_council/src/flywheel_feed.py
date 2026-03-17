@@ -4,7 +4,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -15,12 +15,12 @@ FEED_FILE = STATE_DIR / "flywheel_feed.json"
 def emit_status(
     stage: str = "idle",
     detail: str = "",
-    metrics: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    metrics: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Write current flywheel status to state/flywheel_feed.json."""
     STATE_DIR.mkdir(parents=True, exist_ok=True)
 
-    status: Dict[str, Any] = {
+    status: dict[str, Any] = {
         "repo": "future-predictor-council",
         "stage": stage,
         "detail": detail,
@@ -33,7 +33,7 @@ def emit_status(
     return status
 
 
-def read_status() -> Dict[str, Any]:
+def read_status() -> dict[str, Any]:
     """Read the latest flywheel status."""
     if FEED_FILE.exists():
         return json.loads(FEED_FILE.read_text(encoding="utf-8"))

@@ -41,7 +41,8 @@ class TestCouncilOrchestrator:
 
     def test_convene_returns_predictions(self):
         from future_predictor_council.src.council_orchestrator import (
-            FuturePredictorCouncil, PredictionHorizon,
+            FuturePredictorCouncil,
+            PredictionHorizon,
         )
         council = FuturePredictorCouncil()
         result = council.convene_council("AI adoption", PredictionHorizon.SHORT_TERM)
@@ -51,7 +52,8 @@ class TestCouncilOrchestrator:
 
     def test_consensus_calculated(self):
         from future_predictor_council.src.council_orchestrator import (
-            FuturePredictorCouncil, PredictionHorizon,
+            FuturePredictorCouncil,
+            PredictionHorizon,
         )
         council = FuturePredictorCouncil()
         result = council.convene_council("test", PredictionHorizon.MEDIUM_TERM)
@@ -67,7 +69,8 @@ class TestCouncilOrchestrator:
 
     def test_prediction_confidence_range(self):
         from future_predictor_council.src.council_orchestrator import (
-            FuturePredictorCouncil, PredictionHorizon,
+            FuturePredictorCouncil,
+            PredictionHorizon,
         )
         council = FuturePredictorCouncil()
         result = council.convene_council("test", PredictionHorizon.LONG_TERM)
@@ -83,11 +86,12 @@ class TestCouncilOrchestrator:
 
     def test_heuristic_all_specialties(self):
         from future_predictor_council.src.council_orchestrator import (
-            FuturePredictorCouncil, CouncilMember,
+            CouncilMember,
+            FuturePredictorCouncil,
         )
         for spec in ["Pattern Recognition", "Risk Analysis", "Scenario Development", "Strategic Planning"]:
             member = CouncilMember("Test", spec, 0.25)
-            outcome, conf, risk, evidence = FuturePredictorCouncil._predict_heuristic(member, "crypto")
+            outcome, conf, _risk, evidence = FuturePredictorCouncil._predict_heuristic(member, "crypto")
             assert isinstance(outcome, str)
             assert 0.0 <= conf <= 1.0
             assert len(evidence) > 0

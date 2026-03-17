@@ -79,9 +79,8 @@ class PillarMapping(StrEnum):
 
     NCL_BRAIN = "ncl_brain"
     AAC_BANK = "aac_bank"
-    SUPER_AGENCY = "super_agency"
+    BIT_RAGE_SYSTEMS = "bit_rage_systems"
     NCC_COMMAND = "ncc_command"
-    DIGITAL_LABOUR = "digital_labour"
 
 
 # ── Dataclasses ─────────────────────────────────────────────────
@@ -230,35 +229,35 @@ CATEGORY_ROUTING: list[CategoryRule] = [
     CategoryRule(
         category=ToolCategory.IMAGE_GENERATION,
         division=RoutingTarget.COMMUNICATIONS,
-        pillar=PillarMapping.SUPER_AGENCY,
+        pillar=PillarMapping.BIT_RAGE_SYSTEMS,
         primary_agents=["ux", "dx"],  # MUSE + creative
         keywords=[],  # loaded from registry
     ),
     CategoryRule(
         category=ToolCategory.VIDEO_GENERATION,
         division=RoutingTarget.COMMUNICATIONS,
-        pillar=PillarMapping.SUPER_AGENCY,
+        pillar=PillarMapping.BIT_RAGE_SYSTEMS,
         primary_agents=["ux", "ai"],  # MUSE + BEACON
         keywords=[],  # loaded from registry
     ),
     CategoryRule(
         category=ToolCategory.AUDIO_GENERATION,
         division=RoutingTarget.COMMUNICATIONS,
-        pillar=PillarMapping.SUPER_AGENCY,
+        pillar=PillarMapping.BIT_RAGE_SYSTEMS,
         primary_agents=["ux", "sb"],  # MUSE + CORTEX
         keywords=[],  # loaded from registry
     ),
     CategoryRule(
         category=ToolCategory.CODE_ASSISTANT,
         division=RoutingTarget.OPERATIONS,
-        pillar=PillarMapping.DIGITAL_LABOUR,
+        pillar=PillarMapping.BIT_RAGE_SYSTEMS,
         primary_agents=["so", "dx"],  # Launch squadron ops + dev
         keywords=[],  # loaded from registry
     ),
     CategoryRule(
         category=ToolCategory.PRODUCTIVITY,
         division=RoutingTarget.OPERATIONS,
-        pillar=PillarMapping.DIGITAL_LABOUR,
+        pillar=PillarMapping.BIT_RAGE_SYSTEMS,
         primary_agents=["so", "hr"],  # Ops + NIGHTFALL
         keywords=[],  # loaded from registry
     ),
@@ -272,14 +271,14 @@ CATEGORY_ROUTING: list[CategoryRule] = [
     CategoryRule(
         category=ToolCategory.AUTOMATION,
         division=RoutingTarget.OPERATIONS,
-        pillar=PillarMapping.DIGITAL_LABOUR,
+        pillar=PillarMapping.BIT_RAGE_SYSTEMS,
         primary_agents=["so", "ai"],  # Ops + BEACON
         keywords=[],  # loaded from registry
     ),
     CategoryRule(
         category=ToolCategory.DESIGN,
         division=RoutingTarget.COMMUNICATIONS,
-        pillar=PillarMapping.SUPER_AGENCY,
+        pillar=PillarMapping.BIT_RAGE_SYSTEMS,
         primary_agents=["ux", "dx"],  # MUSE + creative
         keywords=[],  # loaded from registry
     ),
@@ -293,7 +292,7 @@ CATEGORY_ROUTING: list[CategoryRule] = [
     CategoryRule(
         category=ToolCategory.MARKETING,
         division=RoutingTarget.INNOVATION,
-        pillar=PillarMapping.SUPER_AGENCY,
+        pillar=PillarMapping.BIT_RAGE_SYSTEMS,
         primary_agents=["ne", "dx"],  # Network + creative
         keywords=[],  # loaded from registry
     ),

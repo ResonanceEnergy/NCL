@@ -15,7 +15,7 @@ workspace handles your task.
 | Golden task evaluation                   | `evaluation/golden_tasks/` (run `evaluation_harness.py`) |
 | System health diagnostics                | `tools/system_health_check.py`                  |
 | Research and fractal experiments         | `fractal_future/README.md`                      |
-| Future prediction council                | `future_predictor_council/README.md`            |
+| Future prediction council                | `ncl_agency_runtime/fpc/` (merged from future_predictor_council) |
 
 ## Workspace Overview
 

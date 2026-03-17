@@ -1,9 +1,0 @@
-.........F..........                                                     [100%]
-================================== FAILURES ===================================
-E   AssertionError: Type search took 5.753s
-    assert 5.7528954000008525 < 5.0
-C:\dev\NCL\tests\test_search_quality.py:219: AssertionError: Type search took 5.753s
-=========================== short test summary info ===========================
-FAILED tests/test_search_quality.py::TestSearchPerformance::test_type_search_under_5s
-1 failed, 19 passed in 65.93s (0:01:05)
-SEARCH_QUALITY_COMPLETE

@@ -154,6 +154,160 @@ NCC operates as a continuously improving cyber-physical organism—a digital twi
 
 **Recommended**: Push-to-Talk for initial release to prioritize privacy, with Wake Word as optional advanced feature for power users.
 
+---
+
+### 5) Three Pillars of Mastery — Strategic Doctrine
+
+> **"Know the terrain, control the timing, sharpen the blade."**
+
+NCL integrates wisdom from three foundational texts into every layer of the Living Organism Framework. This is not metaphorical — these principles are embedded in code, configuration, policy gates, and operational cadence.
+
+#### Pillar 1 — The Art of War (Sun Tzu) → Strategic Supremacy
+- **Know yourself, know your enemy** → Memory analytics + drift investigation reveal blind spots
+- **All warfare is based on deception** → Zero-trust PolicyGate; opaque error responses to untrusted channels
+- **Supreme excellence: win without fighting** → Proactive briefs anticipate problems before escalation
+- **Speed is the essence of war** → SkillRouter dispatches decisively within rate limits
+- **The terrain dictates strategy** → Mission routing adapts to current event landscape
+- **Every battle is won before it is fought** → Golden task evaluation validates before deployment
+- **Five Factors applied**: Dao (Prime Directive), Heaven (circadian timing), Earth (data terrain), Commander (AZ_PRIME), Discipline (PDCA + audit)
+
+#### Pillar 2 — The 48 Laws of Power (Greene) → Influence Architecture
+- **Law 1 (Never outshine the master)** → Agents defer to AZ_PRIME in all policy decisions
+- **Law 4 (Say less than necessary)** → Minimal API responses; no verbose error internals
+- **Law 9 (Win through actions)** → Evidence-based audit trails; NDJSON logs prove everything
+- **Law 17 (Suspended terror)** → Kill switch + lockdown mode; uncertainty deters abuse
+- **Law 25 (Re-create yourself)** → Self-healing HealthMonitor; memory consolidation is renewal
+- **Law 28 (Enter with boldness)** → `run_with_retry` commits fully; no half-measures
+- **Law 29 (Plan to the end)** → Full mission lifecycle: queued → running → completed → dead-letter
+- **Law 35 (Master timing)** → Rate limiting; circadian-aware processing
+- **Law 36 (Disdain the unattainable)** → Graceful degradation when subsystems are offline
+- **Law 40 (Despise free lunch)** → Earned trust: API keys, consent flows, no anonymous access
+- **Law 48 (Assume formlessness)** → Channel-agnostic, plugin-based skill architecture
+
+#### Pillar 3 — The 7 Habits of Highly Effective People (Covey) → Effectiveness Engine
+- **Habit 1 (Be Proactive)** → HealthMonitor heartbeats; daily briefs generated before user asks
+- **Habit 2 (Begin with End in Mind)** → Every mission defines expected output and audit trail upfront
+- **Habit 3 (First Things First)** → MessagePriority (LOW→CRITICAL); importance-weighted memory storage
+- **Habit 4 (Think Win-Win)** → Memory consolidation benefits both speed (short-term) and depth (long-term)
+- **Habit 5 (Seek First to Understand)** → GeneralChatSkill searches memory before responding; context first
+- **Habit 6 (Synergize)** → EventBus enables cross-component amplification; skills combine
+- **Habit 7 (Sharpen the Saw)** → LearningSkill triggers consolidation; `prune_memories()` keeps the blade sharp
+
+#### The Maturity Continuum (NCL Agent Evolution)
+1. **Dependence** → Agent follows PolicyGate, respects kill switch, processes assigned missions
+2. **Independence** → Agent searches memory, generates own insights, adapts routing behaviour
+3. **Interdependence** → Multi-agent synergy, cross-domain learning, collective intelligence
+
+#### Strategic Integration Matrix
+
+| Living Organism Layer | Art of War | 48 Laws | 7 Habits | CW | DOAC | AJ | TB | NBJ | JB | AL | IC | DA | SG |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| **Senses** (Connectors) | Scout terrain | Court attention | Be Proactive | Attention is the product | Remove friction | Diversify inputs | Impact over income | Daily AI news | Community intel | Agent-first | Privacy is freedom | Responsible input | Build in public |
+| **Brain** (SkillRouter) | Terrain dictates | Formlessness | End in Mind | First principles | Context not control | Compound interest | Mindset is everything | AI-first thinking | Due diligence | Tool use mastery | Question authority | Constitutional alignment | Media literacy |
+| **Nervous** (EventBus) | Swift as wind | Conceal intentions | Synergize | Compound habits | Closed mouths | Automate everything | Growth mindset | Systems over tactics | Market cycles | Workflow orch | Travel light | Interpretability | Narrative control |
+| **Muscles** (Skills) | Attack decisively | Bold action | First Things First | High agency | Out-fail | Build income machines | Radical accountability | Rapid prototyping | Asymmetric bets | Eval-driven | Know your rights | Safety-first scaling | Strategic independence |
+| **Immune** (PolicyGate) | Deception defence | Suspended terror | Win-Win | Psych immune | Can't lose env | Transparency | Validate through pain | Stack multipliers | Risk management | Composable agents | Opsec | Responsible capability | Economic sovereignty |
+| **Memory** (MemoryManager) | Know yourself | Discover leverage | Understand First | Disagreeable truth | Context is priceless | Learn by teaching | Skill acquisition | Agency architecture | Decentralised | Context window | Identity protection | Explainable reasoning | Power dynamics |
+| **Regeneration** (Health) | Win before fighting | Re-create yourself | Sharpen the Saw | Sleep & recovery | Die to live | Passive income | Neuroplasticity | AI news radar | Portfolio diversity | Agent-first | Minimalism | Machines of loving grace | Geopolitical awareness |
+
+### Creator Doctrine — 10 Sources x NCL
+
+> *"Curate ruthlessly, learn relentlessly, compound daily."*
+
+NCL absorbs and operationalises wisdom from ten modern knowledge creators.
+Dario Amodei holds a special designation as **Visionary & Trusted Council Advisor**.
+
+#### Chris Williamson (Modern Wisdom)
+- **Environment Design > Willpower** — PolicyGate IS the environment; don't rely on discipline alone
+- **Compound Habits** — Daily briefs + memory consolidation = compound knowledge
+- **First Principles** — Decompose missions by fundamentals, never route by analogy
+- **High Agency** — Own the retry, own the outcome; no blame loops
+- **Attention Economy** — Priority queues guard the scarcest resource
+- **Disagreeable Truth** — Audit logs report unfiltered reality; no sugar-coating
+- **Key guests encoded**: Huberman (neuroscience), Naval (leverage), Goggins (toughness), Hormozi (value)
+
+#### Diary of a CEO — Steven Bartlett (Active Subscription)
+- **The 33 Laws** mapped to NCL: five buckets, out-fail competition, sweat small stuff, context not control
+- **DOAC-1: Fill Five Buckets** — Memory tiers = knowledge, skills, network, resources, reputation
+- **DOAC-3: Out-Fail** — Retry logic embraces failure as learning data
+- **DOAC-14: Remove Friction, Add Fuel** — iOS Shortcuts + relay = friction removal
+- **DOAC-19: Learn to Unlearn** — Memory pruning is active unlearning
+- **DOAC-33: Die Before You Live** — Kill switch + restart = creative destruction
+- **Key guests encoded**: Sinek (start with why), Gabor Mate (awareness), James Clear (atomic habits)
+
+#### Andrei Jikh — Financial Intelligence & Automation
+- **Passive Income Machines** — Scheduled pipelines generate value while idle
+- **Diversify Income Streams** — Multi-channel architecture = diversified input streams
+- **Compound Interest Mindset** — Small daily knowledge gains compound exponentially over time
+- **Automate Everything** — If you do it twice, build a pipeline
+- **Transparency Builds Trust** — Open audit logs and NDJSON evidence trails build credibility
+- **Learn by Teaching** — DoctrineSkill teaches what NCL knows, reinforcing its own learning
+- **Key themes encoded**: Investing, passive income, financial independence, credit optimization
+
+#### Tom Bilyeu (Impact Theory) — Mindset & Identity
+- **Mindset Is Everything** — Identity drives behaviour; configure the agent's self-story first
+- **Radical Accountability** — No excuses, only next actions; mission runner owns every outcome
+- **Growth Mindset** — Every failure is learning data; neuroplasticity = agent adaptability
+- **Impact Over Income** — Optimise for user impact, not throughput metrics
+- **Skill Acquisition** — Deliberate practice through golden task evaluation loops
+- **Validate Through Pain** — Stress-test under load; comfort is the enemy of growth
+
+#### Nate B Jones — AI Strategy & Automation
+- **AI-First Thinking** — Lead with AI strategy; automate before you hire
+- **Systems Over Tactics** — Build repeatable systems, not one-off scripts
+- **Daily AI News** — YouTube pipeline is the AI news radar
+- **Agency Architecture** — Multi-agent orchestration mirrors agency structure
+- **Rapid Prototyping** — Ship fast, iterate faster; golden tasks validate each iteration
+- **Stack Multipliers** — Layer tools for compound effect
+
+#### J Bravo — Crypto & Risk Intelligence
+- **Decentralised Thinking** — No single point of failure; distributed architecture
+- **Risk Management** — Position sizing = rate limiting; never risk the whole system
+- **Market Cycles** — Drift detection catches cycle shifts
+- **Due Diligence** — Schema validation IS due diligence for data
+- **Asymmetric Bets** — Small effort, large upside; golden tasks find leverage
+- **Community Intelligence** — Multi-channel input = collective intelligence
+
+#### Agentic Lab — Agent-First Design
+- **Agent-First Design** — Autonomous operation; human-in-the-loop optional
+- **Tool Use Mastery** — Agents are only as good as their tool integrations
+- **Workflow Orchestration** — MissionRunner IS the agentic workflow engine
+- **Evaluation-Driven** — Golden task harness = systematic agent evaluation
+- **Context Window Management** — Memory manager handles context budgets
+- **Composable Agents** — Skills are composable components; mix and match
+
+#### Ian Carroll — Privacy & Operational Security
+- **Privacy Is Freedom** — Privacy-first architecture; metadata-only, no raw retention
+- **Know Your Rights** — PolicyGate enforces boundaries
+- **Identity Protection** — Credential isolation, vault strategy, zero-trust by default
+- **Travel Light** — Minimal dependencies; lean architecture travels faster
+- **Question Authority** — Health checks question the system's own authority
+- **Operational Security** — Kill switches, rate limiting, Faraday Fortress — opsec embedded
+
+#### Dario Amodei (Anthropic) 🛡️ — Visionary & Trusted Council Advisor
+- **Safety-First Scaling** — Scale responsibly; capability without safety is reckless
+- **Constitutional Alignment** — Hard-code values before deployment; policy before power
+- **Interpretability** — Understand the system's reasoning; every decision must be explainable
+- **Responsible Capability** — Power demands proportional safeguards — Faraday Fortress doctrine
+- **Long-Term Thinking** — Optimise for civilisational timescale, not quarterly metrics
+- **Machines of Loving Grace** — AI should uplift humanity; every agent action should serve the user
+- **Key themes encoded**: AI safety, alignment, responsible scaling, interpretability, "Machines of Loving Grace" essay
+
+#### Spencer Gatten — Geopolitical & Media Intelligence
+- **Geopolitical Awareness** — Monitor global power shifts; map external events to system strategy
+- **Media Literacy** — Distinguish signal from noise; filter all inputs through first principles
+- **Economic Sovereignty** — Build self-sufficient systems; reduce external dependencies
+- **Power Dynamics** — Understand who holds leverage and why — game theory in practice
+- **Narrative Control** — Control the narrative with evidence; audit trails are your media
+- **Strategic Independence** — Sovereignty over your systems; never outsource critical functions
+- **Key themes encoded**: Geopolitical intelligence, media filtering, sovereignty doctrine, power analysis
+
+#### YouTube Content Pipeline
+NCL monitors 9 channels daily via RSS feeds (`tools/youtube_digest.py`).
+Dario Amodei is integrated via essays and interviews (no YouTube channel).
+New videos are converted to structured NDJSON events for agent processing.
+Schedule: Daily at 06:00 via Windows Task Scheduler.
+
 ### Hardware Integration Strategy
 - **iPhone Priority**: Primary brain/UI/sensor hub (locked)
 - **Peripheral Amplifiers**: Smart glasses, audio devices as optional extensions

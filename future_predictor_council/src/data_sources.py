@@ -5,7 +5,6 @@ import logging
 import os
 import urllib.request
 from datetime import datetime
-from typing import Dict, List, Optional
 
 from .ingestion import Signal
 
@@ -20,7 +19,7 @@ class FREDIngester:
 
     BASE_URL = "https://api.stlouisfed.org/fred"
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: str | None = None):
         self.api_key = api_key or os.environ.get("FRED_API_KEY", "")
 
     def fetch_series(
@@ -28,7 +27,7 @@ class FREDIngester:
         series_id: str,
         limit: int = 100,
         sort_order: str = "desc",
-    ) -> List[Signal]:
+    ) -> list[Signal]:
         if not self.api_key:
             logger.warning("FRED_API_KEY not set — skipping FRED ingestion")
             return []
@@ -50,7 +49,7 @@ class FREDIngester:
             logger.warning("Failed to fetch FRED series: %s", series_id)
             return []
 
-        signals: List[Signal] = []
+        signals: list[Signal] = []
         for obs in data.get("observations", []):
             signals.append(
                 Signal(
@@ -65,8 +64,8 @@ class FREDIngester:
         logger.info("Ingested %d observations from FRED/%s", len(signals), series_id)
         return signals
 
-    def fetch_many(self, series_ids: List[str], limit: int = 100) -> List[Signal]:
-        all_signals: List[Signal] = []
+    def fetch_many(self, series_ids: list[str], limit: int = 100) -> list[Signal]:
+        all_signals: list[Signal] = []
         for sid in series_ids:
             all_signals.extend(self.fetch_series(sid, limit=limit))
         return all_signals
@@ -93,10 +92,10 @@ class AlphaVantageIngester:
 
     BASE_URL = "https://www.alphavantage.co/query"
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: str | None = None):
         self.api_key = api_key or os.environ.get("ALPHA_VANTAGE_KEY", "")
 
-    def _fetch(self, params: Dict) -> dict:
+    def _fetch(self, params: dict) -> dict:
         params["apikey"] = self.api_key
         qs = "&".join(f"{k}={v}" for k, v in params.items())
         url = f"{self.BASE_URL}?{qs}"
@@ -108,7 +107,7 @@ class AlphaVantageIngester:
             logger.warning("Alpha Vantage request failed: %s", params.get("function"))
             return {}
 
-    def fetch_daily(self, symbol: str, outputsize: str = "compact") -> List[Signal]:
+    def fetch_daily(self, symbol: str, outputsize: str = "compact") -> list[Signal]:
         if not self.api_key:
             logger.warning("ALPHA_VANTAGE_KEY not set — skipping")
             return []
@@ -120,7 +119,7 @@ class AlphaVantageIngester:
         })
 
         ts = data.get("Time Series (Daily)", {})
-        signals: List[Signal] = []
+        signals: list[Signal] = []
         for date_str, ohlcv in ts.items():
             signals.append(
                 Signal(
@@ -142,7 +141,7 @@ class AlphaVantageIngester:
         logger.info("Ingested %d daily bars for %s", len(signals), symbol)
         return signals
 
-    def fetch_crypto(self, symbol: str = "BTC", market: str = "USD") -> List[Signal]:
+    def fetch_crypto(self, symbol: str = "BTC", market: str = "USD") -> list[Signal]:
         if not self.api_key:
             logger.warning("ALPHA_VANTAGE_KEY not set — skipping")
             return []
@@ -154,7 +153,7 @@ class AlphaVantageIngester:
         })
 
         ts = data.get("Time Series (Digital Currency Daily)", {})
-        signals: List[Signal] = []
+        signals: list[Signal] = []
         for date_str, vals in ts.items():
             close_key = f"4a. close ({market})"
             signals.append(

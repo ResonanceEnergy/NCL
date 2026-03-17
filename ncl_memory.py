@@ -7,6 +7,7 @@ semantic indexing, and learning capabilities.
 
 import hashlib
 import json
+import logging
 import sqlite3
 import threading
 import time
@@ -15,9 +16,17 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+logger = logging.getLogger("ncl.memory")
+
 
 class MemoryUnit:
-    """Represents a single unit of memory with metadata"""
+    """Represents a single unit of memory with metadata.
+
+    Strategic Doctrine:
+    - Art of War: 'Know yourself' — every memory contributes to self-knowledge.
+    - Habit 5: 'Seek First to Understand' — memories are the foundation of understanding.
+    - Law 11: 'Learn to keep people dependent on you' — indispensable second brain.
+    """
 
     def __init__(self, content: Any, memory_type: str = "episodic",
                  tags: list[str] | None = None, context: dict | None = None):
@@ -93,7 +102,12 @@ class MemoryUnit:
         self.last_accessed = datetime.now()
 
     def calculate_importance(self) -> float:
-        """Calculate memory importance based on recency, frequency, and type"""
+        """Calculate memory importance based on recency, frequency, and type.
+
+        Embodies Habit 3 (First Things First) — prioritise by importance.
+        Art of War: 'The terrain dictates strategy' — memory landscape shapes decisions.
+        Law 33: 'Discover the thumbscrew' — high-importance memories are leverage.
+        """
         # Base importance by memory type
         type_weights = {
             "episodic": 1.0,
@@ -208,7 +222,13 @@ class MemoryIndex:
 
 
 class MemoryStorage:
-    """Multi-tier memory storage system"""
+    """Multi-tier memory storage system.
+
+    Strategic Doctrine:
+    - Habit 4 (Win-Win): Consolidation benefits both speed (short-term) and depth (long-term).
+    - Art of War five factors — Earth: the data terrain has topology (RAM → SQLite → archive).
+    - Law 25 (Re-create yourself): Consolidation transforms raw episodes into lasting wisdom.
+    """
 
     def __init__(self, base_path: str = "~/NCL/memory"):
         self.base_path = Path(base_path).expanduser()
@@ -374,7 +394,14 @@ class MemoryStorage:
         return results
 
     def consolidate_memories(self, threshold_days: int = 7, min_importance: float = 0.7) -> int:
-        """Move important short-term memories to long-term storage"""
+        """Move important short-term memories to long-term storage.
+
+        Habit 7 (Sharpen the Saw): Consolidation is the renewal cycle —
+        transforming raw experience into lasting wisdom.
+        Law 25 (Re-create yourself): The system evolves by distilling what matters.
+        Art of War: 'Every battle is won before it is fought' — consolidated
+        memories prepare the system for future challenges.
+        """
         cutoff_date = datetime.now() - timedelta(days=threshold_days)
 
         # Collect candidates first to release read lock before writing
@@ -402,7 +429,14 @@ class MemoryStorage:
         return consolidated_count
 
     def prune_memories(self, max_short_term: int = 10000, max_long_term: int = 50000):
-        """Prune least important memories to maintain size limits"""
+        """Prune least important memories to maintain size limits.
+
+        Law 36 (Disdain things you cannot have): Release low-value memories
+        gracefully rather than clinging to everything.
+        Habit 7 (Sharpen the Saw): Pruning keeps the blade sharp —
+        a lean memory is a fast memory.
+        Art of War: 'Move swift as the wind' — lighter systems act faster.
+        """
         # Prune short-term
         conn = self._connect(self.short_term_db)
         count = conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0]
@@ -495,7 +529,7 @@ class MemoryManager:
                 time.sleep(300)  # Run every 5 minutes
 
             except Exception as e:
-                print(f"Consolidation worker error: {e}")
+                logger.error("Consolidation worker error: %s", e)
                 time.sleep(60)
 
     def store_memory(self, content: Any, memory_type: str = "episodic",

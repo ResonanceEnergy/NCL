@@ -101,7 +101,7 @@ async def launch():
     print()
     print("  ╔════════════════════════════════════════════════╗")
     print("  ║     NCL SUPER OPENCLAW AGENT                  ║")
-    print("  ║     Cognitive Augmentation × OpenClaw Skills   ║")  # noqa: RUF001
+    print("  ║     Cognitive Augmentation × OpenClaw Skills   ║")
     print("  ╠════════════════════════════════════════════════╣")
     print(f"  ║  Agent ID : {agent.agent_id:<35}║")
     print(f"  ║  Skills   : {len(agent.skill_router.skills):<35}║")

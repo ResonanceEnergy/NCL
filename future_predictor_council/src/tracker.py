@@ -4,7 +4,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -14,14 +14,14 @@ TRACKER_FILE = Path("state/predictions.json")
 class PredictionTracker:
     """Persist predictions and score them against actual outcomes."""
 
-    def __init__(self, path: Optional[Path] = None):
+    def __init__(self, path: Path | None = None):
         self.path = path or TRACKER_FILE
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._predictions: List[Dict[str, Any]] = self._load()
+        self._predictions: list[dict[str, Any]] = self._load()
 
     # ── Persistence ──────────────────────────────────────────────────────────
 
-    def _load(self) -> List[Dict[str, Any]]:
+    def _load(self) -> list[dict[str, Any]]:
         if self.path.exists():
             try:
                 return json.loads(self.path.read_text(encoding="utf-8"))
@@ -36,7 +36,7 @@ class PredictionTracker:
 
     # ── Record & resolve ─────────────────────────────────────────────────────
 
-    def record(self, prediction: Dict[str, Any]) -> Dict[str, Any]:
+    def record(self, prediction: dict[str, Any]) -> dict[str, Any]:
         """Record a new prediction. Auto-versions with timestamp."""
         entry = {
             "id": prediction.get("id", f"pred_{len(self._predictions)}"),
@@ -70,13 +70,13 @@ class PredictionTracker:
 
     # ── Queries ──────────────────────────────────────────────────────────────
 
-    def list_all(self) -> List[Dict[str, Any]]:
+    def list_all(self) -> list[dict[str, Any]]:
         return list(self._predictions)
 
-    def list_unresolved(self) -> List[Dict[str, Any]]:
+    def list_unresolved(self) -> list[dict[str, Any]]:
         return [p for p in self._predictions if not p["resolved"]]
 
-    def accuracy_summary(self) -> Dict[str, Any]:
+    def accuracy_summary(self) -> dict[str, Any]:
         """Return aggregate accuracy stats for resolved predictions."""
         resolved = [p for p in self._predictions if p["resolved"] and p["accuracy_score"] is not None]
         if not resolved:

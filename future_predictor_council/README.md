@@ -1,4 +1,20 @@
-# Future Predictor Council
+# Future Predictor Council — DEPRECATED
+
+> **This directory is deprecated.** All FPC code has been merged into
+> `ncl_agency_runtime/fpc/`. The backward-compatibility shim in
+> `src/__init__.py` will continue to work but emits a `DeprecationWarning`.
+>
+> - **Source code:** `ncl_agency_runtime/fpc/`
+> - **Config:** `ncl_agency_runtime/config/fpc/`
+> - **Tests:** `tests/test_fpc_*.py`
+> - **Docs:** `docs/fpc/`
+> - **Data:** `ncl_agency_runtime/fpc/data/`
+>
+> Do not add new code here. This directory will be removed in a future release.
+
+---
+
+## Original README (archived)
 
 Local-first, agentic forecasting stack with model council, rolling backtest, XAI panels, causal what-ifs, and optional foundation-model burst.
 

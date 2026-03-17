@@ -50,13 +50,12 @@ class NCLHealthChecker:
 
     def check_directory_structure(self):
         """Check required directory structure"""
-        root = os.path.expanduser(self.config.get('paths', {}).get('root', '~/NCL'))
         required_dirs = [
             'data/event_log',
             'data/quarantine',
             'data/derived',
-            'agents',
-            'missions',
+            'ncl_agency_runtime/agents',
+            'ncl_agency_runtime/missions',
             'policies',
             'dist',
             'audit',
@@ -66,11 +65,10 @@ class NCLHealthChecker:
 
         missing_dirs = []
         for dir_path in required_dirs:
-            full_path = os.path.join(root, dir_path)
-            if not os.path.exists(full_path):
-                missing_dirs.append(full_path)
+            if not os.path.exists(dir_path):
+                missing_dirs.append(dir_path)
 
-        self.results['directories'] = {
+        self.results['directory_structure'] = {
             'status': 'PASS' if not missing_dirs else 'WARN',
             'missing': missing_dirs
         }

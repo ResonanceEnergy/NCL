@@ -105,7 +105,7 @@ class ClawHubClient:
         url = f"{self.base_url}{path}"
         req = urllib.request.Request(url, headers=self._headers(authenticated))
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:  # noqa: S310
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 return json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             LOG.error("ClawHub API error %s %s: %s", exc.code, url, exc.reason)
@@ -124,7 +124,7 @@ class ClawHubClient:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:  # noqa: S310
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 return json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             LOG.error("ClawHub POST error %s %s: %s", exc.code, url, exc.reason)

@@ -169,7 +169,7 @@ def step_validate_imports():
             else:
                 print(f"  MISS {mod}")
                 all_ok = False
-        except Exception:  # noqa: S110
+        except Exception:
             pass
 
     return all_ok

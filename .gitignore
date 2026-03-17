@@ -67,4 +67,5 @@ episodeTEMP_MPY_wvf_snd.mp4
 *.mp4
 *.mp3
 !shortcuts_pack/**/*.mp4
-!shortcuts_pack/**/*.mp3
+!shortcuts_pack/**/*.mp3_pytest_out.txt
+_pytest_results.txt

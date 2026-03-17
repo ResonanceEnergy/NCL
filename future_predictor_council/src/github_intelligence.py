@@ -21,8 +21,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, ClassVar
-from xml.etree import ElementTree  # noqa: S405
+from typing import ClassVar
+from xml.etree import ElementTree
 
 logger = logging.getLogger(__name__)
 
@@ -252,11 +252,11 @@ class GitHubIntelligence:
         entries: list[dict[str, str]] = []
         try:
             self._rate_limit()
-            req = urllib.request.Request(  # noqa: S310
+            req = urllib.request.Request(
                 url, headers={"User-Agent": "NCL-FPC/1.0"})
-            with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
+            with urllib.request.urlopen(req, timeout=15) as resp:
                 xml_data = resp.read()
-                root = ElementTree.fromstring(xml_data)  # noqa: S314
+                root = ElementTree.fromstring(xml_data)
                 ns = "{http://www.w3.org/2005/Atom}"
                 for entry in root.findall(f"{ns}entry"):
                     title_el = entry.find(f"{ns}title")

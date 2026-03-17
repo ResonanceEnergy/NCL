@@ -19,17 +19,26 @@ NCL/
 │   └── daily-ops/                         (daily intelligence operations)
 ├── ncl_agency_runtime/                    (agent runtime engine)
 │   ├── agents/                            (agent implementations)
+│   ├── fpc/                               (Future Predictor Council — merged)
+│   │   ├── agents/                        (20-agent framework, orchestrator)
+│   │   ├── council/                       (model council, ensemble, scoring)
+│   │   ├── eval/                          (backtesting, evaluation)
+│   │   ├── causal/                        (DoWhy/EconML causal inference)
+│   │   ├── xai/                           (SHAP explainability)
+│   │   ├── serve/                         (FastAPI serve layer)
+│   │   └── data/                          (predictions, caches)
 │   ├── runtime/                           (daemon, dispatcher, executor)
 │   ├── missions/                          (mission queue)
 │   └── config/                            (runtime configuration)
 ├── data/                                  (event log, quarantine, derived)
 ├── schemas/                               (JSON Schema catalog, 43+ event types)
 ├── docs/                                  (doctrine, setup guides, contracts)
+│   └── fpc/                               (FPC docs, bootcamp, backlog)
 ├── evaluation/                            (golden tasks, scoring harness)
 ├── tools/                                 (health check, export, import, validation)
-├── tests/                                 (pytest suite)
+├── tests/                                 (pytest suite, incl. test_fpc_*.py)
 ├── fractal_future/                        (research tracks, entropy maps)
-├── future_predictor_council/              (forecasting engine)
+├── future_predictor_council/              (DEPRECATED — shimmed to ncl_agency_runtime/fpc)
 ├── ncl_onedrop_setup/                     (product dev, roadmap tracking)
 ├── ncl_gbx_one_drop/                      (build system)
 ├── ios/                                   (iOS companion app)
@@ -49,13 +58,15 @@ NCL/
 | Run golden task evaluations             | `evaluation/golden_tasks/`                 |
 | Check system health                     | `tools/system_health_check.py`             |
 | Read NCC doctrine                       | `NCC_Master_Doctrine_v2.0.md`              |
+| Work on FPC forecasting                 | `ncl_agency_runtime/fpc/`                  |
+| Read FPC docs                           | `docs/fpc/`                                |
 
 ## What to Load
 
 | Task                     | Load These                                    | Do NOT Load                         |
 |--------------------------|-----------------------------------------------|-------------------------------------|
 | Mission processing       | mission-ops workspace, ncl_agency_runtime     | data-pipeline, fractal_future       |
-| Data ingestion           | data-pipeline workspace, schemas, tools       | agent-dev, future_predictor_council |
+| Data ingestion           | data-pipeline workspace, schemas, tools       | agent-dev                           |
 | Agent development        | agent-dev workspace, tests, evaluation        | daily-ops, ios, shortcuts_pack      |
 | Daily brief              | daily-ops workspace, ncl_agency_runtime       | agent-dev, ncl_gbx_one_drop         |
 | Schema work              | schemas/, docs/ncl_iphone_data_contract_v1.md | workspaces, fractal_future          |

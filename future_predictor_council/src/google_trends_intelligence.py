@@ -210,11 +210,11 @@ class GoogleTrendsIntelligence:
         signals: list[TrendSignal] = []
         try:
             self._rate_limit()
-            req = urllib.request.Request(  # noqa: S310
+            req = urllib.request.Request(
                 url, headers={"User-Agent": "NCL-FPC/1.0"})
-            with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
+            with urllib.request.urlopen(req, timeout=15) as resp:
                 xml_data = resp.read()
-                root = ElementTree.fromstring(xml_data)  # noqa: S314
+                root = ElementTree.fromstring(xml_data)
 
                 for item in root.iter("item"):
                     title_el = item.find("title")

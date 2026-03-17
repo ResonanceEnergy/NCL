@@ -25,6 +25,11 @@ from pathlib import Path
 from typing import Any, ClassVar
 from xml.etree import ElementTree
 
+try:
+    from ncl_agency_runtime.fpc.agents import CALLSIGN_MAP as _CANONICAL_CALLSIGN_MAP
+except ImportError:
+    _CANONICAL_CALLSIGN_MAP = {}
+
 # ── Enums ───────────────────────────────────────────────────────
 
 class EngagementType(StrEnum):
@@ -84,8 +89,7 @@ class PillarTarget(StrEnum):
 
     NCL_BRAIN = "ncl_brain"                # Cognitive augmentation (NCL)
     AAC_BANK = "aac_bank"                  # Algorithmic Asset Command
-    SUPER_AGENCY = "super_agency"          # Agent workforce orchestration
-    DIGITAL_LABOUR = "digital_labour"      # Autonomous workers
+    BIT_RAGE_SYSTEMS = "bit_rage_systems"   # Agent workforce + autonomous workers
     NCC_COMMAND = "ncc_command"            # Cross-pillar coordination
 
 
@@ -258,7 +262,7 @@ ROUTING_TABLE: list[RoutingRule] = [
     RoutingRule(
         domain=ContentDomain.ENTREPRENEURSHIP,
         division=RoutingDivision.INNOVATION,
-        pillar=PillarTarget.SUPER_AGENCY,
+        pillar=PillarTarget.BIT_RAGE_SYSTEMS,
         primary_agents=["ai", "sa"],   # BEACON (exponential), NEXUS (Super Agency)
         secondary_agents=["ux", "sp"],  # MUSE, NAVIGATOR
         keywords=[],  # loaded from registry
@@ -290,7 +294,7 @@ ROUTING_TABLE: list[RoutingRule] = [
     RoutingRule(
         domain=ContentDomain.PERSONAL_BRAND,
         division=RoutingDivision.COMMUNICATIONS,
-        pillar=PillarTarget.SUPER_AGENCY,
+        pillar=PillarTarget.BIT_RAGE_SYSTEMS,
         primary_agents=["ux", "dx"],   # MUSE, DevEx
         secondary_agents=["sb", "si"],  # CORTEX, BRIDGE
         keywords=[],  # loaded from registry
@@ -298,7 +302,7 @@ ROUTING_TABLE: list[RoutingRule] = [
     RoutingRule(
         domain=ContentDomain.OPERATIONS_PRODUCTIVITY,
         division=RoutingDivision.OPERATIONS,
-        pillar=PillarTarget.DIGITAL_LABOUR,
+        pillar=PillarTarget.BIT_RAGE_SYSTEMS,
         primary_agents=["so", "hr"],   # SysOps, NIGHTFALL
         secondary_agents=["rt", "es"],  # SPECTRE, SANCTUM
         keywords=[],  # loaded from registry
@@ -306,7 +310,7 @@ ROUTING_TABLE: list[RoutingRule] = [
     RoutingRule(
         domain=ContentDomain.CREATIVE_MEDIA,
         division=RoutingDivision.COMMUNICATIONS,
-        pillar=PillarTarget.SUPER_AGENCY,
+        pillar=PillarTarget.BIT_RAGE_SYSTEMS,
         primary_agents=["ux", "sb"],   # MUSE, CORTEX
         secondary_agents=["si", "dx"],  # BRIDGE, DevEx
         keywords=[],  # loaded from registry
@@ -577,18 +581,8 @@ class AgentRouter:
         return dispatch
 
     def _resolve_callsign(self, codename: str) -> str:
-        """Resolve agent codename to callsign. Lazy import to avoid circularity."""
-        callsign_map: dict[str, str] = {
-            "mc": "ATLAS", "ds": "QUANT", "be": "FORGE", "ne": "NEXUS-NET",
-            "fo": "ORACLE", "xe": "PRISM", "cs": "COMPASS", "mo": "SENTINEL-M",
-            "so": "AEGIS-S", "dx": "HELIX",
-            "ir": "MINDGATE", "ss": "PHOENIX", "sp": "NAVIGATOR", "es": "SANCTUM",
-            "em": "WATCHTOWER", "ux": "MUSE", "an": "COUNCILOR", "hr": "NIGHTFALL",
-            "rt": "SPECTRE", "si": "BRIDGE", "wp": "WOLFRAM", "nc": "SENTINEL",
-            "ab": "VAULT", "sa": "NEXUS", "sg": "CIPHER", "rd": "AEGIS",
-            "jx": "MANDARIN", "sb": "CORTEX", "ai": "BEACON", "xf": "HERALD",
-        }
-        return callsign_map.get(codename, codename.upper())
+        """Resolve agent codename to canonical callsign."""
+        return _CANONICAL_CALLSIGN_MAP.get(codename, codename.upper())
 
     def queue_for(self, agent_codename: str) -> list[str]:
         """Get queued post IDs for an agent."""
@@ -854,11 +848,11 @@ class XFeedScraper:
             url = f"https://{instance}/{account}/rss"
             try:
                 self._rate_limit()
-                req = urllib.request.Request(  # noqa: S310
+                req = urllib.request.Request(
                     url, headers={"User-Agent": "NCL-FPC/1.0"})
-                with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
+                with urllib.request.urlopen(req, timeout=15) as resp:
                     xml_data = resp.read()
-                    root = ElementTree.fromstring(xml_data)  # noqa: S314
+                    root = ElementTree.fromstring(xml_data)
 
                     for item in root.iter("item"):
                         title_el = item.find("title")

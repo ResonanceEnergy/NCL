@@ -4,7 +4,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +16,7 @@ class ReportGenerator:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-    def generate(self, session_data: Dict[str, Any]) -> Dict[str, str]:
+    def generate(self, session_data: dict[str, Any]) -> dict[str, str]:
         """Create JSON + Markdown reports from a council session result.
 
         Returns dict with ``json_path`` and ``md_path`` keys.
@@ -70,7 +70,7 @@ class ReportGenerator:
         logger.info("Reports saved: %s, %s", json_path, md_path)
         return {"json_path": str(json_path), "md_path": str(md_path)}
 
-    def generate_backtest_report(self, backtest_df, topic: str = "backtest") -> Dict[str, str]:
+    def generate_backtest_report(self, backtest_df, topic: str = "backtest") -> dict[str, str]:
         """Generate a report from a backtest DataFrame."""
         ts = datetime.now().strftime("%Y-%m-%d_%H%M%S")
         base = f"backtest_{topic}_{ts}"

@@ -5,6 +5,12 @@ NUREALCORTEXLINK Golden Task Evaluation Harness
 Runs golden tasks to evaluate AI agent performance in the second brain system.
 Supports capture, summarize, plan, recall, and pattern recognition tasks.
 
+Strategic Doctrine Integration:
+- Art of War: 'Every battle is won before it is fought' — golden tasks validate
+  readiness before deployment.
+- Habit 2: Begin with the End in Mind — each task defines expected outcomes upfront.
+- Law 9: Win through actions, not argument — test results are evidence, not opinion.
+
 Usage:
     python evaluation_harness.py [--task-id TASK_ID] [--all] [--verbose]
 

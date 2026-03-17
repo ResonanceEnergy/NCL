@@ -24,8 +24,8 @@ def main():
     }
 
     data = json.dumps(payload).encode('utf-8')
-    req = urllib.request.Request(args.url, data=data, method='POST', headers={'Content-Type':'application/json'})  # noqa: S310
-    with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310
+    req = urllib.request.Request(args.url, data=data, method='POST', headers={'Content-Type':'application/json'})
+    with urllib.request.urlopen(req, timeout=10) as resp:
         print(resp.read().decode('utf-8'))
 
 

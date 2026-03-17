@@ -90,7 +90,7 @@
     "entrepreneurship": {
       "label": "Entrepreneurship & Startups",
       "description": "Startups, venture capital, growth, innovation",
-      "pillar": "SUPER_AGENCY",
+      "pillar": "BIT_RAGE_SYSTEMS",
       "division": "INNOVATION",
       "keywords": [
         "startup", "founder", "venture", "fundraise", "pivot", "scale",
@@ -155,7 +155,7 @@
     "personal_brand": {
       "label": "Personal Brand & Creator Economy",
       "description": "Content strategy, audience building, creator economy, social media",
-      "pillar": "SUPER_AGENCY",
+      "pillar": "BIT_RAGE_SYSTEMS",
       "division": "COMMUNICATIONS",
       "keywords": [
         "brand", "audience", "content strategy", "newsletter", "podcast",
@@ -172,7 +172,7 @@
     "operations_productivity": {
       "label": "Operations & Productivity",
       "description": "DevOps, automation, workflows, tooling, efficiency",
-      "pillar": "DIGITAL_LABOUR",
+      "pillar": "BIT_RAGE_SYSTEMS",
       "division": "OPERATIONS",
       "keywords": [
         "productivity", "automation", "workflow", "systems", "ops",
@@ -187,7 +187,7 @@
     "creative_media": {
       "label": "Creative & Media",
       "description": "Design, art, music, video, generative AI creativity tools",
-      "pillar": "SUPER_AGENCY",
+      "pillar": "BIT_RAGE_SYSTEMS",
       "division": "COMMUNICATIONS",
       "keywords": [
         "design", "art", "music", "film", "creative", "visual",
@@ -299,7 +299,7 @@
     "systems_infrastructure": {
       "label": "Systems & Infrastructure",
       "description": "Rust, compilers, OS, embedded systems, WASM",
-      "pillar": "DIGITAL_LABOUR",
+      "pillar": "BIT_RAGE_SYSTEMS",
       "division": "OPERATIONS",
       "keywords": [
         "rust", "kernel", "os", "embedded", "wasm", "compiler"
@@ -313,7 +313,7 @@
     "web_frameworks": {
       "label": "Web Frameworks & Frontend",
       "description": "React, Vue, Django, FastAPI, frontend/backend development",
-      "pillar": "DIGITAL_LABOUR",
+      "pillar": "BIT_RAGE_SYSTEMS",
       "division": "OPERATIONS",
       "keywords": [
         "react", "vue", "svelte", "next", "nuxt", "django",
@@ -341,7 +341,7 @@
     "entertainment_culture": {
       "label": "Entertainment & Culture",
       "description": "Movies, music, shows, celebrities, cultural trends",
-      "pillar": "SUPER_AGENCY",
+      "pillar": "BIT_RAGE_SYSTEMS",
       "division": "COMMUNICATIONS",
       "keywords": [
         "movie", "show", "film", "music", "concert",
@@ -356,7 +356,7 @@
     "sports": {
       "label": "Sports",
       "description": "Professional sports, scores, championships, player analysis",
-      "pillar": "SUPER_AGENCY",
+      "pillar": "BIT_RAGE_SYSTEMS",
       "division": "COMMUNICATIONS",
       "keywords": [
         "game", "nba", "nfl", "mlb", "soccer", "football",
@@ -384,7 +384,7 @@
     "lifestyle": {
       "label": "Lifestyle & Personal",
       "description": "Travel, fashion, food, home, aesthetics",
-      "pillar": "SUPER_AGENCY",
+      "pillar": "BIT_RAGE_SYSTEMS",
       "division": "COMMUNICATIONS",
       "keywords": [
         "lifestyle", "travel", "fashion", "food", "home",

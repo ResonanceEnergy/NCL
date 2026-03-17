@@ -1368,14 +1368,15 @@ class TriadStatusSkill(Skill):
 
 
 class DigitalLabourSkill(Skill):
-    """Dispatch tasks to the Digital Labour Pool."""
+    """Dispatch tasks to Bit Rage Systems."""
 
     name = "digital_labour"
     triggers: ClassVar[list[str]] = [
         "dispatch task", "digital labour", "labour pool", "run task",
         "generate report", "labour status", "worker pool", "dispatch work",
+        "bit rage", "brs task",
     ]
-    description = "Dispatches tasks to the Digital Labour Pool or shows pool status."
+    description = "Dispatches tasks to Bit Rage Systems worker pool or shows pool status."
 
     async def execute(self, msg: InboundMessage, agent: SuperOpenClawAgent) -> SkillResult:
         t0 = time.monotonic()
@@ -2013,7 +2014,7 @@ class SuperOpenClawAgent:
                     mt = m.memory_type if hasattr(m, "memory_type") else "episodic"
                     if mt in stats:
                         stats[mt] += 1
-        except Exception:  # noqa: S110
+        except Exception:
             pass
         return stats
 
@@ -2068,7 +2069,7 @@ class SuperOpenClawAgent:
         for connector in self._connectors.values():
             try:  # noqa: SIM105
                 await connector.stop()
-            except Exception:  # noqa: S110
+            except Exception:
                 pass
         await self.event_bus.publish("agent.stopped", {"agent_id": self.agent_id})
         LOG.info("SuperOpenClawAgent OFFLINE")

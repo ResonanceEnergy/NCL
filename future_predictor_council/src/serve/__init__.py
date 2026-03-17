@@ -1,13 +1,13 @@
-"""FastAPI serve layer — ensemble + council endpoints.
+"""FastAPI serve layer - ensemble + council endpoints.
 
 Endpoints:
-    GET  /health           – liveness check
-    POST /forecast         – run ensemble forecast on data
-    POST /explain          – XAI panel (stub)
-    POST /whatif           – causal what-if intervention (stub)
-    POST /council/convene  – run a council prediction session
-    GET  /council/status   – current council status
-    GET  /predictions      – list tracked predictions
+    GET  /health           - liveness check
+    POST /forecast         - run ensemble forecast on data
+    POST /explain          - XAI panel (stub)
+    POST /whatif           - causal what-if intervention (stub)
+    POST /council/convene  - run a council prediction session
+    GET  /council/status   - current council status
+    GET  /predictions      - list tracked predictions
 """
 
 from __future__ import annotations

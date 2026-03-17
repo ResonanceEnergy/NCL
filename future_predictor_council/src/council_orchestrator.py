@@ -14,10 +14,10 @@ import json
 import logging
 import os
 import urllib.request
-from typing import Dict, List, Any, Optional
+from dataclasses import asdict, dataclass
 from datetime import datetime
-from dataclasses import dataclass, asdict
 from enum import Enum
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ class Prediction:
     confidence: float
     risk_level: RiskLevel
     predicted_outcome: str
-    evidence: List[str]
+    evidence: list[str]
     timestamp: datetime
     council_member: str
 
@@ -61,7 +61,7 @@ class CouncilMember:
 
 # ── LLM helper ───────────────────────────────────────────────────────────────
 
-def _llm_complete(prompt: str, config: Dict) -> Optional[str]:
+def _llm_complete(prompt: str, config: dict) -> str | None:
     """Call the configured LLM provider (OpenAI-compatible).
 
     Returns the assistant message text, or *None* on failure so the
@@ -110,15 +110,15 @@ class FuturePredictorCouncil:
     def __init__(self, config_path: str = "config/council_config.json"):
         self.config = self._load_config(config_path)
         self.council_members = self._init_members()
-        self.predictions: List[Prediction] = []
+        self.predictions: list[Prediction] = []
         self.session_id = f"council_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
     # ── Config ───────────────────────────────────────────────────────────────
 
     @staticmethod
-    def _load_config(config_path: str) -> Dict:
+    def _load_config(config_path: str) -> dict:
         try:
-            with open(config_path, "r") as f:
+            with open(config_path) as f:
                 return json.load(f)
         except FileNotFoundError:
             return {
@@ -130,7 +130,7 @@ class FuturePredictorCouncil:
                 "llm": {"enabled": False},
             }
 
-    def _init_members(self) -> List[CouncilMember]:
+    def _init_members(self) -> list[CouncilMember]:
         raw = self.config.get("council_members")
         if raw:
             return [CouncilMember(**m) for m in raw]
@@ -143,10 +143,10 @@ class FuturePredictorCouncil:
 
     # ── Session ──────────────────────────────────────────────────────────────
 
-    def convene_council(self, topic: str, horizon: PredictionHorizon) -> Dict:
+    def convene_council(self, topic: str, horizon: PredictionHorizon) -> dict:
         logger.info("Convening council for topic: %s (%s)", topic, horizon.value)
 
-        session_data: Dict[str, Any] = {
+        session_data: dict[str, Any] = {
             "session_id": self.session_id,
             "topic": topic,
             "horizon": horizon.value,
@@ -171,7 +171,7 @@ class FuturePredictorCouncil:
 
     def _generate_prediction(
         self, member: CouncilMember, topic: str, horizon: PredictionHorizon
-    ) -> Optional[Prediction]:
+    ) -> Prediction | None:
         prediction_id = (
             f"{member.name.lower().replace(' ', '_')}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
         )
@@ -239,7 +239,7 @@ class FuturePredictorCouncil:
     # ── Consensus ────────────────────────────────────────────────────────────
 
     @staticmethod
-    def _consensus(predictions: List[Dict]) -> Dict:
+    def _consensus(predictions: list[dict]) -> dict:
         if not predictions:
             return {"consensus_reached": False, "reason": "No predictions available"}
 
@@ -271,7 +271,7 @@ class FuturePredictorCouncil:
 
     # ── Status ───────────────────────────────────────────────────────────────
 
-    def get_council_status(self) -> Dict:
+    def get_council_status(self) -> dict:
         return {
             "council_name": self.config.get("council_name", "Future Predictor Council"),
             "active_members": len([m for m in self.council_members if m.active]),
@@ -283,7 +283,7 @@ class FuturePredictorCouncil:
         }
 
     @staticmethod
-    def _list_strategies() -> List[str]:
+    def _list_strategies() -> list[str]:
         """Return names of importable forecast strategies."""
         strategies = ["StatsForecastStrategy"]
         optional = {

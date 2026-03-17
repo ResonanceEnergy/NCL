@@ -209,12 +209,12 @@ class TikTokIntelligence:
         url = f"https://www.tiktok.com/tag/{hashtag}"
         try:
             self._rate_limit()
-            req = urllib.request.Request(  # noqa: S310
+            req = urllib.request.Request(
                 url, headers={
                     "User-Agent": "Mozilla/5.0 (compatible; NCL-FPC/1.0)",
                     "Accept": "text/html",
                 })
-            with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
+            with urllib.request.urlopen(req, timeout=15) as resp:
                 # Only read first 20KB to find meta tags
                 html = resp.read(20_480).decode("utf-8", errors="replace")
 

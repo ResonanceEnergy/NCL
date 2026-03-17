@@ -222,12 +222,12 @@ class InstagramIntelligence:
         url = f"https://www.instagram.com/explore/tags/{hashtag}/"
         try:
             self._rate_limit()
-            req = urllib.request.Request(  # noqa: S310
+            req = urllib.request.Request(
                 url, headers={
                     "User-Agent": "Mozilla/5.0 (compatible; NCL-FPC/1.0)",
                     "Accept": "text/html",
                 })
-            with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
+            with urllib.request.urlopen(req, timeout=15) as resp:
                 html = resp.read(20_480).decode("utf-8", errors="replace")
 
                 post_count = self._extract_post_count(html)
@@ -258,12 +258,12 @@ class InstagramIntelligence:
         url = f"https://www.instagram.com/{profile}/"
         try:
             self._rate_limit()
-            req = urllib.request.Request(  # noqa: S310
+            req = urllib.request.Request(
                 url, headers={
                     "User-Agent": "Mozilla/5.0 (compatible; NCL-FPC/1.0)",
                     "Accept": "text/html",
                 })
-            with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
+            with urllib.request.urlopen(req, timeout=15) as resp:
                 html = resp.read(20_480).decode("utf-8", errors="replace")
 
                 description = self._extract_meta_description(html)

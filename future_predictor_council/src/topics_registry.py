@@ -4,19 +4,32 @@ Single source of truth for ALL topic/keyword classification across
 NCL and FPC intelligence engines.  Every intelligence engine imports
 from here instead of maintaining its own keyword dicts.
 
-Registry file: ``_config/topics_registry.json``
+Master topics live in the shared NCL-TOPICS folder (C:/dev/NCL-TOPICS/)
+used by both FPC and NCL.  Falls back to local _config/ if the shared
+folder is not present.
+
+Registry file: ``NCL-TOPICS/topics_registry.json``
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_REGISTRY_PATH = Path(__file__).resolve().parent.parent.parent / "_config" / "topics_registry.json"
+# Shared topics folder used by both NCL and FPC.
+# Override with NCL_TOPICS_DIR env var if needed.
+_SHARED_TOPICS_DIR = Path(
+    os.environ.get("NCL_TOPICS_DIR", r"C:\dev\NCL-TOPICS")
+)
+_SHARED_REGISTRY = _SHARED_TOPICS_DIR / "topics_registry.json"
+_LOCAL_REGISTRY = Path(__file__).resolve().parent.parent.parent / "_config" / "topics_registry.json"
+
+_REGISTRY_PATH = _SHARED_REGISTRY if _SHARED_REGISTRY.exists() else _LOCAL_REGISTRY
 
 _cache: dict[str, Any] | None = None
 

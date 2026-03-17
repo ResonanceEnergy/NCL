@@ -5,19 +5,20 @@
     "codename": "Cognitive Augmentation Platform"
   },
   "paths": {
-    "root": "~/NCL",
-    "data": "~/NCL/data",
-    "event_log": "~/NCL/data/event_log",
-    "quarantine": "~/NCL/data/quarantine",
-    "derived": "~/NCL/data/derived",
-    "agents": "~/NCL/agents",
-    "missions": "~/NCL/missions",
-    "policies": "~/NCL/policies",
-    "dist": "~/NCL/dist",
-    "audit": "~/NCL/audit"
+    "root": ".",
+    "data": "data",
+    "event_log": "data/event_log",
+    "quarantine": "data/quarantine",
+    "derived": "data/derived",
+    "agents": "ncl_agency_runtime/agents",
+    "missions": "ncl_agency_runtime/missions",
+    "policies": "policies",
+    "dist": "dist",
+    "audit": "audit"
   },
   "network": {
     "relay_port": 8787,
+    "dashboard_port": 8788,
     "onedrop_port": 8123,
     "local_only": true,
     "allowed_origins": [
@@ -204,20 +205,17 @@
         "version": "2.7.0",
         "auto_boot": true
       },
-      "super_agency": {
+      "brs": {
         "role": "Agency",
-        "description": "Agent workforce orchestration, multi-agent coordination",
-        "endpoint": "super_agency",
+        "description": "Bit Rage Systems — agent workforce, digital labour, autonomous operations",
+        "endpoint": "brs",
         "version": "1.0.0",
-        "auto_boot": true
+        "auto_boot": true,
+        "enabled": true,
+        "max_workers": 4,
+        "task_timeout_seconds": 300,
+        "max_retries": 3
       }
-    },
-    "digital_labour": {
-      "enabled": true,
-      "max_workers": 4,
-      "task_timeout_seconds": 300,
-      "max_retries": 3,
-      "auto_boot": true
     },
     "inter_pillar_bus": {
       "audit_path": "~/NCL/audit/bus_audit.ndjson",
@@ -238,6 +236,36 @@
       "memory": ["clawhub_ontology", "clawhub_obsidian"],
       "immune": ["clawhub_skill_vetter"],
       "regeneration": ["clawhub_proactive", "clawhub_self_improving", "clawhub_auto_updater"]
+    }
+  },
+  "matrix_monitor": {
+    "enabled": true,
+    "collection_interval_s": 300,
+    "history_max_entries": 1000,
+    "slo": {
+      "system_health_score": {
+        "target": 0.8,
+        "window_hours": 24,
+        "metric_source": "overall_score",
+        "description": "Overall system health score must stay above 80%"
+      },
+      "pillar_availability": {
+        "target": 0.75,
+        "window_hours": 168,
+        "metric_source": "pillar_online_ratio",
+        "description": "At least 75% of pillars should be online"
+      },
+      "checks_pass_rate": {
+        "target": 0.7,
+        "window_hours": 24,
+        "metric_source": "checks_pass_rate",
+        "description": "At least 70% of health checks should pass"
+      }
+    },
+    "alert_thresholds": {
+      "critical_score": 0.3,
+      "degraded_score": 0.5,
+      "warning_score": 0.7
     }
   }
 }

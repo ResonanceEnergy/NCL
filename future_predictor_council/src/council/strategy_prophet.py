@@ -1,9 +1,11 @@
 """Prophet strategy — Meta's additive forecasting model."""
 
-from .base import ModelStrategy, ForecastResult
-import pandas as pd
-from typing import Optional, Sequence
 import logging
+from collections.abc import Sequence
+
+import pandas as pd
+
+from .base import ForecastResult, ModelStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +47,7 @@ class ProphetStrategy(ModelStrategy):
         logger.info("Prophet model fitted with %d observations", len(train))
 
     def predict(
-        self, h: int, quantiles: Optional[Sequence[float]] = None
+        self, h: int, quantiles: Sequence[float] | None = None
     ) -> ForecastResult:
         if self._model is None:
             raise RuntimeError("Call fit() before predict()")
