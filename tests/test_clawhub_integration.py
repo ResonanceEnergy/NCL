@@ -18,14 +18,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ncl_agency_runt
 
 import pytest
 
-from ncl_agency_runtime.agents.super_openclaw_agent import (
-    ChannelType,
-    InboundMessage,
-    Skill,
-    SkillResult,
-    SkillRouter,
-    create_agent,
-)
 from ncl_agency_runtime.agents.clawhub_skills import (
     ALL_CLAWHUB_SKILLS,
     ClawHubBrowserSkill,
@@ -38,18 +30,24 @@ from ncl_agency_runtime.agents.clawhub_skills import (
     ClawHubWebSearchSkill,
     create_clawhub_skills,
 )
+from ncl_agency_runtime.agents.super_openclaw_agent import (
+    ChannelType,
+    InboundMessage,
+    Skill,
+    SkillRouter,
+    create_agent,
+)
 from ncl_agency_runtime.tools.clawhub_client import ClawHubClient, ClawHubSkillInfo
 from ncl_agency_runtime.tools.clawhub_registry import (
     CURATED_SKILLS,
     get_all_mappings,
-    get_mapping_by_slug,
     get_mapping_by_skill_name,
+    get_mapping_by_slug,
     get_mappings_by_layer,
     get_mappings_by_pillar,
     get_mappings_by_priority,
     summary,
 )
-
 
 # ══════════════════════════════════════════════════════════════
 #  Fixtures
@@ -233,7 +231,7 @@ class TestClawHubRegistry:
 
     def test_all_skills_have_required_fields(self):
         for m in CURATED_SKILLS:
-            assert m.slug, f"Missing slug"
+            assert m.slug, "Missing slug"
             assert m.ncl_skill_name, f"Missing ncl_skill_name for {m.slug}"
             assert m.ncl_triggers, f"Missing triggers for {m.slug}"
             assert m.ncl_description, f"Missing description for {m.slug}"

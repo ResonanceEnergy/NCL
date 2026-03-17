@@ -1,0 +1,15 @@
+{
+  "id": "golden_0059",
+  "name": "Creator wisdom — Nate B Jones AI strategy query",
+  "input": {
+    "events": [
+      { "id": "e1", "text": "Tell me about Nate B Jones and AI strategy" }
+    ]
+  },
+  "expected": {
+    "skill_triggered": "creator_wisdom",
+    "contains": ["nate b jones", "ai", "systems"],
+    "references_source": "nate_b_jones"
+  },
+  "failure_conditions": ["wrong_skill", "missing_creator_content"]
+}

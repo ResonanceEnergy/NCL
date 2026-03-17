@@ -1,0 +1,15 @@
+{
+  "id": "golden_0057",
+  "name": "Creator wisdom — Andrei Jikh specific query",
+  "input": {
+    "events": [
+      { "id": "e1", "text": "What does Andrei Jikh teach us about automation?" }
+    ]
+  },
+  "expected": {
+    "skill_triggered": "creator_wisdom",
+    "contains": ["andrei jikh", "automate", "passive income"],
+    "references_source": "andrei_jikh"
+  },
+  "failure_conditions": ["wrong_skill", "missing_creator_content"]
+}

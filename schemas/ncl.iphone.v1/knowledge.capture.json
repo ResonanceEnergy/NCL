@@ -1,0 +1,28 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/knowledge.capture.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Knowledge Capture",
+  "description": "Atomic note or insight captured via Shortcuts — label-only, no raw content.",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.knowledge.capture" },
+        "payload": {
+          "type": "object",
+          "required": ["capture_type", "label"],
+          "properties": {
+            "capture_type": { "type": "string", "enum": ["quick_note", "link", "image_ref", "voice_label", "task", "insight", "question"] },
+            "label": { "type": "string", "maxLength": 500 },
+            "tags": { "type": "array", "items": { "type": "string" }, "maxItems": 20 },
+            "source_app": { "type": "string" },
+            "project": { "type": "string" },
+            "importance": { "type": "integer", "minimum": 1, "maximum": 5 },
+            "follow_up": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

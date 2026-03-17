@@ -1,0 +1,29 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/health.mindfulness.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Mindfulness Session",
+  "description": "Mindfulness or meditation session captured via Shortcuts or Health app.",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.health.mindfulness" },
+        "payload": {
+          "type": "object",
+          "required": ["session_start", "duration_minutes"],
+          "properties": {
+            "session_start": { "type": "string", "format": "date-time" },
+            "duration_minutes": { "type": "number", "minimum": 0 },
+            "modality": { "type": "string", "enum": ["guided", "unguided", "breathing", "body_scan", "other"] },
+            "app": { "type": "string" },
+            "hrv_before": { "type": "number" },
+            "hrv_after": { "type": "number" },
+            "mood_before": { "type": "integer", "minimum": 1, "maximum": 10 },
+            "mood_after": { "type": "integer", "minimum": 1, "maximum": 10 }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

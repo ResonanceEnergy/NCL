@@ -1,0 +1,27 @@
+{
+  "pack_name": "NCL Shortcuts Pack v2",
+  "version": "2.0.0",
+  "description": "Expanded zero-app ingestion pack — health, mood, location, knowledge, tasks, workout, sleep, and social signals.",
+  "shortcuts": [
+    { "id": "pickup", "title": "Emit Pickup Event", "event_type": "ncl.device.pickup", "category": "device" },
+    { "id": "screentime_snapshot", "title": "Emit ScreenTime Snapshot", "event_type": "ncl.screentime.session", "category": "screen" },
+    { "id": "notification_snapshot", "title": "Emit Notification Summary", "event_type": "ncl.notification.summary_daily", "category": "notifications" },
+    { "id": "nfc_ritual", "title": "NFC Ritual Event", "event_type": "ncl.nfc.ritual", "category": "ritual" },
+    { "id": "focus_change", "title": "Emit Focus Change", "event_type": "ncl.system.focus_change", "category": "focus" },
+    { "id": "calendar_summary", "title": "Emit Calendar Summary", "event_type": "ncl.calendar.event_summary", "category": "calendar" },
+    { "id": "call_metadata", "title": "Emit Call Metadata", "event_type": "ncl.call.metadata", "category": "social" },
+    { "id": "place_fingerprint", "title": "Emit Place Fingerprint", "event_type": "ncl.connectivity.place_fingerprint", "category": "location" },
+    { "id": "health_hrv", "title": "Emit HRV Trend", "event_type": "ncl.health.hrv_trend", "category": "health" },
+    { "id": "health_steps", "title": "Emit Steps Count", "event_type": "ncl.activity.steps", "category": "activity" },
+    { "id": "workout_session", "title": "Log Workout Session", "event_type": "ncl.activity.workout", "category": "activity" },
+    { "id": "sleep_duration", "title": "Log Sleep Duration", "event_type": "ncl.sleep.duration", "category": "sleep" },
+    { "id": "sleep_regularity", "title": "Emit Sleep Regularity Score", "event_type": "ncl.sleep.regularity_score", "category": "sleep" },
+    { "id": "mood_checkin", "title": "Mood Check-in (1–10)", "event_type": "ncl.mood.check_in", "category": "mood" },
+    { "id": "focus_score", "title": "Daily Focus Score", "event_type": "ncl.focus.score", "category": "focus" },
+    { "id": "mindfulness_session", "title": "Log Mindfulness Session", "event_type": "ncl.health.mindfulness", "category": "health" },
+    { "id": "home_away", "title": "Arrived Home / Left Home", "event_type": "ncl.location.home_away", "category": "location" },
+    { "id": "knowledge_capture", "title": "Quick Knowledge Capture", "event_type": "ncl.knowledge.capture", "category": "knowledge" },
+    { "id": "task_completed", "title": "Task Completed", "event_type": "ncl.task.completed", "category": "tasks" },
+    { "id": "social_interaction", "title": "Log Social Interaction", "event_type": "ncl.social.interaction", "category": "social" }
+  ]
+}

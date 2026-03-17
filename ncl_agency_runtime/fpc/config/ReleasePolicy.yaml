@@ -1,0 +1,143 @@
+# Apollo-lite Release Policy
+# Channels: alpha → beta → stable
+# Inspired by Palantir Apollo continuous deployment patterns
+
+apiVersion: release/v1
+kind: ReleasePolicy
+metadata:
+  name: future-predictor-council
+  version: "1.0"
+
+channels:
+  alpha:
+    traffic_pct: 10
+    soak_hours: 0
+    description: "Dev/test — immediate promotion, 10% traffic"
+    auto_promote: true
+    promote_to: beta
+    health_checks:
+      - type: endpoint
+        url: "/health"
+        interval_seconds: 30
+        timeout_seconds: 5
+        healthy_threshold: 3
+        unhealthy_threshold: 2
+
+  beta:
+    traffic_pct: 30
+    soak_hours: 24
+    description: "Staging — 24h soak, 30% traffic"
+    auto_promote: false
+    promote_to: stable
+    health_checks:
+      - type: endpoint
+        url: "/health"
+        interval_seconds: 60
+        timeout_seconds: 10
+        healthy_threshold: 3
+        unhealthy_threshold: 3
+    promotion_criteria:
+      - metric: mase
+        operator: "<"
+        threshold: 1.0
+        description: "MASE must beat seasonal naive"
+      - metric: error_rate
+        operator: "<"
+        threshold: 0.01
+        description: "Error rate < 1%"
+      - metric: p95_latency_ms
+        operator: "<"
+        threshold: 5000
+        description: "p95 latency < 5s"
+
+  stable:
+    traffic_pct: 100
+    soak_hours: 72
+    description: "Production — 72h soak, 100% traffic"
+    auto_promote: false
+    promote_to: null
+    health_checks:
+      - type: endpoint
+        url: "/health"
+        interval_seconds: 60
+        timeout_seconds: 10
+        healthy_threshold: 5
+        unhealthy_threshold: 3
+
+rollback:
+  triggers:
+    - metric: action_failures
+      operator: ">"
+      threshold: 5
+      window_minutes: 15
+      description: "Rollback if > 5 action failures in 15 min"
+    - metric: p95_latency_ms
+      operator: ">"
+      threshold: 10000
+      window_minutes: 10
+      description: "Rollback if p95 > 10s for 10 min"
+    - metric: mase_regression
+      operator: ">"
+      threshold: 0.05
+      window_minutes: 60
+      description: "Rollback if MASE regresses > 5% over 1h"
+  strategy: blue_green
+  automatic: true
+  notify:
+    - channel: ops
+    - channel: mission_control
+
+security_gates:
+  sbom:
+    tool: syft
+    format: spdx-json
+    required: true
+    description: "Generate SBOM before any channel promotion"
+    command: "syft dir:. -o spdx-json > sbom.json"
+
+  vulnerability_scan:
+    tool: trivy
+    severity: ["HIGH", "CRITICAL"]
+    required: true
+    block_on_critical: true
+    description: "Scan for vulnerabilities before promotion"
+    command: "trivy fs --severity HIGH,CRITICAL --exit-code 1 ."
+
+  artifact_signing:
+    enabled: false
+    tool: cosign
+    description: "Sign container images (enable when using container registry)"
+
+approvals:
+  writeback_to_production:
+    required: true
+    approvers: ["mission_control", "business_stakeholder"]
+    timeout_hours: 24
+    escalation:
+      after_hours: 12
+      escalate_to: "executive_sponsor"
+
+  agent_capability_update:
+    required: true
+    approvers: ["security_officer", "mission_control"]
+    timeout_hours: 48
+    description: "New agent capabilities require security review"
+
+  foundation_model_burst:
+    required: true
+    approvers: ["mission_control"]
+    timeout_hours: 4
+    description: "Cloud burst for foundation models requires cost approval"
+
+deployment:
+  strategy: blue_green
+  container:
+    registry: "ghcr.io"
+    image: "future-predictor-council"
+    health_check_path: "/health"
+    port: 8000
+  resources:
+    cpu_limit: "2"
+    memory_limit: "4Gi"
+    cpu_request: "500m"
+    memory_request: "1Gi"

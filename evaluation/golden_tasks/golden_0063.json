@@ -1,0 +1,15 @@
+{
+  "id": "golden_0063",
+  "name": "Creator wisdom — Dario Amodei AI safety principles",
+  "input": {
+    "events": [
+      { "id": "e1", "text": "What does Dario Amodei say about AI safety and responsible scaling?" }
+    ]
+  },
+  "expected": {
+    "skill_triggered": "creator_wisdom",
+    "contains": ["dario amodei", "safety", "responsible", "anthropic"],
+    "references_source": "dario_amodei"
+  },
+  "failure_conditions": ["wrong_skill", "missing_creator_content"]
+}

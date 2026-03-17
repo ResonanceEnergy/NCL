@@ -1,0 +1,15 @@
+{
+  "id": "golden_0054",
+  "name": "Creator wisdom — Chris Williamson query",
+  "input": {
+    "events": [
+      { "id": "e1", "text": "What does Chris Williamson teach about environment design?" }
+    ]
+  },
+  "expected": {
+    "skill_triggered": "creator_wisdom",
+    "contains": ["environment", "willpower", "chris williamson"],
+    "references_source": "chris_williamson"
+  },
+  "failure_conditions": ["wrong_skill", "missing_creator_content", "hallucinated_principle"]
+}

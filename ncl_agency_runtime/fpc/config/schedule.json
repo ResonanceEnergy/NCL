@@ -1,0 +1,23 @@
+{
+    "enabled": false,
+    "tasks": [
+        {
+            "name": "daily_scrape",
+            "command": ["scrape", "--due"],
+            "interval_minutes": 1440,
+            "enabled": true
+        },
+        {
+            "name": "daily_prediction",
+            "command": ["think", "Global market outlook", "--horizon", "short"],
+            "interval_minutes": 1440,
+            "enabled": false
+        },
+        {
+            "name": "weekly_evolution",
+            "command": ["evolve"],
+            "interval_minutes": 10080,
+            "enabled": true
+        }
+    ]
+}

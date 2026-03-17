@@ -1,0 +1,15 @@
+{
+  "id": "golden_0056",
+  "name": "Creator wisdom — general creator doctrine overview",
+  "input": {
+    "events": [
+      { "id": "e1", "text": "What is the creator doctrine?" }
+    ]
+  },
+  "expected": {
+    "skill_triggered": "creator_wisdom",
+    "contains": ["chris williamson", "diary of a ceo", "andrei jikh", "tom bilyeu", "nate b jones", "j bravo", "agentic lab", "ian carroll", "dario amodei", "spencer gatten"],
+    "references_source": "all_ten"
+  },
+  "failure_conditions": ["wrong_skill", "missing_creator_content"]
+}

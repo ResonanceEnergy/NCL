@@ -1,0 +1,28 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/focus.score.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Daily Focus Score",
+  "description": "Composite daily focus score derived from screen-time, distraction index, and deep-work blocks.",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.focus.score" },
+        "payload": {
+          "type": "object",
+          "required": ["date", "score"],
+          "properties": {
+            "date": { "type": "string", "format": "date" },
+            "score": { "type": "number", "minimum": 0, "maximum": 100 },
+            "deep_work_minutes": { "type": "integer", "minimum": 0 },
+            "distraction_events": { "type": "integer", "minimum": 0 },
+            "focus_blocks": { "type": "integer", "minimum": 0 },
+            "grade": { "type": "string", "enum": ["S", "A", "B", "C", "D", "F"] },
+            "trend": { "type": "string", "enum": ["improving", "stable", "declining"] }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

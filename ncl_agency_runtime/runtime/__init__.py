@@ -14,3 +14,15 @@ from .lib_ncl import (
 from .lib_ncl import (
     validate_minimal as validate_minimal,
 )
+from .matrix_monitor import (
+    HealthCheckResult as HealthCheckResult,
+)
+from .matrix_monitor import (
+    HealthSource as HealthSource,
+)
+from .matrix_monitor import (
+    MatrixMonitorOrchestrator as MatrixMonitorOrchestrator,
+)
+from .matrix_monitor import (
+    MatrixReport as MatrixReport,
+)

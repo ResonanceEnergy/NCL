@@ -1,0 +1,15 @@
+{
+  "id": "golden_0058",
+  "name": "Creator wisdom — Tom Bilyeu specific query",
+  "input": {
+    "events": [
+      { "id": "e1", "text": "What does Tom Bilyeu say about mindset?" }
+    ]
+  },
+  "expected": {
+    "skill_triggered": "creator_wisdom",
+    "contains": ["tom bilyeu", "mindset", "identity"],
+    "references_source": "tom_bilyeu"
+  },
+  "failure_conditions": ["wrong_skill", "missing_creator_content"]
+}

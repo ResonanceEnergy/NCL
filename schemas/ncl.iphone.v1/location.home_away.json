@@ -1,0 +1,26 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/location.home_away.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Home / Away Status",
+  "description": "Transition event capturing arrival at or departure from home — no raw GPS, metadata only.",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.location.home_away" },
+        "payload": {
+          "type": "object",
+          "required": ["transition", "occurred_at_local"],
+          "properties": {
+            "transition": { "type": "string", "enum": ["arrived_home", "left_home"] },
+            "occurred_at_local": { "type": "string", "format": "date-time" },
+            "time_away_minutes": { "type": "integer", "minimum": 0 },
+            "transport_mode": { "type": "string", "enum": ["walk", "cycle", "drive", "transit", "unknown"] },
+            "place_label": { "type": "string", "maxLength": 64 }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/mood.check_in.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Mood Check-in",
+  "description": "Periodic mood / energy check-in captured via Shortcuts or the Companion App.",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.mood.check_in" },
+        "payload": {
+          "type": "object",
+          "required": ["mood_score"],
+          "properties": {
+            "mood_score": { "type": "integer", "minimum": 1, "maximum": 10 },
+            "energy_score": { "type": "integer", "minimum": 1, "maximum": 10 },
+            "stress_score": { "type": "integer", "minimum": 1, "maximum": 10 },
+            "context": { "type": "string", "enum": ["morning", "midday", "afternoon", "evening", "night", "ad_hoc"] },
+            "notes_label": { "type": "string", "maxLength": 200 },
+            "tags": { "type": "array", "items": { "type": "string" }, "maxItems": 10 }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

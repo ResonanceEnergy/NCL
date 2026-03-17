@@ -1,0 +1,15 @@
+{
+  "id": "golden_0052",
+  "name": "Strategic advisor — 48 Laws leadership query",
+  "input": {
+    "events": [
+      { "id": "e1", "text": "How do the 48 laws of power apply to leadership?" }
+    ]
+  },
+  "expected": {
+    "skill_triggered": "strategic_advisor",
+    "contains": ["law", "power", "leadership"],
+    "references_pillar": "laws_of_power"
+  },
+  "failure_conditions": ["wrong_skill", "missing_strategic_content", "hallucinated_principle"]
+}

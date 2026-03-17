@@ -3,11 +3,14 @@
 NCL Learning Engine - Pattern extraction and knowledge synthesis
 """
 
+import logging
 import sys
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger("ncl.learning_engine")
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent.parent))
@@ -17,7 +20,7 @@ try:
     from ncl_agency_runtime.runtime.memory_api import get_memory_api
     MEMORY_ENABLED = True
 except ImportError:
-    print("Warning: Memory system not available")
+    logger.warning("Memory system not available")
     MEMORY_ENABLED = False
 
 

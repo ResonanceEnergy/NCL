@@ -1,0 +1,15 @@
+{
+  "id": "golden_0060",
+  "name": "Creator wisdom — J Bravo crypto and risk query",
+  "input": {
+    "events": [
+      { "id": "e1", "text": "What does J Bravo teach about crypto risk?" }
+    ]
+  },
+  "expected": {
+    "skill_triggered": "creator_wisdom",
+    "contains": ["j bravo", "risk", "decentrali"],
+    "references_source": "j_bravo"
+  },
+  "failure_conditions": ["wrong_skill", "missing_creator_content"]
+}

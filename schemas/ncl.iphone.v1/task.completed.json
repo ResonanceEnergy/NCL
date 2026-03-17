@@ -1,0 +1,30 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/task.completed.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Task Completed",
+  "description": "Task completion event emitted when a To Do / Reminders item is checked off.",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.task.completed" },
+        "payload": {
+          "type": "object",
+          "required": ["task_label", "list_name"],
+          "properties": {
+            "task_label": { "type": "string", "maxLength": 500 },
+            "list_name": { "type": "string", "maxLength": 100 },
+            "due_date": { "type": "string", "format": "date" },
+            "completed_at": { "type": "string", "format": "date-time" },
+            "overdue_days": { "type": "integer", "minimum": 0 },
+            "estimated_minutes": { "type": "integer", "minimum": 0 },
+            "actual_minutes": { "type": "integer", "minimum": 0 },
+            "tags": { "type": "array", "items": { "type": "string" }, "maxItems": 10 },
+            "priority": { "type": "string", "enum": ["none", "low", "medium", "high"] }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

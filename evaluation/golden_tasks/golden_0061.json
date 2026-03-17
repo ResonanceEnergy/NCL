@@ -1,0 +1,15 @@
+{
+  "id": "golden_0061",
+  "name": "Creator wisdom — Agentic Lab agent design query",
+  "input": {
+    "events": [
+      { "id": "e1", "text": "What can I learn from Agentic Lab about agents?" }
+    ]
+  },
+  "expected": {
+    "skill_triggered": "creator_wisdom",
+    "contains": ["agentic lab", "agent", "composable"],
+    "references_source": "agentic_lab"
+  },
+  "failure_conditions": ["wrong_skill", "missing_creator_content"]
+}

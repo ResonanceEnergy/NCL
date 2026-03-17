@@ -58,29 +58,40 @@ class TestCheckDirectoryStructure(unittest.TestCase):
 
     def test_missing_dirs_detected(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            checker = NCLHealthChecker(config_path="/dev/null")
-            checker.config["paths"] = {"root": tmpdir}
-            checker.check_directory_structure()
-            result = checker.results["directories"]
-            self.assertIn("status", result)
-            # tmpdir has no subdirs, so some will be missing
-            self.assertGreater(len(result["missing"]), 0)
+            orig_dir = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+                checker = NCLHealthChecker(config_path="/dev/null")
+                checker.config["paths"] = {"root": tmpdir}
+                checker.check_directory_structure()
+                result = checker.results["directory_structure"]
+                self.assertIn("status", result)
+                # tmpdir has no subdirs, so some will be missing
+                self.assertGreater(len(result["missing"]), 0)
+            finally:
+                os.chdir(orig_dir)
 
     def test_all_dirs_present(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create all required dirs
             required_dirs = [
                 "data/event_log", "data/quarantine", "data/derived",
-                "agents", "missions", "policies", "dist", "audit",
+                "ncl_agency_runtime/agents", "ncl_agency_runtime/missions",
+                "policies", "dist", "audit",
                 "workspaces", "_config",
             ]
             for d in required_dirs:
                 (Path(tmpdir) / d).mkdir(parents=True, exist_ok=True)
 
-            checker = NCLHealthChecker(config_path="/dev/null")
-            checker.config["paths"] = {"root": tmpdir}
-            result = checker.check_directory_structure()
-            self.assertTrue(result)
+            orig_dir = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+                checker = NCLHealthChecker(config_path="/dev/null")
+                checker.config["paths"] = {"root": tmpdir}
+                result = checker.check_directory_structure()
+                self.assertTrue(result)
+            finally:
+                os.chdir(orig_dir)
 
 
 class TestCheckSchemas(unittest.TestCase):

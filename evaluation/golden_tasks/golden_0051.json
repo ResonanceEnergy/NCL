@@ -1,0 +1,15 @@
+{
+  "id": "golden_0051",
+  "name": "Strategic advisor — Art of War defense query",
+  "input": {
+    "events": [
+      { "id": "e1", "text": "What does the Art of War teach about defense?" }
+    ]
+  },
+  "expected": {
+    "skill_triggered": "strategic_advisor",
+    "contains": ["art of war", "defense"],
+    "references_pillar": "art_of_war"
+  },
+  "failure_conditions": ["wrong_skill", "missing_strategic_content", "hallucinated_principle"]
+}

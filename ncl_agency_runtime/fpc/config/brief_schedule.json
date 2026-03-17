@@ -1,0 +1,126 @@
+{
+    "_doc": "NCL Daily Brief Schedule — all three tiers",
+
+    "briefs": {
+        "helix_daily_clips": {
+            "name": "HELIX Daily Clips",
+            "description": "Top 10 ranked topics as individual video clips with Grok Imagine visuals and burned-in subtitles",
+            "schedule": "05:00 daily",
+            "runner": "_run_helix_clips.py",
+            "engine": "ncl_agency_runtime.fpc.helix_news.clip_producer.ClipProducer",
+            "output_dir": "reports/helix_news/clips/",
+            "format": "video/mp4 (per-clip)",
+            "audience": "public / team",
+            "max_clips": 10,
+            "data_sources": ["SignalScorer", "PredictionStore"],
+            "requires": ["edge-tts", "GROK_API_KEY", "moviepy"]
+        },
+        "helix_full_episode": {
+            "name": "HELIX Full Episode",
+            "description": "6-segment broadcast episode (cold_open, headlines, market_pulse, predictions, alerts, closing)",
+            "schedule": "on-demand",
+            "runner": "_run_helix_grok.py",
+            "engine": "ncl_agency_runtime.fpc.helix_news.producer.Producer",
+            "output_dir": "reports/helix_news/",
+            "format": "video/mp4 (single episode)",
+            "audience": "public / team",
+            "data_sources": ["SignalScorer", "PredictionStore"],
+            "requires": ["edge-tts", "GROK_API_KEY", "moviepy"]
+        },
+        "az_daily_brief": {
+            "name": "AZ PRIME Daily Brief",
+            "description": "System health + intelligence ranking + domain coverage + governance. AZ_PRIME eyes only.",
+            "schedule": "03:15 daily",
+            "runner": "ncl_agency_runtime/runtime/mission_runner.py --mission missions/queue/daily_brief_today.json",
+            "engine": "ncl_agency_runtime.fpc.daily_briefs.AZBrief",
+            "output_dir": "reports/az_brief/",
+            "format": "markdown",
+            "audience": "AZ_PRIME only",
+            "launchd_plist": "ncl_agency_runtime/launchd/ncl.nightly.plist",
+            "sections": [
+                "System Health (relay, DB, event pipeline)",
+                "Intelligence Ranking (top 10 by impact_score)",
+                "Domain Coverage (prediction count per sector)",
+                "Event Pipeline (NDJSON capture stats)",
+                "Priority Actions (S/A grade → act now)"
+            ],
+            "data_sources": ["SignalScorer", "PredictionStore", "EventLog", "SystemHealth"]
+        },
+        "csuite_daily_brief": {
+            "name": "C-Suite Executive Brief",
+            "description": "Board-ready strategic headlines, risk dashboard, opportunity spotlight. No technical jargon.",
+            "schedule": "06:00 daily",
+            "engine": "ncl_agency_runtime.fpc.daily_briefs.CSuiteBrief",
+            "output_dir": "reports/csuite_brief/",
+            "format": "markdown",
+            "audience": "executives",
+            "sections": [
+                "Strategic Headlines (top 5 by impact_score)",
+                "Risk Dashboard (critical/high/medium/low counts)",
+                "Opportunity Spotlight (best finance/tech signal)",
+                "Bottom Line (action summary)"
+            ],
+            "data_sources": ["SignalScorer", "PredictionStore"]
+        },
+        "ncl_daily_brief": {
+            "name": "NCL System Daily Brief",
+            "description": "Event log NDJSON aggregation — top 10 event types by count, next actions.",
+            "schedule": "03:15 daily (via launchd)",
+            "engine": "ncl_agency_runtime.runtime.mission_runner.make_daily_brief",
+            "output_dir": "data/briefs/",
+            "format": "markdown",
+            "audience": "system / ops",
+            "launchd_plist": "ncl_agency_runtime/launchd/ncl.nightly.plist",
+            "data_sources": ["EventLog NDJSON"]
+        },
+        "ncl_weekly_brief": {
+            "name": "NCL Weekly Brief",
+            "description": "7-day event aggregation, daily averages, weekly trends.",
+            "schedule": "Sunday 08:00",
+            "engine": "ncl_agency_runtime.runtime.mission_runner.make_weekly_brief",
+            "output_dir": "data/briefs/",
+            "format": "markdown",
+            "audience": "system / ops",
+            "data_sources": ["EventLog NDJSON"]
+        }
+    },
+
+    "topic_ranking": {
+        "engine": "ncl_agency_runtime.fpc.signal_scorer.SignalScorer",
+        "formula": "impact_score = confidence × domain_weight × urgency × horizon_factor / 1.95",
+        "grades": {
+            "S": "≥0.80 — Act immediately",
+            "A": "≥0.60 — Review within hours",
+            "B": "≥0.40 — Monitor daily",
+            "C": "≥0.20 — Background weekly",
+            "D": "<0.20 — Archive"
+        },
+        "domain_weights": {
+            "tier_1_daily (1.0)": ["crypto_defi", "financial_markets"],
+            "tier_1_daily (0.8-0.9)": ["macroeconomics", "governance"],
+            "tier_2_weekly (0.6-0.7)": ["geopolitics", "energy_resources", "technology", "weather_climate"],
+            "tier_3_monthly (0.4-0.5)": ["health_disease", "food_agriculture", "demographics", "disasters"],
+            "tier_4_quarterly (0.2)": ["space_transport", "alt_fringe"]
+        },
+        "risk_urgency": {
+            "critical": 1.5,
+            "high": 1.2,
+            "medium": 1.0,
+            "low": 0.7
+        },
+        "horizon_factor": {
+            "1-3 months": 1.3,
+            "3-12 months": 1.0,
+            "1-5 years": 0.7,
+            "5+ years": 0.4
+        }
+    },
+
+    "daily_schedule_summary": [
+        {"time": "03:15", "brief": "NCL System Daily Brief", "format": "markdown", "audience": "ops"},
+        {"time": "03:15", "brief": "AZ PRIME Daily Brief", "format": "markdown", "audience": "AZ_PRIME"},
+        {"time": "05:00", "brief": "HELIX Daily Clips", "format": "video clips", "audience": "public"},
+        {"time": "06:00", "brief": "C-Suite Executive Brief", "format": "markdown", "audience": "executives"},
+        {"time": "Sunday 08:00", "brief": "NCL Weekly Brief", "format": "markdown", "audience": "ops"}
+    ]
+}

@@ -1,0 +1,28 @@
+{
+  "$id": "https://resonance.energy/schemas/ncl.iphone.v1/social.interaction.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Social Interaction",
+  "description": "Metadata-only social interaction event — no names or raw content, only signal metadata.",
+  "allOf": [
+    { "$ref": "./envelope.json#" },
+    {
+      "properties": {
+        "event_type": { "const": "ncl.social.interaction" },
+        "payload": {
+          "type": "object",
+          "required": ["modality", "duration_minutes"],
+          "properties": {
+            "modality": { "type": "string", "enum": ["voice_call", "video_call", "in_person", "text_thread", "group_meeting"] },
+            "duration_minutes": { "type": "number", "minimum": 0 },
+            "participant_count": { "type": "integer", "minimum": 1 },
+            "relationship_tier": { "type": "string", "enum": ["tier1_inner", "tier2_close", "tier3_network", "professional", "unknown"] },
+            "sentiment": { "type": "string", "enum": ["positive", "neutral", "negative", "mixed"] },
+            "energy_delta": { "type": "integer", "minimum": -5, "maximum": 5 },
+            "initiated_by_me": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

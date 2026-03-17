@@ -1,0 +1,32 @@
+{
+    "tts": {
+        "engine": "edge-tts",
+        "voice": "en-US-AvaNeural",
+        "rate": "+12%",
+        "pitch": "+3Hz",
+        "output_format": "mp3"
+    },
+    "avatar": {
+        "engine": "grok_imagine",
+        "source_image": "ncl_agency_runtime/fpc/helix_news/assets/helix_portrait.png",
+        "sadtalker_path": "C:/dev/SadTalker",
+        "enhancer": "none",
+        "preprocess": "crop",
+        "still_mode": true,
+        "expression_scale": 1.0
+    },
+    "output": {
+        "width": 1920,
+        "height": 1080,
+        "fps": 30,
+        "format": "mp4",
+        "output_dir": "reports/helix_news"
+    },
+    "segments": {
+        "cold_open_seconds": 15,
+        "headlines_count": 5,
+        "predictions_count": 5,
+        "max_alerts": 5
+    },
+    "episode_max_minutes": 10
+}

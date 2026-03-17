@@ -16,53 +16,53 @@ from typing import Any
 
 class TestEngagementType(unittest.TestCase):
     def test_count(self):
-        from future_predictor_council.src.x_intelligence import EngagementType
+        from ncl_agency_runtime.fpc.x_intelligence import EngagementType
         assert len(EngagementType) == 6
 
     def test_values(self):
-        from future_predictor_council.src.x_intelligence import EngagementType
+        from ncl_agency_runtime.fpc.x_intelligence import EngagementType
         expected = {"original", "like", "repost", "reply", "quote", "bookmark"}
         assert {e.value for e in EngagementType} == expected
 
     def test_str_enum(self):
-        from future_predictor_council.src.x_intelligence import EngagementType
+        from ncl_agency_runtime.fpc.x_intelligence import EngagementType
         assert str(EngagementType.LIKE) == "like"
 
 
 class TestContentDomain(unittest.TestCase):
     def test_count(self):
-        from future_predictor_council.src.x_intelligence import ContentDomain
+        from ncl_agency_runtime.fpc.x_intelligence import ContentDomain
         assert len(ContentDomain) == 12
 
     def test_has_key_domains(self):
-        from future_predictor_council.src.x_intelligence import ContentDomain
+        from ncl_agency_runtime.fpc.x_intelligence import ContentDomain
         for d in ["ai_technology", "finance_markets", "geopolitics",
                    "security_intelligence", "health_longevity", "general"]:
             assert d in {v.value for v in ContentDomain}
 
     def test_str_enum(self):
-        from future_predictor_council.src.x_intelligence import ContentDomain
+        from ncl_agency_runtime.fpc.x_intelligence import ContentDomain
         assert str(ContentDomain.AI_TECHNOLOGY) == "ai_technology"
 
 
 class TestUrgencyLevel(unittest.TestCase):
     def test_count(self):
-        from future_predictor_council.src.x_intelligence import UrgencyLevel
+        from ncl_agency_runtime.fpc.x_intelligence import UrgencyLevel
         assert len(UrgencyLevel) == 5
 
     def test_values(self):
-        from future_predictor_council.src.x_intelligence import UrgencyLevel
+        from ncl_agency_runtime.fpc.x_intelligence import UrgencyLevel
         expected = {"archive", "low", "medium", "high", "flash"}
         assert {u.value for u in UrgencyLevel} == expected
 
 
 class TestRoutingDivision(unittest.TestCase):
     def test_count(self):
-        from future_predictor_council.src.x_intelligence import RoutingDivision
+        from ncl_agency_runtime.fpc.x_intelligence import RoutingDivision
         assert len(RoutingDivision) == 9
 
     def test_values(self):
-        from future_predictor_council.src.x_intelligence import RoutingDivision
+        from ncl_agency_runtime.fpc.x_intelligence import RoutingDivision
         expected = {"intelligence", "strategy", "operations", "research",
                     "governance", "finance", "knowledge", "communications", "innovation"}
         assert {d.value for d in RoutingDivision} == expected
@@ -70,22 +70,22 @@ class TestRoutingDivision(unittest.TestCase):
 
 class TestPillarTarget(unittest.TestCase):
     def test_count(self):
-        from future_predictor_council.src.x_intelligence import PillarTarget
-        assert len(PillarTarget) == 5
+        from ncl_agency_runtime.fpc.x_intelligence import PillarTarget
+        assert len(PillarTarget) == 4
 
     def test_values(self):
-        from future_predictor_council.src.x_intelligence import PillarTarget
-        expected = {"ncl_brain", "aac_bank", "super_agency", "digital_labour", "ncc_command"}
+        from ncl_agency_runtime.fpc.x_intelligence import PillarTarget
+        expected = {"ncl_brain", "aac_bank", "bit_rage_systems", "ncc_command"}
         assert {p.value for p in PillarTarget} == expected
 
 
 class TestSignalQuality(unittest.TestCase):
     def test_count(self):
-        from future_predictor_council.src.x_intelligence import SignalQuality
+        from ncl_agency_runtime.fpc.x_intelligence import SignalQuality
         assert len(SignalQuality) == 5
 
     def test_values(self):
-        from future_predictor_council.src.x_intelligence import SignalQuality
+        from ncl_agency_runtime.fpc.x_intelligence import SignalQuality
         expected = {"noise", "weak", "moderate", "strong", "verified"}
         assert {q.value for q in SignalQuality} == expected
 
@@ -96,7 +96,7 @@ class TestSignalQuality(unittest.TestCase):
 
 class TestXPost(unittest.TestCase):
     def _make_post(self, **kwargs: Any) -> Any:
-        from future_predictor_council.src.x_intelligence import EngagementType, XPost
+        from ncl_agency_runtime.fpc.x_intelligence import EngagementType, XPost
         return XPost(
             post_id=kwargs.get("post_id", "xp-001"),
             author_handle=kwargs.get("author_handle", "@test_user"),
@@ -143,7 +143,7 @@ class TestXPost(unittest.TestCase):
 
 class TestClassifiedPost(unittest.TestCase):
     def test_creation(self):
-        from future_predictor_council.src.x_intelligence import (
+        from ncl_agency_runtime.fpc.x_intelligence import (
             ClassifiedPost,
             ContentDomain,
             EngagementType,
@@ -177,7 +177,7 @@ class TestClassifiedPost(unittest.TestCase):
 
 class TestRoutingRule(unittest.TestCase):
     def test_creation(self):
-        from future_predictor_council.src.x_intelligence import (
+        from ncl_agency_runtime.fpc.x_intelligence import (
             ContentDomain,
             PillarTarget,
             RoutingDivision,
@@ -197,7 +197,7 @@ class TestRoutingRule(unittest.TestCase):
 
 class TestFeedDigest(unittest.TestCase):
     def test_creation(self):
-        from future_predictor_council.src.x_intelligence import FeedDigest
+        from ncl_agency_runtime.fpc.x_intelligence import FeedDigest
 
         digest = FeedDigest(
             digest_id="XFD-test",
@@ -219,7 +219,7 @@ class TestFeedDigest(unittest.TestCase):
 
 class TestAgentDispatch(unittest.TestCase):
     def test_creation(self):
-        from future_predictor_council.src.x_intelligence import (
+        from ncl_agency_runtime.fpc.x_intelligence import (
             AgentDispatch,
             ContentDomain,
             PillarTarget,
@@ -247,42 +247,42 @@ class TestAgentDispatch(unittest.TestCase):
 
 class TestRoutingTable(unittest.TestCase):
     def test_routing_table_count(self):
-        from future_predictor_council.src.x_intelligence import ROUTING_TABLE
+        from ncl_agency_runtime.fpc.x_intelligence import ROUTING_TABLE
         assert len(ROUTING_TABLE) == 12
 
     def test_all_domains_covered(self):
-        from future_predictor_council.src.x_intelligence import ROUTING_TABLE, ContentDomain
+        from ncl_agency_runtime.fpc.x_intelligence import ROUTING_TABLE, ContentDomain
         covered = {r.domain for r in ROUTING_TABLE}
         assert covered == set(ContentDomain)
 
     def test_all_rules_have_primary_agents(self):
-        from future_predictor_council.src.x_intelligence import ROUTING_TABLE
+        from ncl_agency_runtime.fpc.x_intelligence import ROUTING_TABLE
         for rule in ROUTING_TABLE:
             assert len(rule.primary_agents) > 0, f"{rule.domain} has no primary agents"
 
     def test_ai_routes_to_beacon(self):
-        from future_predictor_council.src.x_intelligence import ROUTING_TABLE, ContentDomain
+        from ncl_agency_runtime.fpc.x_intelligence import ROUTING_TABLE, ContentDomain
         ai_rule = next(r for r in ROUTING_TABLE if r.domain == ContentDomain.AI_TECHNOLOGY)
         assert "ai" in ai_rule.primary_agents
 
     def test_finance_routes_to_aac(self):
-        from future_predictor_council.src.x_intelligence import ROUTING_TABLE, ContentDomain, PillarTarget
+        from ncl_agency_runtime.fpc.x_intelligence import ROUTING_TABLE, ContentDomain, PillarTarget
         fin_rule = next(r for r in ROUTING_TABLE if r.domain == ContentDomain.FINANCE_MARKETS)
         assert fin_rule.pillar == PillarTarget.AAC_BANK
 
     def test_security_routes_to_intelligence(self):
-        from future_predictor_council.src.x_intelligence import ROUTING_TABLE, ContentDomain, RoutingDivision
+        from ncl_agency_runtime.fpc.x_intelligence import ROUTING_TABLE, ContentDomain, RoutingDivision
         sec_rule = next(r for r in ROUTING_TABLE if r.domain == ContentDomain.SECURITY_INTELLIGENCE)
         assert sec_rule.division == RoutingDivision.INTELLIGENCE
         assert "sg" in sec_rule.primary_agents  # CIPHER
 
     def test_geopolitics_routes_to_mandarin(self):
-        from future_predictor_council.src.x_intelligence import ROUTING_TABLE, ContentDomain
+        from ncl_agency_runtime.fpc.x_intelligence import ROUTING_TABLE, ContentDomain
         geo_rule = next(r for r in ROUTING_TABLE if r.domain == ContentDomain.GEOPOLITICS)
         assert "jx" in geo_rule.primary_agents  # MANDARIN
 
     def test_general_is_catch_all(self):
-        from future_predictor_council.src.x_intelligence import ROUTING_TABLE, ContentDomain
+        from ncl_agency_runtime.fpc.x_intelligence import ROUTING_TABLE, ContentDomain
         gen_rule = next(r for r in ROUTING_TABLE if r.domain == ContentDomain.GENERAL)
         assert gen_rule.keywords == []
         assert "sb" in gen_rule.primary_agents  # CORTEX (Second Brain)
@@ -294,7 +294,7 @@ class TestRoutingTable(unittest.TestCase):
 
 class TestFeedCollector(unittest.TestCase):
     def _make_post(self, post_id="xp-001", content="Test"):
-        from future_predictor_council.src.x_intelligence import EngagementType, XPost
+        from ncl_agency_runtime.fpc.x_intelligence import EngagementType, XPost
         return XPost(
             post_id=post_id,
             author_handle="@test",
@@ -304,14 +304,14 @@ class TestFeedCollector(unittest.TestCase):
         )
 
     def test_ingest(self):
-        from future_predictor_council.src.x_intelligence import FeedCollector
+        from ncl_agency_runtime.fpc.x_intelligence import FeedCollector
         collector = FeedCollector()
         result = collector.ingest(self._make_post())
         assert result["ingested"] is True
         assert collector.count == 1
 
     def test_dedup(self):
-        from future_predictor_council.src.x_intelligence import FeedCollector
+        from ncl_agency_runtime.fpc.x_intelligence import FeedCollector
         collector = FeedCollector()
         post = self._make_post()
         collector.ingest(post)
@@ -321,7 +321,7 @@ class TestFeedCollector(unittest.TestCase):
         assert collector.count == 1
 
     def test_by_engagement(self):
-        from future_predictor_council.src.x_intelligence import EngagementType, FeedCollector, XPost
+        from ncl_agency_runtime.fpc.x_intelligence import EngagementType, FeedCollector, XPost
         collector = FeedCollector()
         collector.ingest(self._make_post("xp-001", "A"))
         collector.ingest(XPost(
@@ -332,7 +332,7 @@ class TestFeedCollector(unittest.TestCase):
         assert len(likes) == 1
 
     def test_stats(self):
-        from future_predictor_council.src.x_intelligence import FeedCollector
+        from ncl_agency_runtime.fpc.x_intelligence import FeedCollector
         collector = FeedCollector()
         collector.ingest(self._make_post())
         stats = collector.stats()
@@ -342,7 +342,7 @@ class TestFeedCollector(unittest.TestCase):
 
 class TestContentClassifier(unittest.TestCase):
     def _make_post(self, content="Test", **kwargs: Any) -> Any:
-        from future_predictor_council.src.x_intelligence import EngagementType, XPost
+        from ncl_agency_runtime.fpc.x_intelligence import EngagementType, XPost
         return XPost(
             post_id=kwargs.get("post_id", "xp-001"),
             author_handle=kwargs.get("author_handle", "@test"),
@@ -356,49 +356,49 @@ class TestContentClassifier(unittest.TestCase):
         )
 
     def test_classify_ai(self):
-        from future_predictor_council.src.x_intelligence import ContentClassifier, ContentDomain
+        from ncl_agency_runtime.fpc.x_intelligence import ContentClassifier, ContentDomain
         classifier = ContentClassifier()
         post = self._make_post("OpenAI releases GPT-5 with advanced AI reasoning and deep learning")
         result = classifier.classify(post)
         assert result.domain == ContentDomain.AI_TECHNOLOGY
 
     def test_classify_finance(self):
-        from future_predictor_council.src.x_intelligence import ContentClassifier, ContentDomain
+        from ncl_agency_runtime.fpc.x_intelligence import ContentClassifier, ContentDomain
         classifier = ContentClassifier()
         post = self._make_post("Bitcoin hits $200k, crypto market surging, portfolio up 50%")
         result = classifier.classify(post)
         assert result.domain == ContentDomain.FINANCE_MARKETS
 
     def test_classify_security(self):
-        from future_predictor_council.src.x_intelligence import ContentClassifier, ContentDomain
+        from ncl_agency_runtime.fpc.x_intelligence import ContentClassifier, ContentDomain
         classifier = ContentClassifier()
         post = self._make_post("Major cyber breach: zero-day exploit found in ransomware attack")
         result = classifier.classify(post)
         assert result.domain == ContentDomain.SECURITY_INTELLIGENCE
 
     def test_classify_general_fallback(self):
-        from future_predictor_council.src.x_intelligence import ContentClassifier, ContentDomain
+        from ncl_agency_runtime.fpc.x_intelligence import ContentClassifier, ContentDomain
         classifier = ContentClassifier()
         post = self._make_post("Nothing to see here xyzzy plonk")
         result = classifier.classify(post)
         assert result.domain == ContentDomain.GENERAL
 
     def test_urgency_flash(self):
-        from future_predictor_council.src.x_intelligence import ContentClassifier, UrgencyLevel
+        from ncl_agency_runtime.fpc.x_intelligence import ContentClassifier, UrgencyLevel
         classifier = ContentClassifier()
         post = self._make_post("BREAKING: Critical development in AI")
         result = classifier.classify(post)
         assert result.urgency == UrgencyLevel.FLASH
 
     def test_urgency_high_engagement(self):
-        from future_predictor_council.src.x_intelligence import ContentClassifier, UrgencyLevel
+        from ncl_agency_runtime.fpc.x_intelligence import ContentClassifier, UrgencyLevel
         classifier = ContentClassifier()
         post = self._make_post("Big news", like_count=5000, repost_count=3000, reply_count=2001)
         result = classifier.classify(post)
         assert result.urgency == UrgencyLevel.HIGH
 
     def test_quality_scoring(self):
-        from future_predictor_council.src.x_intelligence import ContentClassifier, SignalQuality
+        from ncl_agency_runtime.fpc.x_intelligence import ContentClassifier, SignalQuality
         classifier = ContentClassifier()
         post = self._make_post(
             "A very long post about AI technology with detailed analysis " * 5,
@@ -411,7 +411,7 @@ class TestContentClassifier(unittest.TestCase):
         assert result.quality in {SignalQuality.STRONG, SignalQuality.VERIFIED}
 
     def test_stats(self):
-        from future_predictor_council.src.x_intelligence import ContentClassifier
+        from ncl_agency_runtime.fpc.x_intelligence import ContentClassifier
         classifier = ContentClassifier()
         classifier.classify(self._make_post("AI deep learning model"))
         stats = classifier.stats()
@@ -420,7 +420,7 @@ class TestContentClassifier(unittest.TestCase):
 
 class TestContentFilter(unittest.TestCase):
     def _make_classified(self, quality_val="moderate"):
-        from future_predictor_council.src.x_intelligence import (
+        from ncl_agency_runtime.fpc.x_intelligence import (
             ClassifiedPost,
             ContentDomain,
             EngagementType,
@@ -446,17 +446,17 @@ class TestContentFilter(unittest.TestCase):
         )
 
     def test_pass_moderate(self):
-        from future_predictor_council.src.x_intelligence import ContentFilter
+        from ncl_agency_runtime.fpc.x_intelligence import ContentFilter
         f = ContentFilter()
         assert f.apply(self._make_classified("moderate")) is True
 
     def test_filter_noise(self):
-        from future_predictor_council.src.x_intelligence import ContentFilter
+        from ncl_agency_runtime.fpc.x_intelligence import ContentFilter
         f = ContentFilter()
         assert f.apply(self._make_classified("noise")) is False
 
     def test_stats(self):
-        from future_predictor_council.src.x_intelligence import ContentFilter
+        from ncl_agency_runtime.fpc.x_intelligence import ContentFilter
         f = ContentFilter()
         f.apply(self._make_classified("strong"))
         f.apply(self._make_classified("noise"))
@@ -467,7 +467,7 @@ class TestContentFilter(unittest.TestCase):
 
 class TestAgentRouter(unittest.TestCase):
     def _make_classified(self, domain_val="ai_technology", agents=None):
-        from future_predictor_council.src.x_intelligence import (
+        from ncl_agency_runtime.fpc.x_intelligence import (
             ClassifiedPost,
             ContentDomain,
             EngagementType,
@@ -493,14 +493,14 @@ class TestAgentRouter(unittest.TestCase):
         )
 
     def test_route(self):
-        from future_predictor_council.src.x_intelligence import AgentRouter
+        from ncl_agency_runtime.fpc.x_intelligence import AgentRouter
         router = AgentRouter()
         dispatch = router.route(self._make_classified())
         assert dispatch.dispatch_id.startswith("XD-")
         assert dispatch.agent_codename == "ai"
 
     def test_queue(self):
-        from future_predictor_council.src.x_intelligence import AgentRouter
+        from ncl_agency_runtime.fpc.x_intelligence import AgentRouter
         router = AgentRouter()
         router.route(self._make_classified())
         queue = router.queue_for("ai")
@@ -508,13 +508,13 @@ class TestAgentRouter(unittest.TestCase):
         assert "xp-001" in queue
 
     def test_callsign_resolution(self):
-        from future_predictor_council.src.x_intelligence import AgentRouter
+        from ncl_agency_runtime.fpc.x_intelligence import AgentRouter
         router = AgentRouter()
         dispatch = router.route(self._make_classified())
         assert dispatch.agent_callsign == "BEACON"
 
     def test_stats(self):
-        from future_predictor_council.src.x_intelligence import AgentRouter
+        from ncl_agency_runtime.fpc.x_intelligence import AgentRouter
         router = AgentRouter()
         router.route(self._make_classified())
         stats = router.stats()
@@ -528,7 +528,7 @@ class TestAgentRouter(unittest.TestCase):
 
 class TestXIntelligenceEngine(unittest.TestCase):
     def _make_post(self, post_id="xp-001", content="Test", **kwargs: Any) -> Any:
-        from future_predictor_council.src.x_intelligence import EngagementType, XPost
+        from ncl_agency_runtime.fpc.x_intelligence import EngagementType, XPost
         return XPost(
             post_id=post_id,
             author_handle=kwargs.get("author_handle", "@test"),
@@ -542,13 +542,13 @@ class TestXIntelligenceEngine(unittest.TestCase):
         )
 
     def test_ingest_post(self):
-        from future_predictor_council.src.x_intelligence import XIntelligenceEngine
+        from ncl_agency_runtime.fpc.x_intelligence import XIntelligenceEngine
         engine = XIntelligenceEngine()
         result = engine.ingest_post(self._make_post())
         assert result["status"] == "ingested"
 
     def test_classify_post(self):
-        from future_predictor_council.src.x_intelligence import XIntelligenceEngine
+        from ncl_agency_runtime.fpc.x_intelligence import XIntelligenceEngine
         engine = XIntelligenceEngine()
         post = self._make_post(content="OpenAI releases GPT-5 with AI and deep learning")
         result = engine.classify_post(post)
@@ -557,7 +557,7 @@ class TestXIntelligenceEngine(unittest.TestCase):
         assert "target_agents" in result
 
     def test_full_pipeline_routes(self):
-        from future_predictor_council.src.x_intelligence import XIntelligenceEngine
+        from ncl_agency_runtime.fpc.x_intelligence import XIntelligenceEngine
         engine = XIntelligenceEngine()
         post = self._make_post(
             content="Major AI breakthrough: new transformer model beats benchmarks",
@@ -571,7 +571,7 @@ class TestXIntelligenceEngine(unittest.TestCase):
         assert "target_agents" in result
 
     def test_full_pipeline_dedup(self):
-        from future_predictor_council.src.x_intelligence import XIntelligenceEngine
+        from ncl_agency_runtime.fpc.x_intelligence import XIntelligenceEngine
         engine = XIntelligenceEngine()
         post = self._make_post(content="Test post", like_count=100)
         engine.full_pipeline(post)
@@ -579,14 +579,14 @@ class TestXIntelligenceEngine(unittest.TestCase):
         assert result["status"] == "duplicate_skipped"
 
     def test_full_pipeline_filtered_out(self):
-        from future_predictor_council.src.x_intelligence import SignalQuality, XIntelligenceEngine
+        from ncl_agency_runtime.fpc.x_intelligence import SignalQuality, XIntelligenceEngine
         engine = XIntelligenceEngine(min_quality=SignalQuality.STRONG)
         post = self._make_post(content="Short post")  # Low quality
         result = engine.full_pipeline(post)
         assert result["status"] == "filtered_out"
 
     def test_generate_digest(self):
-        from future_predictor_council.src.x_intelligence import XIntelligenceEngine
+        from ncl_agency_runtime.fpc.x_intelligence import XIntelligenceEngine
         engine = XIntelligenceEngine()
         engine.full_pipeline(self._make_post(
             content="AI model with deep learning beats benchmarks",
@@ -597,7 +597,7 @@ class TestXIntelligenceEngine(unittest.TestCase):
         assert "digest_id" in result
 
     def test_agent_queue(self):
-        from future_predictor_council.src.x_intelligence import XIntelligenceEngine
+        from ncl_agency_runtime.fpc.x_intelligence import XIntelligenceEngine
         engine = XIntelligenceEngine()
         engine.full_pipeline(self._make_post(
             content="AI model transformer deep learning neural",
@@ -607,7 +607,7 @@ class TestXIntelligenceEngine(unittest.TestCase):
         assert result["status"] == "queue_retrieved"
 
     def test_routing_summary(self):
-        from future_predictor_council.src.x_intelligence import XIntelligenceEngine
+        from ncl_agency_runtime.fpc.x_intelligence import XIntelligenceEngine
         engine = XIntelligenceEngine()
         result = engine.routing_summary()
         assert result["status"] == "routing_summary"
@@ -616,18 +616,18 @@ class TestXIntelligenceEngine(unittest.TestCase):
         assert "router" in result
 
     def test_operational_readiness(self):
-        from future_predictor_council.src.x_intelligence import XIntelligenceEngine
+        from ncl_agency_runtime.fpc.x_intelligence import XIntelligenceEngine
         engine = XIntelligenceEngine()
         result = engine.operational_readiness()
         assert result["ready"] is True
         assert result["routing_rules"] == 12
         assert result["domains"] == 12
         assert result["divisions"] == 9
-        assert result["pillars"] == 5
+        assert result["pillars"] == 4
         assert result["engagement_types"] == 6
 
     def test_batch_pipeline(self):
-        from future_predictor_council.src.x_intelligence import EngagementType, XIntelligenceEngine, XPost
+        from ncl_agency_runtime.fpc.x_intelligence import EngagementType, XIntelligenceEngine, XPost
         engine = XIntelligenceEngine()
         posts = [
             self._make_post("xp-001", "OpenAI GPT-5 AI and deep learning model", like_count=600, repost_count=200),
@@ -647,7 +647,7 @@ class TestXIntelligenceEngine(unittest.TestCase):
         assert len(routed) >= 2  # At least some should be routed
 
     def test_multi_domain_routing(self):
-        from future_predictor_council.src.x_intelligence import XIntelligenceEngine
+        from ncl_agency_runtime.fpc.x_intelligence import XIntelligenceEngine
         engine = XIntelligenceEngine()
         engine.full_pipeline(self._make_post(
             "xp-ai", "AI deep learning transformer model neural",
@@ -667,22 +667,22 @@ class TestXIntelligenceEngine(unittest.TestCase):
 
 class TestHeraldAgentIntegration(unittest.TestCase):
     def test_herald_in_stubs(self):
-        from future_predictor_council.src.agents.expansion import EXPANSION_STUBS
+        from ncl_agency_runtime.fpc.agents.expansion import EXPANSION_STUBS
         assert "xf" in EXPANSION_STUBS
         agent = EXPANSION_STUBS["xf"]
         assert agent.codename == "xf"
         assert agent.callsign == "HERALD"
 
     def test_herald_default_action(self):
-        from future_predictor_council.src.agents.expansion import EXPANSION_STUBS
-        from future_predictor_council.src.agents.orchestrator import Task
+        from ncl_agency_runtime.fpc.agents.expansion import EXPANSION_STUBS
+        from ncl_agency_runtime.fpc.agents.orchestrator import Task
         result = EXPANSION_STUBS["xf"].handle(Task("T-xf", "xf", "Test"), {"payload": {}})
         assert result["status"] == "readiness_checked"
         assert result["ready"] is True
 
     def test_herald_readiness(self):
-        from future_predictor_council.src.agents.expansion import EXPANSION_STUBS
-        from future_predictor_council.src.agents.orchestrator import Task
+        from ncl_agency_runtime.fpc.agents.expansion import EXPANSION_STUBS
+        from ncl_agency_runtime.fpc.agents.orchestrator import Task
         result = EXPANSION_STUBS["xf"].handle(Task("T-xf", "xf", "Test"), {
             "payload": {"action": "readiness"},
         })
@@ -691,8 +691,8 @@ class TestHeraldAgentIntegration(unittest.TestCase):
         assert result["routing_rules"] == 12
 
     def test_herald_ingest(self):
-        from future_predictor_council.src.agents.expansion import EXPANSION_STUBS
-        from future_predictor_council.src.agents.orchestrator import Task
+        from ncl_agency_runtime.fpc.agents.expansion import EXPANSION_STUBS
+        from ncl_agency_runtime.fpc.agents.orchestrator import Task
         result = EXPANSION_STUBS["xf"].handle(Task("T-xf", "xf", "Test"), {
             "payload": {
                 "action": "ingest",
@@ -708,8 +708,8 @@ class TestHeraldAgentIntegration(unittest.TestCase):
         assert result["status"] == "post_ingested"
 
     def test_herald_classify(self):
-        from future_predictor_council.src.agents.expansion import EXPANSION_STUBS
-        from future_predictor_council.src.agents.orchestrator import Task
+        from ncl_agency_runtime.fpc.agents.expansion import EXPANSION_STUBS
+        from ncl_agency_runtime.fpc.agents.orchestrator import Task
         result = EXPANSION_STUBS["xf"].handle(Task("T-xf", "xf", "Test"), {
             "payload": {
                 "action": "classify",
@@ -727,8 +727,8 @@ class TestHeraldAgentIntegration(unittest.TestCase):
         assert result["domain"] == "ai_technology"
 
     def test_herald_pipeline(self):
-        from future_predictor_council.src.agents.expansion import EXPANSION_STUBS
-        from future_predictor_council.src.agents.orchestrator import Task
+        from ncl_agency_runtime.fpc.agents.expansion import EXPANSION_STUBS
+        from ncl_agency_runtime.fpc.agents.orchestrator import Task
         result = EXPANSION_STUBS["xf"].handle(Task("T-xf", "xf", "Test"), {
             "payload": {
                 "action": "pipeline",
@@ -747,24 +747,24 @@ class TestHeraldAgentIntegration(unittest.TestCase):
         assert result["domain"] == "finance_markets"
 
     def test_herald_digest(self):
-        from future_predictor_council.src.agents.expansion import EXPANSION_STUBS
-        from future_predictor_council.src.agents.orchestrator import Task
+        from ncl_agency_runtime.fpc.agents.expansion import EXPANSION_STUBS
+        from ncl_agency_runtime.fpc.agents.orchestrator import Task
         result = EXPANSION_STUBS["xf"].handle(Task("T-xf", "xf", "Test"), {
             "payload": {"action": "digest"},
         })
         assert result["status"] == "digest_generated"
 
     def test_herald_summary(self):
-        from future_predictor_council.src.agents.expansion import EXPANSION_STUBS
-        from future_predictor_council.src.agents.orchestrator import Task
+        from ncl_agency_runtime.fpc.agents.expansion import EXPANSION_STUBS
+        from ncl_agency_runtime.fpc.agents.orchestrator import Task
         result = EXPANSION_STUBS["xf"].handle(Task("T-xf", "xf", "Test"), {
             "payload": {"action": "summary"},
         })
         assert result["status"] == "summary_generated"
 
     def test_herald_queue(self):
-        from future_predictor_council.src.agents.expansion import EXPANSION_STUBS
-        from future_predictor_council.src.agents.orchestrator import Task
+        from ncl_agency_runtime.fpc.agents.expansion import EXPANSION_STUBS
+        from ncl_agency_runtime.fpc.agents.orchestrator import Task
         result = EXPANSION_STUBS["xf"].handle(Task("T-xf", "xf", "Test"), {
             "payload": {"action": "queue", "agent_codename": "ai"},
         })
@@ -777,11 +777,11 @@ class TestHeraldAgentIntegration(unittest.TestCase):
 
 class TestXFeedEventTypes(unittest.TestCase):
     def test_event_type_count(self):
-        from future_predictor_council.src.agents.events import EventType
+        from ncl_agency_runtime.fpc.agents.events import EventType
         assert len(EventType) == 71
 
     def test_x_feed_events_exist(self):
-        from future_predictor_council.src.agents.events import EventType
+        from ncl_agency_runtime.fpc.agents.events import EventType
         x_events = {
             EventType.X_FEED_INGEST,
             EventType.X_FEED_CLASSIFY,
@@ -793,7 +793,7 @@ class TestXFeedEventTypes(unittest.TestCase):
         assert len(x_events) == 6
 
     def test_x_feed_event_values(self):
-        from future_predictor_council.src.agents.events import EventType
+        from ncl_agency_runtime.fpc.agents.events import EventType
         assert EventType.X_FEED_INGEST.value == "xfeed.ingest"
         assert EventType.X_FEED_CLASSIFY.value == "xfeed.classify"
         assert EventType.X_FEED_FILTER.value == "xfeed.filter"
@@ -804,29 +804,29 @@ class TestXFeedEventTypes(unittest.TestCase):
 
 class TestXIntelligenceRosterIntegration(unittest.TestCase):
     def test_herald_in_expansion_pack(self):
-        from future_predictor_council.src.agents import EXPANSION_PACK
+        from ncl_agency_runtime.fpc.agents import EXPANSION_PACK
         assert len(EXPANSION_PACK) == 21
         herald = next(a for a in EXPANSION_PACK if a.codename == "xf")
         assert herald.callsign == "HERALD"
         assert herald.name == "X Intelligence & Feed Router"
 
     def test_all_agents_count(self):
-        from future_predictor_council.src.agents import ALL_AGENTS
+        from ncl_agency_runtime.fpc.agents import ALL_AGENTS
         assert len(ALL_AGENTS) == 31
 
     def test_herald_capabilities(self):
-        from future_predictor_council.src.agents import EXPANSION_PACK
+        from ncl_agency_runtime.fpc.agents import EXPANSION_PACK
         herald = next(a for a in EXPANSION_PACK if a.codename == "xf")
         assert len(herald.capabilities) == 8
 
     def test_expansion_stubs_count(self):
-        from future_predictor_council.src.agents.expansion import EXPANSION_STUBS
+        from ncl_agency_runtime.fpc.agents.expansion import EXPANSION_STUBS
         assert len(EXPANSION_STUBS) == 21
         assert "xf" in EXPANSION_STUBS
 
     def test_wolfram_knows_herald(self):
-        from future_predictor_council.src.agents.expansion import EXPANSION_STUBS
-        from future_predictor_council.src.agents.orchestrator import Task
+        from ncl_agency_runtime.fpc.agents.expansion import EXPANSION_STUBS
+        from ncl_agency_runtime.fpc.agents.orchestrator import Task
         result = EXPANSION_STUBS["wp"].handle(Task("T-wp", "wp", "Test"), {"payload": {}})
         assert result["status"] == "wolfram_observed"
         # WolframAgent known list includes all 30 agents

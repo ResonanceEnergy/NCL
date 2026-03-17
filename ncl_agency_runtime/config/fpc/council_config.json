@@ -1,0 +1,55 @@
+{
+  "council_name": "Future Predictor Council",
+  "quorum_threshold": 0.6,
+  "max_predictions_per_session": 10,
+  "evidence_required": true,
+  "consensus_required": true,
+  "llm": {
+    "enabled": false,
+    "provider": "openai",
+    "model": "gpt-4o-mini",
+    "temperature": 0.7,
+    "max_tokens": 1024
+  },
+  "council_members": [
+    {"name": "Trend Analyzer", "specialty": "Pattern Recognition", "weight": 0.3},
+    {"name": "Risk Assessor", "specialty": "Risk Analysis", "weight": 0.25},
+    {"name": "Scenario Planner", "specialty": "Scenario Development", "weight": 0.25},
+    {"name": "Strategy Advisor", "specialty": "Strategic Planning", "weight": 0.2}
+  ],
+  "rss_feeds": [
+    "https://feeds.feedburner.com/TechCrunch/",
+    "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml"
+  ],
+  "api_endpoints": [],
+  "forecasting": {
+    "default_freq": "D",
+    "default_horizon": 14,
+    "default_n_windows": 3,
+    "season_length": 7,
+    "strategies": [
+      {"name": "StatsForecastStrategy", "enabled": true},
+      {"name": "ChronosStrategy", "enabled": false, "model_id": "amazon/chronos-bolt-small"},
+      {"name": "TimesFMStrategy", "enabled": false},
+      {"name": "ProphetStrategy", "enabled": false},
+      {"name": "PatchTSTStrategy", "enabled": false},
+      {"name": "NeuralForecastStrategy", "enabled": false}
+    ]
+  },
+  "data_sources": {
+    "fred": {
+      "enabled": false,
+      "series": ["GDP", "CPIAUCSL", "UNRATE", "DFF", "T10Y2Y", "VIXCLS"]
+    },
+    "alpha_vantage": {
+      "enabled": false,
+      "symbols": ["SPY", "QQQ"],
+      "crypto": ["BTC", "ETH"]
+    }
+  },
+  "explainability": {
+    "enabled": false,
+    "method": "auto",
+    "top_k_features": 5
+  }
+}

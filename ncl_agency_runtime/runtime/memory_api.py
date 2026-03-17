@@ -3,11 +3,14 @@
 NCL Memory API - High-level memory operations for cognitive augmentation
 """
 
+import logging
 import sys
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger("ncl.memory_api")
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent.parent))
@@ -23,7 +26,7 @@ try:
     )
     MEMORY_ENABLED = True
 except ImportError:
-    print("Warning: Memory system not available")
+    logger.warning("Memory system not available")
     MEMORY_ENABLED = False
 
 

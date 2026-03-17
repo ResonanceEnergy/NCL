@@ -23,7 +23,7 @@ try:
     from memory_api import store_task_execution
     MEMORY_ENABLED = True
 except ImportError:
-    print("Warning: Memory API not available, running without memory integration")
+    LOG.warning("Memory API not available — running without memory integration")
     MEMORY_ENABLED = False
 
 
@@ -45,7 +45,9 @@ def load_events_for_date(event_log_dir: Path, date_str: str):
 
 
 def make_daily_brief(events, date_str):
-    # Rules-based placeholder (local-only). Replace with smarter agents later.
+    # Habit 1 (Be Proactive): Generate briefs before the user asks.
+    # Art of War: 'Supreme excellence — win without fighting.'
+    # Law 6 (Court attention): Push insights proactively.
     counts: dict[str, int] = {}
     for e in events:
         et = e.get('event_type','unknown')
@@ -64,8 +66,8 @@ def make_daily_brief(events, date_str):
     lines.append("")
     lines.append("## Next Actions (v0)")
     lines.append("- Capture 1 QuickLog (energy/stress) if none exists today.")
-    lines.append("- If you saw multiple focus switches, consider a 20–40 min Deep Work block.")  # noqa: RUF001
-    lines.append("- If you’re low energy, prioritize recovery and 1 small win.")  # noqa: RUF001
+    lines.append("- If you saw multiple focus switches, consider a 20–40 min Deep Work block.")
+    lines.append("- If you’re low energy, prioritize recovery and 1 small win.")
     lines.append("")
     lines.append("## Receipts")
     lines.append("- This v0 brief is computed from local NDJSON counts only.")
@@ -104,7 +106,7 @@ def make_weekly_brief(events, start_date, end_date):
     lines.append("")
     lines.append("## Next Week Focus")
     lines.append("- Review top event types for patterns")
-    lines.append("- Set 1–3 intentional focus goals")  # noqa: RUF001
+    lines.append("- Set 1–3 intentional focus goals")
     lines.append("")
     lines.append("## Receipts")
     lines.append("- Weekly brief computed from local NDJSON counts.")
@@ -112,7 +114,12 @@ def make_weekly_brief(events, start_date, end_date):
 
 
 def investigate_drift(events, date_str, baseline_path=None):
-    """Investigate drift from baseline patterns."""
+    """Investigate drift from baseline patterns.
+
+    Art of War: 'Know yourself, know your enemy' — drift reveals blind spots.
+    Habit 5: Seek First to Understand — diagnose before prescribing.
+    Law 33: Discover each person's thumbscrew — find the leverage point.
+    """
     total = len(events)
     counts: dict[str, int] = {}
     for e in events:
@@ -165,7 +172,13 @@ def investigate_drift(events, date_str, baseline_path=None):
 
 
 def investigate_overload(events, date_str, threshold=50):
-    """Investigate cognitive/event overload signals."""
+    """Investigate cognitive/event overload signals.
+
+    Art of War: 'In the midst of chaos, there is opportunity' — high signal
+    density is raw material for insight extraction.
+    Habit 3: First Things First — prioritise what matters when overloaded.
+    Law 35: Master the art of timing — know when to capture and when to rest.
+    """
     total = len(events)
     counts: dict[str, int] = {}
     for e in events:
@@ -182,7 +195,7 @@ def investigate_overload(events, date_str, threshold=50):
             dt = datetime.datetime.fromisoformat(occurred.replace('Z', '+00:00'))
             hour = dt.hour
             hourly[hour] = hourly.get(hour, 0) + 1
-        except Exception:  # noqa: S110
+        except Exception:
             pass
 
     lines = []
@@ -295,6 +308,13 @@ def run_with_retry(func: Callable[[dict], str], mission: dict, *,
                    base_delay: float = 1.0,
                    mission_status: MissionStatus | None = None) -> str:
     """Execute *func(mission)* with exponential backoff on failure.
+
+    Strategic Doctrine:
+    - Law 28 (Enter action with boldness): Commit fully; no half-measures.
+    - Law 15 (Crush your enemy totally): Exhaust all retries before dead-letter.
+    - Art of War: 'In the midst of chaos, there is opportunity' — each retry
+      is a renewed chance to succeed.
+    - Habit 1 (Be Proactive): Don't accept failure passively; fight through.
 
     Returns the result string on success.
     Raises the last exception after *max_attempts* exhausted.
@@ -428,6 +448,11 @@ MISSION_HANDLERS = {
 
 def route_mission(mission: dict) -> str:
     """Route a mission to its handler by mission_type.
+
+    Strategic Doctrine:
+    - Art of War: 'The terrain dictates strategy' — route based on context.
+    - Law 48 (Assume formlessness): The router adapts to any mission type.
+    - Habit 2 (Begin with the End in Mind): Each handler targets a clear outcome.
 
     Raises ``ValueError`` for unknown mission types.
     """

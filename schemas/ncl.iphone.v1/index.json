@@ -54,6 +54,13 @@
     "ncl.connectivity.place_fingerprint": "./connectivity.place_fingerprint.json",
     "ncl.microphone.presence_label": "./microphone.presence_label.json",
     "ncl.system.focus_adherence": "./system.focus_adherence.json",
-    "ncl.consent.change": "./consent.change.json"
+    "ncl.consent.change": "./consent.change.json",
+    "ncl.focus.score": "./focus.score.json",
+    "ncl.health.mindfulness": "./health.mindfulness.json",
+    "ncl.location.home_away": "./location.home_away.json",
+    "ncl.knowledge.capture": "./knowledge.capture.json",
+    "ncl.task.completed": "./task.completed.json",
+    "ncl.mood.check_in": "./mood.check_in.json",
+    "ncl.social.interaction": "./social.interaction.json"
   }
 }

@@ -1,0 +1,15 @@
+{
+  "metric_gate": "MASE",
+  "secondary_metric": "sMAPE",
+  "causal_interventions": ["promo", "price"],
+  "cloud": "AWS",
+  "budget_weekly_usd": 50,
+  "gpu_max_hourly": 1.20,
+  "gpu_max_daily_min": 60,
+  "ram_max_hourly": 0.80,
+  "foundation_default": "off",
+  "quantiles": [0.1, 0.5, 0.9],
+  "seasonality": 7,
+  "backtest_windows": 5,
+  "notes": "5% human steering knobs — everything else is autonomous"
+}

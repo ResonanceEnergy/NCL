@@ -1,0 +1,44 @@
+{
+    "workspace_root": "workspace",
+    "gateway_url": "http://127.0.0.1:18789",
+    "gateway_api_key": null,
+    "evolution_dir": "state/evolution",
+    "channels": {
+        "file": {
+            "output_dir": "reports"
+        },
+        "discord": {
+            "enabled": false,
+            "webhook_url": "",
+            "format": "summary"
+        },
+        "telegram": {
+            "enabled": false,
+            "bot_token": "",
+            "chat_id": "",
+            "format": "summary"
+        },
+        "slack": {
+            "enabled": false,
+            "webhook_url": "",
+            "format": "summary"
+        }
+    },
+    "evolution": {
+        "accuracy_threshold_low": 0.40,
+        "accuracy_threshold_good": 0.70,
+        "min_predictions_for_eval": 5,
+        "auto_recalibrate": true
+    },
+    "icm": {
+        "stages": [
+            "01-data-ingestion",
+            "02-forecasting",
+            "03-council-deliberation",
+            "04-consensus",
+            "05-delivery"
+        ],
+        "audit_strict": false,
+        "checkpoint_enabled": true
+    }
+}

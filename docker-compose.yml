@@ -1,0 +1,95 @@
+version: "3.9"
+
+# NUREALCORTEXLINK — Docker Compose
+# Starts the full NCL stack: relay server + mission runner + autonomous daemon.
+#
+# Usage:
+#   docker compose up                  # start all services
+#   docker compose up relay            # start relay only
+#   docker compose logs -f relay       # tail relay logs
+#   docker compose down -v             # stop and remove volumes
+#
+# Secrets:
+#   Create a .env file in this directory (never commit it):
+#     NCL_API_KEY=your_secret_api_key
+#     NCL_TELEGRAM_TOKEN=your_telegram_bot_token
+
+services:
+  # ── Relay Server ─────────────────────────────────────────────────────────
+  relay:
+    build:
+      context: .
+      target: runtime
+    container_name: ncl_relay
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    volumes:
+      - ncl_data:/data
+      - ./ncl_config.json:/app/ncl_config.json:ro
+    environment:
+      NCL_DATA_DIR: /data
+      NCL_RELAY_HOST: 0.0.0.0
+      NCL_RELAY_PORT: 8787
+      NCL_API_KEYS_REQUIRED: ${NCL_API_KEYS_REQUIRED:-false}
+      NCL_API_KEY: ${NCL_API_KEY:-}
+      PYTHONUNBUFFERED: "1"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8787/health', timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - ncl_internal
+
+  # ── Mission Runner ────────────────────────────────────────────────────────
+  missions:
+    build:
+      context: .
+      target: runtime
+    container_name: ncl_missions
+    restart: unless-stopped
+    depends_on:
+      relay:
+        condition: service_healthy
+    volumes:
+      - ncl_data:/data
+      - ./ncl_config.json:/app/ncl_config.json:ro
+    environment:
+      NCL_DATA_DIR: /data
+      NCL_RELAY_URL: http://relay:8787/event
+      PYTHONUNBUFFERED: "1"
+    command: ["python", "-m", "ncl_agency_runtime.runtime.mission_runner", "--headless"]
+    networks:
+      - ncl_internal
+
+  # ── Autonomous Daemon ─────────────────────────────────────────────────────
+  daemon:
+    build:
+      context: .
+      target: runtime
+    container_name: ncl_daemon
+    restart: unless-stopped
+    depends_on:
+      relay:
+        condition: service_healthy
+    volumes:
+      - ncl_data:/data
+      - ./ncl_config.json:/app/ncl_config.json:ro
+    environment:
+      NCL_DATA_DIR: /data
+      NCL_RELAY_URL: http://relay:8787/event
+      NCL_TELEGRAM_TOKEN: ${NCL_TELEGRAM_TOKEN:-}
+      PYTHONUNBUFFERED: "1"
+    command: ["python", "-m", "ncl_agency_runtime.runtime.autonomous_daemon"]
+    networks:
+      - ncl_internal
+
+volumes:
+  ncl_data:
+    driver: local
+
+networks:
+  ncl_internal:
+    driver: bridge

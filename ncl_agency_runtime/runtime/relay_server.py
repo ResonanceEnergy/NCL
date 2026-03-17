@@ -20,17 +20,73 @@ logger = logging.getLogger("ncl.relay")
 
 MAX_REQUEST_BYTES = 1_048_576  # 1 MiB
 
+# ---- optional prometheus_client; fall back to plain counters ----
+try:
+    from prometheus_client import (
+        CONTENT_TYPE_LATEST as _PROM_CONTENT_TYPE,
+    )
+    from prometheus_client import (  # type: ignore[import]
+        Counter as _PCounter,
+    )
+    from prometheus_client import (
+        generate_latest as _prom_generate,
+    )
+    _prom_events_received = _PCounter("ncl_relay_events_received_total", "Events received")
+    _prom_events_stored = _PCounter("ncl_relay_events_stored_total", "Events stored")
+    _prom_events_quarantined = _PCounter("ncl_relay_events_quarantined_total", "Events quarantined")
+    _prom_events_duplicate = _PCounter("ncl_relay_events_duplicate_total", "Duplicate events dropped")
+    _prom_rate_limited = _PCounter("ncl_relay_rate_limited_total", "Rate-limited requests")
+    _prom_unauthorized = _PCounter("ncl_relay_unauthorized_total", "Unauthorized requests")
+    _PROMETHEUS_CLIENT = True
+except ImportError:
+    _PROMETHEUS_CLIENT = False
+
+# Plain fallback counters (always maintained for /metrics text endpoint)
+_METRICS: dict[str, int] = {
+    "events_received_total": 0,
+    "events_stored_total": 0,
+    "events_quarantined_total": 0,
+    "events_duplicate_total": 0,
+    "rate_limited_total": 0,
+    "unauthorized_total": 0,
+}
+
+
+def _inc(name: str) -> None:
+    """Increment a metrics counter (both the fallback dict and prometheus if available)."""
+    _METRICS[name] = _METRICS.get(name, 0) + 1
+    if _PROMETHEUS_CLIENT:
+        try:
+            _prom_map = {
+                "events_received_total": _prom_events_received,
+                "events_stored_total": _prom_events_stored,
+                "events_quarantined_total": _prom_events_quarantined,
+                "events_duplicate_total": _prom_events_duplicate,
+                "rate_limited_total": _prom_rate_limited,
+                "unauthorized_total": _prom_unauthorized,
+            }
+            if name in _prom_map:
+                _prom_map[name].inc()
+        except Exception:
+            pass
+
+
 # Import memory system
 try:
     from ncl_memory import get_memory_manager, store_episodic_memory
     MEMORY_ENABLED = True
 except ImportError:
-    print("Warning: Memory system not available, running without memory integration")
+    logger.warning("Memory system not available — running without memory integration")
     MEMORY_ENABLED = False
 
 
 class RateLimiter:
-    """Token-bucket rate limiter keyed by client IP."""
+    """Token-bucket rate limiter keyed by client IP.
+
+    Law 35 (Master the art of timing): Control the tempo of engagement.
+    Art of War: 'Speed is the essence of war' — but disciplined speed.
+    Habit 3 (First Things First): Throttle to protect what matters most.
+    """
 
     def __init__(self, events_per_minute: int = 60, api_calls_per_minute: int = 30):
         self.events_per_minute = events_per_minute
@@ -59,7 +115,12 @@ class RateLimiter:
 
 
 class AuthManager:
-    """Simple API key authentication manager."""
+    """Simple API key authentication manager.
+
+    Law 40 (Despise the free lunch): Earned trust model — no anonymous access.
+    Art of War: 'Let your plans be dark and impenetrable' — authenticate first.
+    Habit 1 (Be Proactive): Enforce security before any damage can occur.
+    """
 
     def __init__(self, keys: list | None = None, required: bool = False):
         self.required = required
@@ -116,8 +177,27 @@ def load_config():
                 cfg["relay"]["port"] = file_cfg["network"].get("relay_port", 8787)
             if "access" in file_cfg:
                 cfg["access"] = file_cfg["access"]
-        except Exception:  # noqa: S110
+        except Exception:
             pass
+
+    # Environment-variable overrides (always take precedence over file config)
+    _ev = os.environ
+    if "NCL_RELAY_PORT" in _ev:
+        cfg["relay"]["port"] = int(_ev["NCL_RELAY_PORT"])
+    if "NCL_RELAY_PATH" in _ev:
+        cfg["relay"]["path"] = _ev["NCL_RELAY_PATH"]
+    if "NCL_EVENT_LOG_DIR" in _ev:
+        cfg["event_log_dir"] = _ev["NCL_EVENT_LOG_DIR"]
+    if "NCL_QUARANTINE_DIR" in _ev:
+        cfg["quarantine_dir"] = _ev["NCL_QUARANTINE_DIR"]
+    if "NCL_API_KEYS_REQUIRED" in _ev:
+        cfg["access"]["api_keys_required"] = _ev["NCL_API_KEYS_REQUIRED"].lower() in ("1", "true", "yes")
+    rl = cfg["access"].setdefault("rate_limiting", {})
+    if "NCL_EVENTS_PER_MINUTE" in _ev:
+        rl["events_per_minute"] = int(_ev["NCL_EVENTS_PER_MINUTE"])
+    if "NCL_API_CALLS_PER_MINUTE" in _ev:
+        rl["api_calls_per_minute"] = int(_ev["NCL_API_CALLS_PER_MINUTE"])
+
     return cfg
 
 
@@ -139,26 +219,40 @@ class Handler(BaseHTTPRequestHandler):
         return self.client_address[0] if self.client_address else "unknown"
 
     def _check_auth(self) -> bool:
-        """Return True if request is authorised, else send 401 and return False."""
+        """Return True if request is authorised, else send 401 and return False.
+
+        Art of War: 'All warfare is based on deception' — verify before trusting.
+        Law 4: Always say less than necessary — generic 401, no internal details.
+        """
         auth: AuthManager = self.server.auth  # type: ignore[attr-defined]
         ok, reason = auth.authenticate(dict(self.headers))
         if not ok:
             self._send(401, {"ok": False, "error": "unauthorized", "detail": reason})
+            _inc("unauthorized_total")
             return False
         return True
 
     def _check_rate(self, bucket: str = "event") -> bool:
-        """Return True if within rate limit, else send 429 and return False."""
+        """Return True if within rate limit, else send 429 and return False.
+
+        Law 35: Master the art of timing — control engagement tempo.
+        """
         rl: RateLimiter = self.server.rate_limiter  # type: ignore[attr-defined]
         ip = self._client_ip()
         allowed = rl.allow_event(ip) if bucket == "event" else rl.allow_api(ip)
         if not allowed:
             self._send(429, {"ok": False, "error": "rate_limited"})
+            _inc("rate_limited_total")
             return False
         return True
 
     def _store_single_event(self, event: dict, cfg: dict) -> tuple:
-        """Validate and store a single event. Returns (ok, status_code, response_body)."""
+        """Validate and store a single event. Returns (ok, status_code, response_body).
+
+        Habit 2: Begin with the End in Mind — validate and route to clear outcome.
+        Art of War: 'Every battle is won before it is fought' — validate inputs.
+        Law 29: Plan all the way to the end — idempotency + audit trail.
+        """
         event.setdefault("observed_at", datetime.datetime.now(datetime.UTC).astimezone().isoformat())
 
         ok, reason = validate_minimal(event)
@@ -166,11 +260,13 @@ class Handler(BaseHTTPRequestHandler):
         quarantine_dir = expanduser(cfg["quarantine_dir"])
         ensure_dirs(event_log_dir, quarantine_dir)
 
+        _inc("events_received_total")
         if ok:
             # Idempotency: skip if event_id already seen
             event_id = event.get("event_id")
             seen: set = self.server.seen_event_ids  # type: ignore[attr-defined]
             if event_id and event_id in seen:
+                _inc("events_duplicate_total")
                 return True, 200, {"ok": True, "status": "duplicate", "event_id": event_id}
             if event_id:
                 seen.add(event_id)
@@ -188,11 +284,13 @@ class Handler(BaseHTTPRequestHandler):
             if MEMORY_ENABLED:
                 self._store_in_memory(event)
 
+            _inc("events_stored_total")
             return True, 200, {"ok": True, "stored": str(path), "reason": reason}
         else:
             qpath = quarantine_dir / "invalid.ndjson"
             event["_validation_error"] = reason
             append_ndjson(qpath, event)
+            _inc("events_quarantined_total")
             return False, 422, {"ok": False, "quarantined": str(qpath), "reason": reason}
 
     @staticmethod
@@ -325,13 +423,31 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 return self._send(500, {"error": str(e)})
 
+        # Prometheus-compatible metrics endpoint
+        elif path == "/metrics":
+            if _PROMETHEUS_CLIENT:
+                body = _prom_generate()
+                content_type = _PROM_CONTENT_TYPE
+            else:
+                lines = ["# TYPE ncl_relay_counter counter"]
+                for metric, value in _METRICS.items():
+                    lines.append(f"ncl_relay_{metric} {value}")
+                body = ("\n".join(lines) + "\n").encode("utf-8")
+                content_type = "text/plain; version=0.0.4; charset=utf-8"
+            self.send_response(200)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body if isinstance(body, bytes) else body.encode("utf-8"))
+            return
+
         else:
             return self._send(404, {"error": "Not found"})
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--host', default='0.0.0.0')  # noqa: S104
+    ap.add_argument('--host', default='0.0.0.0')
     ap.add_argument('--port', type=int, default=8787)
     ap.add_argument('--tls-cert', default=None, help='Path to TLS certificate PEM file')
     ap.add_argument('--tls-key', default=None, help='Path to TLS private key PEM file')

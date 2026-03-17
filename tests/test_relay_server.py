@@ -338,7 +338,7 @@ class TestRelayE2E:
     def test_wrong_path_returns_404(self, tmp_path):
         httpd, port = _start_test_server(tmp_path=tmp_path)
         try:
-            status, body = _post_event(port, make_valid_event())
+            status, _body = _post_event(port, make_valid_event())
             # First request succeeds — verifies server is running
             assert status == 200
             # Now try wrong path

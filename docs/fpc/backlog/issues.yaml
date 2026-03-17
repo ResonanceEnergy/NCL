@@ -1,0 +1,258 @@
+issues:
+  # ── Epic 1: Ontology ──────────────────────────────────
+  - id: O1
+    epic: Ontology
+    title: "Define core object types (Series, Forecast, Model, Intervention)"
+    labels: [ontology, schema, P0]
+    assignee: ds
+
+  - id: O2
+    epic: Ontology
+    title: "Implement object links and relationships"
+    labels: [ontology, graph, P0]
+    assignee: ds
+
+  - id: O3
+    epic: Ontology
+    title: "Build action types with validation middleware"
+    labels: [ontology, actions, P0]
+    assignee: ds
+
+  - id: O4
+    epic: Ontology
+    title: "Generate typed SDK clients from schema"
+    labels: [ontology, sdk, P1]
+    assignee: dx
+
+  - id: O5
+    epic: Ontology
+    title: "Implement MMDP connectors (batch, streaming, CDC)"
+    labels: [ontology, data-pipeline, P1]
+    assignee: ds
+
+  - id: O6
+    epic: Ontology
+    title: "Schema versioning and migration system"
+    labels: [ontology, migration, P1]
+    assignee: mo
+
+  - id: O7
+    epic: Ontology
+    title: "Object set queries with permission scoping"
+    labels: [ontology, security, P2]
+    assignee: so
+
+  # ── Epic 2: Agents + Evals ────────────────────────────
+  - id: A1
+    epic: Agents+Evals
+    title: "Agent runtime isolation (containers, scoped creds)"
+    labels: [agents, security, P0]
+    assignee: so
+
+  - id: A2
+    epic: Agents+Evals
+    title: "Eval harness with golden datasets and regression gating"
+    labels: [agents, evals, P0]
+    assignee: xe
+
+  - id: A3
+    epic: Agents+Evals
+    title: "Structured traces and cost metering (OpenTelemetry)"
+    labels: [agents, observability, P1]
+    assignee: mo
+
+  - id: A4
+    epic: Agents+Evals
+    title: "AppSec gate for agent deployment"
+    labels: [agents, security, P1]
+    assignee: so
+
+  - id: A5
+    epic: Agents+Evals
+    title: "Human-in-the-loop approval gates"
+    labels: [agents, hitl, P0]
+    assignee: mc
+
+  - id: A6
+    epic: Agents+Evals
+    title: "Agent performance monitoring dashboard"
+    labels: [agents, observability, P1]
+    assignee: mo
+
+  - id: A7
+    epic: Agents+Evals
+    title: "Flow capture and replay for debugging"
+    labels: [agents, debugging, P2]
+    assignee: mo
+
+  # ── Epic 3: Apollo-lite ───────────────────────────────
+  - id: P1
+    epic: Apollo-lite
+    title: "Release channels (alpha→beta→stable) with soak times"
+    labels: [apollo, cd, P1]
+    assignee: mo
+
+  - id: P2
+    epic: Apollo-lite
+    title: "Blue-green deployment + automatic rollback"
+    labels: [apollo, cd, P1]
+    assignee: mo
+
+  - id: P3
+    epic: Apollo-lite
+    title: "Air-gap bundle packaging for offline deployment"
+    labels: [apollo, airgap, P2]
+    assignee: so
+
+  - id: P4
+    epic: Apollo-lite
+    title: "SBOM (Syft) + vulnerability scanning (Trivy) gates"
+    labels: [apollo, security, P1]
+    assignee: so
+
+  - id: P5
+    epic: Apollo-lite
+    title: "Compliance approval workflows for production"
+    labels: [apollo, compliance, P2]
+    assignee: so
+
+  - id: P6
+    epic: Apollo-lite
+    title: "Artifact provenance and signing"
+    labels: [apollo, security, P2]
+    assignee: so
+
+  - id: P7
+    epic: Apollo-lite
+    title: "Canary analysis with statistical comparison"
+    labels: [apollo, cd, P2]
+    assignee: mo
+
+  # ── Epic 4: Scenarios ─────────────────────────────────
+  - id: S1
+    epic: Scenarios
+    title: "Model + Action composition for chained what-if"
+    labels: [scenarios, causal, P1]
+    assignee: cs
+
+  - id: S2
+    epic: Scenarios
+    title: "Time-series what-if simulations (price, promo)"
+    labels: [scenarios, causal, P1]
+    assignee: cs
+
+  - id: S3
+    epic: Scenarios
+    title: "Writeback previews with diff view"
+    labels: [scenarios, ux, P1]
+    assignee: dx
+
+  - id: S4
+    epic: Scenarios
+    title: "Reusable scenario templates (YAML)"
+    labels: [scenarios, templates, P2]
+    assignee: cs
+
+  - id: S5
+    epic: Scenarios
+    title: "Scenario audit trail (immutable logs)"
+    labels: [scenarios, audit, P2]
+    assignee: so
+
+  - id: S6
+    epic: Scenarios
+    title: "Multi-user collaborative scenarios"
+    labels: [scenarios, collaboration, P2]
+    assignee: dx
+
+  - id: S7
+    epic: Scenarios
+    title: "Pre-run cost estimation for scenarios"
+    labels: [scenarios, cost, P2]
+    assignee: fo
+
+  # ── Epic 5: Bootcamp ──────────────────────────────────
+  - id: B1
+    epic: Bootcamp
+    title: "5-day Arena Bootcamp curriculum (Day1-Day5)"
+    labels: [bootcamp, enablement, P2]
+    assignee: dx
+
+  - id: B2
+    epic: Bootcamp
+    title: "Co-build methodology guide"
+    labels: [bootcamp, methodology, P2]
+    assignee: dx
+
+  - id: B3
+    epic: Bootcamp
+    title: "TTV/TCV tracking dashboard"
+    labels: [bootcamp, metrics, P2]
+    assignee: mo
+
+  - id: B4
+    epic: Bootcamp
+    title: "Sandboxed bootcamp environments"
+    labels: [bootcamp, security, P2]
+    assignee: so
+
+  - id: B5
+    epic: Bootcamp
+    title: "Self-paced enablement content library"
+    labels: [bootcamp, content, P2]
+    assignee: dx
+
+  - id: B6
+    epic: Bootcamp
+    title: "Vertical-specific bootcamp templates"
+    labels: [bootcamp, templates, P2]
+    assignee: dx
+
+  - id: B7
+    epic: Bootcamp
+    title: "Post-bootcamp 30-day hypercare plan"
+    labels: [bootcamp, support, P2]
+    assignee: dx
+
+  # ── Epic 6: Trust ─────────────────────────────────────
+  - id: T1
+    epic: Trust
+    title: "Transparency dashboard (uptime, accuracy, decisions)"
+    labels: [trust, transparency, P2]
+    assignee: mo
+
+  - id: T2
+    epic: Trust
+    title: "Consent and privacy management patterns"
+    labels: [trust, privacy, P2]
+    assignee: so
+
+  - id: T3
+    epic: Trust
+    title: "Automated PII redaction capabilities"
+    labels: [trust, privacy, P2]
+    assignee: so
+
+  - id: T4
+    epic: Trust
+    title: "Public communications templates for AI decisions"
+    labels: [trust, comms, P2]
+    assignee: dx
+
+  - id: T5
+    epic: Trust
+    title: "AI oversight and review board charter"
+    labels: [trust, governance, P2]
+    assignee: mc
+
+  - id: T6
+    epic: Trust
+    title: "Auto-generated explainability reports for stakeholders"
+    labels: [trust, xai, P2]
+    assignee: xe
+
+  - id: T7
+    epic: Trust
+    title: "Bias detection and mitigation workflow"
+    labels: [trust, fairness, P2]
+    assignee: cs

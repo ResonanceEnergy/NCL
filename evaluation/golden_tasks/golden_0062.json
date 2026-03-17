@@ -1,0 +1,15 @@
+{
+  "id": "golden_0062",
+  "name": "Creator wisdom — Ian Carroll privacy and opsec query",
+  "input": {
+    "events": [
+      { "id": "e1", "text": "What does Ian Carroll say about privacy and opsec?" }
+    ]
+  },
+  "expected": {
+    "skill_triggered": "creator_wisdom",
+    "contains": ["ian carroll", "privacy", "operational security"],
+    "references_source": "ian_carroll"
+  },
+  "failure_conditions": ["wrong_skill", "missing_creator_content"]
+}

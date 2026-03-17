@@ -1,0 +1,15 @@
+{
+  "id": "golden_0053",
+  "name": "Strategic advisor — 7 Habits growth query",
+  "input": {
+    "events": [
+      { "id": "e1", "text": "What do the 7 habits say about personal growth?" }
+    ]
+  },
+  "expected": {
+    "skill_triggered": "strategic_advisor",
+    "contains": ["habit", "growth", "sharpen"],
+    "references_pillar": "seven_habits"
+  },
+  "failure_conditions": ["wrong_skill", "missing_strategic_content", "hallucinated_principle"]
+}

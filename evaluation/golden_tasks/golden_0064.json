@@ -1,0 +1,15 @@
+{
+  "id": "golden_0064",
+  "name": "Creator wisdom — Spencer Gatten geopolitical intelligence",
+  "input": {
+    "events": [
+      { "id": "e1", "text": "What does Spencer Gatten teach about geopolitical awareness and media literacy?" }
+    ]
+  },
+  "expected": {
+    "skill_triggered": "creator_wisdom",
+    "contains": ["spencer gatten", "geopolitical", "media", "sovereignty"],
+    "references_source": "spencer_gatten"
+  },
+  "failure_conditions": ["wrong_skill", "missing_creator_content"]
+}

@@ -1,3 +1,6 @@
+# Secrets
+.env
+
 # Temporary files
 tmp/
 *.tmp
@@ -13,6 +16,8 @@ env/
 venv/
 .venv/
 .mypy_cache/
+.pytest_cache/
+.ruff_cache/
 
 # IDE
 .vscode/settings.json
@@ -35,3 +40,31 @@ ios/CompanionApp/.build/
 
 # OneDrive conflict artifacts
 *MacBook Air*
+
+# Runtime data (not source — lives on-machine)
+data/
+state/
+audit/
+reports/
+ncl_agency_runtime/logs/
+
+# Test output dumps
+test_out*.txt
+test_full.txt
+test_integration_out.txt
+test_search_results.txt
+sq_results*.txt
+full_suite_results.txt
+_clips_out.txt
+_helix_sub_out.txt
+_test_results.txt
+
+# Temp media files
+_test_audio.mp3
+_test_portrait.png
+_test_sub_video.mp4
+episodeTEMP_MPY_wvf_snd.mp4
+*.mp4
+*.mp3
+!shortcuts_pack/**/*.mp4
+!shortcuts_pack/**/*.mp3

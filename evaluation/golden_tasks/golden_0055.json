@@ -1,0 +1,15 @@
+{
+  "id": "golden_0055",
+  "name": "Creator wisdom — Diary of a CEO query",
+  "input": {
+    "events": [
+      { "id": "e1", "text": "Tell me about the DOAC 33 laws and Steven Bartlett" }
+    ]
+  },
+  "expected": {
+    "skill_triggered": "creator_wisdom",
+    "contains": ["bartlett", "33 laws", "diary"],
+    "references_source": "diary_of_a_ceo"
+  },
+  "failure_conditions": ["wrong_skill", "missing_creator_content", "hallucinated_principle"]
+}
