@@ -57,8 +57,8 @@ Every note has:
 ---
 
 ## Cross-System Wiring
-- **NCL captures →** Super Agency processes
-- **Super Agency outputs →** NCC governs
+- **NCL captures →** BRS processes
+- **BRS outputs →** NCC governs
 - **NCC approves →** AAC operationalizes (markets)
 - **Outputs come back →** NCL as memory
 

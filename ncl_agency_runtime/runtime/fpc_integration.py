@@ -37,7 +37,7 @@ Architecture:
 NCC Triad Routing:
     - Predictions → NCL Brain (cognitive augmentation)
     - Market trends → AAC Bank (financial intelligence)
-    - Platform signals → Super Agency (agent dispatch)
+    - Platform signals → BRS (agent dispatch)
 """
 
 from __future__ import annotations

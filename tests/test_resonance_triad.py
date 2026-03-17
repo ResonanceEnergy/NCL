@@ -1,6 +1,6 @@
-"""Tests for the Resonance Energy Triad: NCC x Super Agency x AAC integration.
+"""Tests for the Resonance Energy Triad: NCC x BRS x AAC integration.
 
-Covers: NCCGovernanceConnector, AACAssetBridge, SuperAgencyOrchestrator,
+Covers: NCCGovernanceConnector, AACAssetBridge, BRSOrchestrator,
 ResonanceTriad engine, triad EventTypes, and all three triad agents.
 """
 
@@ -386,52 +386,52 @@ class TestAACAssetBridge:
         assert s["known_exchanges"] == 8
 
 
-# ── SuperAgencyOrchestrator Tests ──────────────────────────────
+# ── BRSOrchestrator Tests ──────────────────────────────
 
 
-class TestSuperAgencyOrchestrator:
+class TestBRSOrchestrator:
     def test_discover_missing(self, tmp_path: pathlib.Path):
-        from ncl_agency_runtime.fpc.resonance_triad import SuperAgencyOrchestrator
+        from ncl_agency_runtime.fpc.resonance_triad import BRSOrchestrator
 
-        orch = SuperAgencyOrchestrator(sa_root=tmp_path / "no")
+        orch = BRSOrchestrator(sa_root=tmp_path / "no")
         assert orch.discover() is False
         assert orch.connected is False
 
     def test_discover_exists(self, tmp_path: pathlib.Path):
-        from ncl_agency_runtime.fpc.resonance_triad import SuperAgencyOrchestrator
+        from ncl_agency_runtime.fpc.resonance_triad import BRSOrchestrator
 
         sa = tmp_path / "sa"
         sa.mkdir()
-        orch = SuperAgencyOrchestrator(sa_root=sa)
+        orch = BRSOrchestrator(sa_root=sa)
         assert orch.discover() is True
         assert orch.connected is True
 
     def test_discover_with_capabilities(self, tmp_path: pathlib.Path):
-        from ncl_agency_runtime.fpc.resonance_triad import SuperAgencyOrchestrator
+        from ncl_agency_runtime.fpc.resonance_triad import BRSOrchestrator
 
         sa = tmp_path / "sa"
         for d in ["agents", "skills", "workflows", "tools"]:
             (sa / d).mkdir(parents=True)
 
-        orch = SuperAgencyOrchestrator(sa_root=sa)
+        orch = BRSOrchestrator(sa_root=sa)
         orch.discover()
         assert len(orch.capabilities) == 4
         assert "agents" in orch.capabilities
         assert "workflows" in orch.capabilities
 
     def test_dispatch_disconnected(self, tmp_path: pathlib.Path):
-        from ncl_agency_runtime.fpc.resonance_triad import AgencyDispatch, SuperAgencyOrchestrator
+        from ncl_agency_runtime.fpc.resonance_triad import AgencyDispatch, BRSOrchestrator
 
-        orch = SuperAgencyOrchestrator(sa_root=tmp_path / "no")
+        orch = BRSOrchestrator(sa_root=tmp_path / "no")
         result = orch.dispatch(AgencyDispatch(workflow_id="wf-1"))
         assert result["status"] == "dispatch_failed"
 
     def test_dispatch_connected(self, tmp_path: pathlib.Path):
-        from ncl_agency_runtime.fpc.resonance_triad import AgencyDispatch, SuperAgencyOrchestrator
+        from ncl_agency_runtime.fpc.resonance_triad import AgencyDispatch, BRSOrchestrator
 
         sa = tmp_path / "sa"
         sa.mkdir()
-        orch = SuperAgencyOrchestrator(sa_root=sa)
+        orch = BRSOrchestrator(sa_root=sa)
         orch.discover()
         result = orch.dispatch(AgencyDispatch(
             workflow_id="wf-42",
@@ -443,47 +443,47 @@ class TestSuperAgencyOrchestrator:
         assert result["priority"] == "high"
 
     def test_check_workflow_disconnected(self, tmp_path: pathlib.Path):
-        from ncl_agency_runtime.fpc.resonance_triad import SuperAgencyOrchestrator
+        from ncl_agency_runtime.fpc.resonance_triad import BRSOrchestrator
 
-        orch = SuperAgencyOrchestrator(sa_root=tmp_path / "no")
+        orch = BRSOrchestrator(sa_root=tmp_path / "no")
         status = orch.check_workflow("wf-1")
         assert status.state == "disconnected"
 
     def test_check_workflow_connected(self, tmp_path: pathlib.Path):
-        from ncl_agency_runtime.fpc.resonance_triad import SuperAgencyOrchestrator
+        from ncl_agency_runtime.fpc.resonance_triad import BRSOrchestrator
 
         sa = tmp_path / "sa"
         sa.mkdir()
-        orch = SuperAgencyOrchestrator(sa_root=sa)
+        orch = BRSOrchestrator(sa_root=sa)
         orch.discover()
         status = orch.check_workflow("wf-42")
         assert status.workflow_id == "wf-42"
         assert status.state == "pending"
 
     def test_rbac_check_disconnected(self, tmp_path: pathlib.Path):
-        from ncl_agency_runtime.fpc.resonance_triad import SuperAgencyOrchestrator
+        from ncl_agency_runtime.fpc.resonance_triad import BRSOrchestrator
 
-        orch = SuperAgencyOrchestrator(sa_root=tmp_path / "no")
+        orch = BRSOrchestrator(sa_root=tmp_path / "no")
         result = orch.rbac_check("mc", "dispatch")
         assert result["allowed"] is False
 
     def test_rbac_check_connected(self, tmp_path: pathlib.Path):
-        from ncl_agency_runtime.fpc.resonance_triad import SuperAgencyOrchestrator
+        from ncl_agency_runtime.fpc.resonance_triad import BRSOrchestrator
 
         sa = tmp_path / "sa"
         sa.mkdir()
-        orch = SuperAgencyOrchestrator(sa_root=sa)
+        orch = BRSOrchestrator(sa_root=sa)
         orch.discover()
         result = orch.rbac_check("mc", "dispatch")
         assert result["allowed"] is True
         assert result["policy"] == "council_trusted"
 
     def test_orchestrator_summary(self, tmp_path: pathlib.Path):
-        from ncl_agency_runtime.fpc.resonance_triad import SuperAgencyOrchestrator
+        from ncl_agency_runtime.fpc.resonance_triad import BRSOrchestrator
 
         sa = tmp_path / "sa"
         (sa / "agents").mkdir(parents=True)
-        orch = SuperAgencyOrchestrator(sa_root=sa)
+        orch = BRSOrchestrator(sa_root=sa)
         orch.discover()
         s = orch.summary()
         assert s["status"] == "connected"
@@ -500,7 +500,7 @@ class TestResonanceTriad:
             AACAssetBridge,
             NCCGovernanceConnector,
             ResonanceTriad,
-            SuperAgencyOrchestrator,
+            BRSOrchestrator,
         )
 
         original = mod._DOCTRINE_PATH
@@ -509,7 +509,7 @@ class TestResonanceTriad:
             triad = ResonanceTriad(
                 ncc=NCCGovernanceConnector(),
                 aac=AACAssetBridge(aac_root=tmp_path / "no_aac"),
-                agency=SuperAgencyOrchestrator(sa_root=tmp_path / "no_sa"),
+                agency=BRSOrchestrator(sa_root=tmp_path / "no_sa"),
             )
             result = triad.initialize()
             assert result["ncc"] is False
@@ -523,13 +523,13 @@ class TestResonanceTriad:
             AACAssetBridge,
             NCCGovernanceConnector,
             ResonanceTriad,
-            SuperAgencyOrchestrator,
+            BRSOrchestrator,
         )
 
         triad = ResonanceTriad(
             ncc=NCCGovernanceConnector(),
             aac=AACAssetBridge(aac_root=pathlib.Path("/nonexistent/aac")),
-            agency=SuperAgencyOrchestrator(sa_root=pathlib.Path("/nonexistent/sa")),
+            agency=BRSOrchestrator(sa_root=pathlib.Path("/nonexistent/sa")),
         )
         result = triad.initialize()
         assert result["ncc"] is True
@@ -542,7 +542,7 @@ class TestResonanceTriad:
             AACAssetBridge,
             NCCGovernanceConnector,
             ResonanceTriad,
-            SuperAgencyOrchestrator,
+            BRSOrchestrator,
         )
 
         original = mod._DOCTRINE_PATH
@@ -551,7 +551,7 @@ class TestResonanceTriad:
             triad = ResonanceTriad(
                 ncc=NCCGovernanceConnector(),
                 aac=AACAssetBridge(aac_root=tmp_path / "no"),
-                agency=SuperAgencyOrchestrator(sa_root=tmp_path / "no2"),
+                agency=BRSOrchestrator(sa_root=tmp_path / "no2"),
             )
             triad.initialize()
             res = triad.compute_resonance({})
@@ -565,14 +565,14 @@ class TestResonanceTriad:
             AACAssetBridge,
             NCCGovernanceConnector,
             ResonanceTriad,
-            SuperAgencyOrchestrator,
+            BRSOrchestrator,
         )
 
         # NCC connected (real doctrine), others disconnected
         triad = ResonanceTriad(
             ncc=NCCGovernanceConnector(),
             aac=AACAssetBridge(aac_root=tmp_path / "no"),
-            agency=SuperAgencyOrchestrator(sa_root=tmp_path / "no2"),
+            agency=BRSOrchestrator(sa_root=tmp_path / "no2"),
         )
         triad.initialize()
         res = triad.compute_resonance({
@@ -591,7 +591,7 @@ class TestResonanceTriad:
             AACAssetBridge,
             NCCGovernanceConnector,
             ResonanceTriad,
-            SuperAgencyOrchestrator,
+            BRSOrchestrator,
         )
 
         # Set up AAC with exchanges and strategies
@@ -603,7 +603,7 @@ class TestResonanceTriad:
         for i in range(52):
             (strat / f"strat_{i}.py").write_text("# strat")
 
-        # Set up Super Agency with all capability dirs
+        # Set up BRS with all capability dirs
         sa = tmp_path / "sa"
         for d in ["agents", "skills", "workflows", "tools"]:
             (sa / d).mkdir(parents=True)
@@ -611,7 +611,7 @@ class TestResonanceTriad:
         triad = ResonanceTriad(
             ncc=NCCGovernanceConnector(),
             aac=AACAssetBridge(aac_root=aac),
-            agency=SuperAgencyOrchestrator(sa_root=sa),
+            agency=BRSOrchestrator(sa_root=sa),
         )
         triad.initialize()
 
@@ -644,7 +644,7 @@ class TestResonanceTriad:
             AACAssetBridge,
             NCCGovernanceConnector,
             ResonanceTriad,
-            SuperAgencyOrchestrator,
+            BRSOrchestrator,
         )
 
         sa = tmp_path / "sa"
@@ -652,7 +652,7 @@ class TestResonanceTriad:
         triad = ResonanceTriad(
             ncc=NCCGovernanceConnector(),
             aac=AACAssetBridge(aac_root=tmp_path / "no"),
-            agency=SuperAgencyOrchestrator(sa_root=sa),
+            agency=BRSOrchestrator(sa_root=sa),
         )
         triad.initialize()
         h = triad.health()
@@ -667,13 +667,13 @@ class TestResonanceTriad:
             AACAssetBridge,
             NCCGovernanceConnector,
             ResonanceTriad,
-            SuperAgencyOrchestrator,
+            BRSOrchestrator,
         )
 
         triad = ResonanceTriad(
             ncc=NCCGovernanceConnector(),
             aac=AACAssetBridge(aac_root=tmp_path / "no"),
-            agency=SuperAgencyOrchestrator(sa_root=tmp_path / "no2"),
+            agency=BRSOrchestrator(sa_root=tmp_path / "no2"),
         )
         triad.initialize()
         report = triad.full_report({"missions_executed": 5, "success_rate": 0.9})
@@ -910,7 +910,7 @@ class TestTriadRoster:
         agent = get_agent("sa")
         assert agent is not None
         assert agent.callsign == "NEXUS"
-        assert agent.name == "Super Agency Orchestrator"
+        assert agent.name == "BRS Orchestrator"
 
     def test_sentinel_by_callsign(self):
         from ncl_agency_runtime.fpc.agents import get_agent_by_callsign

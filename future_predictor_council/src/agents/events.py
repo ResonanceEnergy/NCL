@@ -43,14 +43,14 @@ class EventType(StrEnum):
     WOLFRAM_IRREDUCIBILITY = "wolfram.irreducibility"  # CI detection result
     WOLFRAM_OBSERVE = "wolfram.observe"            # Observer projection event
 
-    # Resonance Triad: NCC x Super Agency x AAC
+    # Resonance Triad: NCC x BRS x AAC
     NCC_DOCTRINE_CHECK = "ncc.doctrine_check"      # Doctrine compliance result
     NCC_PILLAR_SCORE = "ncc.pillar_score"          # Three Pillars scoring event
     NCC_PDCA_AUDIT = "ncc.pdca_audit"              # PDCA audit loop result
     AAC_PORTFOLIO_SYNC = "aac.portfolio_sync"      # Portfolio snapshot from AAC
     AAC_SIGNAL_RELAY = "aac.signal_relay"           # Trading signal relayed
     AAC_STRATEGY_REPORT = "aac.strategy_report"    # Strategy performance report
-    AGENCY_DISPATCH = "agency.dispatch"             # Workflow dispatched to Super Agency
+    AGENCY_DISPATCH = "agency.dispatch"             # Workflow dispatched to BRS
     AGENCY_WORKFLOW = "agency.workflow"             # Workflow status update
     AGENCY_GOVERNANCE = "agency.governance"         # RBAC / governance check
     TRIAD_RESONANCE = "triad.resonance"            # Resonance energy computation

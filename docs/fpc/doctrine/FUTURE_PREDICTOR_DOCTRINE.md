@@ -81,7 +81,7 @@ This project operates within the **NCL (Neural Command Layer)** ecosystem:
 - **NCC Governance**: Council decisions are auditable and reversible
 - **NCL Memory**: Forecast results and model performance feed the memory system
 - **AAC Integration**: Trading signal generation from forecast outputs
-- **Super Agency**: Agent team follows Super OpenClaw patterns
+- **BRS**: Agent team follows Super OpenClaw patterns
 
 ## Palantir Emulation
 

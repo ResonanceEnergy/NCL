@@ -33,7 +33,7 @@ During the initial FRACTAL FUTURE doctrine session, the concept of entropy emerg
 - **NCC**: Entropy governance layer added
 - **NCL**: Memory entropy states (Fresh → Stable → Degrading → Obsolete)
 - **AAC**: Entropy regime scale (E1–E5) and risk packets
-- **Super Agency**: Entropy sentinel agent cell added
+- **BRS**: Entropy sentinel agent cell added
 
 ## Cross-References
 - [Doctrine v1.1](../doctrine/01_DOCTRINE_v1_1.md)

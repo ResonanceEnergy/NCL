@@ -1,14 +1,14 @@
 ﻿# INTEGRATION DESIGN — future-predictor-council
 
 ## Overview
-Integration points for $r within the ResonanceEnergy SuperAgency ecosystem.
+Integration points for $r within the ResonanceEnergy BRS ecosystem.
 
 ## Integration Points
 
 ### Internal (ResonanceEnergy Portfolio)
 - **NCL** — Knowledge base and second brain data sync
 - **Matrix Monitor** — Live ops display and status feed
-- **SuperAgency flywheel** — Automated development cycles via OPTIMUS/GASKET
+- **BRS flywheel** — Automated development cycles via OPTIMUS/GASKET
 
 ### External Services
 - **GitHub** — Source control, CI/CD via GitHub Actions

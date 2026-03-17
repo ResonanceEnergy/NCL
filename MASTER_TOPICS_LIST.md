@@ -9,7 +9,7 @@
 > then sync this file to match.
 >
 > **Generated:** 2026-03-13
-> **Source repos scanned:** 21 (all public ResonanceEnergy repos + SuperAgency-Shared)
+> **Source repos scanned:** 21 (all public ResonanceEnergy repos + Digital-Labour/BRS)
 
 ---
 
@@ -713,7 +713,7 @@ Each topic cluster has:
 ## 18. ENTERPRISE ARCHITECTURE & PORTFOLIO MANAGEMENT
 
 ### Primary Topics
-- NCC quad (BRAIN=NCL, AGENCY=SuperAgency, BANK=AAC, LABOUR=Digital Labour)
+- NCC quad (BRAIN=NCL, AGENCY=BRS, BANK=AAC, LABOUR=Digital Labour)
 - Enterprise portfolio management (21 repos)
 - Tier/risk/autonomy classification (L1-L5)
 - Cross-repo integration patterns
@@ -884,4 +884,4 @@ These themes appear across 5+ repos and represent the portfolio's DNA:
 | VORTEX-HUNTER | 5 |
 | NATEBJONES | 10 |
 | NCC | 9 |
-| SuperAgency-Shared (private) | 1, 9, 18 |
+| Digital-Labour / BRS (private) | 1, 9, 18 |

@@ -65,11 +65,11 @@ class RoutingTarget(StrEnum):
     """NCL division for routing."""
 
     RESEARCH = "research"  # NCL Brain — deep analysis
-    INNOVATION = "innovation"  # Super Agency — new opportunities
+    INNOVATION = "innovation"  # BRS — new opportunities
     OPERATIONS = "operations"  # Digital Labour — workflow automation
     INTELLIGENCE = "intelligence"  # NCC Command — strategic intel
     KNOWLEDGE = "knowledge"  # NCL Brain — knowledge base
-    COMMUNICATIONS = "communications"  # Super Agency — content/brand
+    COMMUNICATIONS = "communications"  # BRS — content/brand
     FINANCE = "finance"  # AAC Bank — commercial potential
     STRATEGY = "strategy"  # NCC Command — strategic decisions
 

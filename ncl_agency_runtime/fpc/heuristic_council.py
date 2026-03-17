@@ -1,5 +1,5 @@
 """
-Future Predictor Council — Super Agency Strategic Forecasting System
+Future Predictor Council — BRS Strategic Forecasting System
 
 Council members generate predictions using either:
   - Rule-based heuristics (default, always works)

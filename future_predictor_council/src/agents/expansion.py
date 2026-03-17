@@ -663,11 +663,11 @@ class VaultAgent(BaseAgent):
         }
 
 
-# ── NEXUS — Super Agency Orchestrator ─────────────────────────
+# ── NEXUS — BRS Orchestrator ──────────────────────────────────
 class NexusAgent(BaseAgent):
-    """Agent #24 — NEXUS — Super Agency Orchestrator.
+    """Agent #24 — NEXUS — BRS Orchestrator.
 
-    Connects the council to the Super Agency platform for multi-agent
+    Connects the council to BRS (Bit Rage Systems) for multi-agent
     dispatch, RBAC coordination, and workflow composition.
     """
 
@@ -675,9 +675,9 @@ class NexusAgent(BaseAgent):
     callsign = "NEXUS"
 
     def _execute(self, task: Task, event: dict[str, Any]) -> dict[str, Any]:
-        from ..resonance_triad import AgencyDispatch, SuperAgencyOrchestrator
+        from ..resonance_triad import AgencyDispatch, BRSOrchestrator
 
-        orchestrator = SuperAgencyOrchestrator()
+        orchestrator = BRSOrchestrator()
         orchestrator.discover()
 
         payload = event.get("payload", {})

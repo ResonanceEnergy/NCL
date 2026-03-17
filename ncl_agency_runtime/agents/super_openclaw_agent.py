@@ -1320,7 +1320,7 @@ class CreatorWisdomSkill(Skill):
 # ═══════════════════════════════════════════════════════════════
 
 class TriadStatusSkill(Skill):
-    """Report the NCC triad status — NCL (Brain), AAC (Bank), Super Agency."""
+    """Report the NCC triad status — NCL (Brain), AAC (Bank), BRS (Bit Rage Systems)."""
 
     name = "triad_status"
     triggers: ClassVar[list[str]] = [

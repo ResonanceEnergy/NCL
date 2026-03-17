@@ -1,4 +1,4 @@
-"""Flywheel feed — emit JSON status for the SuperAgency Repo Depot pipeline."""
+"""Flywheel feed — emit JSON status for the BRS Repo Depot pipeline."""
 
 import json
 import logging

@@ -10,7 +10,7 @@ The orchestrator provides a single `think()` method that:
   2. Runs the 5-stage ICM pipeline for prediction generation
   3. Delivers results via OpenClaw channels
   4. Triggers Ralphy evolution analysis post-prediction
-  5. Emits flywheel status for SuperAgency pipeline visibility
+  5. Emits flywheel status for BRS pipeline visibility
 """
 
 import json
@@ -104,7 +104,7 @@ class ThinkingLayer:
           2. ICM 5-stage pipeline → generate prediction
           3. OpenClaw delivery → push to channels
           4. Ralphy evolution → analyze and improve
-          5. Flywheel emit → SuperAgency visibility
+          5. Flywheel emit → BRS visibility
         """
         start = datetime.now()
         run_config = config or {}
@@ -215,7 +215,7 @@ class ThinkingLayer:
     # ── Internal helpers ─────────────────────────────────────────────────────
 
     def _emit_flywheel(self, prediction: dict | None, pipeline_run: PipelineRun):
-        """Emit flywheel status for SuperAgency pipeline visibility."""
+        """Emit flywheel status for BRS pipeline visibility."""
         try:
             from .flywheel_feed import emit_status
             if prediction:

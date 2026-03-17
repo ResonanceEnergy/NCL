@@ -3,7 +3,7 @@
 Digital Labour — Autonomous worker pool for the NCC triad.
 ═══════════════════════════════════════════════════════════
 Digital Labour is the WORKFORCE that executes tasks dispatched by NCC,
-NCL (Brain), AAC (Bank), and Super Agency (Agency).
+NCL (Brain), AAC (Bank), and BRS (Agency).
 
 Workers are stateless, queue-driven units that:
     1. Pull tasks from the labour queue

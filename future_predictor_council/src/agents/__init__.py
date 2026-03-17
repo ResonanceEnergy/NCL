@@ -574,18 +574,18 @@ EXPANSION_PACK: list[AgentRole] = [
         guardrails=["Read-only access to AAC", "No direct trading execution"],
         langgraph_nodes=["aac_snapshot", "aac_strategy", "aac_signal"],
     ),
-    # 24 ─ NEXUS — Super Agency Orchestrator
+    # 24 ─ NEXUS — BRS Orchestrator
     AgentRole(
-        name="Super Agency Orchestrator",
+        name="BRS Orchestrator",
         codename="sa",
         callsign="NEXUS",
         tier=AgentTier.EXPANSION,
         mission=(
-            "Connect the council to the Super Agency platform: multi-agent dispatch, "
+            "Connect the council to BRS (Bit Rage Systems): multi-agent dispatch, "
             "RBAC policy coordination, workflow composition, and capability bridging."
         ),
         capabilities=[
-            "Super Agency discovery and connectivity",
+            "BRS discovery and connectivity",
             "Multi-agent workflow dispatch",
             "RBAC policy coordination",
             "Workflow status monitoring",
@@ -739,7 +739,7 @@ EXPANSION_PACK: list[AgentRole] = [
             "Multi-domain content classification (12 domains)",
             "Urgency and signal quality assessment",
             "Intelligent routing to 30 agents across 9 divisions",
-            "NCC Triad pillar targeting (NCL, AAC, Super Agency, Digital Labour)",
+            "NCC Triad pillar targeting (NCL, AAC, BRS)",
             "Quality filtering with configurable thresholds",
             "Feed digest generation with routing analytics",
             "Per-agent dispatch queue management",
@@ -773,7 +773,7 @@ EXPANSION_PACK: list[AgentRole] = [
             "Impact scoring (paradigm-shift / high / moderate / low / noise)",
             "Intelligent routing to 31 agents across 8 divisions",
             "AI tool trend tracking with frequency and recency analysis",
-            "NCC Triad pillar targeting (NCL Brain, AAC Bank, Super Agency)",
+            "NCC Triad pillar targeting (NCL Brain, AAC Bank, BRS)",
             "Video digest generation with category and impact breakdowns",
             "AI Upload content analysis (10 types: model/company/safety/geo/AGI/...)",
             "Named entity extraction (24 companies, 25 models, 14 researchers)",

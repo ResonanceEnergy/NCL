@@ -37,7 +37,7 @@
 - [Risk Packets](aac/risk/) — Portfolio + cell entropy budgets
 - [Templates](aac/templates/) — Signal, regime, backtest, entropy cards
 
-### Super Agency Integration (`super_agency/`)
+### BRS Integration (`super_agency/`)
 - [Agents](super_agency/agents/) — 6 cell agents + entropy sentinel
 - [Playbooks](super_agency/playbooks/) — Daily/weekly/monthly loops + entropy controls
 - [Templates](super_agency/templates/) — Artifact contracts, telemetry, drift incidents
@@ -71,7 +71,7 @@
 
 ## Integration Map
 ```
-NCL captures → Super Agency processes → NCC governs → AAC operationalizes → outputs → NCL memory
+NCL captures → BRS processes → NCC governs → AAC operationalizes → outputs → NCL memory
 ```
 
 ## Operating Rule

@@ -1,6 +1,6 @@
-"""Resonance Energy Triad: NCC x Super Agency x AAC integration.
+"""Resonance Energy Triad: NCC x BRS x AAC integration.
 
-RESONANCE ENERGY = NCC (Governance/BRAIN) x Super Agency (Execution/AGENCY) x AAC (Assets/BANK)
+RESONANCE ENERGY = NCC (Governance/BRAIN) x BRS (Execution/AGENCY) x AAC (Assets/BANK)
 
 This module connects NCL's Future Predictor Council to the three pillars:
 
@@ -12,7 +12,7 @@ This module connects NCL's Future Predictor Council to the three pillars:
    8 exchange connectors, 52 strategies, 80+ AI agents.
    Portfolio management, trading signals, strategy performance.
 
-3. **Super Agency** — Execution orchestration layer
+3. **BRS (Bit Rage Systems)** — Execution orchestration layer
    Multi-agent coordination, RBAC governance, skill composition.
    Workflow routing, agent dispatch, capability bridging.
 """
@@ -562,12 +562,12 @@ class AACAssetBridge:
         }
 
 
-# ── Super Agency Orchestrator ─────────────────────────────────
+# ── BRS Orchestrator ──────────────────────────────────────────
 
 
 @dataclass
 class AgencyDispatch:
-    """Dispatch request to Super Agency."""
+    """Dispatch request to BRS (Bit Rage Systems)."""
 
     workflow_id: str = ""
     target_agents: list[str] = field(default_factory=list)
@@ -578,7 +578,7 @@ class AgencyDispatch:
 
 @dataclass
 class WorkflowStatus:
-    """Status of a Super Agency workflow."""
+    """Status of a BRS workflow."""
 
     workflow_id: str = ""
     state: str = "unknown"  # pending | running | completed | failed
@@ -587,18 +587,18 @@ class WorkflowStatus:
     result: dict[str, Any] = field(default_factory=dict)
 
 
-class SuperAgencyOrchestrator:
-    """Connects the council to the Super Agency platform.
+class BRSOrchestrator:
+    """Connects the council to BRS (Bit Rage Systems).
 
-    Discovers Super Agency at the known path and provides:
+    Discovers BRS at the known path and provides:
     - Multi-agent dispatch relay
     - RBAC policy coordination
     - Workflow composition
     - Capability bridging
     """
 
-    # Known Super Agency installation path
-    SA_ROOT: ClassVar[pathlib.Path] = pathlib.Path("C:/dev/SuperAgency-Shared")
+    # Known BRS installation path (Digital-Labour)
+    SA_ROOT: ClassVar[pathlib.Path] = pathlib.Path("C:/dev/Digital-Labour")
 
     def __init__(self, sa_root: pathlib.Path | None = None) -> None:
         self._root = sa_root or self.SA_ROOT
@@ -606,22 +606,21 @@ class SuperAgencyOrchestrator:
         self._capabilities: list[str] = []
 
     def discover(self) -> bool:
-        """Discover Super Agency installation."""
+        """Discover BRS installation."""
         if self._root.exists() and self._root.is_dir():
             self._connected = True
-            # Scan for capability modules
             self._capabilities = self._scan_capabilities()
             logger.info(
-                "Super Agency discovered at %s (%d capabilities)",
+                "BRS discovered at %s (%d capabilities)",
                 self._root,
                 len(self._capabilities),
             )
             return True
-        logger.warning("Super Agency not found at %s", self._root)
+        logger.warning("BRS not found at %s", self._root)
         return False
 
     def _scan_capabilities(self) -> list[str]:
-        """Scan Super Agency for available capabilities."""
+        """Scan BRS for available capabilities."""
         caps: list[str] = []
         for cap_dir in ["agents", "skills", "workflows", "tools"]:
             cpath = self._root / cap_dir
@@ -638,7 +637,7 @@ class SuperAgencyOrchestrator:
         return list(self._capabilities)
 
     def dispatch(self, request: AgencyDispatch) -> dict[str, Any]:
-        """Dispatch a workflow request to Super Agency."""
+        """Dispatch a workflow request to BRS."""
         if not self._connected:
             return {"status": "dispatch_failed", "reason": "agency_disconnected"}
 
@@ -684,6 +683,8 @@ class SuperAgencyOrchestrator:
             "capability_count": len(self._capabilities),
         }
 
+# Backward-compatible alias
+SuperAgencyOrchestrator = BRSOrchestrator
 
 # ── Resonance Triad Engine ────────────────────────────────────
 
@@ -691,7 +692,7 @@ class SuperAgencyOrchestrator:
 class ResonanceTriad:
     """Unified engine computing resonance energy across the three pillars.
 
-    RESONANCE ENERGY = NCC (Governance) x Super Agency (Execution) x AAC (Assets)
+    RESONANCE ENERGY = NCC (Governance) x BRS (Execution) x AAC (Assets)
 
     The triad amplifies capabilities when all three systems are
     connected and healthy. Degradation in any pillar reduces the
@@ -702,11 +703,11 @@ class ResonanceTriad:
         self,
         ncc: NCCGovernanceConnector | None = None,
         aac: AACAssetBridge | None = None,
-        agency: SuperAgencyOrchestrator | None = None,
+        agency: BRSOrchestrator | None = None,
     ) -> None:
         self.ncc = ncc or NCCGovernanceConnector()
         self.aac = aac or AACAssetBridge()
-        self.agency = agency or SuperAgencyOrchestrator()
+        self.agency = agency or BRSOrchestrator()
 
     def initialize(self) -> dict[str, bool]:
         """Initialize all three pillars."""
@@ -799,5 +800,5 @@ class ResonanceTriad:
                 "plan": {"score": pdca_plan.score, "findings": pdca_plan.findings},
                 "do": {"score": pdca_do.score, "findings": pdca_do.findings},
             },
-            "triad_formula": "RESONANCE = NCC(Governance) x SuperAgency(Execution) x AAC(Assets)",
+            "triad_formula": "RESONANCE = NCC(Governance) x BRS(Execution) x AAC(Assets)",
         }

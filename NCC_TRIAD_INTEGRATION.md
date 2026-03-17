@@ -15,12 +15,12 @@ This document codifies the integration of all five pillars of the Resonance Ener
 | **NCC** | `ncc` | Governance | Supreme command & control — orchestrates the triad |
 | **NCL** | `ncl` | Brain | Cognitive augmentation, second brain, memory, learning |
 | **AAC** | `aac` | Bank | Algorithmic Asset Command — trading, portfolio, 8 exchanges |
-| **Super Agency** | `sa` | Agency | Agent workforce orchestration, multi-agent coordination |
+| **BRS (Bit Rage Systems)** | `sa` | Agency | Agent workforce orchestration, multi-agent coordination |
 | **Digital Labour** | `dl` | Labour | Autonomous worker pool executing tasks for all pillars |
 
 ### The Resonance Energy Equation
 ```
-NCC governs → NCL (Brain) + AAC (Bank) + Super Agency (Agency) + Digital Labour (Workforce)
+NCC governs → NCL (Brain) + AAC (Bank) + BRS (Agency/Workforce)
               ═══════════════════════════════════════════════════════════════════════════════
               = Compounding feedback loop = RESONANCE
 ```

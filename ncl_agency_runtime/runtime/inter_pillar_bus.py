@@ -2,7 +2,7 @@
 """
 NCC Inter-Pillar Message Bus — Cross-pillar communication backbone.
 ═══════════════════════════════════════════════════════════════════
-Messages flow between NCC, NCL, AAC, Super Agency, and Digital Labour
+Messages flow between NCC, NCL, AAC, BRS, and Digital Labour
 via typed envelopes with routing, priority, audit trails, and dead-letter.
 
 Design Principles:

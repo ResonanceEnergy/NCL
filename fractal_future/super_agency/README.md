@@ -1,7 +1,7 @@
-# Super Agency — FRACTAL FUTURE Program
+# BRS (Bit Rage Systems) — FRACTAL FUTURE Program
 
 ## Mission
-Build and maintain the FRACTAL FUTURE research engine across NCC, NCL, AAC, and Super Agency using a cellular agent swarm with local autonomy + global coherence.
+Build and maintain the FRACTAL FUTURE research engine across NCC, NCL, AAC, and BRS using a cellular agent swarm with local autonomy + global coherence.
 
 ## Agent Cells
 | Cell | Mission | Weekly Minimum |

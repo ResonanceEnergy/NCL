@@ -5,7 +5,7 @@ item by content domain, urgency, and engagement type, then routes the
 intelligence to the appropriate NCL agency / agent / division.
 
 Routing taxonomy maps content to the 30-agent council, the NCC Triad
-pillars (NCL-Brain, AAC-Bank, Super Agency), and functional divisions
+pillars (NCL-Brain, AAC-Bank, BRS), and functional divisions
 (Intelligence, Strategy, Operations, Research, Governance).
 """
 
@@ -263,7 +263,7 @@ ROUTING_TABLE: list[RoutingRule] = [
         domain=ContentDomain.ENTREPRENEURSHIP,
         division=RoutingDivision.INNOVATION,
         pillar=PillarTarget.BIT_RAGE_SYSTEMS,
-        primary_agents=["ai", "sa"],   # BEACON (exponential), NEXUS (Super Agency)
+        primary_agents=["ai", "sa"],   # BEACON (exponential), NEXUS (BRS)
         secondary_agents=["ux", "sp"],  # MUSE, NAVIGATOR
         keywords=[],  # loaded from registry
     ),

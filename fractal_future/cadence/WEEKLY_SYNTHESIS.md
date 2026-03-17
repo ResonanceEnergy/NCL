@@ -32,7 +32,7 @@ _One paragraph: What happened this week across all FRACTAL FUTURE workstreams._
 - Valves triggered: _______________________________________________
 - Lessons: _______________________________________________
 
-## Super Agency
+## BRS (Bit Rage Systems)
 - Cells active: _______________________________________________
 - Artifacts produced: _______________________________________________
 - Drift incidents: __
