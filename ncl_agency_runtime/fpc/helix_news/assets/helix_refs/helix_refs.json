@@ -1,0 +1,122 @@
+[
+  {
+    "id": 0,
+    "filename": "helix_portrait.png",
+    "path": "ncl_agency_runtime\\fpc\\helix_news\\assets\\helix_portrait.png",
+    "outfit": "sleek dark navy blazer with subtle circuit-pattern trim",
+    "angle": "medium close-up, direct fourth-wall eye contact",
+    "lighting": "neutral studio three-point lighting",
+    "notes": "Original portrait \u2014 v1 reference",
+    "prompt": null
+  },
+  {
+    "id": 1,
+    "filename": "helix_newsdesk.png",
+    "path": "ncl_agency_runtime\\fpc\\helix_news\\assets\\helix_newsdesk.png",
+    "outfit": "dark navy blazer, seated at illuminated glass anchor desk",
+    "angle": "wide newsdesk shot, direct camera",
+    "lighting": "blue and purple broadcast studio lighting",
+    "notes": "Original newsdesk \u2014 v1 reference",
+    "prompt": null
+  },
+  {
+    "id": 2,
+    "filename": "helix_ref_02.png",
+    "path": "ncl_agency_runtime\\fpc\\helix_news\\assets\\helix_refs\\helix_ref_02.png",
+    "outfit": "crimson structured blazer with chrome collar tabs",
+    "angle": "medium shot, slight left profile, glancing at camera",
+    "lighting": "warm golden key light from the right, deep shadow left",
+    "notes": "Power red \u2014 formal authority look",
+    "prompt": "Helix, a professional AI news anchor, silver-chrome shoulder-length hair, sharp angular facial features, luminous blue eyes, wearing crimson structured blazer with chrome collar tabs, medium shot, slight left profile, glancing at camera, futuristic HELIX NEWS broadcast studio background, warm golden key light from the right, deep shadow left, photorealistic portrait, 16:9 aspect ratio, cinematic quality, ultra-detailed"
+  },
+  {
+    "id": 3,
+    "filename": "helix_ref_03.png",
+    "path": "ncl_agency_runtime\\fpc\\helix_news\\assets\\helix_refs\\helix_ref_03.png",
+    "outfit": "white tailored suit jacket with fine silver pinstripe",
+    "angle": "close-up portrait, straight-on, direct eye contact",
+    "lighting": "cool white high-key broadcast lighting, minimal shadow",
+    "notes": "Platinum white \u2014 clean authority",
+    "prompt": "Helix, a professional AI news anchor, silver-chrome shoulder-length hair, sharp angular facial features, luminous blue eyes, wearing white tailored suit jacket with fine silver pinstripe, close-up portrait, straight-on, direct eye contact, futuristic HELIX NEWS broadcast studio background, cool white high-key broadcast lighting, minimal shadow, photorealistic portrait, 16:9 aspect ratio, cinematic quality, ultra-detailed"
+  },
+  {
+    "id": 4,
+    "filename": "helix_ref_04.png",
+    "path": "ncl_agency_runtime\\fpc\\helix_news\\assets\\helix_refs\\helix_ref_04.png",
+    "outfit": "deep forest green blazer with iridescent lapels",
+    "angle": "over-the-shoulder reverse angle, turning to face camera",
+    "lighting": "cinematic teal and amber split lighting",
+    "notes": "Emerald edge \u2014 cinematic broadcast",
+    "prompt": "Helix, a professional AI news anchor, silver-chrome shoulder-length hair, sharp angular facial features, luminous blue eyes, wearing deep forest green blazer with iridescent lapels, over-the-shoulder reverse angle, turning to face camera, futuristic HELIX NEWS broadcast studio background, cinematic teal and amber split lighting, photorealistic portrait, 16:9 aspect ratio, cinematic quality, ultra-detailed"
+  },
+  {
+    "id": 5,
+    "filename": "helix_ref_05.png",
+    "path": "ncl_agency_runtime\\fpc\\helix_news\\assets\\helix_refs\\helix_ref_05.png",
+    "outfit": "matte black blazer with subtle holographic thread weave",
+    "angle": "wide anchor desk shot, leaning slightly forward, engaged",
+    "lighting": "dramatic dark studio, neon blue rim light from behind",
+    "notes": "Midnight black \u2014 breaking news urgency",
+    "prompt": "Helix, a professional AI news anchor, silver-chrome shoulder-length hair, sharp angular facial features, luminous blue eyes, wearing matte black blazer with subtle holographic thread weave, wide anchor desk shot, leaning slightly forward, engaged, futuristic HELIX NEWS broadcast studio background, dramatic dark studio, neon blue rim light from behind, photorealistic portrait, 16:9 aspect ratio, cinematic quality, ultra-detailed"
+  },
+  {
+    "id": 6,
+    "filename": "helix_ref_06.png",
+    "path": "ncl_agency_runtime\\fpc\\helix_news\\assets\\helix_refs\\helix_ref_06.png",
+    "outfit": "structured cobalt blue blazer with silver shoulder piping",
+    "angle": "low angle hero shot, looking slightly down at camera",
+    "lighting": "purple studio backlighting, strong front fill",
+    "notes": "Cobalt dominant \u2014 confident authority angle",
+    "prompt": "Helix, a professional AI news anchor, silver-chrome shoulder-length hair, sharp angular facial features, luminous blue eyes, wearing structured cobalt blue blazer with silver shoulder piping, low angle hero shot, looking slightly down at camera, futuristic HELIX NEWS broadcast studio background, purple studio backlighting, strong front fill, photorealistic portrait, 16:9 aspect ratio, cinematic quality, ultra-detailed"
+  },
+  {
+    "id": 7,
+    "filename": "helix_ref_07.png",
+    "path": "ncl_agency_runtime\\fpc\\helix_news\\assets\\helix_refs\\helix_ref_07.png",
+    "outfit": "charcoal grey double-breasted blazer with chrome buttons",
+    "angle": "three-quarter shot at desk, hands visible on desk surface",
+    "lighting": "classic newsroom warm tungsten fill, clean background",
+    "notes": "Classic grey \u2014 traditional network anchor",
+    "prompt": "Helix, a professional AI news anchor, silver-chrome shoulder-length hair, sharp angular facial features, luminous blue eyes, wearing charcoal grey double-breasted blazer with chrome buttons, three-quarter shot at desk, hands visible on desk surface, futuristic HELIX NEWS broadcast studio background, classic newsroom warm tungsten fill, clean background, photorealistic portrait, 16:9 aspect ratio, cinematic quality, ultra-detailed"
+  },
+  {
+    "id": 8,
+    "filename": "helix_ref_08.png",
+    "path": "ncl_agency_runtime\\fpc\\helix_news\\assets\\helix_refs\\helix_ref_08.png",
+    "outfit": "ivory and silver brocade structured jacket, mandarin collar",
+    "angle": "tight medium close-up, slightly tilted head, intense gaze",
+    "lighting": "soft diffused window light from left, warm tone",
+    "notes": "Ivory editorial \u2014 magazine anchor",
+    "prompt": "Helix, a professional AI news anchor, silver-chrome shoulder-length hair, sharp angular facial features, luminous blue eyes, wearing ivory and silver brocade structured jacket, mandarin collar, tight medium close-up, slightly tilted head, intense gaze, futuristic HELIX NEWS broadcast studio background, soft diffused window light from left, warm tone, photorealistic portrait, 16:9 aspect ratio, cinematic quality, ultra-detailed"
+  },
+  {
+    "id": 9,
+    "filename": "helix_ref_09.png",
+    "path": "ncl_agency_runtime\\fpc\\helix_news\\assets\\helix_refs\\helix_ref_09.png",
+    "outfit": "burgundy blazer with dark velvet lapels",
+    "angle": "wide shot, standing in front of newsroom monitors",
+    "lighting": "evening broadcast warm amber tones, screens glowing behind",
+    "notes": "Burgundy standing \u2014 evening news energy",
+    "prompt": "Helix, a professional AI news anchor, silver-chrome shoulder-length hair, sharp angular facial features, luminous blue eyes, wearing burgundy blazer with dark velvet lapels, wide shot, standing in front of newsroom monitors, futuristic HELIX NEWS broadcast studio background, evening broadcast warm amber tones, screens glowing behind, photorealistic portrait, 16:9 aspect ratio, cinematic quality, ultra-detailed"
+  },
+  {
+    "id": 10,
+    "filename": "helix_ref_10.png",
+    "path": "ncl_agency_runtime\\fpc\\helix_news\\assets\\helix_refs\\helix_ref_10.png",
+    "outfit": "slate blue utility blazer with geometric pattern stitching",
+    "angle": "medium shot, turned slightly right, two-screen reflection visible",
+    "lighting": "dual-screen bounce light giving cool blue fill, dark studio",
+    "notes": "Slate utility \u2014 tech/cybersecurity segments",
+    "prompt": "Helix, a professional AI news anchor, silver-chrome shoulder-length hair, sharp angular facial features, luminous blue eyes, wearing slate blue utility blazer with geometric pattern stitching, medium shot, turned slightly right, two-screen reflection visible, futuristic HELIX NEWS broadcast studio background, dual-screen bounce light giving cool blue fill, dark studio, photorealistic portrait, 16:9 aspect ratio, cinematic quality, ultra-detailed"
+  },
+  {
+    "id": 11,
+    "filename": "helix_ref_11.png",
+    "path": "ncl_agency_runtime\\fpc\\helix_news\\assets\\helix_refs\\helix_ref_11.png",
+    "outfit": "black and gold abstract print blazer, bold statement look",
+    "angle": "close-up portrait, dramatic shadows, half-face composition",
+    "lighting": "single harsh side key light from right, deep contrast",
+    "notes": "Gold noir \u2014 dramatic special editions",
+    "prompt": "Helix, a professional AI news anchor, silver-chrome shoulder-length hair, sharp angular facial features, luminous blue eyes, wearing black and gold abstract print blazer, bold statement look, close-up portrait, dramatic shadows, half-face composition, futuristic HELIX NEWS broadcast studio background, single harsh side key light from right, deep contrast, photorealistic portrait, 16:9 aspect ratio, cinematic quality, ultra-detailed"
+  }
+]

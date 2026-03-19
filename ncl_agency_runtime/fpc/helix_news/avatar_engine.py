@@ -4,7 +4,7 @@ Drives a portrait image with audio to produce a talking-head video
 using Grok Imagine (xAI), SadTalker, or a static fallback.
 
 Engines:
-    - grok_imagine: Generates scene images via xAI API + Ken Burns animation
+    - grok_imagine: Generates scene images via xAI API, anchored to a random helix reference image
     - sadtalker: Local lip-sync (requires GPU for practical use)
     - static: Portrait image + audio overlay (fast fallback)
 
@@ -17,6 +17,7 @@ Usage::
 import json as _json
 import logging
 import os
+import random
 import subprocess
 import sys
 import time
@@ -54,6 +55,36 @@ class AvatarEngine:
         self.expression_scale = av_cfg.get("expression_scale", 1.0)
         self.xai_api_key = av_cfg.get("xai_api_key") or os.environ.get("GROK_API_KEY", "")
         self.grok_model = av_cfg.get("grok_model", "grok-imagine-image")
+        # Load Helix reference catalogue and pick one outfit for this episode
+        self._episode_ref = self._load_episode_ref()
+
+    @staticmethod
+    def _load_episode_ref() -> dict | None:
+        """Load a random Helix reference entry from helix_refs.json for this episode."""
+        catalogue_path = (
+            Path(__file__).parent / "assets" / "helix_refs" / "helix_refs.json"
+        )
+        if not catalogue_path.exists():
+            return None
+        try:
+            entries = _json.loads(catalogue_path.read_text(encoding="utf-8"))
+            # Only use entries that have a saved image on disk
+            available = [
+                e for e in entries
+                if Path(e.get("path", "")).exists()
+            ]
+            if not available:
+                return None
+            chosen = random.choice(available)
+            logger.info(
+                "Episode ref: ref_%02d — %s",
+                chosen.get("id", 0),
+                chosen.get("notes", ""),
+            )
+            return chosen
+        except Exception as exc:
+            logger.warning("Could not load helix_refs.json: %s", exc)
+            return None
 
     def render(
         self,
@@ -85,7 +116,11 @@ class AvatarEngine:
 
         if self.engine == "grok_imagine":
             return self._render_grok_imagine(
-                audio_path, output_path, segment_name, segment_text, subtitle_path,
+                audio_path,
+                output_path,
+                segment_name,
+                segment_text,
+                subtitle_path,
             )
         elif self.engine == "static":
             if not Path(portrait).exists():
@@ -139,7 +174,8 @@ class AvatarEngine:
             video_path = out_dir / f"{name}.mp4"
             subtitle_file = audio_result.get("subtitles")
             result = self.render(
-                audio_path, str(video_path),
+                audio_path,
+                str(video_path),
                 segment_name=name,
                 segment_text=seg_text_map.get(name, ""),
                 subtitle_path=subtitle_file,
@@ -198,12 +234,18 @@ class AvatarEngine:
         cmd = [
             python_exe,
             str(inference_script),
-            "--driven_audio", str(Path(audio_path).resolve()),
-            "--source_image", str(Path(portrait).resolve()),
-            "--result_dir", str(result_dir),
-            "--preprocess", self.preprocess,
-            "--expression_scale", str(self.expression_scale),
-            "--size", "256",
+            "--driven_audio",
+            str(Path(audio_path).resolve()),
+            "--source_image",
+            str(Path(portrait).resolve()),
+            "--result_dir",
+            str(result_dir),
+            "--preprocess",
+            self.preprocess,
+            "--expression_scale",
+            str(self.expression_scale),
+            "--size",
+            "256",
             "--cpu",
         ]
 
@@ -385,68 +427,156 @@ class AvatarEngine:
         return CompositeVideoClip([clip, *txt_clips])
 
     # ------------------------------------------------------------------
-    # Grok Imagine (xAI) — scene image generation + Ken Burns animation
+    # Grok Imagine (xAI) — reference-guided scene generation
     # ------------------------------------------------------------------
 
-    # Visual style prompts per segment type
+    # Helix's consistent visual identity — prepended to every scene prompt
+    # so she appears as the on-camera anchor in every Grok Imagine render.
+    _HELIX_ANCHOR: ClassVar[str] = (
+        "Helix, a professional AI news anchor, silver-chrome shoulder-length hair, "
+        "sharp angular facial features, luminous blue eyes, wearing a sleek dark navy "
+        "blazer with subtle circuit-pattern trim, seated at a futuristic illuminated "
+        "glass anchor desk, making direct fourth-wall eye contact with the camera, "
+        "confident composed expression"
+    )
+
+    # Visual style prompts per segment type — Helix is always in frame
     _SCENE_PROMPTS: ClassVar[dict[str, str]] = {
         "cold_open": (
-            "Professional futuristic TV news studio, holographic displays showing "
-            "global data feeds, sleek anchor desk, dramatic blue and purple lighting, "
-            "cinematic wide shot, photorealistic, 16:9 aspect ratio"
+            "Helix, a professional AI news anchor, silver-chrome shoulder-length hair, "
+            "sharp angular facial features, luminous blue eyes, wearing a sleek dark navy "
+            "blazer with subtle circuit-pattern trim, seated at a futuristic illuminated "
+            "glass anchor desk, making direct fourth-wall eye contact with the camera, "
+            "confident composed expression, "
+            "futuristic broadcast studio background, holographic globe rotating behind her, "
+            "global data feeds on screens, dramatic blue and purple studio lighting, "
+            "photorealistic, 16:9 aspect ratio"
         ),
         "headlines": (
-            "Split-screen news broadcast showing multiple world event thumbnails, "
-            "breaking news ticker at bottom, modern newsroom aesthetic, "
-            "dramatic lighting, photorealistic, 16:9"
+            "Helix, a professional AI news anchor, silver-chrome shoulder-length hair, "
+            "sharp angular facial features, luminous blue eyes, wearing a sleek dark navy "
+            "blazer with subtle circuit-pattern trim, seated at a futuristic illuminated "
+            "glass anchor desk, making direct fourth-wall eye contact with the camera, "
+            "breaking news set, split-screen world event thumbnails flanking her, "
+            "live news ticker scrolling below, modern newsroom aesthetic, "
+            "dramatic key lighting, photorealistic, 16:9"
         ),
         "market_pulse": (
-            "Wall of financial trading screens showing candlestick charts and market "
-            "data, green and red indicators, Bloomberg terminal aesthetic, "
-            "dramatic dark room with glowing screens, photorealistic, 16:9"
+            "Helix, a professional AI news anchor, silver-chrome shoulder-length hair, "
+            "sharp angular facial features, luminous blue eyes, wearing a sleek dark navy "
+            "blazer, seated at a futuristic illuminated glass anchor desk, "
+            "fourth-wall eye contact, confident expression, "
+            "financial trading floor background, wall of candlestick charts and market data "
+            "screens behind her, green and red indicators glowing, Bloomberg terminal aesthetic, "
+            "dramatic dark room with screen-glow, photorealistic, 16:9"
         ),
         "predictions": (
-            "Futuristic holographic crystal ball surrounded by data streams and "
-            "probability charts, neural network visualization, sci-fi command center, "
+            "Helix, a professional AI news anchor, silver-chrome shoulder-length hair, "
+            "sharp angular facial features, luminous blue eyes, wearing a sleek dark navy "
+            "blazer, seated at a futuristic illuminated glass anchor desk, "
+            "fourth-wall eye contact, "
+            "holographic probability charts and data streams surrounding her, "
+            "neural network visualization in background, sci-fi command center, "
             "purple and blue neon glow, photorealistic, 16:9"
         ),
         "alerts": (
-            "Emergency operations center with red alert lighting, multiple warning "
-            "displays, urgent atmosphere, radar screens, security monitoring room, "
-            "photorealistic, 16:9"
+            "Helix, a professional AI news anchor, silver-chrome shoulder-length hair, "
+            "sharp angular facial features, luminous blue eyes, wearing a sleek dark navy "
+            "blazer, seated at a futuristic illuminated glass anchor desk, "
+            "serious urgent expression, fourth-wall eye contact, "
+            "emergency alert set background, red warning indicators on screens behind her, "
+            "urgent atmosphere, radar displays, photorealistic, 16:9"
         ),
         "closing": (
-            "Elegant futuristic news studio closing shot, NCC logo hologram, "
-            "city skyline visible through windows, golden hour lighting, "
+            "Helix, a professional AI news anchor, silver-chrome shoulder-length hair, "
+            "sharp angular facial features, luminous blue eyes, wearing a sleek dark navy "
+            "blazer, seated at a futuristic illuminated glass anchor desk, "
+            "warm professional closing expression, fourth-wall eye contact, "
+            "NCC logo hologram glowing behind her, city skyline visible through "
+            "floor-to-ceiling windows, golden hour lighting, "
             "cinematic wide angle, photorealistic, 16:9"
         ),
     }
 
     def _build_scene_prompt(self, segment_name: str, segment_text: str) -> str:
-        """Build an image generation prompt from segment context."""
+        """Build an image generation prompt from segment context.
+
+        If a reference catalogue entry was loaded for this episode, the outfit
+        and camera angle from that ref replace the default hardcoded description.
+        This gives Helix a new look every episode while keeping her identity.
+        """
         base = self._SCENE_PROMPTS.get(
             segment_name,
             "Professional futuristic news broadcast studio, photorealistic, 16:9",
         )
-        # Add content context from the script (first 120 chars)
+
+        # Swap in episode ref outfit + angle if we have one
+        if self._episode_ref:
+            outfit = self._episode_ref.get("outfit", "")
+            angle = self._episode_ref.get("angle", "")
+            lighting_hint = self._episode_ref.get("lighting", "")
+            if outfit:
+                # Replace the static navy blazer description in the base prompt
+                base = base.replace(
+                    "sleek dark navy blazer with subtle circuit-pattern trim",
+                    outfit,
+                ).replace(
+                    "sleek dark navy blazer",
+                    outfit,
+                )
+            if angle:
+                base = base.replace(
+                    "making direct fourth-wall eye contact with the camera",
+                    angle,
+                ).replace(
+                    "fourth-wall eye contact",
+                    angle,
+                )
+            if lighting_hint:
+                # Append lighting hint before the photorealistic tag
+                base = base.replace(
+                    "photorealistic, 16:9",
+                    f"{lighting_hint}, photorealistic, 16:9",
+                )
+
+        # Append broadcast content context from the script
         if segment_text:
             summary = segment_text[:120].replace('"', "'")
-            return f"{base}. News topic context: {summary}"
+            return f"{base}. News context: {summary}"
         return base
 
-    def _call_xai_image_api(self, prompt: str, output_path: Path) -> Path | None:
-        """Call xAI image generation API and save the result."""
+    def _call_xai_image_api(
+        self,
+        prompt: str,
+        output_path: Path,
+        ref_image_path: Path | None = None,
+    ) -> Path | None:
+        """Dispatch to /images/edits (with reference image) or /images/generations (text-only).
+
+        Always tries the edits endpoint first when a reference image is supplied.
+        Falls back to text-only generation on failure or when no reference exists.
+        """
         if not self.xai_api_key:
             logger.error("GROK_API_KEY not set — cannot use grok_imagine engine")
             return None
 
-        body = _json.dumps({
-            "model": self.grok_model,
-            "prompt": prompt,
-            "n": 1,
-            "response_format": "b64_json",
-        }).encode()
+        if ref_image_path and ref_image_path.exists():
+            result = self._do_image_edit(prompt, output_path, ref_image_path)
+            if result:
+                return result
+            logger.debug("Image edit endpoint unavailable — using text-only generation")
+        return self._do_image_generate(prompt, output_path)
 
+    def _do_image_generate(self, prompt: str, output_path: Path) -> Path | None:
+        """Text-to-image via POST /v1/images/generations (JSON body)."""
+        body = _json.dumps(
+            {
+                "model": self.grok_model,
+                "prompt": prompt,
+                "n": 1,
+                "response_format": "b64_json",
+            }
+        ).encode()
         req = urllib.request.Request(
             "https://api.x.ai/v1/images/generations",
             data=body,
@@ -457,7 +587,45 @@ class AvatarEngine:
             },
             method="POST",
         )
+        return self._execute_image_request(req, output_path)
 
+    def _do_image_edit(self, prompt: str, output_path: Path, ref_image: Path) -> Path | None:
+        """Image-to-image edit via POST /v1/images/edits (JSON body).
+
+        Sends the helix reference PNG as a base64 data-URI so Grok uses it as
+        a visual anchor for Helix's appearance while the prompt drives scene.
+        xAI requires Content-Type: application/json on all endpoints.
+        """
+        import base64
+
+        img_mime = "image/png" if ref_image.suffix.lower() == ".png" else "image/jpeg"
+        img_b64 = base64.b64encode(ref_image.read_bytes()).decode("ascii")
+        data_uri = f"data:{img_mime};base64,{img_b64}"
+
+        body = _json.dumps(
+            {
+                "model": self.grok_model,
+                "prompt": prompt,
+                "image": data_uri,
+                "n": 1,
+                "response_format": "b64_json",
+            }
+        ).encode()
+
+        req = urllib.request.Request(
+            "https://api.x.ai/v1/images/edits",
+            data=body,
+            headers={
+                "Authorization": f"Bearer {self.xai_api_key}",
+                "Content-Type": "application/json",
+                "User-Agent": "NCL-HelixNews/1.0",
+            },
+            method="POST",
+        )
+        return self._execute_image_request(req, output_path)
+
+    def _execute_image_request(self, req: urllib.request.Request, output_path: Path) -> Path | None:
+        """Execute an xAI image request with 3-attempt retry, decode and save."""
         for attempt in range(3):
             try:
                 with urllib.request.urlopen(req, timeout=120) as resp:
@@ -468,10 +636,8 @@ class AvatarEngine:
                     logger.error("xAI API returned no images")
                     return None
 
-                # Decode base64 image
                 img_b64 = images[0].get("b64_json", "")
                 if not img_b64:
-                    # Fallback: might return URL instead
                     img_url = images[0].get("url", "")
                     if img_url:
                         with urllib.request.urlopen(img_url, timeout=60) as img_resp:
@@ -481,6 +647,7 @@ class AvatarEngine:
                     return None
 
                 import base64
+
                 output_path.write_bytes(base64.b64decode(img_b64))
                 logger.info("Generated scene image: %s", output_path.name)
                 return output_path
@@ -489,7 +656,10 @@ class AvatarEngine:
                 body_text = e.read().decode(errors="replace")[:500]
                 logger.warning(
                     "xAI API error (attempt %d/3): %d %s — %s",
-                    attempt + 1, e.code, e.reason, body_text,
+                    attempt + 1,
+                    e.code,
+                    e.reason,
+                    body_text,
                 )
                 if e.code == 429:
                     time.sleep(5 * (attempt + 1))
@@ -502,6 +672,57 @@ class AvatarEngine:
 
         return None
 
+    @staticmethod
+    def _pick_random_ref_png() -> Path | None:
+        """Return a random helix reference PNG from the assets catalogue."""
+        refs_dir = Path(__file__).parent / "assets" / "helix_refs"
+        candidates = sorted(refs_dir.glob("helix_ref_*.png"))
+        return random.choice(candidates) if candidates else None
+
+    def _build_edit_prompt(self, segment_name: str, segment_text: str) -> str:
+        """Scene-only prompt for image-to-image mode.
+
+        Character appearance is anchored by the reference image, so this prompt
+        describes only the broadcast set and news context — not Helix's outfit.
+        """
+        scene_contexts: dict[str, str] = {
+            "cold_open": (
+                "futuristic broadcast studio, holographic globe rotating behind her, "
+                "global data feeds on screens, dramatic blue and purple studio lighting"
+            ),
+            "headlines": (
+                "breaking news set, split-screen world event thumbnails flanking her, "
+                "live news ticker scrolling below, modern newsroom aesthetic, dramatic key lighting"
+            ),
+            "market_pulse": (
+                "financial trading floor background, wall of candlestick charts and market data "
+                "screens, green and red indicators glowing, Bloomberg terminal aesthetic, "
+                "dark room with screen glow"
+            ),
+            "predictions": (
+                "holographic probability charts and data streams surrounding her, "
+                "neural network visualization background, sci-fi command center, "
+                "purple and blue neon glow"
+            ),
+            "alerts": (
+                "emergency alert set, red warning indicators on screens, urgent atmosphere, "
+                "radar displays"
+            ),
+            "closing": (
+                "NCC logo hologram glowing behind her, city skyline through floor-to-ceiling "
+                "windows, golden hour lighting, cinematic wide angle"
+            ),
+        }
+        scene = scene_contexts.get(segment_name, "professional futuristic news broadcast studio")
+        prompt = (
+            f"Helix AI news anchor seated at illuminated glass anchor desk, {scene}, "
+            f"direct fourth-wall eye contact, photorealistic 16:9 broadcast"
+        )
+        if segment_text:
+            context = segment_text[:120].replace('"', "'")
+            prompt += f". Reporting: {context}"
+        return prompt
+
     def _render_grok_imagine(
         self,
         audio_path: str,
@@ -510,7 +731,13 @@ class AvatarEngine:
         segment_text: str,
         subtitle_path: str | None = None,
     ) -> dict[str, Any]:
-        """Generate a scene image via Grok Imagine and animate with Ken Burns."""
+        """Generate a scene image via Grok Imagine and compose into video.
+
+        Picks a fresh random helix reference PNG per segment and sends it to
+        /v1/images/edits so Grok uses Helix's appearance as a visual anchor.
+        Falls back to text-only /v1/images/generations if no refs exist or the
+        edits endpoint is unavailable. No Ken Burns zoom — pure static frame.
+        """
         try:
             from moviepy import AudioFileClip, ImageClip
         except ImportError:
@@ -520,11 +747,17 @@ class AvatarEngine:
         out.parent.mkdir(parents=True, exist_ok=True)
         scene_img = out.parent / f"{segment_name}_scene.png"
 
-        # Generate scene image
-        prompt = self._build_scene_prompt(segment_name, segment_text)
+        # Pick a fresh random reference image for this segment
+        ref_png = self._pick_random_ref_png()
+        if ref_png:
+            logger.info("Using helix ref: %s", ref_png.name)
+            prompt = self._build_edit_prompt(segment_name, segment_text)
+        else:
+            prompt = self._build_scene_prompt(segment_name, segment_text)
+
         logger.info("Generating scene for '%s': %s", segment_name, prompt[:80])
 
-        result_path = self._call_xai_image_api(prompt, scene_img)
+        result_path = self._call_xai_image_api(prompt, scene_img, ref_image_path=ref_png)
         if not result_path:
             logger.warning("Grok Imagine failed for '%s', falling back to static", segment_name)
             portrait = self.source_image
@@ -532,39 +765,10 @@ class AvatarEngine:
                 return self._render_static(audio_path, output_path, portrait, subtitle_path)
             return {"error": "Grok Imagine failed and no fallback portrait", "video": None}
 
-        # Compose video: Ken Burns (slow zoom) + audio
+        # Compose video: static image + audio (no Ken Burns)
         try:
             audio = AudioFileClip(audio_path)
-            duration = audio.duration
-
-            img_clip = ImageClip(str(result_path))
-            w, h = img_clip.size
-
-            # Ken Burns: slow zoom from 100% to 115% over the segment duration
-            def ken_burns_zoom(get_frame, t):
-                """Apply a slow zoom effect."""
-                import numpy as np
-                from PIL import Image
-
-                frame = get_frame(t)
-                progress = t / max(duration, 0.1)
-                scale = 1.0 + 0.15 * progress  # 100% → 115%
-
-                img = Image.fromarray(frame)
-                new_w = int(w * scale)
-                new_h = int(h * scale)
-                img = img.resize((new_w, new_h), Image.LANCZOS)
-
-                # Center crop back to original size
-                left = (new_w - w) // 2
-                top = (new_h - h) // 2
-                img = img.crop((left, top, left + w, top + h))
-                return np.array(img)
-
-            clip = img_clip.with_duration(duration)
-            clip = clip.transform(ken_burns_zoom)
-            clip = clip.with_audio(audio)
-
+            clip = ImageClip(str(result_path)).with_duration(audio.duration).with_audio(audio)
             clip = self._overlay_subtitles(clip, subtitle_path)
 
             clip.write_videofile(
@@ -574,15 +778,16 @@ class AvatarEngine:
                 audio_codec="aac",
                 logger=None,
             )
-
             clip.close()
             audio.close()
 
-            logger.info(
-                "Grok Imagine render complete: %s (%.1fs)",
-                out.name, duration,
-            )
-            return {"video": str(out), "engine": "grok_imagine", "scene_image": str(result_path)}
+            logger.info("Grok Imagine render complete: %s (%.1fs)", out.name, audio.duration)
+            return {
+                "video": str(out),
+                "engine": "grok_imagine",
+                "scene_image": str(result_path),
+                "ref": ref_png.name if ref_png else None,
+            }
 
         except Exception as e:
             logger.error("Grok Imagine video composition failed: %s", e)

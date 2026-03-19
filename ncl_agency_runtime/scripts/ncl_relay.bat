@@ -1,8 +1,2 @@
 @echo off
-REM ═══════════════════════════════════════════════════════════════
-REM  NCL Relay Server — Windows Launcher
-REM  Starts the inter-pillar relay server on port 8787.
-REM ═══════════════════════════════════════════════════════════════
-
-cd /d "%~dp0\..\.."
-python -m ncl_agency_runtime.runtime.relay_server %*
+wscript.exe "C:\dev\silent-launch.vbs" "cmd /c C:\dev\NCL\ncl_agency_runtime\scripts\ncl_relay_core.bat %*"
