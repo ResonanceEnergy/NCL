@@ -7,7 +7,9 @@
         "output_format": "mp3"
     },
     "avatar": {
-        "engine": "grok_imagine",
+        "engine": "grok_video",
+        "grok_model": "grok-imagine-image",
+        "grok_video_model": "grok-imagine-video",
         "source_image": "ncl_agency_runtime/fpc/helix_news/assets/helix_portrait.png",
         "sadtalker_path": "C:/dev/SadTalker",
         "enhancer": "none",

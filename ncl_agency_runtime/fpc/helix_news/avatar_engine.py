@@ -43,6 +43,9 @@ logger = logging.getLogger(__name__)
 class AvatarEngine:
     """Avatar rendering engine backed by SadTalker."""
 
+    # Cached per-process: True=video accessible, False=tier-locked, None=not yet probed
+    _video_tier_ok: ClassVar[bool | None] = None
+
     def __init__(self, config_path: str = "config/helix_news.json"):
         cfg = load_config(config_path)
         av_cfg = cfg.get("avatar", {})
@@ -55,24 +58,20 @@ class AvatarEngine:
         self.expression_scale = av_cfg.get("expression_scale", 1.0)
         self.xai_api_key = av_cfg.get("xai_api_key") or os.environ.get("GROK_API_KEY", "")
         self.grok_model = av_cfg.get("grok_model", "grok-imagine-image")
+        self.grok_video_model = av_cfg.get("grok_video_model", "grok-imagine-video")
         # Load Helix reference catalogue and pick one outfit for this episode
         self._episode_ref = self._load_episode_ref()
 
     @staticmethod
     def _load_episode_ref() -> dict | None:
         """Load a random Helix reference entry from helix_refs.json for this episode."""
-        catalogue_path = (
-            Path(__file__).parent / "assets" / "helix_refs" / "helix_refs.json"
-        )
+        catalogue_path = Path(__file__).parent / "assets" / "helix_refs" / "helix_refs.json"
         if not catalogue_path.exists():
             return None
         try:
             entries = _json.loads(catalogue_path.read_text(encoding="utf-8"))
             # Only use entries that have a saved image on disk
-            available = [
-                e for e in entries
-                if Path(e.get("path", "")).exists()
-            ]
+            available = [e for e in entries if Path(e.get("path", "")).exists()]
             if not available:
                 return None
             chosen = random.choice(available)
@@ -116,6 +115,14 @@ class AvatarEngine:
 
         if self.engine == "grok_imagine":
             return self._render_grok_imagine(
+                audio_path,
+                output_path,
+                segment_name,
+                segment_text,
+                subtitle_path,
+            )
+        elif self.engine == "grok_video":
+            return self._render_grok_video(
                 audio_path,
                 output_path,
                 segment_name,
@@ -590,11 +597,11 @@ class AvatarEngine:
         return self._execute_image_request(req, output_path)
 
     def _do_image_edit(self, prompt: str, output_path: Path, ref_image: Path) -> Path | None:
-        """Image-to-image edit via POST /v1/images/edits (JSON body).
+        """Image-to-image edit via POST /v1/images/generations with image_url field.
 
-        Sends the helix reference PNG as a base64 data-URI so Grok uses it as
-        a visual anchor for Helix's appearance while the prompt drives scene.
-        xAI requires Content-Type: application/json on all endpoints.
+        xAI image editing uses the SAME endpoint as generation — just add
+        ``image_url`` to the JSON body. There is no separate /images/edits route.
+        The model uses the reference image as a visual anchor for Helix's appearance.
         """
         import base64
 
@@ -606,14 +613,14 @@ class AvatarEngine:
             {
                 "model": self.grok_model,
                 "prompt": prompt,
-                "image": data_uri,
+                "image_url": data_uri,
                 "n": 1,
                 "response_format": "b64_json",
             }
         ).encode()
 
         req = urllib.request.Request(
-            "https://api.x.ai/v1/images/edits",
+            "https://api.x.ai/v1/images/generations",
             data=body,
             headers={
                 "Authorization": f"Bearer {self.xai_api_key}",
@@ -704,10 +711,7 @@ class AvatarEngine:
                 "neural network visualization background, sci-fi command center, "
                 "purple and blue neon glow"
             ),
-            "alerts": (
-                "emergency alert set, red warning indicators on screens, urgent atmosphere, "
-                "radar displays"
-            ),
+            "alerts": ("emergency alert set, red warning indicators on screens, urgent atmosphere, radar displays"),
             "closing": (
                 "NCC logo hologram glowing behind her, city skyline through floor-to-ceiling "
                 "windows, golden hour lighting, cinematic wide angle"
@@ -722,6 +726,288 @@ class AvatarEngine:
             context = segment_text[:120].replace('"', "'")
             prompt += f". Reporting: {context}"
         return prompt
+
+    def _build_video_prompt(self, segment_name: str, segment_text: str) -> str:
+        """Motion-oriented prompt for image-to-video mode.
+
+        Describes subtle anchor movements so Grok animates Helix naturally.
+        Character appearance is driven by the reference image.
+        """
+        motion_contexts: dict[str, str] = {
+            "cold_open": (
+                "Helix AI news anchor turns to face camera with a confident smile, "
+                "holographic globe rotating in background, she adjusts her earpiece and begins speaking"
+            ),
+            "headlines": (
+                "Helix AI news anchor delivers breaking news with authoritative presence, "
+                "subtle head nods, split-screen graphics flickering on screens behind her"
+            ),
+            "market_pulse": (
+                "Helix AI news anchor gestures toward glowing market charts, "
+                "candlestick graphs animating on screens, she turns back to camera to deliver key figures"
+            ),
+            "predictions": (
+                "Helix AI news anchor with holographic probability charts swirling around her, "
+                "she points to data streams, eyes scanning the display then back to camera"
+            ),
+            "alerts": (
+                "Helix AI news anchor delivering urgent bulletin, slight forward lean, "
+                "red alert indicators pulsing on screens behind her, intense focused expression"
+            ),
+            "closing": (
+                "Helix AI news anchor giving a composed closing nod to camera, "
+                "NCC logo glowing behind her, city skyline visible through floor-to-ceiling windows"
+            ),
+        }
+        motion = motion_contexts.get(
+            segment_name,
+            "Helix AI news anchor speaking directly to camera in a futuristic broadcast studio, "
+            "subtle natural head movements, professional newsroom setting",
+        )
+        if segment_text:
+            context = segment_text[:80].replace('"', "'")
+            motion += f". Topic: {context}"
+        return motion
+
+    def _probe_video_tier(self) -> bool:
+        """Probe once whether grok-imagine-video is accessible on this API key.
+
+        Fires a minimal text-only POST (no image, 1s duration) to check tier.
+        Returns True if access is granted, False if 403 (tier-locked).
+        Result is cached in AvatarEngine._video_tier_ok for the process lifetime.
+        """
+        body = _json.dumps(
+            {
+                "model": self.grok_video_model,
+                "prompt": "probe",
+                "duration": 1,
+            }
+        ).encode()
+        req = urllib.request.Request(
+            "https://api.x.ai/v1/videos/generations",
+            data=body,
+            headers={
+                "Authorization": f"Bearer {self.xai_api_key}",
+                "Content-Type": "application/json",
+                "User-Agent": "NCL-HelixNews/1.0",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                data = _json.loads(resp.read().decode())
+                has_id = bool(data.get("request_id"))
+                logger.info("grok-imagine-video probe: ACCESSIBLE (request_id=%s)", data.get("request_id"))
+                return has_id
+        except urllib.error.HTTPError as e:
+            if e.code == 403:
+                logger.info("grok-imagine-video probe: tier-locked (403) — will use grok_imagine this session")
+                return False
+            # Non-403 error (e.g. 422 bad prompt) still means we have access
+            logger.info("grok-imagine-video probe: accessible (HTTP %d — tier OK)", e.code)
+            return True
+        except Exception as e:
+            logger.warning("grok-imagine-video probe failed: %s — assuming inaccessible", e)
+            return False
+
+    def _render_grok_video(
+        self,
+        audio_path: str,
+        output_path: str,
+        segment_name: str,
+        segment_text: str,
+        subtitle_path: str | None = None,
+    ) -> dict[str, Any]:
+        """Animate a helix reference image into video via Grok Video API.
+
+        Flow:
+          1. Pick a random helix_ref_*.png and encode it as a base64 data URI.
+          2. POST to /v1/videos/generations with model=grok-imagine-video.
+          3. Poll GET /v1/videos/{request_id} until status=done (up to 10 min).
+          4. Download the raw MP4 clip (~8s).
+          5. Loop raw clip to match audio duration and mux the TTS audio.
+          Falls back to grok_imagine on any failure.
+        """
+        import base64
+
+        if not self.xai_api_key:
+            logger.error("GROK_API_KEY not set — cannot use grok_video engine")
+            return self._render_grok_imagine(audio_path, output_path, segment_name, segment_text, subtitle_path)
+
+        # Probe tier access once per process — skip polling overhead on subsequent segments
+        if AvatarEngine._video_tier_ok is None:
+            AvatarEngine._video_tier_ok = self._probe_video_tier()
+
+        if not AvatarEngine._video_tier_ok:
+            logger.info("grok-imagine-video not yet available on this key — using grok_imagine")
+            return self._render_grok_imagine(audio_path, output_path, segment_name, segment_text, subtitle_path)
+
+        out = Path(output_path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+
+        ref_png = self._pick_random_ref_png()
+        if not ref_png:
+            logger.warning("No helix ref PNG — falling back to grok_imagine")
+            return self._render_grok_imagine(audio_path, output_path, segment_name, segment_text, subtitle_path)
+
+        prompt = self._build_video_prompt(segment_name, segment_text)
+        logger.info("Grok video prompt for '%s': %s", segment_name, prompt[:100])
+
+        # Encode reference image as base64 data URI
+        img_b64 = base64.b64encode(ref_png.read_bytes()).decode("ascii")
+        data_uri = f"data:image/png;base64,{img_b64}"
+
+        body = _json.dumps(
+            {
+                "model": self.grok_video_model,
+                "prompt": prompt,
+                "image_url": data_uri,
+                "duration": 8,
+                "aspect_ratio": "16:9",
+                "resolution": "480p",
+            }
+        ).encode()
+
+        start_req = urllib.request.Request(
+            "https://api.x.ai/v1/videos/generations",
+            data=body,
+            headers={
+                "Authorization": f"Bearer {self.xai_api_key}",
+                "Content-Type": "application/json",
+                "User-Agent": "NCL-HelixNews/1.0",
+            },
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(start_req, timeout=30) as resp:
+                start_data = _json.loads(resp.read().decode())
+        except urllib.error.HTTPError as e:
+            err_body = e.read().decode(errors="replace")[:500]
+            logger.error("Grok video start failed %d: %s", e.code, err_body)
+            return self._render_grok_imagine(audio_path, output_path, segment_name, segment_text, subtitle_path)
+        except (urllib.error.URLError, TimeoutError) as e:
+            logger.error("Grok video start network error: %s", e)
+            return self._render_grok_imagine(audio_path, output_path, segment_name, segment_text, subtitle_path)
+
+        request_id = start_data.get("request_id")
+        if not request_id:
+            logger.error("Grok video: no request_id in response: %s", start_data)
+            return self._render_grok_imagine(audio_path, output_path, segment_name, segment_text, subtitle_path)
+
+        logger.info("Grok video request started: %s — polling up to 10 min", request_id)
+
+        # Poll for completion (120 × 5s = 10 minutes)
+        video_url: str | None = None
+        for poll_num in range(120):
+            time.sleep(5)
+            poll_req = urllib.request.Request(
+                f"https://api.x.ai/v1/videos/{request_id}",
+                headers={
+                    "Authorization": f"Bearer {self.xai_api_key}",
+                    "User-Agent": "NCL-HelixNews/1.0",
+                },
+                method="GET",
+            )
+            try:
+                with urllib.request.urlopen(poll_req, timeout=30) as resp:
+                    poll_data = _json.loads(resp.read().decode())
+            except Exception as e:
+                logger.warning("Grok video poll error (attempt %d): %s", poll_num + 1, e)
+                continue
+
+            status = poll_data.get("status", "pending")
+            if status == "done":
+                video_url = poll_data.get("video", {}).get("url")
+                logger.info("Grok video ready after ~%ds", (poll_num + 1) * 5)
+                break
+            elif status in ("expired", "failed"):
+                logger.error("Grok video %s: %s", status, poll_data)
+                return self._render_grok_imagine(audio_path, output_path, segment_name, segment_text, subtitle_path)
+            if poll_num % 12 == 0:
+                logger.info("Grok video still pending... (%ds elapsed)", (poll_num + 1) * 5)
+
+        if not video_url:
+            logger.warning("Grok video timed out — falling back to grok_imagine")
+            return self._render_grok_imagine(audio_path, output_path, segment_name, segment_text, subtitle_path)
+
+        # Download raw animated clip
+        raw_clip = out.parent / f"{segment_name}_raw_video.mp4"
+        try:
+            with urllib.request.urlopen(video_url, timeout=120) as resp:
+                raw_clip.write_bytes(resp.read())
+            logger.info("Downloaded Grok video clip: %s", raw_clip.name)
+        except Exception as e:
+            logger.error("Grok video download failed: %s", e)
+            return self._render_grok_imagine(audio_path, output_path, segment_name, segment_text, subtitle_path)
+
+        # Get TTS audio duration via ffprobe
+        dur_result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "quiet",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "csv=p=0",
+                audio_path,
+            ],
+            capture_output=True,
+            text=True,
+        )
+        try:
+            audio_duration = float(dur_result.stdout.strip())
+        except ValueError:
+            audio_duration = 30.0
+
+        # Loop raw clip to audio length, mux TTS audio, scale to 720p broadcast
+        ffmpeg_cmd = [
+            "ffmpeg",
+            "-y",
+            "-stream_loop",
+            "-1",
+            "-i",
+            str(raw_clip),
+            "-i",
+            audio_path,
+            "-map",
+            "0:v:0",
+            "-map",
+            "1:a:0",
+            "-t",
+            str(audio_duration),
+            "-vf",
+            "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "fast",
+            "-crf",
+            "23",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-movflags",
+            "+faststart",
+            str(out),
+        ]
+
+        ffmpeg_result = subprocess.run(ffmpeg_cmd, capture_output=True, text=True)
+        raw_clip.unlink(missing_ok=True)
+
+        if ffmpeg_result.returncode != 0:
+            logger.error("ffmpeg loop/mux failed: %s", ffmpeg_result.stderr[-500:])
+            return self._render_grok_imagine(audio_path, output_path, segment_name, segment_text, subtitle_path)
+
+        logger.info("Grok video render complete: %s (%.1fs looped)", out.name, audio_duration)
+        return {
+            "video": str(out),
+            "engine": "grok_video",
+            "ref": ref_png.name,
+            "request_id": request_id,
+        }
 
     def _render_grok_imagine(
         self,

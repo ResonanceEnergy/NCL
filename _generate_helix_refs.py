@@ -17,6 +17,7 @@ Produces:
     assets/helix_refs/helix_ref_01.png  ... helix_ref_12.png
     assets/helix_refs/helix_refs.json   (catalogue)
 """
+
 import base64
 import json
 import logging
@@ -165,12 +166,14 @@ PROMPT_TEMPLATE = (
 
 
 def call_grok_imagine(prompt: str, output_path: Path) -> bool:
-    body = json.dumps({
-        "model": GROK_MODEL,
-        "prompt": prompt,
-        "n": 1,
-        "response_format": "b64_json",
-    }).encode()
+    body = json.dumps(
+        {
+            "model": GROK_MODEL,
+            "prompt": prompt,
+            "n": 1,
+            "response_format": "b64_json",
+        }
+    ).encode()
 
     req = urllib.request.Request(
         "https://api.x.ai/v1/images/generations",
@@ -227,16 +230,18 @@ def main() -> None:
         # Existing assets — just add catalogue entry, no API call needed
         if "path" in ref:
             existing = ASSETS_DIR.parent / ref["path"].lstrip("../")
-            catalogue.append({
-                "id": ref_id,
-                "filename": ref["filename"],
-                "path": str(ASSETS_DIR.parent / ref["filename"]),
-                "outfit": ref["outfit"],
-                "angle": ref["angle"],
-                "lighting": ref["lighting"],
-                "notes": notes,
-                "prompt": None,
-            })
+            catalogue.append(
+                {
+                    "id": ref_id,
+                    "filename": ref["filename"],
+                    "path": str(ASSETS_DIR.parent / ref["filename"]),
+                    "outfit": ref["outfit"],
+                    "angle": ref["angle"],
+                    "lighting": ref["lighting"],
+                    "notes": notes,
+                    "prompt": None,
+                }
+            )
             logger.info("Catalogued existing: %s — %s", ref["filename"], notes)
             continue
 
@@ -269,26 +274,28 @@ def main() -> None:
             angle=ref["angle"],
             lighting=ref["lighting"],
         )
-        catalogue.append({
-            "id": ref_id,
-            "filename": filename,
-            "path": str(output_path),
-            "outfit": ref["outfit"],
-            "angle": ref["angle"],
-            "lighting": ref["lighting"],
-            "notes": notes,
-            "prompt": prompt_used,
-        })
+        catalogue.append(
+            {
+                "id": ref_id,
+                "filename": filename,
+                "path": str(output_path),
+                "outfit": ref["outfit"],
+                "angle": ref["angle"],
+                "lighting": ref["lighting"],
+                "notes": notes,
+                "prompt": prompt_used,
+            }
+        )
 
     # Write catalogue
     CATALOGUE_PATH.write_text(json.dumps(catalogue, indent=2), encoding="utf-8")
     logger.info("Catalogue written: %s (%d entries)", CATALOGUE_PATH, len(catalogue))
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"HELIX REFERENCE LIBRARY — {len(catalogue)} images catalogued")
     print(f"Catalogue: {CATALOGUE_PATH}")
     print(f"Assets:    {ASSETS_DIR}")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     for entry in catalogue:
         size = ""
         p = Path(entry["path"])
