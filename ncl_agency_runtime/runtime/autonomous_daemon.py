@@ -67,26 +67,31 @@ LOG = logging.getLogger("ncl.autonomous")
 LOG.setLevel(logging.DEBUG)
 if not LOG.handlers:
     _h = logging.StreamHandler()
-    _h.setFormatter(logging.Formatter(
-        "[%(asctime)s] %(levelname)-8s %(name)s  %(message)s",
-        datefmt="%Y-%m-%dT%H:%M:%S",
-    ))
+    _h.setFormatter(
+        logging.Formatter(
+            "[%(asctime)s] %(levelname)-8s %(name)s  %(message)s",
+            datefmt="%Y-%m-%dT%H:%M:%S",
+        )
+    )
     LOG.addHandler(_h)
 
 # File-based logging for 24/7 evidence trail
 _LOG_DIR = _REPO_ROOT / "ncl_agency_runtime" / "logs"
 _LOG_DIR.mkdir(parents=True, exist_ok=True)
 _file_handler = logging.FileHandler(_LOG_DIR / "autonomous_daemon.log", encoding="utf-8")
-_file_handler.setFormatter(logging.Formatter(
-    "[%(asctime)s] %(levelname)-8s %(name)s  %(message)s",
-    datefmt="%Y-%m-%dT%H:%M:%S",
-))
+_file_handler.setFormatter(
+    logging.Formatter(
+        "[%(asctime)s] %(levelname)-8s %(name)s  %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S",
+    )
+)
 LOG.addHandler(_file_handler)
 
 
 # ═══════════════════════════════════════════════════════════════
 #  Enums & Data Types
 # ═══════════════════════════════════════════════════════════════
+
 
 class TaskPriority(StrEnum):
     CRITICAL = "critical"
@@ -117,22 +122,24 @@ class DaemonPhase(StrEnum):
 
 class EscalationLevel(StrEnum):
     """Only CRITICAL reaches the human."""
-    INFO = "info"           # logged only
-    WARNING = "warning"     # logged, self-handled
-    ERROR = "error"         # logged, retry, then escalate
-    CRITICAL = "critical"   # THE ONLY LEVEL THAT PINGS NATHAN
+
+    INFO = "info"  # logged only
+    WARNING = "warning"  # logged, self-handled
+    ERROR = "error"  # logged, retry, then escalate
+    CRITICAL = "critical"  # THE ONLY LEVEL THAT PINGS NATHAN
 
 
 @dataclass
 class AutonomousTask:
     """A unit of work self-generated or discovered by the daemon."""
+
     id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
     title: str = ""
     description: str = ""
     priority: TaskPriority = TaskPriority.NORMAL
     status: TaskStatus = TaskStatus.QUEUED
-    category: str = ""          # gap_fill, roadmap, health, research, learning
-    source: str = ""            # introspection, gap_analysis, roadmap, manual
+    category: str = ""  # gap_fill, roadmap, health, research, learning
+    source: str = ""  # introspection, gap_analysis, roadmap, manual
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     started_at: str | None = None
     completed_at: str | None = None
@@ -140,7 +147,7 @@ class AutonomousTask:
     max_attempts: int = 3
     result: dict[str, Any] = field(default_factory=dict)
     error: str | None = None
-    evidence: list[str] = field(default_factory=list)   # audit trail
+    evidence: list[str] = field(default_factory=list)  # audit trail
     tags: list[str] = field(default_factory=list)
     depends_on: list[str] = field(default_factory=list)  # task IDs
 
@@ -151,6 +158,7 @@ class AutonomousTask:
 @dataclass
 class CycleReport:
     """Report from one daemon cycle (PDCA loop)."""
+
     cycle_id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
     phase: DaemonPhase = DaemonPhase.BOOT
     started_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
@@ -167,6 +175,7 @@ class CycleReport:
 # ═══════════════════════════════════════════════════════════════
 #  Gap Analyzer — "Look Inside"
 # ═══════════════════════════════════════════════════════════════
+
 
 class GapAnalyzer:
     """Inspects the NCL system to find gaps, weaknesses, and opportunities.
@@ -207,12 +216,14 @@ class GapAnalyzer:
                 gaps.extend(found)
             except Exception as exc:
                 LOG.warning("Scanner %s failed: %s", scanner.__name__, exc)
-                gaps.append({
-                    "category": "scanner_failure",
-                    "severity": "warning",
-                    "description": f"Scanner {scanner.__name__} crashed: {exc}",
-                    "source": scanner.__name__,
-                })
+                gaps.append(
+                    {
+                        "category": "scanner_failure",
+                        "severity": "warning",
+                        "description": f"Scanner {scanner.__name__} crashed: {exc}",
+                        "source": scanner.__name__,
+                    }
+                )
         self._last_scan = {
             "timestamp": datetime.now(UTC).isoformat(),
             "total_gaps": len(gaps),
@@ -225,12 +236,14 @@ class GapAnalyzer:
         gaps = []
         test_dir = self.repo_root / "tests"
         if not test_dir.exists():
-            gaps.append({
-                "category": "testing",
-                "severity": "high",
-                "description": "Tests directory missing",
-                "source": "test_health",
-            })
+            gaps.append(
+                {
+                    "category": "testing",
+                    "severity": "high",
+                    "description": "Tests directory missing",
+                    "source": "test_health",
+                }
+            )
             return gaps
 
         test_files = list(test_dir.glob("test_*.py"))
@@ -241,18 +254,17 @@ class GapAnalyzer:
                 if py_file.name.startswith("_"):
                     continue
                 module_name = py_file.stem
-                has_test = any(
-                    f"test_{module_name}" in tf.name or module_name in tf.name
-                    for tf in test_files
-                )
+                has_test = any(f"test_{module_name}" in tf.name or module_name in tf.name for tf in test_files)
                 if not has_test:
-                    gaps.append({
-                        "category": "testing",
-                        "severity": "normal",
-                        "description": f"Module '{module_name}' has no dedicated test file",
-                        "source": "test_health",
-                        "file": str(py_file.relative_to(self.repo_root)),
-                    })
+                    gaps.append(
+                        {
+                            "category": "testing",
+                            "severity": "normal",
+                            "description": f"Module '{module_name}' has no dedicated test file",
+                            "source": "test_health",
+                            "file": str(py_file.relative_to(self.repo_root)),
+                        }
+                    )
 
         return gaps
 
@@ -261,20 +273,24 @@ class GapAnalyzer:
         gaps = []
         ruff_cfg = self.repo_root / "ruff.toml"
         if not ruff_cfg.exists():
-            gaps.append({
-                "category": "linting",
-                "severity": "normal",
-                "description": "ruff.toml config missing",
-                "source": "lint_health",
-            })
+            gaps.append(
+                {
+                    "category": "linting",
+                    "severity": "normal",
+                    "description": "ruff.toml config missing",
+                    "source": "lint_health",
+                }
+            )
         mypy_cfg = self.repo_root / "mypy.ini"
         if not mypy_cfg.exists():
-            gaps.append({
-                "category": "typing",
-                "severity": "normal",
-                "description": "mypy.ini config missing",
-                "source": "lint_health",
-            })
+            gaps.append(
+                {
+                    "category": "typing",
+                    "severity": "normal",
+                    "description": "mypy.ini config missing",
+                    "source": "lint_health",
+                }
+            )
         return gaps
 
     def _scan_roadmap_gaps(self) -> list[dict]:
@@ -282,12 +298,14 @@ class GapAnalyzer:
         gaps = []
         roadmap = self.repo_root / "ROADMAP_TO_SUCCESS.md"
         if not roadmap.exists():
-            gaps.append({
-                "category": "roadmap",
-                "severity": "high",
-                "description": "ROADMAP_TO_SUCCESS.md missing",
-                "source": "roadmap_gaps",
-            })
+            gaps.append(
+                {
+                    "category": "roadmap",
+                    "severity": "high",
+                    "description": "ROADMAP_TO_SUCCESS.md missing",
+                    "source": "roadmap_gaps",
+                }
+            )
             return gaps
 
         content = roadmap.read_text(encoding="utf-8")
@@ -307,12 +325,14 @@ class GapAnalyzer:
             elif "Phase 6" in content.split(item)[0][-200:]:
                 severity = "low"
 
-            gaps.append({
-                "category": "roadmap",
-                "severity": severity,
-                "description": f"Roadmap item incomplete: {item[:120]}",
-                "source": "roadmap_gaps",
-            })
+            gaps.append(
+                {
+                    "category": "roadmap",
+                    "severity": severity,
+                    "description": f"Roadmap item incomplete: {item[:120]}",
+                    "source": "roadmap_gaps",
+                }
+            )
 
         return gaps
 
@@ -321,41 +341,49 @@ class GapAnalyzer:
         gaps = []
         config_path = self.repo_root / "ncl_config.json"
         if not config_path.exists():
-            gaps.append({
-                "category": "config",
-                "severity": "critical",
-                "description": "ncl_config.json missing",
-                "source": "config_completeness",
-            })
+            gaps.append(
+                {
+                    "category": "config",
+                    "severity": "critical",
+                    "description": "ncl_config.json missing",
+                    "source": "config_completeness",
+                }
+            )
             return gaps
 
         try:
             config = json.loads(config_path.read_text(encoding="utf-8"))
         except Exception as exc:
-            gaps.append({
-                "category": "config",
-                "severity": "critical",
-                "description": f"ncl_config.json parse error: {exc}",
-                "source": "config_completeness",
-            })
+            gaps.append(
+                {
+                    "category": "config",
+                    "severity": "critical",
+                    "description": f"ncl_config.json parse error: {exc}",
+                    "source": "config_completeness",
+                }
+            )
             return gaps
 
         # Check for disabled features that should be enabled
         if not config.get("agency", {}).get("auto_start", False):
-            gaps.append({
-                "category": "config",
-                "severity": "normal",
-                "description": "Agency auto_start is disabled — autonomous daemon requires it",
-                "source": "config_completeness",
-            })
+            gaps.append(
+                {
+                    "category": "config",
+                    "severity": "normal",
+                    "description": "Agency auto_start is disabled — autonomous daemon requires it",
+                    "source": "config_completeness",
+                }
+            )
 
         if not config.get("memory", {}).get("enabled", False):
-            gaps.append({
-                "category": "config",
-                "severity": "high",
-                "description": "Memory system is disabled",
-                "source": "config_completeness",
-            })
+            gaps.append(
+                {
+                    "category": "config",
+                    "severity": "high",
+                    "description": "Memory system is disabled",
+                    "source": "config_completeness",
+                }
+            )
 
         return gaps
 
@@ -376,12 +404,14 @@ class GapAnalyzer:
         for d in expected_dirs:
             full = self.repo_root / d
             if not full.exists():
-                gaps.append({
-                    "category": "structure",
-                    "severity": "normal",
-                    "description": f"Expected directory missing: {d}",
-                    "source": "file_structure",
-                })
+                gaps.append(
+                    {
+                        "category": "structure",
+                        "severity": "normal",
+                        "description": f"Expected directory missing: {d}",
+                        "source": "file_structure",
+                    }
+                )
         return gaps
 
     def _scan_documentation(self) -> list[dict]:
@@ -395,12 +425,14 @@ class GapAnalyzer:
         ]
         for doc, severity in expected_docs:
             if not (self.repo_root / doc).exists():
-                gaps.append({
-                    "category": "documentation",
-                    "severity": severity,
-                    "description": f"Documentation file missing: {doc}",
-                    "source": "documentation",
-                })
+                gaps.append(
+                    {
+                        "category": "documentation",
+                        "severity": severity,
+                        "description": f"Documentation file missing: {doc}",
+                        "source": "documentation",
+                    }
+                )
         return gaps
 
     def _scan_dependency_health(self) -> list[dict]:
@@ -408,19 +440,23 @@ class GapAnalyzer:
         gaps = []
         req_file = self.repo_root / "requirements-dev.txt"
         if not req_file.exists():
-            gaps.append({
-                "category": "dependencies",
-                "severity": "high",
-                "description": "requirements-dev.txt missing",
-                "source": "dependency_health",
-            })
+            gaps.append(
+                {
+                    "category": "dependencies",
+                    "severity": "high",
+                    "description": "requirements-dev.txt missing",
+                    "source": "dependency_health",
+                }
+            )
         elif req_file.stat().st_size == 0:
-            gaps.append({
-                "category": "dependencies",
-                "severity": "high",
-                "description": "requirements-dev.txt is empty",
-                "source": "dependency_health",
-            })
+            gaps.append(
+                {
+                    "category": "dependencies",
+                    "severity": "high",
+                    "description": "requirements-dev.txt is empty",
+                    "source": "dependency_health",
+                }
+            )
         return gaps
 
     def _scan_log_anomalies(self) -> list[dict]:
@@ -436,12 +472,14 @@ class GapAnalyzer:
             recent = lines[-500:] if len(lines) > 500 else lines
             error_count = sum(1 for line in recent if "ERROR" in line)
             if error_count > 20:
-                gaps.append({
-                    "category": "health",
-                    "severity": "high",
-                    "description": f"High error rate in daemon logs: {error_count} errors in last {len(recent)} lines",
-                    "source": "log_anomalies",
-                })
+                gaps.append(
+                    {
+                        "category": "health",
+                        "severity": "high",
+                        "description": f"High error rate in daemon logs: {error_count} errors in last {len(recent)} lines",
+                        "source": "log_anomalies",
+                    }
+                )
         except Exception:
             LOG.debug("Failed to scan logs for anomalies", exc_info=True)
 
@@ -451,6 +489,7 @@ class GapAnalyzer:
         """Check FPC intelligence platform coverage and data freshness."""
         try:
             from ncl_agency_runtime.runtime.fpc_integration import scan_fpc_health
+
             return scan_fpc_health(self.repo_root)
         except Exception as exc:
             LOG.debug("FPC health scan unavailable: %s", exc)
@@ -460,6 +499,7 @@ class GapAnalyzer:
 # ═══════════════════════════════════════════════════════════════
 #  Task Generator — Self-Motivation Engine
 # ═══════════════════════════════════════════════════════════════
+
 
 class TaskGenerator:
     """Converts gaps into actionable tasks.
@@ -501,68 +541,106 @@ class TaskGenerator:
 
         # Daily morning brief (if between 5:00-7:00 UTC)
         if 5 <= now.hour <= 7:
-            tasks.append(AutonomousTask(
-                title="Generate Daily Brief",
-                description="Produce morning cognitive state assessment from event logs",
-                priority=TaskPriority.HIGH,
-                category="briefing",
-                source="scheduler",
-                tags=["daily", "brief", "proactive"],
-            ))
+            tasks.append(
+                AutonomousTask(
+                    title="Generate Daily Brief",
+                    description="Produce morning cognitive state assessment from event logs",
+                    priority=TaskPriority.HIGH,
+                    category="briefing",
+                    source="scheduler",
+                    tags=["daily", "brief", "proactive"],
+                )
+            )
+
+        # HELIX clip pre-render (08:00, 12:00, 16:00 UTC)
+        if now.hour in (8, 12, 16):
+            tasks.append(
+                AutonomousTask(
+                    title="HELIX Clip Pre-Render",
+                    description="Incrementally render new prediction clips to cache for evening assembly",
+                    priority=TaskPriority.NORMAL,
+                    category="helix_prerender",
+                    source="scheduler",
+                    tags=["helix", "clips", "prerender"],
+                )
+            )
+
+        # HELIX evening brief assembly (18:00 UTC)
+        if now.hour == 18:
+            tasks.append(
+                AutonomousTask(
+                    title="HELIX Evening Brief Assembly",
+                    description="Assemble the daily HELIX news episode from pre-cached clips",
+                    priority=TaskPriority.HIGH,
+                    category="helix_assemble",
+                    source="scheduler",
+                    tags=["helix", "brief", "assembly", "evening"],
+                )
+            )
 
         # Weekly review (Sunday)
         if now.weekday() == 6 and now.hour == 10:
-            tasks.append(AutonomousTask(
-                title="Weekly System Review",
-                description="Run full gap analysis, consolidate memory, generate weekly brief",
-                priority=TaskPriority.HIGH,
-                category="review",
-                source="scheduler",
-                tags=["weekly", "review"],
-            ))
+            tasks.append(
+                AutonomousTask(
+                    title="Weekly System Review",
+                    description="Run full gap analysis, consolidate memory, generate weekly brief",
+                    priority=TaskPriority.HIGH,
+                    category="review",
+                    source="scheduler",
+                    tags=["weekly", "review"],
+                )
+            )
 
         # Memory consolidation (every 6 hours)
         if now.hour % 6 == 0:
-            tasks.append(AutonomousTask(
-                title="Memory Consolidation Cycle",
-                description="Consolidate working memory to short-term, short-term to long-term",
-                priority=TaskPriority.NORMAL,
-                category="memory",
-                source="scheduler",
-                tags=["memory", "consolidation"],
-            ))
+            tasks.append(
+                AutonomousTask(
+                    title="Memory Consolidation Cycle",
+                    description="Consolidate working memory to short-term, short-term to long-term",
+                    priority=TaskPriority.NORMAL,
+                    category="memory",
+                    source="scheduler",
+                    tags=["memory", "consolidation"],
+                )
+            )
 
         # Learning cycle (every 4 hours)
         if now.hour % 4 == 0:
-            tasks.append(AutonomousTask(
-                title="Learning Engine Cycle",
-                description="Extract patterns from recent events, generate insights",
-                priority=TaskPriority.NORMAL,
-                category="learning",
-                source="scheduler",
-                tags=["learning", "patterns"],
-            ))
+            tasks.append(
+                AutonomousTask(
+                    title="Learning Engine Cycle",
+                    description="Extract patterns from recent events, generate insights",
+                    priority=TaskPriority.NORMAL,
+                    category="learning",
+                    source="scheduler",
+                    tags=["learning", "patterns"],
+                )
+            )
 
         # Health self-check (every hour)
-        tasks.append(AutonomousTask(
-            title="System Health Self-Check",
-            description="Verify all subsystems are operational, check resource usage",
-            priority=TaskPriority.LOW,
-            category="health",
-            source="scheduler",
-            tags=["health", "heartbeat"],
-        ))
+        tasks.append(
+            AutonomousTask(
+                title="System Health Self-Check",
+                description="Verify all subsystems are operational, check resource usage",
+                priority=TaskPriority.LOW,
+                category="health",
+                source="scheduler",
+                tags=["health", "heartbeat"],
+            )
+        )
 
         # FPC Intelligence Cycle (every 3 hours)
         if now.hour % 3 == 0:
-            tasks.append(AutonomousTask(
-                title="FPC Full Intelligence Cycle",
-                description="Run full_cycle FPC intelligence gathering, trend detection, and prediction",
-                priority=TaskPriority.NORMAL,
-                category="fpc_intelligence",
-                source="scheduler",
-                tags=["fpc", "intelligence", "prediction", "trends"],
-            ))
+            tasks.append(
+                AutonomousTask(
+                    title="FPC Full Intelligence Cycle",
+                    description="Run full_cycle FPC intelligence gathering, trend detection, and prediction",
+                    priority=TaskPriority.NORMAL,
+                    category="fpc_intelligence",
+                    source="scheduler",
+                    tags=["fpc", "intelligence", "prediction", "trends"],
+                )
+            )
 
         return tasks
 
@@ -579,26 +657,30 @@ class TaskGenerator:
         tasks: list[AutonomousTask] = []
 
         if cycle_report.tasks_failed > 0:
-            tasks.append(AutonomousTask(
-                title="Analyze Failed Tasks",
-                description=f"{cycle_report.tasks_failed} tasks failed in cycle {cycle_report.cycle_id}. "
-                            "Review errors and determine if approach needs changing.",
-                priority=TaskPriority.HIGH,
-                category="self_improvement",
-                source="self_assessment",
-                tags=["meta", "improvement"],
-            ))
+            tasks.append(
+                AutonomousTask(
+                    title="Analyze Failed Tasks",
+                    description=f"{cycle_report.tasks_failed} tasks failed in cycle {cycle_report.cycle_id}. "
+                    "Review errors and determine if approach needs changing.",
+                    priority=TaskPriority.HIGH,
+                    category="self_improvement",
+                    source="self_assessment",
+                    tags=["meta", "improvement"],
+                )
+            )
 
         if cycle_report.gaps_found > 10:
-            tasks.append(AutonomousTask(
-                title="Prioritize Gap Reduction",
-                description=f"{cycle_report.gaps_found} gaps detected. Group by category and "
-                            "create batched resolution plan.",
-                priority=TaskPriority.NORMAL,
-                category="self_improvement",
-                source="self_assessment",
-                tags=["meta", "planning"],
-            ))
+            tasks.append(
+                AutonomousTask(
+                    title="Prioritize Gap Reduction",
+                    description=f"{cycle_report.gaps_found} gaps detected. Group by category and "
+                    "create batched resolution plan.",
+                    priority=TaskPriority.NORMAL,
+                    category="self_improvement",
+                    source="self_assessment",
+                    tags=["meta", "planning"],
+                )
+            )
 
         return tasks
 
@@ -606,6 +688,7 @@ class TaskGenerator:
 # ═══════════════════════════════════════════════════════════════
 #  Task Executor — "Enter Action with Boldness" (Law 28)
 # ═══════════════════════════════════════════════════════════════
+
 
 class TaskExecutor:
     """Executes autonomous tasks with retry logic and evidence recording.
@@ -623,8 +706,7 @@ class TaskExecutor:
         task.started_at = datetime.now(UTC).isoformat()
         task.attempts += 1
 
-        LOG.info("EXECUTING [%s] %s (attempt %d/%d)",
-                 task.priority.value, task.title, task.attempts, task.max_attempts)
+        LOG.info("EXECUTING [%s] %s (attempt %d/%d)", task.priority.value, task.title, task.attempts, task.max_attempts)
 
         try:
             result = await self._dispatch(task)
@@ -641,8 +723,7 @@ class TaskExecutor:
 
             if task.attempts >= task.max_attempts:
                 task.status = TaskStatus.FAILED
-                LOG.warning("DEAD LETTER [%s] %s — max attempts exhausted",
-                            task.priority.value, task.title)
+                LOG.warning("DEAD LETTER [%s] %s — max attempts exhausted", task.priority.value, task.title)
             else:
                 task.status = TaskStatus.QUEUED  # Retry
 
@@ -668,6 +749,8 @@ class TaskExecutor:
             "scanner_failure": self._handle_scanner_failure,
             "typing": self._handle_linting,
             "fpc_intelligence": self._handle_fpc_intelligence,
+            "helix_prerender": self._handle_helix_prerender,
+            "helix_assemble": self._handle_helix_assemble,
         }
         handler = handlers.get(task.category, self._handle_generic)
         result: dict[str, Any] = await handler(task)
@@ -747,7 +830,9 @@ class TaskExecutor:
         }
         # Check core files exist
         core_files = [
-            "lib_ncl.py", "ncl_memory.py", "ncl_config.json",
+            "lib_ncl.py",
+            "ncl_memory.py",
+            "ncl_config.json",
             "ncl_agency_runtime/__init__.py",
         ]
         for f in core_files:
@@ -770,6 +855,7 @@ class TaskExecutor:
         result: dict[str, Any] = {"action": "memory_consolidation"}
         try:
             from ncl_memory import get_memory_manager
+
             mgr = get_memory_manager()
             if hasattr(mgr, "consolidate_memories"):
                 consolidated = mgr.consolidate_memories()
@@ -788,6 +874,7 @@ class TaskExecutor:
         result: dict[str, Any] = {"action": "learning_cycle"}
         try:
             from learning_engine import LearningEngine
+
             engine = LearningEngine()
             analysis = engine.analyze_recent_events(days_back=7)
             result["events_analyzed"] = analysis.get("total_events", 0)
@@ -800,23 +887,66 @@ class TaskExecutor:
         return result
 
     async def _handle_briefing(self, task: AutonomousTask) -> dict:
-        """Generate daily or weekly brief."""
+        """Generate daily briefs — legacy HELIX + AZ Prime + C-Suite."""
         result: dict[str, Any] = {"action": "generate_brief"}
+
+        # ── Legacy HELIX brief (event-log summary) ──────────────────────
         try:
             from mission_runner import load_events_for_date, make_daily_brief
+
             today = datetime.now(UTC).strftime("%Y-%m-%d")
             event_log_dir = Path(os.path.expanduser("~/NCL/data/event_log"))
             events, _ = load_events_for_date(event_log_dir, today)
             brief = make_daily_brief(events, today)
 
-            # Save brief
             brief_dir = self.repo_root / "ncl_agency_runtime" / "logs" / "briefs"
             brief_dir.mkdir(parents=True, exist_ok=True)
             brief_file = brief_dir / f"daily_{today}.md"
             brief_file.write_text(brief, encoding="utf-8")
 
-            result["brief_path"] = str(brief_file)
+            result["helix_brief"] = str(brief_file)
             result["event_count"] = len(events)
+        except Exception as exc:
+            result["helix_error"] = str(exc)
+
+        # ── AZ Prime + C-Suite briefs ────────────────────────────────────
+        try:
+            from ncl_agency_runtime.fpc.daily_briefs import AZBrief, CSuiteBrief
+
+            az_paths = AZBrief().save()
+            result["az_brief"] = str(az_paths["md"])
+
+            cs_paths = CSuiteBrief().save()
+            result["csuite_brief"] = str(cs_paths["md"])
+        except Exception as exc:
+            result["brief_error"] = str(exc)
+
+        result["status"] = "success" if "brief_error" not in result else f"partial: {result['brief_error']}"
+        return result
+
+    async def _handle_helix_prerender(self, task: AutonomousTask) -> dict:
+        """Incrementally pre-render HELIX clips from new predictions."""
+        result: dict[str, Any] = {"action": "helix_prerender"}
+        try:
+            from ncl_agency_runtime.fpc.helix_news.clip_cache import IncrementalRenderer
+
+            renderer = IncrementalRenderer()
+            render_result = renderer.render_new_clips()
+            result.update(render_result)
+            result["status"] = "success"
+        except Exception as exc:
+            result["status"] = f"error: {exc}"
+        return result
+
+    async def _handle_helix_assemble(self, task: AutonomousTask) -> dict:
+        """Assemble the evening HELIX brief from pre-cached clips."""
+        result: dict[str, Any] = {"action": "helix_assemble"}
+        try:
+            from ncl_agency_runtime.fpc.helix_news.clip_cache import BriefAssembler
+
+            assembler = BriefAssembler()
+            assemble_result = assembler.assemble()
+            result.update(assemble_result)
             result["status"] = "success"
         except Exception as exc:
             result["status"] = f"error: {exc}"
@@ -828,8 +958,11 @@ class TaskExecutor:
             "action": "weekly_review",
             "status": "executed",
             "sub_tasks": [
-                "gap_analysis", "memory_consolidation", "weekly_brief",
-                "roadmap_review", "dependency_audit",
+                "gap_analysis",
+                "memory_consolidation",
+                "weekly_brief",
+                "roadmap_review",
+                "dependency_audit",
             ],
         }
 
@@ -871,6 +1004,7 @@ class TaskExecutor:
         """Handle FPC intelligence cycle tasks — prediction & trend detection."""
         try:
             from ncl_agency_runtime.runtime.fpc_integration import FPCDaemonHandler
+
             handler = FPCDaemonHandler(self.repo_root)
             return await handler.handle_fpc_task(task)
         except Exception as exc:
@@ -886,6 +1020,7 @@ class TaskExecutor:
 #  Escalation Gate — "Only CRITICAL reaches Nathan"
 # ═══════════════════════════════════════════════════════════════
 
+
 class EscalationGate:
     """Decides what's truly critical enough to bother the human.
 
@@ -894,8 +1029,12 @@ class EscalationGate:
     """
 
     CRITICAL_KEYWORDS: ClassVar[list[str]] = [
-        "data_loss", "security_breach", "system_crash", "corruption",
-        "unrecoverable", "critical_failure",
+        "data_loss",
+        "security_breach",
+        "system_crash",
+        "corruption",
+        "unrecoverable",
+        "critical_failure",
     ]
 
     def __init__(self):
@@ -905,7 +1044,11 @@ class EscalationGate:
     def evaluate(self, task: AutonomousTask) -> EscalationLevel:
         """Determine if a task outcome needs human attention."""
         # Only escalate genuinely critical items
-        if task.priority == TaskPriority.CRITICAL and task.status == TaskStatus.FAILED and task.attempts >= task.max_attempts:
+        if (
+            task.priority == TaskPriority.CRITICAL
+            and task.status == TaskStatus.FAILED
+            and task.attempts >= task.max_attempts
+        ):
             return EscalationLevel.CRITICAL
 
         # Check for critical keywords in error
@@ -944,6 +1087,7 @@ class EscalationGate:
 # ═══════════════════════════════════════════════════════════════
 #  Knowledge Journal — Evidence Trail
 # ═══════════════════════════════════════════════════════════════
+
 
 class KnowledgeJournal:
     """Persistent NDJSON journal of everything the daemon does.
@@ -995,6 +1139,7 @@ class KnowledgeJournal:
 #  AUTONOMOUS DAEMON — The Main Engine
 # ═══════════════════════════════════════════════════════════════
 
+
 class AutonomousDaemon:
     """The self-organizing, self-motivating, 24/7 autonomous runtime.
 
@@ -1012,7 +1157,7 @@ class AutonomousDaemon:
     def __init__(
         self,
         repo_root: Path | None = None,
-        cycle_interval_s: int = 300,    # 5 min between cycles
+        cycle_interval_s: int = 300,  # 5 min between cycles
         max_tasks_per_cycle: int = 10,
     ):
         self.repo_root = repo_root or _REPO_ROOT
@@ -1024,9 +1169,7 @@ class AutonomousDaemon:
         self.task_generator = TaskGenerator()
         self.task_executor = TaskExecutor(self.repo_root)
         self.escalation_gate = EscalationGate()
-        self.journal = KnowledgeJournal(
-            self.repo_root / "ncl_agency_runtime" / "logs" / "daemon_journal.ndjson"
-        )
+        self.journal = KnowledgeJournal(self.repo_root / "ncl_agency_runtime" / "logs" / "daemon_journal.ndjson")
 
         # State
         self._running = False
@@ -1046,28 +1189,32 @@ class AutonomousDaemon:
 
         LOG.info("═" * 60)
         LOG.info("  NCL AUTONOMOUS DAEMON — STARTING")
-        LOG.info("  Cycle interval: %ds | Max tasks/cycle: %d",
-                 self.cycle_interval_s, self.max_tasks_per_cycle)
+        LOG.info("  Cycle interval: %ds | Max tasks/cycle: %d", self.cycle_interval_s, self.max_tasks_per_cycle)
         LOG.info("═" * 60)
 
-        self.journal.record("daemon_start", {
-            "cycle_interval_s": self.cycle_interval_s,
-            "max_tasks_per_cycle": self.max_tasks_per_cycle,
-            "repo_root": str(self.repo_root),
-        })
+        self.journal.record(
+            "daemon_start",
+            {
+                "cycle_interval_s": self.cycle_interval_s,
+                "max_tasks_per_cycle": self.max_tasks_per_cycle,
+                "repo_root": str(self.repo_root),
+            },
+        )
 
         # Main loop
         while self._running:
             try:
                 await self._run_cycle()
             except Exception as exc:
-                LOG.error("Cycle %d crashed: %s\n%s",
-                          self._cycle_count, exc, traceback.format_exc())
-                self.journal.record("cycle_crash", {
-                    "cycle": self._cycle_count,
-                    "error": str(exc),
-                    "traceback": traceback.format_exc(),
-                })
+                LOG.error("Cycle %d crashed: %s\n%s", self._cycle_count, exc, traceback.format_exc())
+                self.journal.record(
+                    "cycle_crash",
+                    {
+                        "cycle": self._cycle_count,
+                        "error": str(exc),
+                        "traceback": traceback.format_exc(),
+                    },
+                )
 
             # Sleep between cycles
             if self._running:
@@ -1078,11 +1225,14 @@ class AutonomousDaemon:
         """Gracefully shut down."""
         LOG.info("Autonomous Daemon shutting down...")
         self._running = False
-        self.journal.record("daemon_stop", {
-            "cycles_completed": self._cycle_count,
-            "tasks_completed": len(self._completed_tasks),
-            "uptime_s": time.time() - self._boot_time,
-        })
+        self.journal.record(
+            "daemon_stop",
+            {
+                "cycles_completed": self._cycle_count,
+                "tasks_completed": len(self._completed_tasks),
+                "uptime_s": time.time() - self._boot_time,
+            },
+        )
 
     # ── Main PDCA Cycle ───────────────────────────────────────
 
@@ -1115,15 +1265,17 @@ class AutonomousDaemon:
                 existing_titles.add(task.title)
                 report.tasks_generated += 1
 
-        LOG.info("[PLAN] %d new tasks queued (total queue: %d)",
-                 report.tasks_generated, len(self._task_queue))
+        LOG.info("[PLAN] %d new tasks queued (total queue: %d)", report.tasks_generated, len(self._task_queue))
 
-        self.journal.record("plan_complete", {
-            "cycle": self._cycle_count,
-            "gaps": len(gaps),
-            "new_tasks": report.tasks_generated,
-            "queue_size": len(self._task_queue),
-        })
+        self.journal.record(
+            "plan_complete",
+            {
+                "cycle": self._cycle_count,
+                "gaps": len(gaps),
+                "new_tasks": report.tasks_generated,
+                "queue_size": len(self._task_queue),
+            },
+        )
 
         # ── DO: Execute Tasks ─────────────────────────────────
         self._phase = DaemonPhase.EXECUTE
@@ -1133,7 +1285,7 @@ class AutonomousDaemon:
         self._task_queue.sort(key=lambda t: list(TaskPriority).index(t.priority))
 
         # Execute batch
-        batch = [t for t in self._task_queue if t.status == TaskStatus.QUEUED][:self.max_tasks_per_cycle]
+        batch = [t for t in self._task_queue if t.status == TaskStatus.QUEUED][: self.max_tasks_per_cycle]
         for task in batch:
             result_task = await self.task_executor.execute(task)
             report.tasks_executed += 1
@@ -1146,8 +1298,12 @@ class AutonomousDaemon:
                 report.tasks_failed += 1
                 self._task_queue.remove(task)  # Move to dead letter
 
-        LOG.info("[DO] Executed %d tasks: %d succeeded, %d failed",
-                 report.tasks_executed, report.tasks_succeeded, report.tasks_failed)
+        LOG.info(
+            "[DO] Executed %d tasks: %d succeeded, %d failed",
+            report.tasks_executed,
+            report.tasks_succeeded,
+            report.tasks_failed,
+        )
 
         # ── CHECK: Self-Assessment ────────────────────────────
         self._phase = DaemonPhase.ASSESS
@@ -1184,25 +1340,32 @@ class AutonomousDaemon:
 
         report.completed_at = datetime.now(UTC).isoformat()
 
-        self.journal.record("cycle_complete", {
-            "cycle": self._cycle_count,
-            "gaps_found": report.gaps_found,
-            "tasks_generated": report.tasks_generated,
-            "tasks_executed": report.tasks_executed,
-            "tasks_succeeded": report.tasks_succeeded,
-            "tasks_failed": report.tasks_failed,
-            "learnings": report.learnings,
-            "escalations": report.escalations,
-            "queue_remaining": len(self._task_queue),
-        })
+        self.journal.record(
+            "cycle_complete",
+            {
+                "cycle": self._cycle_count,
+                "gaps_found": report.gaps_found,
+                "tasks_generated": report.tasks_generated,
+                "tasks_executed": report.tasks_executed,
+                "tasks_succeeded": report.tasks_succeeded,
+                "tasks_failed": report.tasks_failed,
+                "learnings": report.learnings,
+                "escalations": report.escalations,
+                "queue_remaining": len(self._task_queue),
+            },
+        )
 
         self._phase = DaemonPhase.IDLE
 
         LOG.info("━" * 50)
-        LOG.info("CYCLE %d — COMPLETE | Gaps: %d | Tasks: %d/%d ok | Queue: %d",
-                 self._cycle_count, report.gaps_found,
-                 report.tasks_succeeded, report.tasks_executed,
-                 len(self._task_queue))
+        LOG.info(
+            "CYCLE %d — COMPLETE | Gaps: %d | Tasks: %d/%d ok | Queue: %d",
+            self._cycle_count,
+            report.gaps_found,
+            report.tasks_succeeded,
+            report.tasks_executed,
+            len(self._task_queue),
+        )
         LOG.info("━" * 50)
 
     # ── Status ────────────────────────────────────────────────
@@ -1227,23 +1390,19 @@ class AutonomousDaemon:
 #  CLI Entry Point
 # ═══════════════════════════════════════════════════════════════
 
+
 async def main():
     import argparse
+
     parser = argparse.ArgumentParser(description="NCL Autonomous Daemon")
-    parser.add_argument("--interval", type=int, default=300,
-                        help="Seconds between PDCA cycles (default: 300)")
-    parser.add_argument("--max-tasks", type=int, default=10,
-                        help="Max tasks per cycle (default: 10)")
-    parser.add_argument("--single-cycle", action="store_true",
-                        help="Run one cycle then exit")
-    parser.add_argument("--status", action="store_true",
-                        help="Show daemon status from journal and exit")
+    parser.add_argument("--interval", type=int, default=300, help="Seconds between PDCA cycles (default: 300)")
+    parser.add_argument("--max-tasks", type=int, default=10, help="Max tasks per cycle (default: 10)")
+    parser.add_argument("--single-cycle", action="store_true", help="Run one cycle then exit")
+    parser.add_argument("--status", action="store_true", help="Show daemon status from journal and exit")
     args = parser.parse_args()
 
     if args.status:
-        journal = KnowledgeJournal(
-            _REPO_ROOT / "ncl_agency_runtime" / "logs" / "daemon_journal.ndjson"
-        )
+        journal = KnowledgeJournal(_REPO_ROOT / "ncl_agency_runtime" / "logs" / "daemon_journal.ndjson")
         stats = journal.get_stats()
         recent = journal.read_recent(5)
         print(json.dumps({"stats": stats, "recent_entries": recent}, indent=2, default=str))

@@ -39,6 +39,7 @@ from ncl_agency_runtime.runtime.matrix_monitor import (
     SLOStatus,
     _build_tiles,
     _collect_fpc_health,
+    _collect_helix_news,
     _collect_ncc_governance,
     _collect_self_check,
     _collect_system_health,
@@ -47,6 +48,7 @@ from ncl_agency_runtime.runtime.matrix_monitor import (
 # ═══════════════════════════════════════════════════════════════
 #  Fixtures
 # ═══════════════════════════════════════════════════════════════
+
 
 @pytest.fixture(autouse=True)
 def _reset_singletons():
@@ -71,23 +73,39 @@ def store(tmp_dir):
 def sample_checks():
     return [
         HealthCheckResult(
-            source=HealthSource.SYSTEM, name="deps", passed=True, score=1.0,
+            source=HealthSource.SYSTEM,
+            name="deps",
+            passed=True,
+            score=1.0,
             details="All dependencies OK",
         ),
         HealthCheckResult(
-            source=HealthSource.SYSTEM, name="schemas", passed=True, score=1.0,
+            source=HealthSource.SYSTEM,
+            name="schemas",
+            passed=True,
+            score=1.0,
             details="Schemas valid",
         ),
         HealthCheckResult(
-            source=HealthSource.SELF_CHECK, name="code_integrity", passed=True, score=0.95,
+            source=HealthSource.SELF_CHECK,
+            name="code_integrity",
+            passed=True,
+            score=0.95,
             details="AST parse OK",
         ),
         HealthCheckResult(
-            source=HealthSource.SELF_CHECK, name="disk_health", passed=False, score=0.3,
-            details="Disk usage 85%", recommendation="Clean temp files",
+            source=HealthSource.SELF_CHECK,
+            name="disk_health",
+            passed=False,
+            score=0.3,
+            details="Disk usage 85%",
+            recommendation="Clean temp files",
         ),
         HealthCheckResult(
-            source=HealthSource.NCC_GOVERNANCE, name="triad_online", passed=True, score=1.0,
+            source=HealthSource.NCC_GOVERNANCE,
+            name="triad_online",
+            passed=True,
+            score=1.0,
             details="Triad healthy",
         ),
     ]
@@ -115,11 +133,14 @@ def sample_report(sample_checks):
 #  HealthCheckResult Tests
 # ═══════════════════════════════════════════════════════════════
 
+
 class TestHealthCheckResult:
     def test_create_basic(self):
         r = HealthCheckResult(
-            source=HealthSource.SYSTEM, name="test_check",
-            passed=True, score=0.9,
+            source=HealthSource.SYSTEM,
+            name="test_check",
+            passed=True,
+            score=0.9,
         )
         assert r.passed is True
         assert r.score == 0.9
@@ -127,8 +148,11 @@ class TestHealthCheckResult:
 
     def test_to_dict(self):
         r = HealthCheckResult(
-            source=HealthSource.SELF_CHECK, name="code_integrity",
-            passed=True, score=1.0, details="OK",
+            source=HealthSource.SELF_CHECK,
+            name="code_integrity",
+            passed=True,
+            score=1.0,
+            details="OK",
         )
         d = r.to_dict()
         assert d["source"] == "self_check"
@@ -139,8 +163,11 @@ class TestHealthCheckResult:
 
     def test_failed_check(self):
         r = HealthCheckResult(
-            source=HealthSource.FPC_INTELLIGENCE, name="fpc_gap",
-            passed=False, score=0.0, details="Missing scraper",
+            source=HealthSource.FPC_INTELLIGENCE,
+            name="fpc_gap",
+            passed=False,
+            score=0.0,
+            details="Missing scraper",
             recommendation="Install scraper module",
         )
         assert r.passed is False
@@ -153,11 +180,13 @@ class TestHealthCheckResult:
         assert HealthSource.FPC_INTELLIGENCE.value == "fpc_intelligence"
         assert HealthSource.AGENT.value == "agent"
         assert HealthSource.ENDPOINT.value == "endpoint"
+        assert HealthSource.HELIX_NEWS.value == "helix_news"
 
 
 # ═══════════════════════════════════════════════════════════════
 #  MatrixMonitorStore Tests
 # ═══════════════════════════════════════════════════════════════
+
 
 class TestMatrixMonitorStore:
     def test_save_and_load(self, store, sample_report):
@@ -205,6 +234,7 @@ class TestMatrixMonitorStore:
 # ═══════════════════════════════════════════════════════════════
 #  SLOEngine Tests
 # ═══════════════════════════════════════════════════════════════
+
 
 class TestSLOEngine:
     def test_default_slos(self):
@@ -264,8 +294,11 @@ class TestSLOEngine:
 
     def test_slo_definition_to_dict(self):
         slo = SLODefinition(
-            name="test", target=0.9, window_hours=24,
-            metric_source="test", description="Test SLO",
+            name="test",
+            target=0.9,
+            window_hours=24,
+            metric_source="test",
+            description="Test SLO",
         )
         d = slo.to_dict()
         assert d["name"] == "test"
@@ -275,6 +308,7 @@ class TestSLOEngine:
 # ═══════════════════════════════════════════════════════════════
 #  AlertRouter Tests
 # ═══════════════════════════════════════════════════════════════
+
 
 class TestAlertRouter:
     def test_no_alerts_healthy(self, sample_checks):
@@ -309,8 +343,11 @@ class TestAlertRouter:
         router = AlertRouter()
         checks = [
             HealthCheckResult(
-                source=HealthSource.SYSTEM, name="critical_check",
-                passed=False, score=0.0, details="Total failure",
+                source=HealthSource.SYSTEM,
+                name="critical_check",
+                passed=False,
+                score=0.0,
+                details="Total failure",
             ),
         ]
         alerts = router.evaluate(checks, [], 0.9)
@@ -344,7 +381,9 @@ class TestAlertRouter:
     def test_alert_record_to_dict(self):
         alert = AlertRecord(
             severity=AlertSeverity.CRITICAL,
-            source="test", title="Test Alert", details="Detail",
+            source="test",
+            title="Test Alert",
+            details="Detail",
         )
         d = alert.to_dict()
         assert d["severity"] == "critical"
@@ -362,10 +401,14 @@ class TestAlertRouter:
 #  Dashboard Tile Tests
 # ═══════════════════════════════════════════════════════════════
 
+
 class TestDashboardTiles:
     def test_build_tiles_healthy(self, sample_checks):
         tiles = _build_tiles(
-            0.9, "EXCELLENT", sample_checks, [],
+            0.9,
+            "EXCELLENT",
+            sample_checks,
+            [],
             {"total_pillars": 5, "online": 5, "pillars": {}},
         )
         assert len(tiles) >= 2
@@ -375,7 +418,10 @@ class TestDashboardTiles:
 
     def test_build_tiles_degraded(self, sample_checks):
         tiles = _build_tiles(
-            0.4, "DEGRADED", sample_checks, [],
+            0.4,
+            "DEGRADED",
+            sample_checks,
+            [],
             {"total_pillars": 5, "online": 2, "pillars": {}},
         )
         health_tile = next(t for t in tiles if t.title == "System Health")
@@ -385,7 +431,10 @@ class TestDashboardTiles:
         slo = SLODefinition("test_slo", 0.9, 24, "test", "Test")
         slo_status = SLOStatus(slo=slo, current_value=0.85, budget_remaining=0.6, in_violation=True, samples=5)
         tiles = _build_tiles(
-            0.85, "GOOD", sample_checks, [slo_status],
+            0.85,
+            "GOOD",
+            sample_checks,
+            [slo_status],
             {"total_pillars": 5, "online": 4, "pillars": {}},
         )
         slo_tiles = [t for t in tiles if t.tile_type == "slo"]
@@ -397,7 +446,10 @@ class TestDashboardTiles:
             "ncl": {"name": "NCL", "status": "degraded", "role": "brain", "capabilities": 3},
         }
         tiles = _build_tiles(
-            0.8, "GOOD", [], [],
+            0.8,
+            "GOOD",
+            [],
+            [],
             {"total_pillars": 2, "online": 1, "degraded": 1, "pillars": pillars},
         )
         pillar_tiles = [t for t in tiles if t.tile_type == "pillar"]
@@ -409,7 +461,10 @@ class TestDashboardTiles:
 
     def test_tile_to_dict(self):
         tile = DashboardTile(
-            tile_type="health", title="Test", value=100, status="green",
+            tile_type="health",
+            title="Test",
+            value=100,
+            status="green",
         )
         d = tile.to_dict()
         assert d["tile_type"] == "health"
@@ -419,6 +474,7 @@ class TestDashboardTiles:
 # ═══════════════════════════════════════════════════════════════
 #  Collector Tests (mocked)
 # ═══════════════════════════════════════════════════════════════
+
 
 class TestCollectors:
     def test_collect_system_health_graceful_failure(self, tmp_dir):
@@ -438,6 +494,7 @@ class TestCollectors:
     def test_collect_ncc_governance(self):
         """Governance collector should work with default pillar registry."""
         from ncl_agency_runtime.runtime.pillar_registry import PillarRegistry
+
         PillarRegistry.reset()
         results, summary = _collect_ncc_governance(Path("."))
         assert len(results) >= 1
@@ -462,8 +519,132 @@ class TestCollectors:
 
 
 # ═══════════════════════════════════════════════════════════════
+#  HELIX News Collector Tests
+# ═══════════════════════════════════════════════════════════════
+
+
+class TestHelixNewsCollector:
+    """Tests for _collect_helix_news health checks."""
+
+    def test_no_cache_dir(self, tmp_dir):
+        """No clip cache manifest → cache check fails + episode check fails."""
+        results = _collect_helix_news(tmp_dir)
+        assert any(r.name == "helix_clip_cache" for r in results)
+        cache_check = [r for r in results if r.name == "helix_clip_cache"][0]
+        assert cache_check.passed is False
+        assert cache_check.score == 0.0
+        assert cache_check.source == HealthSource.HELIX_NEWS
+
+    def test_empty_manifest(self, tmp_dir):
+        """Manifest exists but empty → 0 fresh clips."""
+        manifest_dir = tmp_dir / "state" / "helix_clip_cache"
+        manifest_dir.mkdir(parents=True)
+        (manifest_dir / "manifest.json").write_text("{}", encoding="utf-8")
+
+        results = _collect_helix_news(tmp_dir)
+        cache_check = [r for r in results if r.name == "helix_clip_cache"][0]
+        assert cache_check.passed is False
+        assert "0 fresh" in cache_check.details
+
+    def test_fresh_clips_in_manifest(self, tmp_dir):
+        """Manifest with fresh clips → cache check passes."""
+        manifest_dir = tmp_dir / "state" / "helix_clip_cache"
+        clip_dir = manifest_dir / "clips" / "clip_abc123"
+        clip_dir.mkdir(parents=True)
+
+        video_file = clip_dir / "clip_abc123.mp4"
+        video_file.write_bytes(b"\x00" * 100)
+
+        from datetime import datetime
+
+        manifest = {
+            "abc123": {
+                "topic": "Test Topic",
+                "video": str(video_file),
+                "rendered_at": datetime.now().isoformat(),
+                "impact_score": 0.85,
+            }
+        }
+        (manifest_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+
+        results = _collect_helix_news(tmp_dir)
+        cache_check = [r for r in results if r.name == "helix_clip_cache"][0]
+        assert cache_check.passed is True
+        assert "1 fresh" in cache_check.details
+
+    def test_no_episodes_dir(self, tmp_dir):
+        """No reports/helix_news directory → episode check fails."""
+        results = _collect_helix_news(tmp_dir)
+        ep_check = [r for r in results if r.name == "helix_latest_episode"][0]
+        assert ep_check.passed is False
+
+    def test_empty_episodes_dir(self, tmp_dir):
+        """Episode dir exists but no folders → fails."""
+        ep_dir = tmp_dir / "reports" / "helix_news"
+        ep_dir.mkdir(parents=True)
+
+        results = _collect_helix_news(tmp_dir)
+        ep_check = [r for r in results if r.name == "helix_latest_episode"][0]
+        assert ep_check.passed is False
+        assert "No HELIX episodes" in ep_check.details
+
+    def test_fresh_episode(self, tmp_dir):
+        """Recent episode folder with episode.mp4 → passes."""
+        from datetime import datetime
+
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        ep_dir = tmp_dir / "reports" / "helix_news" / ts
+        ep_dir.mkdir(parents=True)
+        (ep_dir / "episode.mp4").write_bytes(b"\x00" * 100)
+
+        results = _collect_helix_news(tmp_dir)
+        ep_check = [r for r in results if r.name == "helix_latest_episode"][0]
+        assert ep_check.passed is True
+        assert "episode.mp4" in ep_check.details
+
+    def test_stale_episode(self, tmp_dir):
+        """48-hour-old episode → fails freshness check."""
+        ep_dir = tmp_dir / "reports" / "helix_news" / "20260319_180000"
+        ep_dir.mkdir(parents=True)
+        (ep_dir / "episode.mp4").write_bytes(b"\x00" * 100)
+
+        results = _collect_helix_news(tmp_dir)
+        ep_check = [r for r in results if r.name == "helix_latest_episode"][0]
+        assert ep_check.passed is False
+
+    def test_pipeline_modules_importable(self, tmp_dir):
+        """ClipCache, IncrementalRenderer, BriefAssembler should be importable."""
+        results = _collect_helix_news(tmp_dir)
+        mod_check = [r for r in results if r.name == "helix_pipeline_modules"][0]
+        assert mod_check.passed is True
+        assert mod_check.score == 1.0
+
+    def test_daemon_schedule_wired(self, tmp_dir):
+        """Daemon should have helix_prerender + helix_assemble tasks."""
+        results = _collect_helix_news(tmp_dir)
+        sched_check = [r for r in results if r.name == "helix_daemon_schedule"][0]
+        assert sched_check.passed is True
+        assert "prerender" in sched_check.details
+        assert "assemble" in sched_check.details
+
+    def test_returns_four_checks(self, tmp_dir):
+        """Collector should always return exactly 4 health checks."""
+        results = _collect_helix_news(tmp_dir)
+        assert len(results) == 4
+        names = {r.name for r in results}
+        assert names == {
+            "helix_clip_cache",
+            "helix_latest_episode",
+            "helix_pipeline_modules",
+            "helix_daemon_schedule",
+        }
+        assert all(r.source == HealthSource.HELIX_NEWS for r in results)
+
+
+# ═══════════════════════════════════════════════════════════════
 #  MatrixMonitorOrchestrator Tests
 # ═══════════════════════════════════════════════════════════════
+
 
 class TestMatrixMonitorOrchestrator:
     def test_singleton(self, tmp_dir):
@@ -480,6 +661,7 @@ class TestMatrixMonitorOrchestrator:
     def test_collect_all(self, tmp_dir):
         """Full collection cycle should produce a valid MatrixReport."""
         from ncl_agency_runtime.runtime.pillar_registry import PillarRegistry
+
         PillarRegistry.reset()
 
         monitor = MatrixMonitorOrchestrator(repo_root=tmp_dir)
@@ -499,6 +681,7 @@ class TestMatrixMonitorOrchestrator:
     def test_collect_all_persists(self, tmp_dir):
         """collect_all should save to store."""
         from ncl_agency_runtime.runtime.pillar_registry import PillarRegistry
+
         PillarRegistry.reset()
 
         monitor = MatrixMonitorOrchestrator(repo_root=tmp_dir)
@@ -512,6 +695,7 @@ class TestMatrixMonitorOrchestrator:
 
     def test_cycle_count(self, tmp_dir):
         from ncl_agency_runtime.runtime.pillar_registry import PillarRegistry
+
         PillarRegistry.reset()
 
         monitor = MatrixMonitorOrchestrator(repo_root=tmp_dir)
@@ -530,6 +714,7 @@ class TestMatrixMonitorOrchestrator:
 
     def test_get_tiles_after_collection(self, tmp_dir):
         from ncl_agency_runtime.runtime.pillar_registry import PillarRegistry
+
         PillarRegistry.reset()
 
         monitor = MatrixMonitorOrchestrator(repo_root=tmp_dir)
@@ -558,6 +743,7 @@ class TestMatrixMonitorOrchestrator:
 
     def test_individual_collectors(self, tmp_dir):
         from ncl_agency_runtime.runtime.pillar_registry import PillarRegistry
+
         PillarRegistry.reset()
 
         monitor = MatrixMonitorOrchestrator(repo_root=tmp_dir)
@@ -579,6 +765,7 @@ class TestMatrixMonitorOrchestrator:
 
     def test_report_to_dict(self, tmp_dir):
         from ncl_agency_runtime.runtime.pillar_registry import PillarRegistry
+
         PillarRegistry.reset()
 
         monitor = MatrixMonitorOrchestrator(repo_root=tmp_dir)
@@ -598,11 +785,13 @@ class TestMatrixMonitorOrchestrator:
 #  Bus Integration Tests
 # ═══════════════════════════════════════════════════════════════
 
+
 class TestBusIntegration:
     def test_publish_to_bus(self, tmp_dir, sample_report):
         """publish_to_bus should dispatch messages to the InterPillarBus."""
         from ncl_agency_runtime.runtime.inter_pillar_bus import InterPillarBus
         from ncl_agency_runtime.runtime.pillar_registry import PillarRegistry
+
         InterPillarBus.reset()
         PillarRegistry.reset()
 
@@ -616,6 +805,7 @@ class TestBusIntegration:
 
         from ncl_agency_runtime.runtime.inter_pillar_bus import MessageType
         from ncl_agency_runtime.runtime.pillar_registry import PillarID
+
         bus.subscribe(PillarID.NCC, MessageType.STATUS_REPORT, handler)
 
         monitor.publish_to_bus(sample_report)
@@ -637,6 +827,7 @@ class TestBusIntegration:
 # ═══════════════════════════════════════════════════════════════
 #  NCC Orchestrator Integration
 # ═══════════════════════════════════════════════════════════════
+
 
 class TestNCCOrchestratorIntegration:
     @pytest.mark.asyncio
@@ -708,6 +899,7 @@ class TestNCCOrchestratorIntegration:
 #  MatrixReport Serialization
 # ═══════════════════════════════════════════════════════════════
 
+
 class TestMatrixReportSerialization:
     def test_full_report_serialization(self, sample_report):
         d = sample_report.to_dict()
@@ -721,8 +913,11 @@ class TestMatrixReportSerialization:
     def test_slo_status_serialization(self):
         slo = SLODefinition("test", 0.9, 24, "test", "Test")
         status = SLOStatus(
-            slo=slo, current_value=0.85, budget_remaining=0.6,
-            in_violation=True, samples=10,
+            slo=slo,
+            current_value=0.85,
+            budget_remaining=0.6,
+            in_violation=True,
+            samples=10,
         )
         d = status.to_dict()
         serialized = json.dumps(d)
@@ -732,6 +927,7 @@ class TestMatrixReportSerialization:
 # ═══════════════════════════════════════════════════════════════
 #  Config Loading
 # ═══════════════════════════════════════════════════════════════
+
 
 class TestConfigLoading:
     def test_load_config_from_file(self, tmp_dir):

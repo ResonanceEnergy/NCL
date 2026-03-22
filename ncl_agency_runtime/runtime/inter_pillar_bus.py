@@ -35,37 +35,41 @@ LOG = logging.getLogger("ncc.message_bus")
 #  Message Types
 # ═══════════════════════════════════════════════════════════════
 
+
 class MessageType(StrEnum):
     """Types of inter-pillar messages."""
+
     # Operational
-    REQUEST = "request"           # Ask a pillar to do something
-    RESPONSE = "response"         # Reply to a request
-    EVENT = "event"               # Fire-and-forget notification
-    COMMAND = "command"           # NCC directive (must-execute)
+    REQUEST = "request"  # Ask a pillar to do something
+    RESPONSE = "response"  # Reply to a request
+    EVENT = "event"  # Fire-and-forget notification
+    COMMAND = "command"  # NCC directive (must-execute)
 
     # Governance
-    HEARTBEAT = "heartbeat"       # Health check
+    HEARTBEAT = "heartbeat"  # Health check
     STATUS_REPORT = "status_report"
-    AUDIT = "audit"               # Audit trail entry
-    ALERT = "alert"               # Escalation to NCC
+    AUDIT = "audit"  # Audit trail entry
+    ALERT = "alert"  # Escalation to NCC
 
     # Labour
-    TASK_ASSIGN = "task_assign"   # Assign work to Digital Labour
-    TASK_RESULT = "task_result"   # Return completed work
-    TASK_FAILED = "task_failed"   # Report failure
+    TASK_ASSIGN = "task_assign"  # Assign work to Digital Labour
+    TASK_RESULT = "task_result"  # Return completed work
+    TASK_FAILED = "task_failed"  # Report failure
 
 
 class Priority(StrEnum):
     """Message priority levels."""
+
     LOW = "low"
     NORMAL = "normal"
     HIGH = "high"
-    CRITICAL = "critical"         # Faraday Fortress escalation
+    CRITICAL = "critical"  # Faraday Fortress escalation
 
 
 # ═══════════════════════════════════════════════════════════════
 #  Message Envelope
 # ═══════════════════════════════════════════════════════════════
+
 
 @dataclass
 class PillarMessage:
@@ -79,6 +83,7 @@ class PillarMessage:
         - payload (the actual data)
         - audit fields (timestamp, ttl, attempt tracking)
     """
+
     source: PillarID
     target: PillarID
     msg_type: MessageType
@@ -87,12 +92,12 @@ class PillarMessage:
 
     # Identity & tracing
     msg_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
-    correlation_id: str = ""      # links request→response
-    trace_id: str = ""            # spans entire cross-pillar flow
+    correlation_id: str = ""  # links request→response
+    trace_id: str = ""  # spans entire cross-pillar flow
 
     # Metadata
     timestamp: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
-    ttl_seconds: int = 300        # message expires after this window
+    ttl_seconds: int = 300  # message expires after this window
     attempt: int = 1
     max_attempts: int = 3
 
@@ -148,6 +153,7 @@ MessageHandler = Any  # Callable[[PillarMessage], Awaitable[PillarMessage | None
 #  Inter-Pillar Message Bus
 # ═══════════════════════════════════════════════════════════════
 
+
 class InterPillarBus:
     """Async message bus connecting all NCC pillars.
 
@@ -194,8 +200,7 @@ class InterPillarBus:
 
     # ── Subscription ──────────────────────────────────────────
 
-    def subscribe(self, pillar_id: PillarID | str, msg_type: MessageType | str,
-                  handler: MessageHandler) -> None:
+    def subscribe(self, pillar_id: PillarID | str, msg_type: MessageType | str, handler: MessageHandler) -> None:
         """Register a handler for messages targeting a pillar + type combo.
 
         Use "*" for either argument to receive all.
@@ -326,7 +331,20 @@ class InterPillarBus:
         for handler in handlers:
             try:
                 result = handler(msg)
-                results.append(result)
+                # If handler is async, run it in an event loop
+                if inspect.isawaitable(result):
+                    try:
+                        loop = asyncio.get_running_loop()
+                    except RuntimeError:
+                        loop = None
+                    if loop and loop.is_running():
+                        # Already in async context — schedule but don't block
+                        loop.create_task(result)
+                        results.append(None)
+                    else:
+                        results.append(asyncio.run(result))
+                else:
+                    results.append(result)
             except Exception as exc:
                 LOG.error("Sync handler error on %s: %s", msg.msg_id, exc)
         self._processed += 1
