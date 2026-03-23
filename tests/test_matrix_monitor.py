@@ -536,15 +536,15 @@ class TestHelixNewsCollector:
         assert cache_check.source == HealthSource.HELIX_NEWS
 
     def test_empty_manifest(self, tmp_dir):
-        """Manifest exists but empty → 0 fresh clips."""
+        """Manifest exists but empty → initialised, passes with low score."""
         manifest_dir = tmp_dir / "state" / "helix_clip_cache"
         manifest_dir.mkdir(parents=True)
         (manifest_dir / "manifest.json").write_text("{}", encoding="utf-8")
 
         results = _collect_helix_news(tmp_dir)
         cache_check = [r for r in results if r.name == "helix_clip_cache"][0]
-        assert cache_check.passed is False
-        assert "0 fresh" in cache_check.details
+        assert cache_check.passed is True
+        assert "awaiting first prerender" in cache_check.details
 
     def test_fresh_clips_in_manifest(self, tmp_dir):
         """Manifest with fresh clips → cache check passes."""
@@ -586,7 +586,7 @@ class TestHelixNewsCollector:
         results = _collect_helix_news(tmp_dir)
         ep_check = [r for r in results if r.name == "helix_latest_episode"][0]
         assert ep_check.passed is False
-        assert "No HELIX episodes" in ep_check.details
+        assert "none contain episode.mp4" in ep_check.details
 
     def test_fresh_episode(self, tmp_dir):
         """Recent episode folder with episode.mp4 → passes."""

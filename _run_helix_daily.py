@@ -56,11 +56,12 @@ EPISODE_DIR.mkdir(parents=True, exist_ok=True)
 def main() -> None:
     from ncl_agency_runtime.fpc.helix_news.avatar_engine import AvatarEngine
     from ncl_agency_runtime.fpc.helix_news.compositor import Compositor
+    from ncl_agency_runtime.fpc.helix_news.fluency_engine import FluencyEngine
     from ncl_agency_runtime.fpc.helix_news.script_generator import ScriptGenerator
     from ncl_agency_runtime.fpc.helix_news.tts_engine import TTSEngine
 
     # ── Stage 0: Generate Script from live FPC data ───────────────────────
-    print("\n=== STAGE 0/3: Generating Script from FPC Database ===")
+    print("\n=== STAGE 0/4: Generating Script from FPC Database ===")
     gen = ScriptGenerator(CONFIG_PATH)
     script = gen.generate()
 
@@ -73,7 +74,7 @@ def main() -> None:
     script_path.write_text(json.dumps(script, indent=2, default=str), encoding="utf-8")
 
     # ── Stage 1: TTS ─────────────────────────────────────────────────────
-    print("\n=== STAGE 1/3: Text-to-Speech ===")
+    print("\n=== STAGE 1/4: Text-to-Speech ===")
     tts = TTSEngine(CONFIG_PATH)
     audio_dir = EPISODE_DIR / "audio"
     audio_dir.mkdir(parents=True, exist_ok=True)
@@ -101,8 +102,33 @@ def main() -> None:
 
     print(f"Audio: {sum(1 for v in audio_results.values() if v.get('audio'))}/{len(segments)} segments")
 
-    # ── Stage 2: Avatar (Grok Imagine — Helix in frame) ──────────────────
-    print("\n=== STAGE 2/3: Grok Imagine — Helix in Frame ===")
+    # ── Stage 2: Fluency Analysis ────────────────────────────────────────
+    print("\n=== STAGE 2/4: Fluency Engine — Clip Planning ===")
+    fluency = FluencyEngine()
+
+    # Get audio durations via ffprobe
+    audio_durations: dict[str, float] = {}
+    for name, ares in audio_results.items():
+        if ares.get("audio"):
+            import subprocess
+            dur_result = subprocess.run(
+                ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
+                 "-of", "csv=p=0", ares["audio"]],
+                capture_output=True, text=True,
+            )
+            try:
+                audio_durations[name] = float(dur_result.stdout.strip())
+            except ValueError:
+                audio_durations[name] = 30.0
+
+    clip_plans = fluency.analyze(segments, audio_durations)
+    for name, plan in clip_plans.items():
+        dur = audio_durations.get(name, 0)
+        print(f"  {name}: {dur:.1f}s → {len(plan.clips)} clips"
+              f" (crossfade={plan.crossfade_duration:.1f}s)")
+
+    # ── Stage 3: Avatar (Grok Video — fluency-driven) ────────────────────
+    print("\n=== STAGE 3/4: Grok Video — Fluency-Driven Render ===")
     avatar = AvatarEngine(CONFIG_PATH)
     video_dir = EPISODE_DIR / "video"
     video_dir.mkdir(parents=True, exist_ok=True)
@@ -118,24 +144,23 @@ def main() -> None:
             continue
 
         video_path = video_dir / f"{name}.mp4"
-        print(f"  {name}: generating Helix scene...")
+        plan = clip_plans.get(name)
+        print(f"  {name}: generating Helix scene ({len(plan.clips) if plan else '?'} clips)...")
 
-        # Pass the segment name so AvatarEngine uses the updated _SCENE_PROMPTS
-        # which now include Helix's visual description.  segment_text provides
-        # broadcast context appended to the end of the prompt.
         result = avatar.render(
             audio_path=audio_res["audio"],
             output_path=str(video_path),
             segment_name=name,
             segment_text=text,
             subtitle_path=audio_res.get("subtitles"),
+            clip_plan=plan,
         )
         avatar_results[name] = result
         status = result.get("engine", "?") if result.get("video") else f"FAIL: {result.get('error')}"
         print(f"  {name}: {status}")
 
-    # ── Stage 3: Compose ─────────────────────────────────────────────────
-    print("\n=== STAGE 3/3: Composing Episode ===")
+    # ── Stage 4: Compose ─────────────────────────────────────────────────
+    print("\n=== STAGE 4/4: Composing Episode ===")
     comp = Compositor(CONFIG_PATH)
     episode_path = str(EPISODE_DIR / "episode.mp4")
     compose_result = comp.compose(avatar_results, episode_path)

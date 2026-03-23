@@ -1,0 +1,456 @@
+2026-03-22 17:16:25,320 [ncl_agency_runtime.fpc.helix_news.script_generator] INFO: Script generated: script_20260322_171625.json (~2:57)
+2026-03-22 17:16:51,817 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Episode ref: ref_10 ù Slate utility ù tech/cybersecurity segments
+2026-03-22 17:16:52,610 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: grok-imagine-video probe: ACCESSIBLE (request_id=a204d8a0-786e-90e2-87f2-08e8d3e65a56)
+2026-03-22 17:16:53,625 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Segment 'cold_open' (13.6s) split into 2 sub-clips
+2026-03-22 17:16:53,626 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Sub-clip 1/2: 0.1-8.7s (8.6s), ref=helix_ref_09.png
+2026-03-22 17:16:54,858 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'cold_open_sub00' started: 55361525-38e4-9ccf-8271-3bce56888cbd
+2026-03-22 17:17:17,037 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'cold_open_sub00' ready after ~20s
+2026-03-22 17:17:17,786 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Downloaded Grok clip: cold_open_sub00_raw.mp4
+2026-03-22 17:17:21,704 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Sub-clip 2/2: 8.7-13.6s (4.9s), ref=helix_ref_11.png
+2026-03-22 17:17:22,894 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'cold_open_sub01' started: 1f9f9d64-e7cb-93f3-8ada-0fc6d082d695
+2026-03-22 17:17:44,810 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'cold_open_sub01' ready after ~20s
+2026-03-22 17:17:45,608 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Downloaded Grok clip: cold_open_sub01_raw.mp4
+2026-03-22 17:18:04,838 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Multi-clip render complete: cold_open.mp4 (13.6s, 2 sub-clips)
+2026-03-22 17:18:05,032 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Segment 'headlines' (72.4s) split into 9 sub-clips
+2026-03-22 17:18:05,042 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Sub-clip 1/9: 0.1-8.1s (8.0s), ref=helix_ref_07.png
+2026-03-22 17:18:06,840 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'headlines_sub00' started: 6583daf1-faf6-9317-827a-e402878474d3
+2026-03-22 17:18:28,641 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'headlines_sub00' ready after ~20s
+2026-03-22 17:18:29,296 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Downloaded Grok clip: headlines_sub00_raw.mp4
+2026-03-22 17:18:33,609 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Sub-clip 2/9: 8.1-16.5s (8.4s), ref=helix_ref_04.png
+2026-03-22 17:18:34,853 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'headlines_sub01' started: 57d032a3-71ec-9cb3-bc78-0cea7c661de7
+2026-03-22 17:18:56,968 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'headlines_sub01' ready after ~20s
+2026-03-22 17:18:57,766 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Downloaded Grok clip: headlines_sub01_raw.mp4
+2026-03-22 17:19:00,219 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Sub-clip 3/9: 16.5-24.5s (8.0s), ref=helix_ref_08.png
+2026-03-22 17:19:01,242 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'headlines_sub02' started: f2f0b552-06c6-92b5-b469-5b1a88cb9b1a
+2026-03-22 17:19:23,182 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'headlines_sub02' ready after ~20s
+2026-03-22 17:19:24,302 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Downloaded Grok clip: headlines_sub02_raw.mp4
+2026-03-22 17:19:26,992 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Sub-clip 4/9: 24.5-32.5s (8.0s), ref=helix_ref_09.png
+2026-03-22 17:19:28,080 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'headlines_sub03' started: ec44467f-1034-93ab-a3c4-c3d06dc018f4
+2026-03-22 17:19:49,928 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'headlines_sub03' ready after ~20s
+2026-03-22 17:19:50,647 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Downloaded Grok clip: headlines_sub03_raw.mp4
+2026-03-22 17:19:52,214 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Sub-clip 5/9: 32.5-40.8s (8.2s), ref=helix_ref_05.png
+2026-03-22 17:19:53,287 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'headlines_sub04' started: b061cccf-3e15-94e7-8846-b868b976c1b5
+2026-03-22 17:20:15,205 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'headlines_sub04' ready after ~20s
+2026-03-22 17:20:16,119 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Downloaded Grok clip: headlines_sub04_raw.mp4
+2026-03-22 17:20:17,967 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Sub-clip 6/9: 40.8-48.8s (8.1s), ref=helix_ref_11.png
+2026-03-22 17:20:20,498 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'headlines_sub05' started: aafb7439-dc35-9216-ba81-d44fc2b6435c
+2026-03-22 17:20:42,526 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'headlines_sub05' ready after ~20s
+2026-03-22 17:20:43,160 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Downloaded Grok clip: headlines_sub05_raw.mp4
+2026-03-22 17:20:48,164 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Sub-clip 7/9: 48.8-56.8s (8.0s), ref=helix_ref_02.png
+2026-03-22 17:20:49,342 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'headlines_sub06' started: 6895e8ab-d975-9850-b9b9-b4ab79373885
+2026-03-22 17:21:11,253 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'headlines_sub06' ready after ~20s
+2026-03-22 17:21:11,924 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Downloaded Grok clip: headlines_sub06_raw.mp4
+2026-03-22 17:21:15,414 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Sub-clip 8/9: 56.8-65.4s (8.5s), ref=helix_portrait.png
+2026-03-22 17:21:16,499 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'headlines_sub07' started: cd01bc52-84d4-97fe-8a85-cafff10af15d
+2026-03-22 17:21:38,266 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'headlines_sub07' ready after ~20s
+2026-03-22 17:21:38,948 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Downloaded Grok clip: headlines_sub07_raw.mp4
+2026-03-22 17:21:41,249 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Sub-clip 9/9: 65.4-72.4s (7.0s), ref=helix_ref_07.png
+2026-03-22 17:21:42,166 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'headlines_sub08' started: 7649a541-4870-9b00-ac6d-dbe2ecb85eba
+2026-03-22 17:22:03,780 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'headlines_sub08' ready after ~20s
+2026-03-22 17:22:04,891 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Downloaded Grok clip: headlines_sub08_raw.mp4
+2026-03-22 17:22:35,993 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Multi-clip render complete: headlines.mp4 (72.4s, 9 sub-clips)
+2026-03-22 17:22:37,224 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Segment 'market_pulse' (45.3s) split into 6 sub-clips
+2026-03-22 17:22:37,226 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Sub-clip 1/6: 0.1-8.2s (8.1s), ref=helix_ref_11.png
+2026-03-22 17:22:38,246 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'market_pulse_sub00' started: 6a87cdc9-cc13-9a00-bb9b-863edd0a6e9a
+2026-03-22 17:23:01,670 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'market_pulse_sub00' ready after ~15s
+2026-03-22 17:23:13,073 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Downloaded Grok clip: market_pulse_sub00_raw.mp4
+2026-03-22 17:23:15,433 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Sub-clip 2/6: 8.2-16.4s (8.2s), ref=helix_ref_02.png
+2026-03-22 17:23:16,497 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'market_pulse_sub01' started: eb5143ca-e09c-9d93-af07-bb0b2e903496
+2026-03-22 17:23:41,700 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'market_pulse_sub01' ready after ~20s
+2026-03-22 17:23:42,471 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Downloaded Grok clip: market_pulse_sub01_raw.mp4
+2026-03-22 17:23:44,705 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Sub-clip 3/6: 16.4-24.8s (8.4s), ref=helix_ref_05.png
+2026-03-22 17:23:45,834 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'market_pulse_sub02' started: 8b4d6a55-e101-9109-af82-46b5739921a1
+2026-03-22 17:24:08,748 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'market_pulse_sub02' ready after ~20s
+2026-03-22 17:24:09,551 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Downloaded Grok clip: market_pulse_sub02_raw.mp4
+2026-03-22 17:24:11,729 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Sub-clip 4/6: 24.8-32.9s (8.0s), ref=helix_ref_02.png
+2026-03-22 17:24:12,786 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'market_pulse_sub03' started: d0f5c019-451e-9c5c-9d5d-57179ddbaa49
+2026-03-22 17:24:34,611 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'market_pulse_sub03' ready after ~20s
+2026-03-22 17:24:35,681 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Downloaded Grok clip: market_pulse_sub03_raw.mp4
+2026-03-22 17:24:37,298 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Sub-clip 5/6: 32.9-41.1s (8.3s), ref=helix_ref_11.png
+2026-03-22 17:24:38,342 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'market_pulse_sub04' started: e4dbc02e-49d0-916b-bdcf-9a4820f1168b
+2026-03-22 17:25:00,317 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'market_pulse_sub04' ready after ~20s
+2026-03-22 17:25:01,062 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Downloaded Grok clip: market_pulse_sub04_raw.mp4
+2026-03-22 17:25:03,273 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Sub-clip 6/6: 41.1-45.3s (4.2s), ref=helix_portrait.png
+2026-03-22 17:25:04,611 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'market_pulse_sub05' started: 18c95c62-df09-9361-a7f2-5335568544c7
+2026-03-22 17:25:26,817 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'market_pulse_sub05' ready after ~20s
+2026-03-22 17:25:28,234 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Downloaded Grok clip: market_pulse_sub05_raw.mp4
+2026-03-22 17:25:51,070 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Multi-clip render complete: market_pulse.mp4 (45.3s, 6 sub-clips)
+2026-03-22 17:25:51,139 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Segment 'predictions' (77.7s) split into 10 sub-clips
+2026-03-22 17:25:51,139 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Sub-clip 1/10: 0.1-8.6s (8.5s), ref=helix_ref_07.png
+2026-03-22 17:25:52,212 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'predictions_sub00' started: 76222452-573f-9d0f-b160-8e889f686250
+2026-03-22 17:26:14,123 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'predictions_sub00' ready after ~20s
+2026-03-22 17:26:15,365 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Downloaded Grok clip: predictions_sub00_raw.mp4
+2026-03-22 17:26:17,392 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Sub-clip 2/10: 8.6-16.8s (8.2s), ref=helix_ref_10.png
+2026-03-22 17:26:18,925 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'predictions_sub01' started: fb5e7266-c20f-94fd-9f57-fb508de285a7
+2026-03-22 17:26:40,664 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'predictions_sub01' ready after ~20s
+2026-03-22 17:26:41,500 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Downloaded Grok clip: predictions_sub01_raw.mp4
+2026-03-22 17:26:43,524 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Sub-clip 3/10: 16.8-24.8s (8.0s), ref=helix_ref_04.png
+2026-03-22 17:26:45,388 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'predictions_sub02' started: d34fa49c-0850-9f9e-8b6c-73e70dae58c8
+2026-03-22 17:27:12,449 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'predictions_sub02' ready after ~25s
+2026-03-22 17:27:13,511 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Downloaded Grok clip: predictions_sub02_raw.mp4
+2026-03-22 17:27:15,807 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Sub-clip 4/10: 24.8-33.0s (8.1s), ref=helix_portrait.png
+2026-03-22 17:27:16,783 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'predictions_sub03' started: 9499853b-a089-9603-b000-98fdd39dcbf9
+2026-03-22 17:27:38,726 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'predictions_sub03' ready after ~20s
+2026-03-22 17:27:39,813 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Downloaded Grok clip: predictions_sub03_raw.mp4
+2026-03-22 17:27:41,968 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Sub-clip 5/10: 33.0-41.0s (8.0s), ref=helix_ref_02.png
+2026-03-22 17:27:43,206 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'predictions_sub04' started: 0dd217a4-b356-9da8-9eb1-cbf6f4eae138
+2026-03-22 17:28:04,742 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'predictions_sub04' ready after ~20s
+2026-03-22 17:28:05,684 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Downloaded Grok clip: predictions_sub04_raw.mp4
+2026-03-22 17:28:07,971 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Sub-clip 6/10: 41.0-49.7s (8.7s), ref=helix_ref_07.png
+2026-03-22 17:28:08,903 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'predictions_sub05' started: 443641c7-5830-9ea3-b055-a1a5baf24c18
+2026-03-22 17:28:31,051 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'predictions_sub05' ready after ~20s
+2026-03-22 17:28:31,985 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Downloaded Grok clip: predictions_sub05_raw.mp4
+2026-03-22 17:28:34,264 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Sub-clip 7/10: 49.7-57.8s (8.0s), ref=helix_ref_05.png
+2026-03-22 17:28:35,569 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'predictions_sub06' started: 1fa0bd33-446c-9562-8856-47ac112eaedc
+2026-03-22 17:28:57,185 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'predictions_sub06' ready after ~20s
+2026-03-22 17:28:58,645 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Downloaded Grok clip: predictions_sub06_raw.mp4
+2026-03-22 17:29:00,908 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Sub-clip 8/10: 57.8-65.8s (8.0s), ref=helix_ref_07.png
+2026-03-22 17:29:01,909 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'predictions_sub07' started: 941251d9-e646-9049-826d-edab97d9f30b
+2026-03-22 17:29:24,062 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'predictions_sub07' ready after ~20s
+2026-03-22 17:29:25,591 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Downloaded Grok clip: predictions_sub07_raw.mp4
+2026-03-22 17:29:27,417 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Sub-clip 9/10: 65.8-74.2s (8.3s), ref=helix_ref_02.png
+2026-03-22 17:29:28,691 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'predictions_sub08' started: ab2efdbb-a40b-9f57-ac8b-fc167aa49b26
+2026-03-22 17:29:50,788 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'predictions_sub08' ready after ~20s
+2026-03-22 17:29:51,745 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Downloaded Grok clip: predictions_sub08_raw.mp4
+2026-03-22 17:29:53,845 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Sub-clip 10/10: 74.2-77.7s (3.6s), ref=helix_ref_08.png
+2026-03-22 17:29:54,882 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'predictions_sub09' started: 0517a30c-809a-9d72-b433-d8d6e0948575
+2026-03-22 17:30:16,949 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok clip 'predictions_sub09' ready after ~20s
+2026-03-22 17:30:18,188 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Downloaded Grok clip: predictions_sub09_raw.mp4
+2026-03-22 17:30:56,247 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Multi-clip render complete: predictions.mp4 (77.7s, 10 sub-clips)
+2026-03-22 17:30:56,334 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok video prompt for 'alerts': Helix AI news anchor delivering urgent bulletin, slight forward lean, red alert indicators pulsing o
+2026-03-22 17:30:57,703 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok video request started: a57eb736-e0df-9f9b-a1be-a5cf416582a8 ù polling up to 10 min
+2026-03-22 17:31:03,233 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok video still pending... (5s elapsed)
+2026-03-22 17:31:19,965 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok video ready after ~20s
+2026-03-22 17:31:20,710 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Downloaded Grok video clip: alerts_raw_video.mp4
+2026-03-22 17:31:24,013 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok video render complete: alerts.mp4 (6.9s looped)
+2026-03-22 17:31:24,085 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok video prompt for 'closing': Helix AI news anchor giving a composed closing nod to camera, NCC logo glowing behind her, city skyl
+2026-03-22 17:31:25,414 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok video request started: 11a038f9-0b1b-9207-aae0-fb85c524d255 ù polling up to 10 min
+2026-03-22 17:31:30,907 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok video still pending... (5s elapsed)
+2026-03-22 17:31:47,268 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok video ready after ~20s
+2026-03-22 17:31:48,206 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Downloaded Grok video clip: closing_raw_video.mp4
+2026-03-22 17:31:51,852 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok video render complete: closing.mp4 (8.4s looped)
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\cold_open.mp4, 2764800 bytes wanted but 0 bytes read at frame index 389 (out of a total 408 frames), at time 12.97/13.61 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\cold_open.mp4, 2764800 bytes wanted but 0 bytes read at frame index 390 (out of a total 408 frames), at time 13.00/13.61 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\cold_open.mp4, 2764800 bytes wanted but 0 bytes read at frame index 391 (out of a total 408 frames), at time 13.03/13.61 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\cold_open.mp4, 2764800 bytes wanted but 0 bytes read at frame index 392 (out of a total 408 frames), at time 13.07/13.61 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\cold_open.mp4, 2764800 bytes wanted but 0 bytes read at frame index 393 (out of a total 408 frames), at time 13.10/13.61 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\cold_open.mp4, 2764800 bytes wanted but 0 bytes read at frame index 394 (out of a total 408 frames), at time 13.13/13.61 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\cold_open.mp4, 2764800 bytes wanted but 0 bytes read at frame index 395 (out of a total 408 frames), at time 13.17/13.61 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\cold_open.mp4, 2764800 bytes wanted but 0 bytes read at frame index 396 (out of a total 408 frames), at time 13.20/13.61 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\cold_open.mp4, 2764800 bytes wanted but 0 bytes read at frame index 397 (out of a total 408 frames), at time 13.23/13.61 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\cold_open.mp4, 2764800 bytes wanted but 0 bytes read at frame index 398 (out of a total 408 frames), at time 13.27/13.61 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\cold_open.mp4, 2764800 bytes wanted but 0 bytes read at frame index 399 (out of a total 408 frames), at time 13.30/13.61 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\cold_open.mp4, 2764800 bytes wanted but 0 bytes read at frame index 400 (out of a total 408 frames), at time 13.33/13.61 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\cold_open.mp4, 2764800 bytes wanted but 0 bytes read at frame index 401 (out of a total 408 frames), at time 13.37/13.61 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\cold_open.mp4, 2764800 bytes wanted but 0 bytes read at frame index 402 (out of a total 408 frames), at time 13.40/13.61 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\cold_open.mp4, 2764800 bytes wanted but 0 bytes read at frame index 403 (out of a total 408 frames), at time 13.43/13.61 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\cold_open.mp4, 2764800 bytes wanted but 0 bytes read at frame index 404 (out of a total 408 frames), at time 13.47/13.61 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\cold_open.mp4, 2764800 bytes wanted but 0 bytes read at frame index 405 (out of a total 408 frames), at time 13.50/13.61 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\cold_open.mp4, 2764800 bytes wanted but 0 bytes read at frame index 406 (out of a total 408 frames), at time 13.53/13.61 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\cold_open.mp4, 2764800 bytes wanted but 0 bytes read at frame index 407 (out of a total 408 frames), at time 13.57/13.61 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\cold_open.mp4, 2764800 bytes wanted but 0 bytes read at frame index 408 (out of a total 408 frames), at time 13.60/13.61 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2134 (out of a total 2170 frames), at time 71.13/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2135 (out of a total 2170 frames), at time 71.17/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2136 (out of a total 2170 frames), at time 71.20/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2137 (out of a total 2170 frames), at time 71.23/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2138 (out of a total 2170 frames), at time 71.27/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2139 (out of a total 2170 frames), at time 71.30/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2140 (out of a total 2170 frames), at time 71.33/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2141 (out of a total 2170 frames), at time 71.37/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2142 (out of a total 2170 frames), at time 71.40/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2143 (out of a total 2170 frames), at time 71.43/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2144 (out of a total 2170 frames), at time 71.47/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2145 (out of a total 2170 frames), at time 71.50/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2146 (out of a total 2170 frames), at time 71.53/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2147 (out of a total 2170 frames), at time 71.57/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2148 (out of a total 2170 frames), at time 71.60/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2149 (out of a total 2170 frames), at time 71.63/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2150 (out of a total 2170 frames), at time 71.67/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2151 (out of a total 2170 frames), at time 71.70/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2152 (out of a total 2170 frames), at time 71.73/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2153 (out of a total 2170 frames), at time 71.77/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2154 (out of a total 2170 frames), at time 71.80/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2155 (out of a total 2170 frames), at time 71.83/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2156 (out of a total 2170 frames), at time 71.87/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2157 (out of a total 2170 frames), at time 71.90/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2158 (out of a total 2170 frames), at time 71.93/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2159 (out of a total 2170 frames), at time 71.97/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2160 (out of a total 2170 frames), at time 72.00/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2161 (out of a total 2170 frames), at time 72.03/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2162 (out of a total 2170 frames), at time 72.07/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2163 (out of a total 2170 frames), at time 72.10/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2164 (out of a total 2170 frames), at time 72.13/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2165 (out of a total 2170 frames), at time 72.17/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2166 (out of a total 2170 frames), at time 72.20/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2167 (out of a total 2170 frames), at time 72.23/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2168 (out of a total 2170 frames), at time 72.27/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2169 (out of a total 2170 frames), at time 72.30/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\headlines.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2170 (out of a total 2170 frames), at time 72.33/72.36 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\market_pulse.mp4, 2764800 bytes wanted but 0 bytes read at frame index 1330 (out of a total 1359 frames), at time 44.33/45.31 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\market_pulse.mp4, 2764800 bytes wanted but 0 bytes read at frame index 1331 (out of a total 1359 frames), at time 44.37/45.31 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\market_pulse.mp4, 2764800 bytes wanted but 0 bytes read at frame index 1332 (out of a total 1359 frames), at time 44.40/45.31 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\market_pulse.mp4, 2764800 bytes wanted but 0 bytes read at frame index 1333 (out of a total 1359 frames), at time 44.43/45.31 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\market_pulse.mp4, 2764800 bytes wanted but 0 bytes read at frame index 1334 (out of a total 1359 frames), at time 44.47/45.31 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\market_pulse.mp4, 2764800 bytes wanted but 0 bytes read at frame index 1335 (out of a total 1359 frames), at time 44.50/45.31 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\market_pulse.mp4, 2764800 bytes wanted but 0 bytes read at frame index 1336 (out of a total 1359 frames), at time 44.53/45.31 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\market_pulse.mp4, 2764800 bytes wanted but 0 bytes read at frame index 1337 (out of a total 1359 frames), at time 44.57/45.31 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\market_pulse.mp4, 2764800 bytes wanted but 0 bytes read at frame index 1338 (out of a total 1359 frames), at time 44.60/45.31 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\market_pulse.mp4, 2764800 bytes wanted but 0 bytes read at frame index 1339 (out of a total 1359 frames), at time 44.63/45.31 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\market_pulse.mp4, 2764800 bytes wanted but 0 bytes read at frame index 1340 (out of a total 1359 frames), at time 44.67/45.31 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\market_pulse.mp4, 2764800 bytes wanted but 0 bytes read at frame index 1341 (out of a total 1359 frames), at time 44.70/45.31 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\market_pulse.mp4, 2764800 bytes wanted but 0 bytes read at frame index 1342 (out of a total 1359 frames), at time 44.73/45.31 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\market_pulse.mp4, 2764800 bytes wanted but 0 bytes read at frame index 1343 (out of a total 1359 frames), at time 44.77/45.31 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\market_pulse.mp4, 2764800 bytes wanted but 0 bytes read at frame index 1344 (out of a total 1359 frames), at time 44.80/45.31 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\market_pulse.mp4, 2764800 bytes wanted but 0 bytes read at frame index 1345 (out of a total 1359 frames), at time 44.83/45.31 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\market_pulse.mp4, 2764800 bytes wanted but 0 bytes read at frame index 1346 (out of a total 1359 frames), at time 44.87/45.31 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\market_pulse.mp4, 2764800 bytes wanted but 0 bytes read at frame index 1347 (out of a total 1359 frames), at time 44.90/45.31 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\market_pulse.mp4, 2764800 bytes wanted but 0 bytes read at frame index 1348 (out of a total 1359 frames), at time 44.93/45.31 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\market_pulse.mp4, 2764800 bytes wanted but 0 bytes read at frame index 1349 (out of a total 1359 frames), at time 44.97/45.31 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\market_pulse.mp4, 2764800 bytes wanted but 0 bytes read at frame index 1350 (out of a total 1359 frames), at time 45.00/45.31 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\market_pulse.mp4, 2764800 bytes wanted but 0 bytes read at frame index 1351 (out of a total 1359 frames), at time 45.03/45.31 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\market_pulse.mp4, 2764800 bytes wanted but 0 bytes read at frame index 1352 (out of a total 1359 frames), at time 45.07/45.31 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\market_pulse.mp4, 2764800 bytes wanted but 0 bytes read at frame index 1353 (out of a total 1359 frames), at time 45.10/45.31 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\market_pulse.mp4, 2764800 bytes wanted but 0 bytes read at frame index 1354 (out of a total 1359 frames), at time 45.13/45.31 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\market_pulse.mp4, 2764800 bytes wanted but 0 bytes read at frame index 1355 (out of a total 1359 frames), at time 45.17/45.31 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\market_pulse.mp4, 2764800 bytes wanted but 0 bytes read at frame index 1356 (out of a total 1359 frames), at time 45.20/45.31 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\market_pulse.mp4, 2764800 bytes wanted but 0 bytes read at frame index 1357 (out of a total 1359 frames), at time 45.23/45.31 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\market_pulse.mp4, 2764800 bytes wanted but 0 bytes read at frame index 1358 (out of a total 1359 frames), at time 45.27/45.31 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2275 (out of a total 2332 frames), at time 75.83/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2276 (out of a total 2332 frames), at time 75.87/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2277 (out of a total 2332 frames), at time 75.90/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2278 (out of a total 2332 frames), at time 75.93/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2279 (out of a total 2332 frames), at time 75.97/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2280 (out of a total 2332 frames), at time 76.00/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2281 (out of a total 2332 frames), at time 76.03/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2282 (out of a total 2332 frames), at time 76.07/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2283 (out of a total 2332 frames), at time 76.10/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2284 (out of a total 2332 frames), at time 76.13/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2285 (out of a total 2332 frames), at time 76.17/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2286 (out of a total 2332 frames), at time 76.20/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2287 (out of a total 2332 frames), at time 76.23/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2288 (out of a total 2332 frames), at time 76.27/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2289 (out of a total 2332 frames), at time 76.30/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2290 (out of a total 2332 frames), at time 76.33/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2291 (out of a total 2332 frames), at time 76.37/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2292 (out of a total 2332 frames), at time 76.40/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2293 (out of a total 2332 frames), at time 76.43/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2294 (out of a total 2332 frames), at time 76.47/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2295 (out of a total 2332 frames), at time 76.50/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2296 (out of a total 2332 frames), at time 76.53/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2297 (out of a total 2332 frames), at time 76.57/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2298 (out of a total 2332 frames), at time 76.60/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2299 (out of a total 2332 frames), at time 76.63/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2300 (out of a total 2332 frames), at time 76.67/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2301 (out of a total 2332 frames), at time 76.70/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2302 (out of a total 2332 frames), at time 76.73/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2303 (out of a total 2332 frames), at time 76.77/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2304 (out of a total 2332 frames), at time 76.80/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2305 (out of a total 2332 frames), at time 76.83/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2306 (out of a total 2332 frames), at time 76.87/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2307 (out of a total 2332 frames), at time 76.90/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2308 (out of a total 2332 frames), at time 76.93/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2309 (out of a total 2332 frames), at time 76.97/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2310 (out of a total 2332 frames), at time 77.00/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2311 (out of a total 2332 frames), at time 77.03/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2312 (out of a total 2332 frames), at time 77.07/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2313 (out of a total 2332 frames), at time 77.10/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2314 (out of a total 2332 frames), at time 77.13/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2315 (out of a total 2332 frames), at time 77.17/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2316 (out of a total 2332 frames), at time 77.20/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2317 (out of a total 2332 frames), at time 77.23/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2318 (out of a total 2332 frames), at time 77.27/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2319 (out of a total 2332 frames), at time 77.30/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2320 (out of a total 2332 frames), at time 77.33/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2321 (out of a total 2332 frames), at time 77.37/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2322 (out of a total 2332 frames), at time 77.40/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2323 (out of a total 2332 frames), at time 77.43/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2324 (out of a total 2332 frames), at time 77.47/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2325 (out of a total 2332 frames), at time 77.50/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2326 (out of a total 2332 frames), at time 77.53/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2327 (out of a total 2332 frames), at time 77.57/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2328 (out of a total 2332 frames), at time 77.60/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2329 (out of a total 2332 frames), at time 77.63/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2330 (out of a total 2332 frames), at time 77.67/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+C:\Users\gripa\AppData\Roaming\Python\Python314\site-packages\moviepy\video\io\ffmpeg_reader.py:190: UserWarning: In file reports\helix_news\daily_20260322_171625\video\predictions.mp4, 2764800 bytes wanted but 0 bytes read at frame index 2331 (out of a total 2332 frames), at time 77.70/77.74 sec. Using the last valid frame instead.
+  warnings.warn(
+2026-03-22 17:46:00,782 [ncl_agency_runtime.fpc.helix_news.compositor] INFO: Episode composed: reports\helix_news\daily_20260322_171625\episode.mp4 (224.3s)
+GROK_API_KEY: 84 chars
+
+=== STAGE 0/3: Generating Script from FPC Database ===
+Script: 449 words, ~2:57
+Segments: cold_open, headlines, market_pulse, predictions, alerts, closing
+
+=== STAGE 1/3: Text-to-Speech ===
+  cold_open: OK
+  headlines: OK
+  market_pulse: OK
+  predictions: OK
+  alerts: OK
+  closing: OK
+Audio: 6/6 segments
+
+=== STAGE 2/3: Grok Imagine ù Helix in Frame ===
+  cold_open: generating Helix scene...
+  cold_open: grok_video_multiclip
+  headlines: generating Helix scene...
+  headlines: grok_video_multiclip
+  market_pulse: generating Helix scene...
+  market_pulse: grok_video_multiclip
+  predictions: generating Helix scene...
+  predictions: grok_video_multiclip
+  alerts: generating Helix scene...
+  alerts: grok_video
+  closing: generating Helix scene...
+  closing: grok_video
+
+=== STAGE 3/3: Composing Episode ===
+
+============================================================
+HELIX NEWS DAILY BRIEF ù COMPLETE
+============================================================
+Episode dir : reports\helix_news\daily_20260322_171625
+Final video : reports\helix_news\daily_20260322_171625\episode.mp4
+Duration    : 224.3s (3.7 min)
+Manifest    : reports\helix_news\daily_20260322_171625\manifest.json

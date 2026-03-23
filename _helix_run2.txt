@@ -1,0 +1,26 @@
+2026-03-22 16:31:08,124 [ncl_agency_runtime.fpc.helix_news.script_generator] INFO: Script generated: script_20260322_163108.json (~2:57)
+2026-03-22 16:31:43,269 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Episode ref: ref_01 ù Original newsdesk ù v1 reference
+2026-03-22 16:31:43,899 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: grok-imagine-video probe: ACCESSIBLE (request_id=1fa29cfb-c036-9423-b7f8-1d3e298bb6f0)
+2026-03-22 16:31:43,900 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok video prompt for 'cold_open': Helix AI news anchor turns to face camera with a confident smile, holographic globe rotating in back
+2026-03-22 16:31:44,875 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok video request started: 72f88df6-225a-9217-835c-e3cff8840b85 ù polling up to 10 min
+2026-03-22 16:31:50,302 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok video still pending... (5s elapsed)
+2026-03-22 16:32:06,426 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok video ready after ~20s
+2026-03-22 16:32:07,212 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Downloaded Grok video clip: cold_open_raw_video.mp4
+2026-03-22 16:32:54,259 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok video render complete: cold_open.mp4 (13.6s looped)
+2026-03-22 16:32:54,262 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok video prompt for 'headlines': Helix AI news anchor delivers breaking news with authoritative presence, subtle head nods, split-scr
+2026-03-22 16:32:55,522 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok video request started: 46be8b64-c96c-9572-84fb-4a8cb2d7cdb7 ù polling up to 10 min
+2026-03-22 16:33:00,998 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok video still pending... (5s elapsed)
+2026-03-22 16:33:17,231 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok video ready after ~20s
+2026-03-22 16:33:17,987 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Downloaded Grok video clip: headlines_raw_video.mp4
+2026-03-22 16:36:35,895 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok video render complete: headlines.mp4 (72.4s looped)
+2026-03-22 16:36:35,898 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok video prompt for 'market_pulse': Helix AI news anchor gestures toward glowing market charts, candlestick graphs animating on screens,
+2026-03-22 16:36:36,868 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok video request started: fc1b4147-c108-948f-986a-8bda81e892aa ù polling up to 10 min
+2026-03-22 16:36:42,241 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok video still pending... (5s elapsed)
+2026-03-22 16:36:58,385 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok video ready after ~20s
+2026-03-22 16:36:59,352 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Downloaded Grok video clip: market_pulse_raw_video.mp4
+2026-03-22 16:39:19,341 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok video render complete: market_pulse.mp4 (45.3s looped)
+2026-03-22 16:39:19,377 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok video prompt for 'predictions': Helix AI news anchor with holographic probability charts swirling around her, she points to data str
+2026-03-22 16:39:21,901 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok video request started: 3d48d40a-d956-9ea3-9138-0332f66fdda1 ù polling up to 10 min
+2026-03-22 16:39:27,287 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok video still pending... (5s elapsed)
+2026-03-22 16:39:43,446 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Grok video ready after ~20s
+2026-03-22 16:39:44,642 [ncl_agency_runtime.fpc.helix_news.avatar_engine] INFO: Downloaded Grok video clip: predictions_raw_video.mp4

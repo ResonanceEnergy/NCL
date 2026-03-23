@@ -1544,7 +1544,9 @@ def _collect_helix_news(repo_root: Path) -> list[HealthCheckResult]:
                     name="helix_clip_cache",
                     passed=True,
                     score=round(min(1.0, score), 2),
-                    details=f"{fresh_count} fresh / {total} total clips ({stale_count} stale)" if total > 0 else "Cache initialised, awaiting first prerender cycle",
+                    details=f"{fresh_count} fresh / {total} total clips ({stale_count} stale)"
+                    if total > 0
+                    else "Cache initialised, awaiting first prerender cycle",
                     recommendation="" if fresh_count > 0 else "Run 'helix_prerender' to populate clip cache",
                 )
             )
@@ -1576,15 +1578,13 @@ def _collect_helix_news(repo_root: Path) -> list[HealthCheckResult]:
     try:
         if episodes_dir.exists():
             # Find folders that actually contain episode.mp4
-            ep_folders = [
-                d for d in episodes_dir.iterdir()
-                if d.is_dir() and (d / "episode.mp4").exists()
-            ]
+            ep_folders = [d for d in episodes_dir.iterdir() if d.is_dir() and (d / "episode.mp4").exists()]
             if ep_folders:
                 # Sort by embedded timestamp (most recent first)
                 def _extract_ts(d: Path) -> str:
                     m = _TS_RE.search(d.name)
                     return m.group(1) if m else "00000000_000000"
+
                 ep_folders.sort(key=_extract_ts, reverse=True)
                 latest = ep_folders[0]
                 # Parse timestamp from folder name via regex
@@ -1605,13 +1605,8 @@ def _collect_helix_news(repo_root: Path) -> list[HealthCheckResult]:
                         name="helix_latest_episode",
                         passed=fresh,
                         score=score,
-                        details=(
-                            f"Latest: {latest.name} ({age_hours:.1f}h ago)"
-                            + " [episode.mp4]"
-                        ),
-                        recommendation=""
-                        if fresh
-                        else "Run BriefAssembler.assemble() to produce episode",
+                        details=(f"Latest: {latest.name} ({age_hours:.1f}h ago)" + " [episode.mp4]"),
+                        recommendation="" if fresh else "Run BriefAssembler.assemble() to produce episode",
                     )
                 )
             else:

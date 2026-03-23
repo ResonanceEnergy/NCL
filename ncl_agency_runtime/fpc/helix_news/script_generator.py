@@ -28,32 +28,114 @@ logger = logging.getLogger(__name__)
 WPM_NEWS_ANCHOR = 150
 
 # Domain keywords for classifying predictions into segments
-_FINANCE_KEYWORDS = frozenset([
-    "bitcoin", "crypto", "market", "stock", "s&p", "nasdaq", "financial",
-    "treasury", "bond", "yield", "gold", "oil", "etf", "fed", "inflation",
-    "interest rate", "currency", "forex", "trading", "equity", "recession",
-])
-_TECH_KEYWORDS = frozenset([
-    "ai", "llm", "gpt", "machine learning", "neural", "deep learning",
-    "technology", "software", "automation", "robot", "quantum", "computing",
-    "agent", "copilot", "model", "openai", "anthropic", "google",
-])
-_GEO_KEYWORDS = frozenset([
-    "geopolitics", "china", "russia", "nato", "sanctions", "diplomacy",
-    "conflict", "election", "tariff", "trade war", "military", "treaty",
-])
-_SCIENCE_KEYWORDS = frozenset([
-    "research", "breakthrough", "physics", "biology", "chemistry",
-    "climate", "energy", "fusion", "space", "nasa", "crispr",
-])
-_SECURITY_KEYWORDS = frozenset([
-    "cyber", "breach", "hack", "vulnerability", "ransomware", "threat",
-    "malware", "exploit", "zero-day", "privacy", "surveillance",
-])
-_HEALTH_KEYWORDS = frozenset([
-    "health", "longevity", "medical", "disease", "vaccine", "drug",
-    "fitness", "nutrition", "sleep", "aging", "cancer",
-])
+_FINANCE_KEYWORDS = frozenset(
+    [
+        "bitcoin",
+        "crypto",
+        "market",
+        "stock",
+        "s&p",
+        "nasdaq",
+        "financial",
+        "treasury",
+        "bond",
+        "yield",
+        "gold",
+        "oil",
+        "etf",
+        "fed",
+        "inflation",
+        "interest rate",
+        "currency",
+        "forex",
+        "trading",
+        "equity",
+        "recession",
+    ]
+)
+_TECH_KEYWORDS = frozenset(
+    [
+        "ai",
+        "llm",
+        "gpt",
+        "machine learning",
+        "neural",
+        "deep learning",
+        "technology",
+        "software",
+        "automation",
+        "robot",
+        "quantum",
+        "computing",
+        "agent",
+        "copilot",
+        "model",
+        "openai",
+        "anthropic",
+        "google",
+    ]
+)
+_GEO_KEYWORDS = frozenset(
+    [
+        "geopolitics",
+        "china",
+        "russia",
+        "nato",
+        "sanctions",
+        "diplomacy",
+        "conflict",
+        "election",
+        "tariff",
+        "trade war",
+        "military",
+        "treaty",
+    ]
+)
+_SCIENCE_KEYWORDS = frozenset(
+    [
+        "research",
+        "breakthrough",
+        "physics",
+        "biology",
+        "chemistry",
+        "climate",
+        "energy",
+        "fusion",
+        "space",
+        "nasa",
+        "crispr",
+    ]
+)
+_SECURITY_KEYWORDS = frozenset(
+    [
+        "cyber",
+        "breach",
+        "hack",
+        "vulnerability",
+        "ransomware",
+        "threat",
+        "malware",
+        "exploit",
+        "zero-day",
+        "privacy",
+        "surveillance",
+    ]
+)
+_HEALTH_KEYWORDS = frozenset(
+    [
+        "health",
+        "longevity",
+        "medical",
+        "disease",
+        "vaccine",
+        "drug",
+        "fitness",
+        "nutrition",
+        "sleep",
+        "aging",
+        "cancer",
+    ]
+)
 
 
 def _classify_domain(topic: str) -> str:
@@ -118,6 +200,7 @@ class ScriptGenerator:
         self.now = datetime.now()
         self.date_str = self.now.strftime("%A, %B %d, %Y")
         self.time_str = self.now.strftime("%H:%M")
+        self._headline_topics: set[str] = set()
 
     def generate(self) -> dict[str, Any]:
         """Generate the full broadcast script.
@@ -179,8 +262,12 @@ class ScriptGenerator:
         for p in all_preds[:10]:
             domains.add(p.get("_domain", "general"))
         domain_labels = {
-            "finance": "markets", "tech": "technology", "geopolitics": "global affairs",
-            "science": "science", "security": "cybersecurity", "health": "health",
+            "finance": "markets",
+            "tech": "technology",
+            "geopolitics": "global affairs",
+            "science": "science",
+            "security": "cybersecurity",
+            "health": "health",
             "general": "intelligence",
         }
         teasers = [domain_labels.get(d, d) for d in sorted(domains)][:4]
@@ -215,25 +302,37 @@ class ScriptGenerator:
         top = self._pick_diverse(all_preds, max_headlines)
 
         lines = ["Here are today's top stories."]
+        used_topics = set()
         for i, item in enumerate(top, 1):
             topic = item.get("topic", "Unknown topic")
             outcome = item.get("predicted_outcome", "No details available")
             conf = item.get("confidence", 0)
             domain = item.get("_domain", "general")
 
-            # Clean up the outcome — keep it tight for broadcast
-            outcome = self._clean_for_broadcast(outcome)
+            # Clean up the outcome — strip topic echoes, keep tight for broadcast
+            outcome = self._clean_for_broadcast(outcome, topic)
+            # If cleaning stripped everything, provide a generic directional statement
+            if not outcome or len(outcome) < 10:
+                outcome = "Our analysts see significant developments ahead."
 
             domain_tag = {
-                "finance": "In markets", "tech": "In tech",
-                "geopolitics": "On the global stage", "science": "In science",
-                "security": "In cybersecurity", "health": "In health",
+                "finance": "In markets",
+                "tech": "In tech",
+                "geopolitics": "On the global stage",
+                "science": "In science",
+                "security": "In cybersecurity",
+                "health": "In health",
             }.get(domain, "Also noteworthy")
 
-            line = f"Number {i}: {domain_tag} — {topic}. {outcome}"
+            display_topic = self._topic_for_broadcast(topic)
+            line = f"Number {i}: {domain_tag} — {display_topic}. {outcome}"
             if conf > 0:
                 line += f" Confidence: {conf:.0%}."
             lines.append(line)
+            used_topics.add(topic)
+
+        # Store used topics so predictions segment can avoid repeating them
+        self._headline_topics = used_topics
 
         text = " ".join(lines)
         return Segment("headlines", text, {"count": len(top)})
@@ -252,10 +351,13 @@ class ScriptGenerator:
         lines = ["Let's check the pulse on markets."]
         for item in finance_preds[:3]:
             topic = item.get("topic", "")
-            outcome = self._clean_for_broadcast(item.get("predicted_outcome", ""))
+            outcome = self._clean_for_broadcast(item.get("predicted_outcome", ""), topic)
+            if not outcome or len(outcome) < 10:
+                outcome = "The council sees notable movement potential."
             risk = _readable_risk(item.get("risk_level", "medium"))
             conf = item.get("confidence", 0)
-            lines.append(f"{topic}. {outcome} Risk level: {risk}. Confidence: {conf:.0%}.")
+            display_topic = self._topic_for_broadcast(topic)
+            lines.append(f"{display_topic}. {outcome} Risk level: {risk}. Confidence: {conf:.0%}.")
 
         text = " ".join(lines)
         return Segment("market_pulse", text, {"count": len(finance_preds[:3])})
@@ -265,11 +367,15 @@ class ScriptGenerator:
         max_preds = self.seg_cfg.get("predictions_count", 5)
 
         # Exclude finance predictions (already covered in market_pulse)
-        non_finance = [p for p in all_preds if p.get("_domain") != "finance"]
+        # AND exclude topics already used in headlines
+        headline_topics = getattr(self, "_headline_topics", set())
+        non_finance = [p for p in all_preds if p.get("_domain") != "finance" and p.get("topic") not in headline_topics]
 
         # If not enough non-finance, include some finance that weren't in market_pulse
         if len(non_finance) < max_preds:
-            finance_extras = [p for p in all_preds if p.get("_domain") == "finance"][3:]
+            finance_extras = [
+                p for p in all_preds if p.get("_domain") == "finance" and p.get("topic") not in headline_topics
+            ][3:]
             non_finance.extend(finance_extras)
 
         if not non_finance:
@@ -283,20 +389,25 @@ class ScriptGenerator:
         lines = ["Now for the council's intelligence forecasts."]
         for i, item in enumerate(top, 1):
             topic = item.get("topic", "Unknown")
-            outcome = self._clean_for_broadcast(item.get("predicted_outcome", ""))
+            outcome = self._clean_for_broadcast(item.get("predicted_outcome", ""), topic)
             conf = item.get("confidence", 0)
             domain = item.get("_domain", "general")
 
             domain_label = {
-                "tech": "Technology", "geopolitics": "Geopolitics",
-                "science": "Science", "security": "Cybersecurity",
-                "health": "Health", "finance": "Markets",
+                "tech": "Technology",
+                "geopolitics": "Geopolitics",
+                "science": "Science",
+                "security": "Cybersecurity",
+                "health": "Health",
+                "finance": "Markets",
             }.get(domain, "Intelligence")
 
-            line = (
-                f"Number {i}, {domain_label}: {topic}. {outcome} "
-                f"Confidence: {conf:.0%}."
-            )
+            outcome = self._clean_for_broadcast(outcome, topic)
+            if not outcome or len(outcome) < 10:
+                outcome = "Developments are progressing in line with council expectations."
+
+            display_topic = self._topic_for_broadcast(topic)
+            line = f"Number {i}, {domain_label}: {display_topic}. {outcome} Confidence: {conf:.0%}."
             lines.append(line)
 
         text = " ".join(lines)
@@ -308,6 +419,7 @@ class ScriptGenerator:
 
         try:
             from ..alerting import AlertEngine
+
             engine = AlertEngine()
             engine.scan()
             active = engine.get_active_alerts()
@@ -338,23 +450,113 @@ class ScriptGenerator:
 
     def _closing(self) -> Segment:
         """Sign-off."""
-        text = (
-            f"That wraps today's brief for {self.date_str}. "
-            f"Stay sharp. Stay informed. This is Helix, signing off."
-        )
+        text = f"That wraps today's brief for {self.date_str}. Stay sharp. Stay informed. This is Helix, signing off."
         return Segment("closing", text)
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     @staticmethod
-    def _clean_for_broadcast(text: str) -> str:
+    def _topic_for_broadcast(topic: str) -> str:
+        """Convert a question-form topic into a concise label for broadcast.
+
+        'Will the Federal Reserve cut interest rates below 3%?' → 'The Federal Reserve and interest rates'
+        'How will AI reshape trading?' → 'AI and trading'
+        """
+        import re
+
+        t = topic.rstrip("?. ")
+        # Strip question prefix
+        t = re.sub(r"^(?:Will|How will|How might|How could|Can|Could|Should|Is|Are|Do|Does)\s+", "", t, flags=re.I)
+        # Strip trailing time references
+        t = re.sub(r"\s+by\s+(?:year-end\s+)?\d{4}$", "", t, flags=re.I)
+        t = re.sub(r"\s+within\s+\d+\s+(?:months?|years?)(?:\s+of\s+\w+)?$", "", t, flags=re.I)
+        # Break at verbs to extract the subject
+        words = t.split()
+        _BREAK_VERBS = frozenset(
+            [
+                "replace",
+                "outperform",
+                "reshape",
+                "transform",
+                "dominate",
+                "disrupt",
+                "change",
+                "affect",
+                "influence",
+                "threaten",
+                "achieve",
+                "become",
+                "give",
+                "manage",
+                "eliminate",
+                "converge",
+                "compete",
+                "improve",
+                "cut",
+                "create",
+                "produce",
+                "win",
+                "match",
+                "make",
+                "drive",
+                "accelerate",
+            ]
+        )
+        if len(words) > 3:
+            for i, w in enumerate(words):
+                if w.lower() in _BREAK_VERBS and i >= 1:
+                    t = " ".join(words[:i])
+                    break
+        # Capitalize first letter
+        if t and t[0].islower():
+            t = t[0].upper() + t[1:]
+        # Cap length
+        words = t.split()
+        if len(words) > 8:
+            t = " ".join(words[:8])
+        return t
+
+    @staticmethod
+    def _clean_for_broadcast(text: str, topic: str = "") -> str:
         """Clean raw prediction text for spoken broadcast delivery."""
         if not text:
             return ""
-        # Remove raw enum strings like RiskLevel.LOW, Recommendation.BUY
         import re
+
+        # Remove raw enum strings like RiskLevel.LOW, Recommendation.BUY
         text = re.sub(r"\b\w+Level\.\w+\b", lambda m: m.group().split(".")[-1].lower(), text)
         text = re.sub(r"\bRecommendation\.\w+\b", lambda m: m.group().split(".")[-1].lower(), text)
+        # Strip topic-echo patterns: "Monitor {topic} closely", "suggests {topic} will"
+        if topic:
+            topic_escaped = re.escape(topic.rstrip("?. "))
+            # Remove "Strategic recommendation: Monitor {topic} closely"
+            text = re.sub(
+                rf"Strategic recommendation:\s*Monitor\s+{topic_escaped}\s+closely\.?",
+                "",
+                text,
+                flags=re.I,
+            )
+            # Remove "Trend analysis suggests {topic} will show steady growth"
+            text = re.sub(
+                rf"Trend analysis suggests\s+{topic_escaped}\s+will show steady growth\.?",
+                "",
+                text,
+                flags=re.I,
+            )
+            # Remove "Risk assessment identifies moderate uncertainty in {topic}"
+            text = re.sub(
+                rf"Risk assessment identifies moderate uncertainty in\s+{topic_escaped}\.?",
+                "",
+                text,
+                flags=re.I,
+            )
+            # Remove "Multiple scenarios developed for {topic} evolution"
+            text = re.sub(
+                rf"Multiple scenarios developed for\s+{topic_escaped}\s+evolution\.?",
+                "",
+                text,
+                flags=re.I,
+            )
         # Truncate very long outcomes to first 2 sentences
         sentences = re.split(r"(?<=[.!?])\s+", text.strip())
         if len(sentences) > 3:
@@ -429,14 +631,12 @@ class ScriptGenerator:
         # Try SQLite persistence first (same store as PredictionTracker)
         try:
             from ..persistence import PredictionStore
+
             store = PredictionStore()
             data = store.list_all()
             if data:
                 cutoff = (self.now - timedelta(hours=24)).isoformat()
-                recent = [
-                    p for p in data
-                    if p.get("recorded_at", p.get("timestamp", "")) >= cutoff
-                ]
+                recent = [p for p in data if p.get("recorded_at", p.get("timestamp", "")) >= cutoff]
                 return recent if recent else data
         except Exception as e:
             logger.debug("SQLite predictions unavailable: %s", e)
@@ -450,10 +650,7 @@ class ScriptGenerator:
             if isinstance(data, dict):
                 data = data.get("predictions", [])
             cutoff = (self.now - timedelta(hours=24)).isoformat()
-            recent = [
-                p for p in data
-                if p.get("timestamp", p.get("created_at", "")) >= cutoff
-            ]
+            recent = [p for p in data if p.get("timestamp", p.get("created_at", "")) >= cutoff]
             return recent if recent else data
         except Exception as e:
             logger.warning("Failed to load predictions: %s", e)

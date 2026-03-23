@@ -93,6 +93,7 @@ class AvatarEngine:
         segment_name: str = "",
         segment_text: str = "",
         subtitle_path: str | None = None,
+        clip_plan: Any | None = None,
     ) -> dict[str, Any]:
         """Render a video segment from audio.
 
@@ -103,6 +104,7 @@ class AvatarEngine:
             segment_name: Segment identifier (e.g. 'headlines').
             segment_text: Script text for the segment (used by grok_imagine).
             subtitle_path: Optional path to SRT subtitle file.
+            clip_plan: Optional SegmentPlan from FluencyEngine.
 
         Returns:
             Dict with output path and metadata.
@@ -128,6 +130,7 @@ class AvatarEngine:
                 segment_name,
                 segment_text,
                 subtitle_path,
+                clip_plan=clip_plan,
             )
         elif self.engine == "static":
             if not Path(portrait).exists():
@@ -327,7 +330,7 @@ class AvatarEngine:
 
             clip.write_videofile(
                 str(out),
-                fps=24,
+                fps=30,
                 codec="libx264",
                 audio_codec="aac",
                 logger=None,
@@ -679,9 +682,17 @@ class AvatarEngine:
 
         return None
 
-    @staticmethod
-    def _pick_random_ref_png() -> Path | None:
-        """Return a random helix reference PNG from the assets catalogue."""
+    def _get_episode_ref_png(self) -> Path | None:
+        """Return the episode-locked helix reference PNG for visual consistency.
+
+        Uses the ref chosen at init (_episode_ref) so Helix looks the same
+        in every segment. Falls back to a random pick if no catalogue entry.
+        """
+        if self._episode_ref:
+            ref_path = Path(self._episode_ref.get("path", ""))
+            if ref_path.exists():
+                return ref_path
+        # Fallback: random from disk
         refs_dir = Path(__file__).parent / "assets" / "helix_refs"
         candidates = sorted(refs_dir.glob("helix_ref_*.png"))
         return random.choice(candidates) if candidates else None
@@ -810,6 +821,516 @@ class AvatarEngine:
             logger.warning("grok-imagine-video probe failed: %s — assuming inaccessible", e)
             return False
 
+    # ------------------------------------------------------------------
+    # Multi-clip helpers — split long segments into ~8s sub-clips
+    # ------------------------------------------------------------------
+
+    def _split_into_subclips(
+        self,
+        subtitle_path: str | None,
+        audio_duration: float,
+        target_dur: float = 8.0,
+    ) -> list[tuple[float, float, str]]:
+        """Split a segment into ~8s sub-clips using SRT word timings.
+
+        Prefers breaks at sentence boundaries (., !, ?) once >=5s elapsed.
+        Falls back to fixed-interval splitting if no SRT available.
+        """
+        if not subtitle_path or not Path(subtitle_path).exists():
+            return self._split_fixed_intervals(audio_duration, target_dur)
+
+        cues = self._parse_srt(subtitle_path)
+        if not cues:
+            return self._split_fixed_intervals(audio_duration, target_dur)
+
+        chunks: list[tuple[float, float, str]] = []
+        chunk_start = cues[0][0]
+        chunk_words: list[str] = []
+        chunk_end = chunk_start
+
+        for _start, end, word in cues:
+            chunk_words.append(word)
+            chunk_end = end
+            elapsed = chunk_end - chunk_start
+
+            is_sentence_end = word.rstrip().endswith((".", "!", "?"))
+
+            # Break at sentence boundary after 5s, or hard-break at target_dur
+            if elapsed >= target_dur or (is_sentence_end and elapsed >= 5.0):
+                chunks.append((chunk_start, chunk_end, " ".join(chunk_words)))
+                chunk_words = []
+                chunk_start = chunk_end
+
+        # Remaining words
+        if chunk_words:
+            final_end = max(chunk_end, audio_duration)
+            chunks.append((chunk_start, final_end, " ".join(chunk_words)))
+
+        # Merge any tiny trailing chunk (<2s) into the previous one
+        if len(chunks) > 1 and (chunks[-1][1] - chunks[-1][0]) < 2.0:
+            prev = chunks[-2]
+            last = chunks[-1]
+            chunks[-2] = (prev[0], last[1], prev[2] + " " + last[2])
+            chunks.pop()
+
+        return chunks
+
+    @staticmethod
+    def _split_fixed_intervals(
+        audio_duration: float,
+        target_dur: float,
+    ) -> list[tuple[float, float, str]]:
+        """Split audio into fixed-interval chunks (no SRT available)."""
+        chunks: list[tuple[float, float, str]] = []
+        t = 0.0
+        while t < audio_duration:
+            end = min(t + target_dur, audio_duration)
+            chunks.append((t, end, ""))
+            t = end
+        return chunks
+
+    def _get_all_ref_pngs(self) -> list[Path]:
+        """Return all available helix reference PNG paths from the catalogue."""
+        catalogue_path = Path(__file__).parent / "assets" / "helix_refs" / "helix_refs.json"
+        if catalogue_path.exists():
+            try:
+                entries = _json.loads(catalogue_path.read_text(encoding="utf-8"))
+                available = [Path(e["path"]) for e in entries if Path(e.get("path", "")).exists()]
+                if available:
+                    return available
+            except Exception:
+                pass
+        refs_dir = Path(__file__).parent / "assets" / "helix_refs"
+        return sorted(refs_dir.glob("helix_ref_*.png"))
+
+    def _generate_single_grok_clip(
+        self,
+        ref_png: Path,
+        prompt: str,
+        clip_name: str,
+        output_dir: Path,
+        duration: int = 8,
+    ) -> tuple[Path | None, str | None]:
+        """Generate one Grok Video clip from a reference image.
+
+        Args:
+            duration: Clip length in seconds (1-15, API max is 15).
+
+        Returns (raw_clip_path, request_id) or (None, None) on failure.
+        """
+        import base64
+
+        # Clamp to API limits
+        duration = max(1, min(15, duration))
+
+        img_b64 = base64.b64encode(ref_png.read_bytes()).decode("ascii")
+        data_uri = f"data:image/png;base64,{img_b64}"
+
+        body = _json.dumps(
+            {
+                "model": self.grok_video_model,
+                "prompt": prompt,
+                "image_url": data_uri,
+                "duration": duration,
+                "aspect_ratio": "16:9",
+                "resolution": "480p",
+            }
+        ).encode()
+
+        start_req = urllib.request.Request(
+            "https://api.x.ai/v1/videos/generations",
+            data=body,
+            headers={
+                "Authorization": f"Bearer {self.xai_api_key}",
+                "Content-Type": "application/json",
+                "User-Agent": "NCL-HelixNews/1.0",
+            },
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(start_req, timeout=30) as resp:
+                start_data = _json.loads(resp.read().decode())
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as e:
+            logger.error("Grok clip '%s' start failed: %s", clip_name, e)
+            return None, None
+
+        request_id = start_data.get("request_id")
+        if not request_id:
+            logger.error("Grok clip '%s': no request_id: %s", clip_name, start_data)
+            return None, None
+
+        logger.info("Grok clip '%s' started: %s", clip_name, request_id)
+
+        # Poll for completion (120 x 5s = 10 min)
+        video_url: str | None = None
+        for poll_num in range(120):
+            time.sleep(5)
+            poll_req = urllib.request.Request(
+                f"https://api.x.ai/v1/videos/{request_id}",
+                headers={
+                    "Authorization": f"Bearer {self.xai_api_key}",
+                    "User-Agent": "NCL-HelixNews/1.0",
+                },
+                method="GET",
+            )
+            try:
+                with urllib.request.urlopen(poll_req, timeout=30) as resp:
+                    poll_data = _json.loads(resp.read().decode())
+            except Exception as e:
+                logger.warning("Poll error for '%s' (attempt %d): %s", clip_name, poll_num + 1, e)
+                continue
+
+            status = poll_data.get("status", "pending")
+            if status == "done":
+                video_url = poll_data.get("video", {}).get("url")
+                logger.info("Grok clip '%s' ready after ~%ds", clip_name, (poll_num + 1) * 5)
+                break
+            elif status in ("expired", "failed"):
+                logger.error("Grok clip '%s' %s: %s", clip_name, status, poll_data)
+                return None, request_id
+            if poll_num % 12 == 0 and poll_num > 0:
+                logger.info("Grok clip '%s' still pending... (%ds)", clip_name, (poll_num + 1) * 5)
+
+        if not video_url:
+            logger.warning("Grok clip '%s' timed out", clip_name)
+            return None, request_id
+
+        # Download raw clip
+        raw_path = output_dir / f"{clip_name}_raw.mp4"
+        try:
+            dl_req = urllib.request.Request(video_url, headers={"User-Agent": "NCL-HelixNews/1.0"})
+            with urllib.request.urlopen(dl_req, timeout=120) as resp:
+                raw_path.write_bytes(resp.read())
+            logger.info("Downloaded Grok clip: %s", raw_path.name)
+            return raw_path, request_id
+        except Exception as e:
+            logger.error("Grok clip download failed: %s", e)
+            return None, request_id
+
+    def _render_grok_video_multiclip(
+        self,
+        audio_path: str,
+        output_path: str,
+        segment_name: str,
+        segment_text: str,
+        subtitle_path: str | None,
+        audio_duration: float,
+        clip_plan: Any | None = None,
+    ) -> dict[str, Any]:
+        """Render a long segment as multiple Grok Video sub-clips.
+
+        Uses ONE episode-locked reference image for all clips (visual consistency).
+        Applies crossfade transitions between clips and burns a data sidebar.
+
+        Args:
+            clip_plan: Optional SegmentPlan from FluencyEngine. If None, falls
+                       back to SRT-based splitting with 13s target duration.
+        """
+        import shutil
+
+        from .fluency_engine import FluencyEngine, SegmentPlan
+
+        out = Path(output_path)
+        work_dir = out.parent / f"{segment_name}_subclips"
+        work_dir.mkdir(parents=True, exist_ok=True)
+
+        # Use fluency plan if provided, otherwise build one from SRT timings
+        if clip_plan and isinstance(clip_plan, SegmentPlan):
+            plan = clip_plan
+        else:
+            fluency = FluencyEngine()
+            plan = fluency._plan_segment(segment_name, segment_text, audio_duration)
+
+        logger.info(
+            "Segment '%s' (%.1fs) → %d clips (fluency-planned)",
+            segment_name,
+            audio_duration,
+            len(plan.clips),
+        )
+
+        # Use ONE episode-locked ref for all clips (visual consistency)
+        ref_png = self._get_episode_ref_png()
+        if not ref_png:
+            logger.warning("No helix ref for multi-clip — falling back to grok_imagine")
+            shutil.rmtree(work_dir, ignore_errors=True)
+            return self._render_grok_imagine(
+                audio_path, output_path, segment_name, segment_text, subtitle_path,
+            )
+
+        logger.info("Using single ref for ALL clips: %s", ref_png.name)
+
+        # Generate each sub-clip
+        trimmed_clips: list[Path] = []
+        clip_durations: list[float] = []
+
+        for clip_info in plan.clips:
+            clip_dur = clip_info.end_sec - clip_info.start_sec
+            clip_name = f"{segment_name}_sub{clip_info.index:02d}"
+            grok_dur = clip_info.grok_duration
+
+            prompt = self._build_video_prompt(
+                segment_name, clip_info.prompt_hint or segment_text,
+            )
+            logger.info(
+                "Sub-clip %d/%d: %.1f-%.1fs (%.1fs), grok_dur=%ds, ref=%s",
+                clip_info.index + 1,
+                len(plan.clips),
+                clip_info.start_sec,
+                clip_info.end_sec,
+                clip_dur,
+                grok_dur,
+                ref_png.name,
+            )
+
+            raw_path, _req_id = self._generate_single_grok_clip(
+                ref_png, prompt, clip_name, work_dir, duration=grok_dur,
+            )
+
+            if not raw_path:
+                if trimmed_clips:
+                    logger.warning("Sub-clip %d failed — looping previous clip", clip_info.index)
+                    prev_clip = trimmed_clips[-1]
+                    dup_path = work_dir / f"{clip_name}_trimmed.mp4"
+                    subprocess.run(
+                        [
+                            "ffmpeg", "-y", "-stream_loop", "-1",
+                            "-i", str(prev_clip), "-t", str(clip_dur),
+                            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                            "-an", str(dup_path),
+                        ],
+                        capture_output=True, text=True,
+                    )
+                    if dup_path.exists():
+                        trimmed_clips.append(dup_path)
+                        clip_durations.append(clip_dur)
+                    continue
+                else:
+                    logger.error("First sub-clip failed — falling back to grok_imagine")
+                    shutil.rmtree(work_dir, ignore_errors=True)
+                    return self._render_grok_imagine(
+                        audio_path, output_path, segment_name, segment_text, subtitle_path,
+                    )
+
+            # Trim/scale raw clip to target duration at 720p 30fps
+            # Use stream_loop so clips shorter than clip_dur get extended
+            trimmed_path = work_dir / f"{clip_name}_trimmed.mp4"
+            trim_cmd = [
+                "ffmpeg", "-y",
+                "-stream_loop", "-1",
+                "-i", str(raw_path),
+                "-t", str(clip_dur),
+                "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,"
+                       "pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=30",
+                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-an", str(trimmed_path),
+            ]
+            trim_result = subprocess.run(trim_cmd, capture_output=True, text=True)
+            raw_path.unlink(missing_ok=True)
+
+            if trim_result.returncode != 0 or not trimmed_path.exists():
+                logger.error("Trim failed for sub-clip %d: %s", clip_info.index, trim_result.stderr[-300:])
+                continue
+
+            # Probe ACTUAL duration (Grok clips may differ from requested)
+            probe_cmd = [
+                "ffprobe", "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                str(trimmed_path),
+            ]
+            probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
+            actual_dur = float(probe_result.stdout.strip()) if probe_result.returncode == 0 else clip_dur
+            trimmed_clips.append(trimmed_path)
+            clip_durations.append(actual_dur)
+
+        if not trimmed_clips:
+            logger.error("No sub-clips rendered — falling back to grok_imagine")
+            shutil.rmtree(work_dir, ignore_errors=True)
+            return self._render_grok_imagine(
+                audio_path, output_path, segment_name, segment_text, subtitle_path,
+            )
+
+        # --- Stitch clips: crossfade or simple concat ---
+        concat_video = work_dir / f"{segment_name}_concat.mp4"
+        fade = plan.crossfade_duration
+
+        if len(trimmed_clips) >= 2 and fade > 0:
+            # Use xfade filter chain for smooth crossfade transitions
+            xfade_ok = self._concat_with_crossfade(
+                trimmed_clips, clip_durations, fade, concat_video,
+            )
+            if not xfade_ok:
+                logger.warning("Crossfade failed — falling back to hard concat")
+                self._concat_hard(trimmed_clips, concat_video)
+        else:
+            self._concat_hard(trimmed_clips, concat_video)
+
+        if not concat_video.exists():
+            logger.error("Concat output missing")
+            shutil.rmtree(work_dir, ignore_errors=True)
+            return self._render_grok_imagine(
+                audio_path, output_path, segment_name, segment_text, subtitle_path,
+            )
+
+        # Mux original audio onto concatenated video
+        muxed = work_dir / f"{segment_name}_muxed.mp4"
+        mux_cmd = [
+            "ffmpeg", "-y",
+            "-i", str(concat_video), "-i", audio_path,
+            "-map", "0:v:0", "-map", "1:a:0",
+            "-t", str(audio_duration),
+            "-c:v", "copy", "-c:a", "aac", "-b:a", "128k",
+            "-movflags", "+faststart", str(muxed),
+        ]
+        mux_result = subprocess.run(mux_cmd, capture_output=True, text=True)
+        if mux_result.returncode != 0 or not muxed.exists():
+            logger.error("Audio mux failed: %s", mux_result.stderr[-500:])
+            shutil.rmtree(work_dir, ignore_errors=True)
+            return self._render_grok_imagine(
+                audio_path, output_path, segment_name, segment_text, subtitle_path,
+            )
+
+        # --- Burn sidebar and subtitles in TWO separate ffmpeg passes ---
+        # Combining drawtext + subtitles in one -vf causes comma conflicts
+        # (force_style commas parsed as filter separators).
+
+        fluency = FluencyEngine()
+        sidebar_vf = fluency.build_sidebar_drawtext_filters(plan, video_width=1280)
+
+        current_src = str(muxed)
+
+        # Pass 1: sidebar drawtext overlay
+        if sidebar_vf:
+            sidebar_out = str(work_dir / f"{segment_name}_sidebar.mp4")
+            sb_cmd = [
+                "ffmpeg", "-y", "-i", current_src,
+                "-vf", sidebar_vf,
+                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-c:a", "copy", "-movflags", "+faststart", sidebar_out,
+            ]
+            sb_res = subprocess.run(sb_cmd, capture_output=True, text=True)
+            if sb_res.returncode == 0:
+                current_src = sidebar_out
+                logger.info("Sidebar overlay burned OK")
+            else:
+                logger.warning("Sidebar burn failed: %s", sb_res.stderr[-400:])
+
+        # Pass 2: subtitle overlay
+        if subtitle_path and Path(subtitle_path).exists():
+            srt_escaped = str(Path(subtitle_path).resolve()).replace("\\", "/").replace(":", "\\:")
+            sub_vf = (
+                f"subtitles='{srt_escaped}':force_style='FontSize=24,"
+                f"PrimaryColour=&Hffffff&,OutlineColour=&H000000&,"
+                f"Outline=2,Alignment=2,MarginV=40'"
+            )
+            sub_cmd = [
+                "ffmpeg", "-y", "-i", current_src,
+                "-vf", sub_vf,
+                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                "-c:a", "copy", "-movflags", "+faststart", str(out),
+            ]
+            sub_res = subprocess.run(sub_cmd, capture_output=True, text=True)
+            if sub_res.returncode == 0:
+                current_src = str(out)
+                logger.info("Subtitle overlay burned OK")
+            else:
+                logger.warning("Subtitle burn failed: %s", sub_res.stderr[-400:])
+
+        # If neither pass wrote to out, copy muxed as-is
+        if not out.exists():
+            import shutil as _sh
+            _sh.copy2(current_src, str(out))
+
+        shutil.rmtree(work_dir, ignore_errors=True)
+
+        logger.info(
+            "Multi-clip render complete: %s (%.1fs, %d clips, crossfade=%.1fs)",
+            out.name, audio_duration, len(trimmed_clips), fade,
+        )
+        return {
+            "video": str(out),
+            "engine": "grok_video_multiclip",
+            "subclips": len(trimmed_clips),
+            "ref": ref_png.name,
+        }
+
+    # ------------------------------------------------------------------
+    # Crossfade + concat helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _concat_with_crossfade(
+        clips: list[Path],
+        durations: list[float],
+        fade_dur: float,
+        output: Path,
+    ) -> bool:
+        """Stitch clips with xfade crossfade transitions via ffmpeg.
+
+        Builds a chained xfade filter_complex for N clips:
+            [0][1]xfade=transition=fade:duration=D:offset=O1[x1];
+            [x1][2]xfade=transition=fade:duration=D:offset=O2[x2]; ...
+
+        Returns True on success.
+        """
+        if len(clips) < 2:
+            return False
+
+        # Build input args
+        input_args: list[str] = []
+        for c in clips:
+            input_args.extend(["-i", str(c)])
+
+        # Build xfade filter chain
+        filter_parts: list[str] = []
+        running_offset = durations[0] - fade_dur
+
+        for i in range(1, len(clips)):
+            in_label = f"[{i - 1}]" if i == 1 else f"[xf{i - 1}]"
+            out_label = f"[xf{i}]" if i < len(clips) - 1 else "[vout]"
+            filter_parts.append(
+                f"{in_label}[{i}]xfade=transition=fade:duration={fade_dur}:offset={running_offset:.3f}{out_label}"
+            )
+            if i < len(clips) - 1:
+                running_offset += durations[i] - fade_dur
+
+        filter_complex = ";".join(filter_parts)
+
+        cmd = [
+            "ffmpeg", "-y",
+            *input_args,
+            "-filter_complex", filter_complex,
+            "-map", "[vout]",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-an", str(output),
+        ]
+
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            logger.error("xfade crossfade failed: %s", result.stderr[-500:])
+            return False
+        return output.exists()
+
+    @staticmethod
+    def _concat_hard(clips: list[Path], output: Path) -> bool:
+        """Simple concat demuxer (no transitions)."""
+        concat_list = output.parent / "concat_list.txt"
+        with open(concat_list, "w", encoding="utf-8") as f:
+            for c in clips:
+                escaped = str(c.resolve()).replace("'", "'\\''")
+                f.write(f"file '{escaped}'\n")
+
+        cmd = [
+            "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+            "-i", str(concat_list),
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-an", str(output),
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        concat_list.unlink(missing_ok=True)
+        return result.returncode == 0 and output.exists()
+
     def _render_grok_video(
         self,
         audio_path: str,
@@ -817,15 +1338,17 @@ class AvatarEngine:
         segment_name: str,
         segment_text: str,
         subtitle_path: str | None = None,
+        clip_plan: Any | None = None,
     ) -> dict[str, Any]:
         """Animate a helix reference image into video via Grok Video API.
 
         Flow:
-          1. Pick a random helix_ref_*.png and encode it as a base64 data URI.
+          1. Pick the episode-locked helix_ref_*.png and encode as base64 data URI.
           2. POST to /v1/videos/generations with model=grok-imagine-video.
           3. Poll GET /v1/videos/{request_id} until status=done (up to 10 min).
-          4. Download the raw MP4 clip (~8s).
-          5. Loop raw clip to match audio duration and mux the TTS audio.
+          4. Download the raw MP4 clip.
+          5. For short segments: loop raw clip to match audio and mux TTS audio.
+             For long segments: dispatch to multi-clip with fluency engine.
           Falls back to grok_imagine on any failure.
         """
         import base64
@@ -842,10 +1365,33 @@ class AvatarEngine:
             logger.info("grok-imagine-video not yet available on this key — using grok_imagine")
             return self._render_grok_imagine(audio_path, output_path, segment_name, segment_text, subtitle_path)
 
+        # Detect audio duration — long segments get multi-clip treatment
+        _dur_probe = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-show_entries", "format=duration", "-of", "csv=p=0", audio_path],
+            capture_output=True,
+            text=True,
+        )
+        try:
+            _audio_dur = float(_dur_probe.stdout.strip())
+        except ValueError:
+            _audio_dur = 30.0
+
+        if _audio_dur > 10.0:
+            return self._render_grok_video_multiclip(
+                audio_path,
+                output_path,
+                segment_name,
+                segment_text,
+                subtitle_path,
+                _audio_dur,
+                clip_plan=clip_plan,
+            )
+
+        # --- Short segment (<=10s): single clip + loop ---
         out = Path(output_path)
         out.parent.mkdir(parents=True, exist_ok=True)
 
-        ref_png = self._pick_random_ref_png()
+        ref_png = self._get_episode_ref_png()
         if not ref_png:
             logger.warning("No helix ref PNG — falling back to grok_imagine")
             return self._render_grok_imagine(audio_path, output_path, segment_name, segment_text, subtitle_path)
@@ -961,7 +1507,19 @@ class AvatarEngine:
         except ValueError:
             audio_duration = 30.0
 
-        # Loop raw clip to audio length, mux TTS audio, scale to 720p broadcast
+        # Loop raw clip to audio length, mux TTS audio, scale to 720p broadcast @ 30fps
+        # Use crossfade filter to smooth loop boundaries instead of hard cuts
+        raw_dur_result = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-show_entries", "format=duration", "-of", "csv=p=0", str(raw_clip)],
+            capture_output=True,
+            text=True,
+        )
+        try:
+            raw_dur = float(raw_dur_result.stdout.strip())
+        except ValueError:
+            raw_dur = 8.0
+        # Crossfade overlap (0.5s) at each loop boundary
+        fade = min(0.5, raw_dur * 0.1)
         ffmpeg_cmd = [
             "ffmpeg",
             "-y",
@@ -978,7 +1536,7 @@ class AvatarEngine:
             "-t",
             str(audio_duration),
             "-vf",
-            "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2",
+            "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=30",
             "-c:v",
             "libx264",
             "-preset",
@@ -1000,6 +1558,40 @@ class AvatarEngine:
         if ffmpeg_result.returncode != 0:
             logger.error("ffmpeg loop/mux failed: %s", ffmpeg_result.stderr[-500:])
             return self._render_grok_imagine(audio_path, output_path, segment_name, segment_text, subtitle_path)
+
+        # Burn subtitles via ffmpeg subtitles filter (fast single-pass, no moviepy re-encode)
+        if subtitle_path and Path(subtitle_path).exists():
+            temp_nosub = out.parent / f"{segment_name}_nosub.mp4"
+            out.rename(temp_nosub)
+            # Escape Windows path backslashes and colons for ffmpeg subtitles filter
+            srt_escaped = str(Path(subtitle_path).resolve()).replace("\\", "/").replace(":", "\\:")
+            sub_cmd = [
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(temp_nosub),
+                "-vf",
+                f"subtitles='{srt_escaped}':force_style='FontSize=24,PrimaryColour=&Hffffff&,"
+                f"OutlineColour=&H000000&,Outline=2,Alignment=2,MarginV=40'",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "fast",
+                "-crf",
+                "23",
+                "-c:a",
+                "copy",
+                "-movflags",
+                "+faststart",
+                str(out),
+            ]
+            sub_result = subprocess.run(sub_cmd, capture_output=True, text=True)
+            temp_nosub.unlink(missing_ok=True)
+            if sub_result.returncode != 0:
+                logger.warning("Subtitle burn failed (non-fatal): %s", sub_result.stderr[-300:])
+                # If subtitles failed, the output still exists from the pre-subtitle step
+                if not out.exists():
+                    logger.error("No output video after subtitle failure")
 
         logger.info("Grok video render complete: %s (%.1fs looped)", out.name, audio_duration)
         return {
@@ -1033,8 +1625,8 @@ class AvatarEngine:
         out.parent.mkdir(parents=True, exist_ok=True)
         scene_img = out.parent / f"{segment_name}_scene.png"
 
-        # Pick a fresh random reference image for this segment
-        ref_png = self._pick_random_ref_png()
+        # Use episode-locked reference image for visual consistency
+        ref_png = self._get_episode_ref_png()
         if ref_png:
             logger.info("Using helix ref: %s", ref_png.name)
             prompt = self._build_edit_prompt(segment_name, segment_text)
@@ -1059,7 +1651,7 @@ class AvatarEngine:
 
             clip.write_videofile(
                 str(out),
-                fps=24,
+                fps=30,
                 codec="libx264",
                 audio_codec="aac",
                 logger=None,
