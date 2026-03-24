@@ -104,14 +104,13 @@ class TTSEngine:
         try:
             import edge_tts
         except ImportError:
-            logger.error(
-                "edge-tts not installed. Install with: pip install edge-tts"
-            )
+            logger.error("edge-tts not installed. Install with: pip install edge-tts")
             return {"error": "edge-tts not installed", "audio": None}
 
         # Force aiohttp to use the threaded resolver (aiodns fails on 3.14)
         try:
             import aiohttp
+
             aiohttp.resolver.DefaultResolver = aiohttp.resolver.ThreadedResolver
         except Exception:
             pass
@@ -127,13 +126,22 @@ class TTSEngine:
         # Stream once — collect audio and subtitle data in a single pass
         sub_gen = edge_tts.SubMaker() if subtitle_path else None
         audio_data = b""
-        async for chunk in communicate.stream():
-            if chunk["type"] == "audio":
-                audio_data += chunk["data"]
-            elif chunk["type"] == "WordBoundary" and sub_gen is not None:
-                sub_gen.feed(chunk)
+        try:
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    audio_data += chunk["data"]
+                elif chunk["type"] == "WordBoundary" and sub_gen is not None:
+                    sub_gen.feed(chunk)
+        except Exception as exc:
+            logger.error("edge-tts streaming failed: %s", exc)
+            return {"error": f"TTS stream error: {exc}", "audio": None}
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        if not audio_data:
+            logger.error("edge-tts returned zero audio bytes")
+            return {"error": "TTS produced empty audio", "audio": None}
+
         output_path.write_bytes(audio_data)
 
         result: dict[str, Any] = {

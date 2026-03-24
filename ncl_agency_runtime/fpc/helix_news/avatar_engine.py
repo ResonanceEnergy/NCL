@@ -59,6 +59,14 @@ class AvatarEngine:
         self.xai_api_key = av_cfg.get("xai_api_key") or os.environ.get("GROK_API_KEY", "")
         self.grok_model = av_cfg.get("grok_model", "grok-imagine-image")
         self.grok_video_model = av_cfg.get("grok_video_model", "grok-imagine-video")
+        # Output resolution from config — used by all scale/pad operations
+        out_cfg = cfg.get("output", {})
+        self.out_width = int(out_cfg.get("width", 1920))
+        self.out_height = int(out_cfg.get("height", 1080))
+        self.out_fps = int(out_cfg.get("fps", 30))
+        # Validate API key early — fail fast instead of 30 min into pipeline
+        if self.engine in ("grok_imagine", "grok_video") and not self.xai_api_key:
+            raise ValueError("GROK_API_KEY not set. Set it in environment or avatar.xai_api_key in config.")
         # Load Helix reference catalogue and pick one outfit for this episode
         self._episode_ref = self._load_episode_ref()
 
@@ -671,7 +679,7 @@ class AvatarEngine:
                     e.reason,
                     body_text,
                 )
-                if e.code == 429:
+                if e.code == 429 or e.code >= 500:
                     time.sleep(5 * (attempt + 1))
                     continue
                 return None
@@ -933,7 +941,7 @@ class AvatarEngine:
                 "image_url": data_uri,
                 "duration": duration,
                 "aspect_ratio": "16:9",
-                "resolution": "480p",
+                "resolution": "720p",
             }
         ).encode()
 
@@ -962,10 +970,10 @@ class AvatarEngine:
 
         logger.info("Grok clip '%s' started: %s", clip_name, request_id)
 
-        # Poll for completion (120 x 5s = 10 min)
+        # Poll for completion (300 x 2s = 10 min)
         video_url: str | None = None
-        for poll_num in range(120):
-            time.sleep(5)
+        for poll_num in range(300):
+            time.sleep(2)
             poll_req = urllib.request.Request(
                 f"https://api.x.ai/v1/videos/{request_id}",
                 headers={
@@ -984,13 +992,13 @@ class AvatarEngine:
             status = poll_data.get("status", "pending")
             if status == "done":
                 video_url = poll_data.get("video", {}).get("url")
-                logger.info("Grok clip '%s' ready after ~%ds", clip_name, (poll_num + 1) * 5)
+                logger.info("Grok clip '%s' ready after ~%ds", clip_name, (poll_num + 1) * 2)
                 break
             elif status in ("expired", "failed"):
                 logger.error("Grok clip '%s' %s: %s", clip_name, status, poll_data)
                 return None, request_id
-            if poll_num % 12 == 0 and poll_num > 0:
-                logger.info("Grok clip '%s' still pending... (%ds)", clip_name, (poll_num + 1) * 5)
+            if poll_num % 30 == 0 and poll_num > 0:
+                logger.info("Grok clip '%s' still pending... (%ds)", clip_name, (poll_num + 1) * 2)
 
         if not video_url:
             logger.warning("Grok clip '%s' timed out", clip_name)
@@ -1022,12 +1030,14 @@ class AvatarEngine:
 
         Uses ONE episode-locked reference image for all clips (visual consistency).
         Applies crossfade transitions between clips and burns a data sidebar.
+        Fires ALL clip requests in parallel via ThreadPoolExecutor for speed.
 
         Args:
             clip_plan: Optional SegmentPlan from FluencyEngine. If None, falls
                        back to SRT-based splitting with 13s target duration.
         """
         import shutil
+        from concurrent.futures import ThreadPoolExecutor, as_completed
 
         from .fluency_engine import FluencyEngine, SegmentPlan
 
@@ -1043,7 +1053,7 @@ class AvatarEngine:
             plan = fluency._plan_segment(segment_name, segment_text, audio_duration)
 
         logger.info(
-            "Segment '%s' (%.1fs) → %d clips (fluency-planned)",
+            "Segment '%s' (%.1fs) → %d clips (fluency-planned, PARALLEL)",
             segment_name,
             audio_duration,
             len(plan.clips),
@@ -1055,37 +1065,67 @@ class AvatarEngine:
             logger.warning("No helix ref for multi-clip — falling back to grok_imagine")
             shutil.rmtree(work_dir, ignore_errors=True)
             return self._render_grok_imagine(
-                audio_path, output_path, segment_name, segment_text, subtitle_path,
+                audio_path,
+                output_path,
+                segment_name,
+                segment_text,
+                subtitle_path,
             )
 
         logger.info("Using single ref for ALL clips: %s", ref_png.name)
 
-        # Generate each sub-clip
-        trimmed_clips: list[Path] = []
-        clip_durations: list[float] = []
-
-        for clip_info in plan.clips:
+        # --- Fire ALL Grok clip requests in parallel ---
+        def _generate_one(clip_info: Any) -> tuple[int, Path | None, str | None, float, str]:
+            """Generate a single Grok clip (runs inside thread pool)."""
+            # Stagger requests 1s apart to avoid burst rate limiting
+            time.sleep(clip_info.index * 1.0)
             clip_dur = clip_info.end_sec - clip_info.start_sec
             clip_name = f"{segment_name}_sub{clip_info.index:02d}"
             grok_dur = clip_info.grok_duration
-
             prompt = self._build_video_prompt(
-                segment_name, clip_info.prompt_hint or segment_text,
+                segment_name,
+                clip_info.prompt_hint or segment_text,
             )
             logger.info(
-                "Sub-clip %d/%d: %.1f-%.1fs (%.1fs), grok_dur=%ds, ref=%s",
+                "Sub-clip %d/%d: %.1f-%.1fs (%.1fs), grok_dur=%ds [PARALLEL]",
                 clip_info.index + 1,
                 len(plan.clips),
                 clip_info.start_sec,
                 clip_info.end_sec,
                 clip_dur,
                 grok_dur,
-                ref_png.name,
             )
+            raw_path, req_id = self._generate_single_grok_clip(
+                ref_png,
+                prompt,
+                clip_name,
+                work_dir,
+                duration=grok_dur,
+            )
+            return (clip_info.index, raw_path, req_id, clip_dur, clip_name)
 
-            raw_path, _req_id = self._generate_single_grok_clip(
-                ref_png, prompt, clip_name, work_dir, duration=grok_dur,
-            )
+        # Launch all clip requests concurrently (max 4 threads to stay within API limits)
+        raw_results: dict[int, tuple[Path | None, float, str]] = {}
+        with ThreadPoolExecutor(max_workers=min(4, len(plan.clips))) as pool:
+            futures = {pool.submit(_generate_one, ci): ci.index for ci in plan.clips}
+            for fut in as_completed(futures):
+                try:
+                    idx, raw_path, _req_id, clip_dur, clip_name = fut.result()
+                    raw_results[idx] = (raw_path, clip_dur, clip_name)
+                except Exception as exc:
+                    clip_idx = futures[fut]
+                    clip_info = plan.clips[clip_idx]
+                    clip_dur = clip_info.end_sec - clip_info.start_sec
+                    clip_name = f"{segment_name}_sub{clip_idx:02d}"
+                    logger.error("Clip %d thread crashed: %s", clip_idx, exc)
+                    raw_results[clip_idx] = (None, clip_dur, clip_name)
+
+        # --- Post-process clips in order (trim/scale) ---
+        trimmed_clips: list[Path] = []
+        clip_durations: list[float] = []
+
+        for clip_info in plan.clips:
+            raw_path, clip_dur, clip_name = raw_results[clip_info.index]
 
             if not raw_path:
                 if trimmed_clips:
@@ -1094,12 +1134,25 @@ class AvatarEngine:
                     dup_path = work_dir / f"{clip_name}_trimmed.mp4"
                     subprocess.run(
                         [
-                            "ffmpeg", "-y", "-stream_loop", "-1",
-                            "-i", str(prev_clip), "-t", str(clip_dur),
-                            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-                            "-an", str(dup_path),
+                            "ffmpeg",
+                            "-y",
+                            "-stream_loop",
+                            "-1",
+                            "-i",
+                            str(prev_clip),
+                            "-t",
+                            str(clip_dur),
+                            "-c:v",
+                            "libx264",
+                            "-preset",
+                            "ultrafast",
+                            "-crf",
+                            "23",
+                            "-an",
+                            str(dup_path),
                         ],
-                        capture_output=True, text=True,
+                        capture_output=True,
+                        text=True,
                     )
                     if dup_path.exists():
                         trimmed_clips.append(dup_path)
@@ -1109,21 +1162,40 @@ class AvatarEngine:
                     logger.error("First sub-clip failed — falling back to grok_imagine")
                     shutil.rmtree(work_dir, ignore_errors=True)
                     return self._render_grok_imagine(
-                        audio_path, output_path, segment_name, segment_text, subtitle_path,
+                        audio_path,
+                        output_path,
+                        segment_name,
+                        segment_text,
+                        subtitle_path,
                     )
 
-            # Trim/scale raw clip to target duration at 720p 30fps
+            # Trim/scale raw clip to target duration at output resolution
             # Use stream_loop so clips shorter than clip_dur get extended
             trimmed_path = work_dir / f"{clip_name}_trimmed.mp4"
+            scale_vf = (
+                f"scale={self.out_width}:{self.out_height}:force_original_aspect_ratio=decrease,"
+                f"pad={self.out_width}:{self.out_height}:(ow-iw)/2:(oh-ih)/2,"
+                f"fps={self.out_fps}"
+            )
             trim_cmd = [
-                "ffmpeg", "-y",
-                "-stream_loop", "-1",
-                "-i", str(raw_path),
-                "-t", str(clip_dur),
-                "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,"
-                       "pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=30",
-                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-                "-an", str(trimmed_path),
+                "ffmpeg",
+                "-y",
+                "-stream_loop",
+                "-1",
+                "-i",
+                str(raw_path),
+                "-t",
+                str(clip_dur),
+                "-vf",
+                scale_vf,
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-crf",
+                "23",
+                "-an",
+                str(trimmed_path),
             ]
             trim_result = subprocess.run(trim_cmd, capture_output=True, text=True)
             raw_path.unlink(missing_ok=True)
@@ -1134,9 +1206,13 @@ class AvatarEngine:
 
             # Probe ACTUAL duration (Grok clips may differ from requested)
             probe_cmd = [
-                "ffprobe", "-v", "error",
-                "-show_entries", "format=duration",
-                "-of", "default=noprint_wrappers=1:nokey=1",
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
                 str(trimmed_path),
             ]
             probe_result = subprocess.run(probe_cmd, capture_output=True, text=True)
@@ -1148,7 +1224,11 @@ class AvatarEngine:
             logger.error("No sub-clips rendered — falling back to grok_imagine")
             shutil.rmtree(work_dir, ignore_errors=True)
             return self._render_grok_imagine(
-                audio_path, output_path, segment_name, segment_text, subtitle_path,
+                audio_path,
+                output_path,
+                segment_name,
+                segment_text,
+                subtitle_path,
             )
 
         # --- Stitch clips: crossfade or simple concat ---
@@ -1158,7 +1238,10 @@ class AvatarEngine:
         if len(trimmed_clips) >= 2 and fade > 0:
             # Use xfade filter chain for smooth crossfade transitions
             xfade_ok = self._concat_with_crossfade(
-                trimmed_clips, clip_durations, fade, concat_video,
+                trimmed_clips,
+                clip_durations,
+                fade,
+                concat_video,
             )
             if not xfade_ok:
                 logger.warning("Crossfade failed — falling back to hard concat")
@@ -1170,83 +1253,178 @@ class AvatarEngine:
             logger.error("Concat output missing")
             shutil.rmtree(work_dir, ignore_errors=True)
             return self._render_grok_imagine(
-                audio_path, output_path, segment_name, segment_text, subtitle_path,
+                audio_path,
+                output_path,
+                segment_name,
+                segment_text,
+                subtitle_path,
             )
 
         # Mux original audio onto concatenated video
         muxed = work_dir / f"{segment_name}_muxed.mp4"
         mux_cmd = [
-            "ffmpeg", "-y",
-            "-i", str(concat_video), "-i", audio_path,
-            "-map", "0:v:0", "-map", "1:a:0",
-            "-t", str(audio_duration),
-            "-c:v", "copy", "-c:a", "aac", "-b:a", "128k",
-            "-movflags", "+faststart", str(muxed),
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(concat_video),
+            "-i",
+            audio_path,
+            "-map",
+            "0:v:0",
+            "-map",
+            "1:a:0",
+            "-t",
+            str(audio_duration),
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-movflags",
+            "+faststart",
+            str(muxed),
         ]
         mux_result = subprocess.run(mux_cmd, capture_output=True, text=True)
         if mux_result.returncode != 0 or not muxed.exists():
             logger.error("Audio mux failed: %s", mux_result.stderr[-500:])
             shutil.rmtree(work_dir, ignore_errors=True)
             return self._render_grok_imagine(
-                audio_path, output_path, segment_name, segment_text, subtitle_path,
+                audio_path,
+                output_path,
+                segment_name,
+                segment_text,
+                subtitle_path,
             )
 
-        # --- Burn sidebar and subtitles in TWO separate ffmpeg passes ---
-        # Combining drawtext + subtitles in one -vf causes comma conflicts
-        # (force_style commas parsed as filter separators).
+        # --- Burn sidebar and subtitles in a SINGLE ffmpeg pass ---
+        # Uses filter_complex to chain drawtext sidebar + subtitles in one encode.
+        # Falls back to two-pass if single-pass fails.
 
         fluency = FluencyEngine()
-        sidebar_vf = fluency.build_sidebar_drawtext_filters(plan, video_width=1280)
+        sidebar_vf = fluency.build_sidebar_drawtext_filters(plan, video_width=self.out_width)
+        lower_third_vf = fluency.build_lower_third_filters(
+            plan, video_width=self.out_width, video_height=self.out_height
+        )
+        # Combine all overlay filters
+        overlay_parts = [f for f in (sidebar_vf, lower_third_vf) if f]
+        overlay_vf = ",".join(overlay_parts) if overlay_parts else ""
 
         current_src = str(muxed)
 
-        # Pass 1: sidebar drawtext overlay
-        if sidebar_vf:
-            sidebar_out = str(work_dir / f"{segment_name}_sidebar.mp4")
-            sb_cmd = [
-                "ffmpeg", "-y", "-i", current_src,
-                "-vf", sidebar_vf,
-                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-                "-c:a", "copy", "-movflags", "+faststart", sidebar_out,
-            ]
-            sb_res = subprocess.run(sb_cmd, capture_output=True, text=True)
-            if sb_res.returncode == 0:
-                current_src = sidebar_out
-                logger.info("Sidebar overlay burned OK")
-            else:
-                logger.warning("Sidebar burn failed: %s", sb_res.stderr[-400:])
-
-        # Pass 2: subtitle overlay
-        if subtitle_path and Path(subtitle_path).exists():
+        has_subs = subtitle_path and Path(subtitle_path).exists()
+        srt_escaped = ""
+        sub_filter = ""
+        if has_subs:
             srt_escaped = str(Path(subtitle_path).resolve()).replace("\\", "/").replace(":", "\\:")
-            sub_vf = (
+            sub_filter = (
                 f"subtitles='{srt_escaped}':force_style='FontSize=24,"
                 f"PrimaryColour=&Hffffff&,OutlineColour=&H000000&,"
                 f"Outline=2,Alignment=2,MarginV=40'"
             )
-            sub_cmd = [
-                "ffmpeg", "-y", "-i", current_src,
-                "-vf", sub_vf,
-                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-                "-c:a", "copy", "-movflags", "+faststart", str(out),
+
+        # Try single-pass: overlay drawtext chain → subtitles
+        single_pass_ok = False
+        if overlay_vf and has_subs:
+            combined_vf = f"{overlay_vf},{sub_filter}"
+            combo_cmd = [
+                "ffmpeg",
+                "-y",
+                "-i",
+                current_src,
+                "-vf",
+                combined_vf,
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-crf",
+                "23",
+                "-c:a",
+                "copy",
+                "-movflags",
+                "+faststart",
+                str(out),
             ]
-            sub_res = subprocess.run(sub_cmd, capture_output=True, text=True)
-            if sub_res.returncode == 0:
+            combo_res = subprocess.run(combo_cmd, capture_output=True, text=True)
+            if combo_res.returncode == 0:
                 current_src = str(out)
-                logger.info("Subtitle overlay burned OK")
+                single_pass_ok = True
+                logger.info("Single-pass overlay+subtitle burned OK")
             else:
-                logger.warning("Subtitle burn failed: %s", sub_res.stderr[-400:])
+                logger.warning("Single-pass overlay failed, falling back to two-pass: %s", combo_res.stderr[-400:])
+
+        # Fallback: two separate passes
+        if not single_pass_ok:
+            if overlay_vf:
+                sidebar_out = str(work_dir / f"{segment_name}_sidebar.mp4")
+                sb_cmd = [
+                    "ffmpeg",
+                    "-y",
+                    "-i",
+                    current_src,
+                    "-vf",
+                    overlay_vf,
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "ultrafast",
+                    "-crf",
+                    "23",
+                    "-c:a",
+                    "copy",
+                    "-movflags",
+                    "+faststart",
+                    sidebar_out,
+                ]
+                sb_res = subprocess.run(sb_cmd, capture_output=True, text=True)
+                if sb_res.returncode == 0:
+                    current_src = sidebar_out
+                    logger.info("Overlay burned OK (two-pass)")
+                else:
+                    logger.warning("Sidebar burn failed: %s", sb_res.stderr[-400:])
+
+            if has_subs:
+                sub_cmd = [
+                    "ffmpeg",
+                    "-y",
+                    "-i",
+                    current_src,
+                    "-vf",
+                    sub_filter,
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "ultrafast",
+                    "-crf",
+                    "23",
+                    "-c:a",
+                    "copy",
+                    "-movflags",
+                    "+faststart",
+                    str(out),
+                ]
+                sub_res = subprocess.run(sub_cmd, capture_output=True, text=True)
+                if sub_res.returncode == 0:
+                    current_src = str(out)
+                    logger.info("Subtitle overlay burned OK (two-pass)")
+                else:
+                    logger.warning("Subtitle burn failed: %s", sub_res.stderr[-400:])
 
         # If neither pass wrote to out, copy muxed as-is
         if not out.exists():
             import shutil as _sh
+
             _sh.copy2(current_src, str(out))
 
         shutil.rmtree(work_dir, ignore_errors=True)
 
         logger.info(
             "Multi-clip render complete: %s (%.1fs, %d clips, crossfade=%.1fs)",
-            out.name, audio_duration, len(trimmed_clips), fade,
+            out.name,
+            audio_duration,
+            len(trimmed_clips),
+            fade,
         )
         return {
             "video": str(out),
@@ -1298,12 +1476,21 @@ class AvatarEngine:
         filter_complex = ";".join(filter_parts)
 
         cmd = [
-            "ffmpeg", "-y",
+            "ffmpeg",
+            "-y",
             *input_args,
-            "-filter_complex", filter_complex,
-            "-map", "[vout]",
-            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-            "-an", str(output),
+            "-filter_complex",
+            filter_complex,
+            "-map",
+            "[vout]",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-crf",
+            "23",
+            "-an",
+            str(output),
         ]
 
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -1322,14 +1509,29 @@ class AvatarEngine:
                 f.write(f"file '{escaped}'\n")
 
         cmd = [
-            "ffmpeg", "-y", "-f", "concat", "-safe", "0",
-            "-i", str(concat_list),
-            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-            "-an", str(output),
+            "ffmpeg",
+            "-y",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(concat_list),
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-crf",
+            "23",
+            "-an",
+            str(output),
         ]
         result = subprocess.run(cmd, capture_output=True, text=True)
-        concat_list.unlink(missing_ok=True)
-        return result.returncode == 0 and output.exists()
+        if result.returncode == 0 and output.exists():
+            concat_list.unlink(missing_ok=True)
+            return True
+        logger.error("Hard concat failed: %s", result.stderr[-400:])
+        return False
 
     def _render_grok_video(
         self,
@@ -1410,7 +1612,7 @@ class AvatarEngine:
                 "image_url": data_uri,
                 "duration": 8,
                 "aspect_ratio": "16:9",
-                "resolution": "480p",
+                "resolution": "720p",
             }
         ).encode()
 
@@ -1443,10 +1645,10 @@ class AvatarEngine:
 
         logger.info("Grok video request started: %s — polling up to 10 min", request_id)
 
-        # Poll for completion (120 × 5s = 10 minutes)
+        # Poll for completion (300 × 2s = 10 minutes)
         video_url: str | None = None
-        for poll_num in range(120):
-            time.sleep(5)
+        for poll_num in range(300):
+            time.sleep(2)
             poll_req = urllib.request.Request(
                 f"https://api.x.ai/v1/videos/{request_id}",
                 headers={
@@ -1465,13 +1667,13 @@ class AvatarEngine:
             status = poll_data.get("status", "pending")
             if status == "done":
                 video_url = poll_data.get("video", {}).get("url")
-                logger.info("Grok video ready after ~%ds", (poll_num + 1) * 5)
+                logger.info("Grok video ready after ~%ds", (poll_num + 1) * 2)
                 break
             elif status in ("expired", "failed"):
                 logger.error("Grok video %s: %s", status, poll_data)
                 return self._render_grok_imagine(audio_path, output_path, segment_name, segment_text, subtitle_path)
-            if poll_num % 12 == 0:
-                logger.info("Grok video still pending... (%ds elapsed)", (poll_num + 1) * 5)
+            if poll_num % 30 == 0:
+                logger.info("Grok video still pending... (%ds elapsed)", (poll_num + 1) * 2)
 
         if not video_url:
             logger.warning("Grok video timed out — falling back to grok_imagine")
@@ -1480,7 +1682,8 @@ class AvatarEngine:
         # Download raw animated clip
         raw_clip = out.parent / f"{segment_name}_raw_video.mp4"
         try:
-            with urllib.request.urlopen(video_url, timeout=120) as resp:
+            dl_req = urllib.request.Request(video_url, headers={"User-Agent": "NCL-HelixNews/1.0"})
+            with urllib.request.urlopen(dl_req, timeout=120) as resp:
                 raw_clip.write_bytes(resp.read())
             logger.info("Downloaded Grok video clip: %s", raw_clip.name)
         except Exception as e:
@@ -1520,6 +1723,11 @@ class AvatarEngine:
             raw_dur = 8.0
         # Crossfade overlap (0.5s) at each loop boundary
         fade = min(0.5, raw_dur * 0.1)
+        scale_vf = (
+            f"scale={self.out_width}:{self.out_height}:force_original_aspect_ratio=decrease,"
+            f"pad={self.out_width}:{self.out_height}:(ow-iw)/2:(oh-ih)/2,"
+            f"fps={self.out_fps}"
+        )
         ffmpeg_cmd = [
             "ffmpeg",
             "-y",
@@ -1536,11 +1744,11 @@ class AvatarEngine:
             "-t",
             str(audio_duration),
             "-vf",
-            "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,fps=30",
+            scale_vf,
             "-c:v",
             "libx264",
             "-preset",
-            "fast",
+            "ultrafast",
             "-crf",
             "23",
             "-c:a",
@@ -1576,7 +1784,7 @@ class AvatarEngine:
                 "-c:v",
                 "libx264",
                 "-preset",
-                "fast",
+                "ultrafast",
                 "-crf",
                 "23",
                 "-c:a",
@@ -1586,12 +1794,14 @@ class AvatarEngine:
                 str(out),
             ]
             sub_result = subprocess.run(sub_cmd, capture_output=True, text=True)
-            temp_nosub.unlink(missing_ok=True)
             if sub_result.returncode != 0:
                 logger.warning("Subtitle burn failed (non-fatal): %s", sub_result.stderr[-300:])
-                # If subtitles failed, the output still exists from the pre-subtitle step
-                if not out.exists():
-                    logger.error("No output video after subtitle failure")
+                # Restore the pre-subtitle video as final output
+                if not out.exists() and temp_nosub.exists():
+                    import shutil as _sh2
+
+                    _sh2.copy2(str(temp_nosub), str(out))
+            temp_nosub.unlink(missing_ok=True)
 
         logger.info("Grok video render complete: %s (%.1fs looped)", out.name, audio_duration)
         return {

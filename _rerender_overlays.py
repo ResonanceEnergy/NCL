@@ -7,6 +7,7 @@ video clips but failed on overlay burn.
 Usage:
     python _rerender_overlays.py reports/helix_news/daily_20260322_231235
 """
+
 import json
 import subprocess
 import sys
@@ -24,9 +25,9 @@ SEGMENTS = ["cold_open", "headlines", "market_pulse", "predictions", "alerts", "
 def ffprobe_duration(path: str) -> float:
     """Get duration via ffprobe."""
     r = subprocess.run(
-        ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
-         "-of", "csv=p=0", path],
-        capture_output=True, text=True,
+        ["ffprobe", "-v", "quiet", "-show_entries", "format=duration", "-of", "csv=p=0", path],
+        capture_output=True,
+        text=True,
     )
     return float(r.stdout.strip()) if r.stdout.strip() else 0.0
 
@@ -83,10 +84,23 @@ def main(run_dir: str) -> None:
         if sidebar_vf:
             sidebar_out = str(video_dir / f"{seg}_sidebar.mp4")
             cmd1 = [
-                "ffmpeg", "-y", "-i", src,
-                "-vf", sidebar_vf,
-                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-                "-c:a", "copy", "-movflags", "+faststart", sidebar_out,
+                "ffmpeg",
+                "-y",
+                "-i",
+                src,
+                "-vf",
+                sidebar_vf,
+                "-c:v",
+                "libx264",
+                "-preset",
+                "fast",
+                "-crf",
+                "23",
+                "-c:a",
+                "copy",
+                "-movflags",
+                "+faststart",
+                sidebar_out,
             ]
             r1 = subprocess.run(cmd1, capture_output=True, text=True)
             if r1.returncode == 0:
@@ -104,10 +118,23 @@ def main(run_dir: str) -> None:
                 f"Outline=2,Alignment=2,MarginV=40'"
             )
             cmd2 = [
-                "ffmpeg", "-y", "-i", src,
-                "-vf", sub_vf,
-                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-                "-c:a", "copy", "-movflags", "+faststart", str(vid),
+                "ffmpeg",
+                "-y",
+                "-i",
+                src,
+                "-vf",
+                sub_vf,
+                "-c:v",
+                "libx264",
+                "-preset",
+                "fast",
+                "-crf",
+                "23",
+                "-c:a",
+                "copy",
+                "-movflags",
+                "+faststart",
+                str(vid),
             ]
             r2 = subprocess.run(cmd2, capture_output=True, text=True)
             if r2.returncode == 0:
@@ -117,11 +144,13 @@ def main(run_dir: str) -> None:
                 print(f"  {seg}: subtitles FAIL — {r2.stderr[-300:]}")
                 # Copy sidebar version (or original) as fallback
                 import shutil
+
                 shutil.copy2(src, str(vid))
                 fail += 1
         else:
             # No subtitles — copy sidebar version as final
             import shutil
+
             shutil.copy2(src, str(vid))
             ok += 1
             print(f"  {seg}: no subtitles, sidebar only")
@@ -148,7 +177,7 @@ def main(run_dir: str) -> None:
     result = comp.compose(seg_videos, output_path=episode_path)
     if result.get("video"):
         size_mb = Path(result["video"]).stat().st_size / (1024 * 1024)
-        print(f"Episode: {result['video']} ({size_mb:.1f}MB, {result.get('duration_seconds',0):.0f}s)")
+        print(f"Episode: {result['video']} ({size_mb:.1f}MB, {result.get('duration_seconds', 0):.0f}s)")
     else:
         print(f"Compositor failed: {result}")
 

@@ -73,7 +73,7 @@ def main() -> None:
     script_path = EPISODE_DIR / "script.json"
     script_path.write_text(json.dumps(script, indent=2, default=str), encoding="utf-8")
 
-    # ── Stage 1: TTS ─────────────────────────────────────────────────────
+    # ── Stage 1: TTS (reduced inter-segment sleep) ───────────────────────
     print("\n=== STAGE 1/4: Text-to-Speech ===")
     tts = TTSEngine(CONFIG_PATH)
     audio_dir = EPISODE_DIR / "audio"
@@ -98,7 +98,7 @@ def main() -> None:
         print(f"  {name}: {status}")
 
         if i < len(segments) - 1:
-            time.sleep(3)  # pace edge-tts requests to avoid 503 rate-limit
+            time.sleep(1)  # reduced from 3s — edge-tts handles pacing well
 
     print(f"Audio: {sum(1 for v in audio_results.values() if v.get('audio'))}/{len(segments)} segments")
 
@@ -111,24 +111,27 @@ def main() -> None:
     for name, ares in audio_results.items():
         if ares.get("audio"):
             import subprocess
+
             dur_result = subprocess.run(
-                ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
-                 "-of", "csv=p=0", ares["audio"]],
-                capture_output=True, text=True,
+                ["ffprobe", "-v", "quiet", "-show_entries", "format=duration", "-of", "csv=p=0", ares["audio"]],
+                capture_output=True,
+                text=True,
             )
             try:
                 audio_durations[name] = float(dur_result.stdout.strip())
             except ValueError:
+                logger.warning("ffprobe failed for %s — using 30s default (may cause clip count mismatch)", name)
                 audio_durations[name] = 30.0
 
     clip_plans = fluency.analyze(segments, audio_durations)
     for name, plan in clip_plans.items():
         dur = audio_durations.get(name, 0)
-        print(f"  {name}: {dur:.1f}s → {len(plan.clips)} clips"
-              f" (crossfade={plan.crossfade_duration:.1f}s)")
+        print(f"  {name}: {dur:.1f}s → {len(plan.clips)} clips (crossfade={plan.crossfade_duration:.1f}s)")
 
-    # ── Stage 3: Avatar (Grok Video — fluency-driven) ────────────────────
-    print("\n=== STAGE 3/4: Grok Video — Fluency-Driven Render ===")
+    # ── Stage 3: Avatar (Grok Video — clips parallel within segments) ────
+    # Segments rendered sequentially to avoid API rate limits (429);
+    # clips within each segment fire in parallel via ThreadPoolExecutor.
+    print("\n=== STAGE 3/4: Grok Video — Parallel Clip Render ===")
     avatar = AvatarEngine(CONFIG_PATH)
     video_dir = EPISODE_DIR / "video"
     video_dir.mkdir(parents=True, exist_ok=True)
@@ -145,7 +148,7 @@ def main() -> None:
 
         video_path = video_dir / f"{name}.mp4"
         plan = clip_plans.get(name)
-        print(f"  {name}: generating Helix scene ({len(plan.clips) if plan else '?'} clips)...")
+        print(f"  {name}: generating Helix scene ({len(plan.clips) if plan else '?'} clips, parallel)...")
 
         result = avatar.render(
             audio_path=audio_res["audio"],
@@ -162,8 +165,9 @@ def main() -> None:
     # ── Stage 4: Compose ─────────────────────────────────────────────────
     print("\n=== STAGE 4/4: Composing Episode ===")
     comp = Compositor(CONFIG_PATH)
-    episode_path = str(EPISODE_DIR / "episode.mp4")
-    compose_result = comp.compose(avatar_results, episode_path)
+    episode_path = str(EPISODE_DIR / f"helix_daily_{TIMESTAMP}.mp4")
+    ticker_vf = fluency.build_ticker_filter(clip_plans, video_width=comp.width, video_height=comp.height)
+    compose_result = comp.compose(avatar_results, episode_path, ticker_filter=ticker_vf)
 
     # ── Summary ───────────────────────────────────────────────────────────
     video_file = compose_result.get("video")

@@ -4,20 +4,22 @@ import json
 import urllib.request
 
 webhook = "https://discord.com/api/webhooks/1485412527230681270/21GIfjsomScCXlxWTZmK3jwZHH2Ca9ZUy0pjNB2_LbTaCs37-i2Wqdel2StZI20lX8Zl"
-ep = 'reports/helix_news/daily_20260322_171625/episode_compressed.mp4'
+ep = "reports/helix_news/daily_20260323_043840/episode_discord.mp4"
 
 with open(ep, "rb") as f:
     file_data = f.read()
 
 boundary = b"----HelixBoundary9876"
-payload = json.dumps({"content": "**Helix News Daily Brief** \u2014 March 22, 2026 (v4: multi-clip rendering)"}).encode()
+payload = json.dumps(
+    {"content": "**Helix News Daily Brief** \u2014 March 23, 2026 (v5: parallel clips + single-pass overlays)"}
+).encode()
 
 body = b""
 body += b"--" + boundary + b"\r\n"
 body += b'Content-Disposition: form-data; name="payload_json"\r\n\r\n'
 body += payload + b"\r\n"
 body += b"--" + boundary + b"\r\n"
-body += b'Content-Disposition: form-data; name="files[0]"; filename="helix_news_20260322.mp4"\r\n'
+body += b'Content-Disposition: form-data; name="files[0]"; filename="helix_news_20260323.mp4"\r\n'
 body += b"Content-Type: video/mp4\r\n\r\n"
 body += file_data + b"\r\n"
 body += b"--" + boundary + b"--\r\n"

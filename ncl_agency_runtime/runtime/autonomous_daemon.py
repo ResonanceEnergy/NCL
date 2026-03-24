@@ -534,13 +534,26 @@ class TaskGenerator:
 
         return tasks
 
+    def _briefs_exist_today(self) -> bool:
+        """Check if AZ and C-Suite briefs have been generated today."""
+        today_prefix = datetime.now(UTC).strftime("%Y%m%d")
+        briefs_root = self.repo_root / "reports" / "daily_briefs"
+        for subdir in ("az", "csuite"):
+            parent = briefs_root / subdir
+            if not parent.is_dir():
+                return False
+            if not any(d.name.startswith(today_prefix) for d in parent.iterdir() if d.is_dir()):
+                return False
+        return True
+
     def generate_scheduled_tasks(self) -> list[AutonomousTask]:
         """Generate time-based recurring tasks."""
         now = datetime.now(UTC)
         tasks: list[AutonomousTask] = []
 
-        # Daily morning brief (if between 5:00-7:00 UTC)
-        if 5 <= now.hour <= 7:
+        # Daily brief: preferred window 5-7 UTC, but catch up if missed
+        need_brief = (5 <= now.hour <= 7) or not self._briefs_exist_today()
+        if need_brief:
             tasks.append(
                 AutonomousTask(
                     title="Generate Daily Brief",

@@ -8,9 +8,10 @@ onto the base segment videos from the pipeline run.
 Usage:
     python _rerender_sidebar.py
 """
+
 import json
-import subprocess
 import shutil
+import subprocess
 from pathlib import Path
 
 # --- Config ---
@@ -24,9 +25,13 @@ MULTI_CLIP_SEGMENTS = {"cold_open", "headlines", "market_pulse", "predictions"}
 def get_audio_duration(mp3_path: Path) -> float:
     """Get duration of an audio file via ffprobe."""
     cmd = [
-        "ffprobe", "-v", "error",
-        "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1",
+        "ffprobe",
+        "-v",
+        "error",
+        "-show_entries",
+        "format=duration",
+        "-of",
+        "default=noprint_wrappers=1:nokey=1",
         str(mp3_path),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -36,13 +41,14 @@ def get_audio_duration(mp3_path: Path) -> float:
 def main():
     # Load script
     script_path = RUN_DIR / "script.json"
-    with open(script_path, "r", encoding="utf-8") as f:
+    with open(script_path, encoding="utf-8") as f:
         script_data = json.load(f)
 
     segments = script_data["segments"]
 
     # Import the FIXED fluency engine
     import sys
+
     sys.path.insert(0, str(Path("ncl_agency_runtime/fpc/helix_news").resolve()))
     from fluency_engine import FluencyEngine
 
@@ -101,10 +107,22 @@ def main():
         combined_vf = ",".join(vf_parts)
 
         cmd = [
-            "ffmpeg", "-y", "-i", str(video_path),
-            "-vf", combined_vf,
-            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-            "-c:a", "copy", "-movflags", "+faststart",
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(video_path),
+            "-vf",
+            combined_vf,
+            "-c:v",
+            "libx264",
+            "-preset",
+            "fast",
+            "-crf",
+            "23",
+            "-c:a",
+            "copy",
+            "-movflags",
+            "+faststart",
             str(output_path),
         ]
 

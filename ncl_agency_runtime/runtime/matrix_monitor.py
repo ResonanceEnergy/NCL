@@ -1255,24 +1255,52 @@ def _collect_forecasting_health(repo_root: Path) -> list[HealthCheckResult]:
         )
 
     # ── Prediction tracker data freshness ─────────────────────
+    # Prefer SQLite (PredictionStore) over JSON fallback
     tracker_path = repo_root / "state" / "predictions.json"
     try:
-        if tracker_path.exists():
-            mtime = tracker_path.stat().st_mtime
-            age_hours = (time.time() - mtime) / 3600
-            fresh = age_hours < 24
-            import json as _json
+        pred_count = 0
+        age_hours = 999.0
+        source_label = "json"
+        try:
+            from ncl_agency_runtime.fpc.persistence import PredictionStore
 
-            with open(tracker_path, encoding="utf-8") as f:
-                preds = _json.load(f)
-            pred_count = len(preds) if isinstance(preds, list) else 0
+            store = PredictionStore()
+            all_preds = store.list_all()
+            pred_count = len(all_preds)
+            if all_preds:
+                from datetime import datetime as _dt
+
+                latest = max(
+                    (p.get("recorded_at", "") for p in all_preds),
+                    default="",
+                )
+                if latest:
+                    try:
+                        ts = _dt.fromisoformat(latest)
+                        age_hours = (time.time() - ts.timestamp()) / 3600
+                    except (ValueError, TypeError):
+                        pass
+            source_label = "sqlite"
+        except Exception:
+            # Fall back to JSON
+            if tracker_path.exists():
+                import json as _json
+
+                mtime = tracker_path.stat().st_mtime
+                age_hours = (time.time() - mtime) / 3600
+                with open(tracker_path, encoding="utf-8") as f:
+                    preds = _json.load(f)
+                pred_count = len(preds) if isinstance(preds, list) else 0
+
+        if pred_count > 0:
+            fresh = age_hours < 24
             results.append(
                 HealthCheckResult(
                     source=HealthSource.FORECASTING,
                     name="prediction_tracker",
                     passed=fresh,
                     score=1.0 if age_hours < 6 else (0.6 if fresh else 0.2),
-                    details=f"{pred_count} predictions stored, updated {age_hours:.1f}h ago",
+                    details=f"{pred_count} predictions stored ({source_label}), updated {age_hours:.1f}h ago",
                 )
             )
         else:
@@ -1282,7 +1310,7 @@ def _collect_forecasting_health(repo_root: Path) -> list[HealthCheckResult]:
                     name="prediction_tracker",
                     passed=False,
                     score=0.0,
-                    details="Predictions file not found — no forecasts yet",
+                    details="No predictions stored yet",
                     recommendation="Run FPC council to generate first predictions",
                 )
             )
