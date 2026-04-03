@@ -1,0 +1,46 @@
+{
+  "session_id": "COUNCIL-20260403-001",
+  "pump_id": "PUMP-20260403-001",
+  "timestamp": "2026-04-03T13:12:00-07:00",
+  "chair": "Claude",
+  "participants": ["Claude (Chair)", "Grok (xAI)", "Gemini (Google)", "Perplexity", "GPT (OpenAI)"],
+  "topic": "STRIKE-POINT: Full Pipeline Build-Out — iPhone to NCL Brain Cortex",
+
+  "deliberation": {
+    "claude_opening": "STRIKE-POINT is the single entry point for the entire NARTIX ecosystem. Without a working pipeline from NATRIX's iPhone to NCL, no mandates get generated, no work gets done downstream. This is infrastructure-critical. We need to make it real end-to-end.",
+
+    "grok_position": "Agree this is P0. The relay server exists but doesn't actually deliver prompts to NCL's file system. That's a 20-line fix. The real blocker is Tailscale on iPhone — without it, the VPN mesh doesn't reach the Mac Mini. Suggest: fix relay file drop first (immediate), then guide NATRIX through Tailscale install (5 minutes), then run full end-to-end test.",
+
+    "gemini_position": "The architecture is sound but untested. I'd add monitoring — the relay should log every pump received, every file written, with timestamps. When this pipeline breaks at 2 AM, you need to know where. Also: the iOS shortcut in STRIKE-POINT should be tested. It's the fast-path for pumps that skip the app UI.",
+
+    "perplexity_position": "Looking at the relay code: it accepts PumpPrompt JSON but writes nothing to disk. The NCL mandate-generation/input/ directory expects files named pump-YYYYMMDD-NNN.json. The relay needs a file writer that atomically drops pump prompts into that directory. Also recommend a health-check endpoint so FirstStrike can verify connectivity before sending.",
+
+    "gpt_position": "Broader view: STRIKE-POINT should have its own CLAUDE.md context file so any session touching these repos loads the right context automatically. The roadmap should have 3 phases: (1) Make it work — basic end-to-end, (2) Make it reliable — monitoring, error handling, retry logic, (3) Make it fast — optimize latency, add queue management."
+  },
+
+  "decision": {
+    "verdict": "APPROVED — P1 mandate for full STRIKE-POINT pipeline build-out",
+    "confidence": 0.92,
+    "primary_path": "Three-phase rollout: Phase 1 (Working Pipeline) by April 5, Phase 2 (Reliability) by April 12, Phase 3 (Performance + Polish) by April 20",
+    "key_actions": [
+      "Fix relay to write pump prompts to NCL/mandate-generation/input/",
+      "Add /health endpoint to relay for connectivity checks",
+      "Install Tailscale on iPhone (NATRIX manual action)",
+      "End-to-end test: iPhone → Relay → NCL file drop",
+      "Create STRIKE-POINT CLAUDE.md context file",
+      "Add monitoring/logging to relay pipeline",
+      "Update NCL active-mandates.md with new mandate"
+    ],
+    "risks": [
+      "Tailscale install on iPhone requires NATRIX action — can't automate",
+      "Self-signed TLS cert may cause issues on iOS — trust profile needed",
+      "Mac Mini sleep/restart could kill relay — needs launchd service"
+    ]
+  },
+
+  "vote_tally": {
+    "approve": 5,
+    "reject": 0,
+    "abstain": 0
+  }
+}

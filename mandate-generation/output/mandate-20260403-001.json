@@ -1,0 +1,101 @@
+{
+  "mandate_id": "MANDATE-2026-008",
+  "pump_id": "PUMP-20260403-001",
+  "council_session": "COUNCIL-20260403-001",
+  "status": "APPROVED",
+  "title": "STRIKE-POINT: Full Pipeline — iPhone to NCL Brain Cortex",
+  "objective": "Build, test, and deploy the complete STRIKE-POINT pipeline so that a pump prompt sent from NATRIX's iPhone via FirstStrike app arrives in NCL/mandate-generation/input/ as a structured JSON file, triggering mandate generation. Three-phase rollout: working → reliable → fast.",
+  "priority": 9,
+  "priority_level": "P1",
+  "created_at": "2026-04-03T13:15:00-07:00",
+  "deadline": "2026-04-20T23:59:00-07:00",
+  "authority_chain": "NATRIX → NCL → NCC",
+
+  "approval_gate": {
+    "required": true,
+    "approver": "NATRIX",
+    "status": "APPROVED",
+    "approved_at": "2026-04-03T13:15:30-07:00",
+    "note": "lets build this out make a goal mandate roadmap and tasklist and execute"
+  },
+
+  "goal": {
+    "statement": "Make STRIKE-POINT the operational nervous system of NARTIX — a zero-friction pipeline where NATRIX picks up the iPhone, fires a pump prompt, and it lands in NCL ready for council processing within 5 seconds.",
+    "success_vision": "NATRIX sends a pump prompt from iPhone while walking → it appears in NCL/mandate-generation/input/ instantly → council processes it → mandate generated → NCC executes → feedback loops back. All automated. No terminal. No manual file moves.",
+    "key_metrics": [
+      "End-to-end latency: pump sent → file written < 5 seconds",
+      "Relay uptime: 99%+ (launchd managed, auto-restart)",
+      "Zero manual steps between iPhone send and NCL file drop",
+      "Health check passes from iPhone before every send"
+    ]
+  },
+
+  "roadmap": {
+    "phase_1": {
+      "name": "Make It Work",
+      "deadline": "2026-04-05",
+      "description": "Basic end-to-end pipeline. Pump prompt goes from FirstStrike app to relay to NCL file system.",
+      "milestones": [
+        "M1.1: Relay writes pump prompts to NCL/mandate-generation/input/ (atomic file write)",
+        "M1.2: /health endpoint added to relay (returns connectivity + disk status)",
+        "M1.3: Tailscale installed on iPhone (NATRIX action)",
+        "M1.4: End-to-end test passes: iPhone → Tailscale → Relay → NCL file drop",
+        "M1.5: STRIKE-POINT CLAUDE.md created with pipeline context"
+      ]
+    },
+    "phase_2": {
+      "name": "Make It Reliable",
+      "deadline": "2026-04-12",
+      "description": "Add monitoring, error handling, retry logic, and persistent service management.",
+      "milestones": [
+        "M2.1: Relay runs as launchd service (auto-start, auto-restart on crash)",
+        "M2.2: Structured logging with rotation (relay.log, 7-day retention)",
+        "M2.3: Retry logic in FirstStrike app (3 retries, exponential backoff)",
+        "M2.4: Relay validates pump prompt schema before writing",
+        "M2.5: Alert system: relay down > 5 min → notification to NATRIX"
+      ]
+    },
+    "phase_3": {
+      "name": "Make It Fast + Polish",
+      "deadline": "2026-04-20",
+      "description": "Optimize latency, add queue management, polish iOS UX.",
+      "milestones": [
+        "M3.1: Pump prompt queue with priority ordering",
+        "M3.2: FirstStrike app shows delivery confirmation with NCL receipt ID",
+        "M3.3: iOS Shortcut integration (Siri: 'Hey Siri, pump prompt')",
+        "M3.4: Relay dashboard: web UI showing recent pumps, status, latency",
+        "M3.5: Full documentation + architecture diagram in STRIKE-POINT repo"
+      ]
+    }
+  },
+
+  "task_list": {
+    "phase_1_tasks": [
+      {"id": "T1.1", "task": "Add NCL file writer to relay-pump-endpoint.py", "owner": "NCC", "status": "pending", "priority": "P0"},
+      {"id": "T1.2", "task": "Add /health endpoint to relay server", "owner": "NCC", "status": "pending", "priority": "P0"},
+      {"id": "T1.3", "task": "Install Tailscale on iPhone + join tailnet", "owner": "NATRIX", "status": "pending", "priority": "P0"},
+      {"id": "T1.4", "task": "Create STRIKE-POINT/CLAUDE.md context file", "owner": "NCL", "status": "pending", "priority": "P1"},
+      {"id": "T1.5", "task": "Run end-to-end test: iPhone → Relay → NCL", "owner": "NCC", "status": "pending", "priority": "P0"},
+      {"id": "T1.6", "task": "Update NCL/shared/doctrine/active-mandates.md", "owner": "NCL", "status": "pending", "priority": "P1"},
+      {"id": "T1.7", "task": "Push all repos to GitHub", "owner": "NCC", "status": "pending", "priority": "P1"}
+    ],
+    "phase_2_tasks": [
+      {"id": "T2.1", "task": "Create com.resonanceenergy.relay.plist for launchd", "owner": "NCC", "status": "pending", "priority": "P1"},
+      {"id": "T2.2", "task": "Add structured JSON logging with rotation", "owner": "NCC", "status": "pending", "priority": "P2"},
+      {"id": "T2.3", "task": "Add retry logic to FirstStrike RelayClient.swift", "owner": "NCC", "status": "pending", "priority": "P1"},
+      {"id": "T2.4", "task": "Add pump prompt schema validation to relay", "owner": "NCC", "status": "pending", "priority": "P2"},
+      {"id": "T2.5", "task": "Create relay-down alert (macOS notification)", "owner": "NCC", "status": "pending", "priority": "P2"}
+    ],
+    "phase_3_tasks": [
+      {"id": "T3.1", "task": "Add priority queue to relay pump processing", "owner": "NCC", "status": "pending", "priority": "P2"},
+      {"id": "T3.2", "task": "Add delivery confirmation to FirstStrike UI", "owner": "NCC", "status": "pending", "priority": "P2"},
+      {"id": "T3.3", "task": "Build Siri Shortcut integration for pump prompts", "owner": "NCC", "status": "pending", "priority": "P3"},
+      {"id": "T3.4", "task": "Build relay web dashboard (status + recent pumps)", "owner": "NCC", "status": "pending", "priority": "P3"},
+      {"id": "T3.5", "task": "Write full architecture docs + diagrams", "owner": "NCL", "status": "pending", "priority": "P2"}
+    ]
+  },
+
+  "council_confidence": 0.92,
+  "estimated_cost_cents": 0,
+  "notes": "This mandate is infrastructure-critical. STRIKE-POINT is the sole entry point to NCL. Without it, no pump prompts reach the brain, no mandates get generated, and the entire downstream pipeline (NCC, BRS, AAC) stalls. Treat as foundational."
+}

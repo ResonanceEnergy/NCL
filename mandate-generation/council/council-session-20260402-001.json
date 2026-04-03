@@ -1,0 +1,94 @@
+{
+  "session_id": "COUNCIL-20260402-001",
+  "pump_id": "PUMP-20260402-001",
+  "protocol": "Hybrid Delphi-MAD",
+  "chair": "Claude (Permanent Chair)",
+  "members": ["Grok", "Gemini", "Perplexity", "GPT"],
+  "topic": "Crimson Compass vertical slice ship to itch.io in 4 days",
+  "rounds": [
+    {
+      "round": 1,
+      "phase": "POSITION",
+      "positions": {
+        "Claude (Chair)": {
+          "stance": "FEASIBLE WITH SCOPE CUT",
+          "reasoning": "4 days is tight for a 3-level vertical slice. Gadget system at 60% means we need to ship what works, not finish everything. Recommend shipping 2 fully polished levels + 1 bonus level with reduced gadget set. BRS can handle itch.io listing in parallel.",
+          "risk_flag": "Gadget system incomplete - could ship with 3 of 5 gadgets functional"
+        },
+        "Grok": {
+          "stance": "AGGRESSIVE SHIP",
+          "reasoning": "The itch.io early access model is forgiving. Ship fast, patch later. 3 levels with core gadgets is enough. Marketing copy should emphasize 'spy thriller early access' and lean into the mystery. Price at $4.99 is right.",
+          "risk_flag": "None - early access expectations are low"
+        },
+        "Gemini": {
+          "stance": "FEASIBLE - NEEDS TESTING BUFFER",
+          "reasoning": "Unity WebGL builds for itch.io need testing on multiple browsers. Allocate half a day for build testing. Recommend shipping Windows + WebGL. Marketing should include gameplay GIFs - static screenshots underperform by 40% on itch.io.",
+          "risk_flag": "WebGL compatibility across browsers"
+        },
+        "Perplexity": {
+          "stance": "MARKET TIMING FAVORABLE",
+          "reasoning": "itch.io spy/thriller games are underrepresented. Current top sellers in the genre are 6+ months old. Fresh entry with gadget mechanics has differentiation. Early access at $4.99 is below the $7.99 average for the genre, good for initial traction.",
+          "risk_flag": "Low visibility without marketing push"
+        },
+        "GPT": {
+          "stance": "CONDITIONAL FEASIBLE",
+          "reasoning": "Ship is feasible if scope is managed. Recommend: Day 1-2 finalize levels + gadgets, Day 3 build + QA, Day 4 listing + launch. AAC revenue routing needs to be pre-configured before launch, not after.",
+          "risk_flag": "Revenue routing delay could lose first-day earnings attribution"
+        }
+      }
+    },
+    {
+      "round": 2,
+      "phase": "REBUTTAL",
+      "key_debates": [
+        {
+          "topic": "Scope: 2 vs 3 levels",
+          "resolution": "Ship 3 levels but Level 3 can be shorter (tutorial-length). Quality > quantity.",
+          "consensus": "4/5 agree"
+        },
+        {
+          "topic": "Gadget count",
+          "resolution": "Ship with 3 core gadgets (lockpick, scanner, grapple). Defer smoke bomb and EMP to patch 0.2.",
+          "consensus": "5/5 agree"
+        },
+        {
+          "topic": "Build targets",
+          "resolution": "Windows primary, WebGL secondary. Mac build deferred.",
+          "consensus": "5/5 agree"
+        },
+        {
+          "topic": "Marketing assets",
+          "resolution": "GIFs mandatory (Gemini's data). Grok generates copy, Claude reviews.",
+          "consensus": "5/5 agree"
+        }
+      ]
+    },
+    {
+      "round": 3,
+      "phase": "CONVERGENCE",
+      "final_decision": {
+        "verdict": "PROCEED - SHIP BY APRIL 6",
+        "confidence": 0.87,
+        "scope": {
+          "levels": 3,
+          "gadgets": 3,
+          "build_targets": ["Windows", "WebGL"],
+          "price": "$4.99 USD"
+        },
+        "timeline": {
+          "day_1_2": "NCC: Finalize 3 levels + 3 gadgets in Unity",
+          "day_3": "NCC: Build + QA. BRS: Draft listing copy + capture GIFs",
+          "day_4": "BRS: Publish to itch.io. AAC: Configure revenue routing with DUBFORGE tag"
+        },
+        "mandate_recommendation": {
+          "ncc_mandate": "Build and QA Crimson Compass 3-level vertical slice",
+          "brs_mandate": "Create and publish itch.io listing with marketing assets",
+          "aac_mandate": "Configure revenue earmark for DUBFORGE reinvestment"
+        }
+      }
+    }
+  ],
+  "paperclip_issue_id": "NCL-20260402-001",
+  "cost_estimate_cents": 1250,
+  "duration_seconds": 45
+}

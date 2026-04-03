@@ -1,0 +1,71 @@
+{
+  "mandate_id": "MND-20260402-CC7SHIP",
+  "pump_id": "PUMP-20260402-001",
+  "council_session": "COUNCIL-20260402-001",
+  "status": "PENDING_APPROVAL",
+  "title": "Ship Crimson Compass Vertical Slice to itch.io",
+  "objective": "Build, QA, and publish a playable 3-level Crimson Compass demo with 3 core spy gadgets to itch.io at $4.99 early access pricing by April 6, 2026.",
+  "priority": 8,
+  "priority_level": "P0",
+  "created_at": "2026-04-02T14:31:45-07:00",
+  "deadline": "2026-04-06T23:59:00-07:00",
+  "authority_chain": "NATRIX → NCL → NCC → BRS + AAC",
+  "approval_gate": {
+    "required": true,
+    "approver": "NATRIX",
+    "status": "APPROVED",
+    "approved_at": "2026-04-02T14:32:10-07:00",
+    "note": "Ship it. 3 gadgets is fine for v0.1."
+  },
+  "sub_mandates": [
+    {
+      "target_pillar": "NCC",
+      "mandate_id": "MND-20260402-CC7SH01",
+      "title": "Build Crimson Compass 3-Level Vertical Slice",
+      "description": "Finalize 3 Unity levels with lockpick, scanner, and grapple gadgets. Produce Windows and WebGL builds. Run QA pass on both targets. Deliver build artifacts to BRS for itch.io upload.",
+      "deadline": "2026-04-05T18:00:00-07:00",
+      "priority": "P0",
+      "success_criteria": [
+        "3 playable levels with progression",
+        "3 gadgets functional (lockpick, scanner, grapple)",
+        "Windows .exe build passes smoke test",
+        "WebGL build loads in Chrome and Firefox",
+        "Build artifacts delivered to BRS staging"
+      ],
+      "tags": ["crimson-compass", "unity", "game-build", "qa"]
+    },
+    {
+      "target_pillar": "BRS",
+      "mandate_id": "MND-20260402-CC7SH02",
+      "title": "Publish Crimson Compass on itch.io",
+      "description": "Create itch.io listing with marketing copy, gameplay GIFs, screenshots, and pricing. Upload builds from NCC. Set early access pricing at $4.99. Configure payment to Resonance Energy account.",
+      "deadline": "2026-04-06T12:00:00-07:00",
+      "priority": "P0",
+      "success_criteria": [
+        "itch.io listing live and public",
+        "Marketing copy published with gameplay GIFs",
+        "Windows + WebGL builds uploaded",
+        "Price set to $4.99 USD",
+        "Payment configured to RE account"
+      ],
+      "tags": ["crimson-compass", "itch-io", "marketing", "listing"]
+    },
+    {
+      "target_pillar": "AAC",
+      "mandate_id": "MND-20260402-CC7SH03",
+      "title": "Configure DUBFORGE Revenue Earmark",
+      "description": "Set up revenue routing so all Crimson Compass itch.io earnings are tagged for DUBFORGE reinvestment per the 50/50 BRS/AAC split. AAC's 50% goes directly to DUBFORGE development fund.",
+      "deadline": "2026-04-06T12:00:00-07:00",
+      "priority": "P1",
+      "success_criteria": [
+        "Revenue earmark rule created in War Room",
+        "DUBFORGE tag applied to CC earnings stream",
+        "AAC 50% allocation confirmed",
+        "Dashboard shows earmark active"
+      ],
+      "tags": ["crimson-compass", "dubforge", "revenue-routing", "earmark"]
+    }
+  ],
+  "council_confidence": 0.87,
+  "estimated_cost_cents": 1250
+}

@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  # NCL Brain Service
+  ncl-brain:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ncl-brain
+    ports:
+      - "8787:8787"
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+    environment:
+      - NCL_ANTHROPIC_API_KEY=${NCL_ANTHROPIC_API_KEY}
+      - NCL_XAI_API_KEY=${NCL_XAI_API_KEY}
+      - NCL_GOOGLE_API_KEY=${NCL_GOOGLE_API_KEY}
+      - NCL_PERPLEXITY_API_KEY=${NCL_PERPLEXITY_API_KEY}
+      - NCL_OPENAI_API_KEY=${NCL_OPENAI_API_KEY}
+      - NCL_X_BEARER_TOKEN=${NCL_X_BEARER_TOKEN}
+      - NCL_YOUTUBE_API_KEY=${NCL_YOUTUBE_API_KEY}
+      - NCL_REDDIT_CLIENT_ID=${NCL_REDDIT_CLIENT_ID}
+      - NCL_REDDIT_CLIENT_SECRET=${NCL_REDDIT_CLIENT_SECRET}
+      - NCL_OLLAMA_HOST=ollama:11434
+      - NCL_PAPERCLIP_HOST=paperclip
+      - NCL_PAPERCLIP_PORT=8765
+      - NCL_DEBUG=false
+    depends_on:
+      - ollama
+      - paperclip
+    networks:
+      - resonance-energy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8787/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+  # Ollama local models
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+    networks:
+      - resonance-energy
+    restart: unless-stopped
+    # Pre-download models on startup (optional)
+    # command: serve & sleep 5 && ollama pull qwen3:32b && ollama pull deepseek-coder-v2:16b
+
+  # Paperclip (mocked for dev)
+  paperclip:
+    image: python:3.12-slim
+    container_name: paperclip-mock
+    working_dir: /app
+    volumes:
+      - ./paperclip_mock.py:/app/main.py
+    ports:
+      - "8765:8765"
+    command: python /app/main.py
+    networks:
+      - resonance-energy
+    restart: unless-stopped
+
+networks:
+  resonance-energy:
+    driver: bridge
+
+volumes:
+  ollama_data:
