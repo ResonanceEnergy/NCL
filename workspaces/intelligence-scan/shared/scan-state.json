@@ -1,0 +1,27 @@
+{
+  "last_updated": "2026-04-04T00:00:00Z",
+  "scanners": {
+    "x": {
+      "status": "idle",
+      "last_scan": null,
+      "alerts_today": 0
+    },
+    "youtube": {
+      "status": "idle",
+      "last_scan": null,
+      "alerts_today": 0
+    },
+    "reddit": {
+      "status": "idle",
+      "last_scan": null,
+      "alerts_today": 0
+    },
+    "polymarket": {
+      "status": "idle",
+      "last_scan": null,
+      "alerts_today": 0
+    }
+  },
+  "convergence_active": [],
+  "total_signals_today": 0
+}

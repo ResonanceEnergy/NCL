@@ -45,8 +45,8 @@ class PaperclipClient:
         Initialize NCL Paperclip client.
 
         Args:
-            base_url: Paperclip server URL (e.g., http://localhost:3000)
-                     Defaults to PAPERCLIP_URL env var or http://localhost:3000
+            base_url: Paperclip server URL (e.g., http://localhost:3100)
+                     Defaults to PAPERCLIP_URL env var or http://localhost:3100
             company_id: Company UUID (loaded from cache or created on first use)
                        Defaults to PAPERCLIP_COMPANY_ID env var
             agent_api_key: Agent API key in format "publicKey:secretKey"
@@ -66,7 +66,7 @@ class PaperclipClient:
             )
             self._universal_client_class = None
 
-        self.base_url = base_url or os.getenv("PAPERCLIP_URL", "http://localhost:3000")
+        self.base_url = base_url or os.getenv("PAPERCLIP_URL", "http://localhost:3100")
         self.company_id = company_id or os.getenv("PAPERCLIP_COMPANY_ID", "")
         self.agent_api_key = agent_api_key or os.getenv("PAPERCLIP_AGENT_KEY", "")
         self.session_token = session_token or os.getenv("PAPERCLIP_SESSION_TOKEN", "")

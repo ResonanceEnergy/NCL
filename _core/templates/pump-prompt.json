@@ -1,0 +1,32 @@
+{
+  "$schema": "NCL Pump Prompt Template v1.0",
+  "description": "Schema for pump prompts arriving from NATRIX via Grok iPhone first-strike",
+  "template": {
+    "pump_id": "RLY-{YYYYMMDD}{HHMMSS}-{HASH7}",
+    "timestamp": "{ISO8601}",
+    "source": "grok-iphone",
+    "priority": "P1 | P2 | P3 | P4",
+    "intent": "{What NATRIX wants to accomplish}",
+    "context": "{Background, constraints, references}",
+    "council_required": true,
+    "council_participants": ["claude", "grok", "gemini", "perplexity"],
+    "target_pillar": "NCL | NCC | BRS | AAC",
+    "attachments": [],
+    "auth_token": "{STRIKE_AUTH_TOKEN}"
+  },
+  "examples": [
+    {
+      "pump_id": "RLY-20260404-120000-ABC1234",
+      "timestamp": "2026-04-04T12:00:00Z",
+      "source": "grok-iphone",
+      "priority": "P1",
+      "intent": "Evaluate Polymarket scenario: US-China semiconductor export controls escalation",
+      "context": "Reuters reporting new restrictions. AAC War Room should assess options positions.",
+      "council_required": true,
+      "council_participants": ["claude", "grok", "gemini", "perplexity"],
+      "target_pillar": "AAC",
+      "attachments": [],
+      "auth_token": "nartix-strike-2026-resonance-energy-pipeline"
+    }
+  ]
+}

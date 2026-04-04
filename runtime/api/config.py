@@ -49,7 +49,7 @@ class Settings(BaseSettings):
 
     # Paperclip integration
     paperclip_host: str = "localhost"
-    paperclip_port: int = 3000
+    paperclip_port: int = 3100
     paperclip_api_key: Optional[str] = None
 
     # Scan intervals (seconds)
@@ -166,7 +166,7 @@ ollama_host: "localhost:11434"
 
 # Paperclip
 paperclip_host: "localhost"
-paperclip_port: 3000
+paperclip_port: 3100
 
 # Scan Intervals (seconds)
 x_scan_interval: 300

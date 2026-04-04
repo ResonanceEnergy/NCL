@@ -1,0 +1,16 @@
+{
+  "last_updated": "2026-04-04T00:00:00Z",
+  "long_term_count": 0,
+  "working_count": 0,
+  "decay_count": 0,
+  "domains": {
+    "geopolitical": 0,
+    "market": 0,
+    "technical": 0,
+    "research": 0,
+    "operational": 0
+  },
+  "last_consolidation": null,
+  "avg_importance": 0.0,
+  "avg_confidence": 0.0
+}

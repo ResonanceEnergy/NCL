@@ -161,7 +161,7 @@ class NCLBrain:
         import httpx
         import os
 
-        paperclip_url = os.getenv("PAPERCLIP_URL", "http://localhost:3000")
+        paperclip_url = os.getenv("PAPERCLIP_URL", "http://localhost:3100")
         company_id = os.getenv("PAPERCLIP_COMPANY_ID", "")
         if not company_id:
             log.warning("[budget] No PAPERCLIP_COMPANY_ID, skipping budget policies")

@@ -46,7 +46,7 @@ A: {{PAPERCLIP_ENABLED}}
 
 If Yes:
   - Paperclip host: {{PAPERCLIP_HOST}} (default: localhost)
-  - Paperclip port: {{PAPERCLIP_PORT}} (default: 8765)
+  - Paperclip port: {{PAPERCLIP_PORT}} (default: 3100)
   - Paperclip API key: {{PAPERCLIP_API_KEY}}
   - NCL company ID in Paperclip: {{PAPERCLIP_NCL_COMPANY_ID}} (default: "ncl")
 

@@ -1,0 +1,51 @@
+{
+  "version": "1.0.0",
+  "check_interval_seconds": 30,
+  "timeout_seconds": 5,
+  "services": [
+    {
+      "name": "relay",
+      "display_name": "Relay Server",
+      "url": "https://{LOCAL_IP}:8787/health",
+      "tls_verify": false,
+      "pillar": "NCL"
+    },
+    {
+      "name": "ncl-brain",
+      "display_name": "NCL Brain",
+      "url": "http://localhost:8800/health",
+      "pillar": "NCL"
+    },
+    {
+      "name": "aac-war-room",
+      "display_name": "AAC WAR Room",
+      "url": "http://localhost:8080/health",
+      "pillar": "AAC"
+    },
+    {
+      "name": "ncc-server",
+      "display_name": "NCC Server",
+      "url": "http://localhost:8765/health",
+      "pillar": "NCC"
+    },
+    {
+      "name": "paperclip",
+      "display_name": "Paperclip",
+      "url": "http://localhost:3100/api/health",
+      "pillar": "ORCHESTRATION"
+    },
+    {
+      "name": "brs-server",
+      "display_name": "BRS Server",
+      "url": "http://localhost:8000/health",
+      "pillar": "BRS"
+    }
+  ],
+  "alerts": {
+    "telegram_enabled": false,
+    "telegram_bot_token": "",
+    "telegram_chat_id": "",
+    "alert_on": ["unhealthy", "offline"],
+    "cooldown_minutes": 15
+  }
+}

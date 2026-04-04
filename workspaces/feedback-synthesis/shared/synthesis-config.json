@@ -1,0 +1,22 @@
+{
+  "version": "1.0.0",
+  "schedule": {
+    "daily_health_synthesis": "20:00 UTC",
+    "weekly_full_synthesis": "Sunday 20:00 UTC",
+    "on_event_triggers": ["CRITICAL_ALERT", "DOCTRINE_STATE_CHANGE", "MANDATE_COMPLETION"]
+  },
+  "thresholds": {
+    "mandate_adjustment_confidence": 0.8,
+    "escalation_severity": "CRITICAL",
+    "cross_pillar_agreement_min": 2
+  },
+  "pillar_weights": {
+    "NCC": 1.0,
+    "BRS": 1.0,
+    "AAC": 1.2
+  },
+  "output": {
+    "synthesis_dir": "feedback-synthesis/synthesis/",
+    "mandate_recommendations_to": "mandate-generation/input/"
+  }
+}

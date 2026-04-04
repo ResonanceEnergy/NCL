@@ -906,7 +906,7 @@ class CouncilEngine:
         if not self._paperclip:
             return None
         try:
-            paperclip_url = os.getenv("PAPERCLIP_URL", "http://localhost:3000")
+            paperclip_url = os.getenv("PAPERCLIP_URL", "http://localhost:3100")
             company_id = os.getenv("PAPERCLIP_COMPANY_ID", "")
             if not company_id:
                 log.warning("[council:paperclip] No PAPERCLIP_COMPANY_ID set, skipping issue creation")
@@ -944,7 +944,7 @@ class CouncilEngine:
         if not self._paperclip:
             return
         try:
-            paperclip_url = os.getenv("PAPERCLIP_URL", "http://localhost:3000")
+            paperclip_url = os.getenv("PAPERCLIP_URL", "http://localhost:3100")
             company_id = os.getenv("PAPERCLIP_COMPANY_ID", "")
             if not company_id:
                 return
@@ -984,7 +984,7 @@ class CouncilEngine:
         if not self._paperclip or not issue_id:
             return
         try:
-            paperclip_url = os.getenv("PAPERCLIP_URL", "http://localhost:3000")
+            paperclip_url = os.getenv("PAPERCLIP_URL", "http://localhost:3100")
             company_id = os.getenv("PAPERCLIP_COMPANY_ID", "")
 
             # Actual Paperclip endpoint: PATCH /api/issues/:id (NOT under /companies)
@@ -1039,7 +1039,7 @@ class CouncilEngine:
         if not self._paperclip or not issue_id:
             return
         try:
-            paperclip_url = os.getenv("PAPERCLIP_URL", "http://localhost:3000")
+            paperclip_url = os.getenv("PAPERCLIP_URL", "http://localhost:3100")
             company_id = os.getenv("PAPERCLIP_COMPANY_ID", "")
             if not company_id:
                 return

@@ -1,0 +1,37 @@
+# Feedback Report Template
+# Used by NCC, BRS, AAC when reporting back to NCL
+
+report_id: "{PILLAR}-report-{YYYYMMDD}-{SEQ}"
+report_type: "{execution_truth|economic_signal|capital_performance}"
+source_pillar: "{NCC|BRS|AAC}"
+timestamp: "{ISO8601}"
+period: "{YYYY-MM-DD/YYYY-MM-DD}"
+
+# Mandate reference (if applicable)
+mandate_id: null
+mandate_status: null
+mandate_progress_pct: null
+
+# Pillar-specific payload
+# NCC: execution metrics, friction points, service health
+# BRS: revenue, costs, conversions, market signals
+# AAC: portfolio, P&L, doctrine state, war room status
+payload: {}
+
+# Signals for NCL synthesis
+signals:
+  - signal: "{Description of observation}"
+    confidence: 0.8
+    category: "{operational|economic|market|risk}"
+    urgency: "{LOW|MEDIUM|HIGH|CRITICAL}"
+
+# Recommended adjustments
+recommended_adjustments:
+  - adjustment: "{What should change}"
+    reason: "{Why}"
+    affected_mandates: []
+
+# Validation metadata
+schema_version: "1.0.0"
+validated: false
+validation_errors: []

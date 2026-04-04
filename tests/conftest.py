@@ -15,5 +15,5 @@ def data_dir(tmp_path):
 def mock_env(monkeypatch):
     """Set minimal env vars for testing."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-    monkeypatch.setenv("PAPERCLIP_URL", "http://localhost:3000")
+    monkeypatch.setenv("PAPERCLIP_URL", "http://localhost:3100")
     monkeypatch.setenv("PAPERCLIP_COMPANY_ID", "test-company")

@@ -131,7 +131,7 @@ logs/
 *.log
 
 # Runtime data
-mandate-generation/input/pump-*.json
+mandate-generation/input/*.json
 mandate-generation/processed/
 mandate-generation/failed/
 

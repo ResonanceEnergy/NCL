@@ -1,0 +1,23 @@
+{
+  "last_updated": "2026-04-04T00:00:00Z",
+  "mandates": [
+    {
+      "mandate_id": "MANDATE-2026-008",
+      "title": "STRIKE-POINT Pipeline v2",
+      "pillar": "NCL",
+      "priority": "CRITICAL",
+      "status": "ACTIVE",
+      "created": "2026-04-03",
+      "summary": "Build and harden the iPhone-to-Mac pump prompt pipeline with TLS relay, brain API, and pump watcher"
+    },
+    {
+      "mandate_id": "MANDATE-2026-009",
+      "title": "AAC War Room Launch",
+      "pillar": "AAC",
+      "priority": "HIGH",
+      "status": "ACTIVE",
+      "created": "2026-04-04",
+      "summary": "Stand up the War Room scenario-based trading engine with Polymarket integration and Kelly criterion sizing"
+    }
+  ]
+}
