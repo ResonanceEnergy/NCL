@@ -126,6 +126,15 @@ dmypy.json
 *~
 .DS_Store
 
+# Logs
+logs/
+*.log
+
+# Runtime data
+mandate-generation/input/pump-*.json
+mandate-generation/processed/
+mandate-generation/failed/
+
 # NCL specific
 /NCL/data/
 /NCL/config/ncl.yaml

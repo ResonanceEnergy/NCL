@@ -1,0 +1,22 @@
+{
+  "pump_id": "PUMP-20260403-007",
+  "relay_id": "RLY-20260403190002-8B303B4",
+  "received_at": "2026-04-04T01:00:02.397350+00:00",
+  "source": "first-strike-ios",
+  "pipeline": "STRIKE-POINT",
+  "mandate_ref": "MANDATE-2026-008",
+  "prompt": {
+    "id": "8F9AA06F-DFD5-4D20-A3D5-2DB616E57FE8",
+    "raw_intent": "War room evening scan",
+    "formatted_prompt": null,
+    "target_pillar": "NCL",
+    "priority": "P2",
+    "timestamp": "2026-04-04T01:00:02Z",
+    "metadata": {
+      "source": "first-strike-ios",
+      "app_version": "1.0",
+      "grok_formatted": false,
+      "session_id": "AAFFC99A-EDCB-4D86-8ACB-D06E236C5F96"
+    }
+  }
+}

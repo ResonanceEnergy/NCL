@@ -1,0 +1,22 @@
+{
+  "pump_id": "PUMP-20260403-010",
+  "relay_id": "RLY-20260403195437-0C389C8",
+  "received_at": "2026-04-04T01:54:37.149932+00:00",
+  "source": "first-strike-ios",
+  "pipeline": "STRIKE-POINT",
+  "mandate_ref": "MANDATE-2026-008",
+  "prompt": {
+    "id": "FF8D8A36-E89C-4A5F-A028-3ED60451D286",
+    "raw_intent": "Read acc repo and understand it",
+    "formatted_prompt": null,
+    "target_pillar": "NCL",
+    "priority": "P2",
+    "timestamp": "2026-04-04T01:54:37Z",
+    "metadata": {
+      "source": "first-strike-ios",
+      "app_version": "1.0",
+      "grok_formatted": false,
+      "session_id": "2E2856D9-E006-4871-83E7-7E784C94ABB0"
+    }
+  }
+}

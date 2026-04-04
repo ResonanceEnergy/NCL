@@ -1,0 +1,26 @@
+{
+  "pump_id": "PUMP-20260402-001",
+  "timestamp": "2026-04-02T14:30:00-07:00",
+  "source": "NATRIX via Grok (iPhone First Strike)",
+  "strike_point": "AUTHENTICATED",
+  "raw_intent": "Ship Crimson Compass demo build to itch.io by end of week. Need playable 3-level vertical slice with spy gadget mechanics working. BRS should handle the itch.io listing and marketing copy. AAC should prepare to reinvest any early access revenue into DUBFORGE development.",
+  "grok_enrichment": {
+    "context": "Crimson Compass is a spy thriller game built in Unity/C#. Current state: core mechanics prototyped, 5 levels designed, gadget system 60% complete. itch.io is the target platform for early access. DUBFORGE is the dubstep music engine - next priority after game ship.",
+    "constraints": [
+      "Deadline: April 6, 2026 (4 days)",
+      "Must be playable vertical slice, not full game",
+      "3 levels minimum with gadget mechanics functional",
+      "BRS handles listing, marketing, pricing",
+      "AAC earmarks revenue for DUBFORGE, not general fund"
+    ],
+    "success_criteria": [
+      "Playable build uploaded to itch.io",
+      "Listing live with screenshots and description",
+      "Price set ($4.99 early access suggested)",
+      "Revenue routing configured to AAC with DUBFORGE tag"
+    ],
+    "priority": 8,
+    "pillar_targets": ["NCC", "BRS", "AAC"],
+    "tags": ["crimson-compass", "game-ship", "itch-io", "revenue-generation"]
+  }
+}

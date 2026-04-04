@@ -1,0 +1,104 @@
+{
+  "company": "NARTIX",
+  "mission": "Mobile Grok command to Paperclip orchestration to Claude council chair and hybrid Copilot execution with Claude Opus 4.6",
+  "adapters": {
+    "claude_local": {
+      "type": "claude_desktop",
+      "command": "claude",
+      "features": ["code", "computer_use", "cowork"]
+    },
+    "grok": {
+      "type": "api",
+      "provider": "xai",
+      "model": "grok-4",
+      "base_url": "https://api.x.ai/v1"
+    },
+    "gemini": {
+      "type": "api",
+      "provider": "google",
+      "model": "gemini-3-pro"
+    },
+    "perplexity": {
+      "type": "api",
+      "provider": "perplexity"
+    },
+    "gpt": {
+      "type": "api",
+      "provider": "openai",
+      "model": "gpt-5"
+    },
+    "ollama_fast": {
+      "type": "api",
+      "provider": "ollama",
+      "model": "qwen3:8b",
+      "base_url": "http://localhost:11434"
+    },
+    "ollama_strong": {
+      "type": "api",
+      "provider": "ollama",
+      "model": "qwen3:32b",
+      "base_url": "http://localhost:11434"
+    }
+  },
+  "agents": [
+    {
+      "name": "Claude-Chair",
+      "role": "council_moderator",
+      "adapter": "claude_local",
+      "system_prompt": "You are the permanent chair of NARTIX councils. Moderate debate using advanced multi-LLM collaboration strategies, synthesize, enforce MWP folders, and run the Claude-to-Copilot hybrid coding loop with Claude Opus 4.6 in VS Code using the full prompt-building framework."
+    },
+    {
+      "name": "Researcher",
+      "role": "investigate_factcheck",
+      "adapter": "perplexity"
+    },
+    {
+      "name": "TrendsAnalyst",
+      "role": "youtube_news_trends",
+      "adapter": "gemini"
+    },
+    {
+      "name": "FirstStrike",
+      "role": "mobile_intelligence",
+      "adapter": "grok",
+      "system_prompt": "Receive and pre-process pump prompts from iPhone. Format raw intent into structured council-ready briefs."
+    },
+    {
+      "name": "Engineer",
+      "role": "execution_support",
+      "adapter": "claude_local",
+      "system_prompt": "Support Claude-Chair in 03-Execution. Run tests, review code, provide debugging analysis."
+    },
+    {
+      "name": "LocalThinker",
+      "role": "fast_reasoning",
+      "adapter": "ollama_fast",
+      "system_prompt": "Quick-turnaround reasoning and code review. Use for low-latency tasks that don't need cloud APIs."
+    }
+  ],
+  "workflows": {
+    "pump_processing": {
+      "stages": ["01-Input", "02-Planning", "03-Execution", "04-Review", "05-Output"],
+      "chair": "Claude-Chair",
+      "execution_dir": "NCL/workspaces/execution-pipeline",
+      "max_coding_iterations": 3,
+      "max_review_rounds": 2
+    },
+    "research_investigation": {
+      "stages": ["01-Input", "02-Planning", "05-Output"],
+      "chair": "Claude-Chair",
+      "primary_agent": "Researcher"
+    },
+    "trend_analysis": {
+      "stages": ["01-Input", "02-Planning", "05-Output"],
+      "chair": "Claude-Chair",
+      "primary_agent": "TrendsAnalyst"
+    }
+  },
+  "budget": {
+    "max_tokens_per_task": 500000,
+    "max_api_calls_per_task": 20,
+    "cost_tracking": true,
+    "alert_threshold_usd": 5.00
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "pump_id": "PUMP-20260403-011",
+  "relay_id": "RLY-20260403204157-1FA76A9",
+  "received_at": "2026-04-04T02:41:57.486378+00:00",
+  "source": "first-strike-ios",
+  "pipeline": "STRIKE-POINT",
+  "mandate_ref": "MANDATE-2026-008",
+  "prompt": {
+    "id": "41945A62-A1AB-47B1-BED7-313AD5A27D7F",
+    "raw_intent": "Show me daily news",
+    "formatted_prompt": null,
+    "target_pillar": "NCL",
+    "priority": "P2",
+    "timestamp": "2026-04-04T02:41:57Z",
+    "metadata": {
+      "source": "first-strike-ios",
+      "app_version": "1.0",
+      "grok_formatted": false,
+      "session_id": "A3B3AD70-E46D-487F-B094-213552474A43"
+    }
+  }
+}

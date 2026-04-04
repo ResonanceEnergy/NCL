@@ -1,0 +1,22 @@
+{
+  "pump_id": "PUMP-20260403-008",
+  "relay_id": "RLY-20260403190206-1C3C741",
+  "received_at": "2026-04-04T01:02:06.104077+00:00",
+  "source": "first-strike-ios",
+  "pipeline": "STRIKE-POINT",
+  "mandate_ref": "MANDATE-2026-008",
+  "prompt": {
+    "id": "1671D8E0-85B7-449D-AD47-E007C789DEB2",
+    "raw_intent": "Show me latest war room updates",
+    "formatted_prompt": null,
+    "target_pillar": "NCL",
+    "priority": "P0",
+    "timestamp": "2026-04-04T01:02:06Z",
+    "metadata": {
+      "source": "first-strike-ios",
+      "app_version": "1.0",
+      "grok_formatted": false,
+      "session_id": "AAFFC99A-EDCB-4D86-8ACB-D06E236C5F96"
+    }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "pump_id": "PUMP-20260403-009",
+  "relay_id": "RLY-20260403193116-4780BB4",
+  "received_at": "2026-04-04T01:31:16.834635+00:00",
+  "source": "first-strike-ios",
+  "pipeline": "STRIKE-POINT",
+  "mandate_ref": "MANDATE-2026-008",
+  "prompt": {
+    "id": "F847EF56-ED91-4B78-B497-807B4B0E1F74",
+    "raw_intent": "What up",
+    "formatted_prompt": null,
+    "target_pillar": "NCL",
+    "priority": "P2",
+    "timestamp": "2026-04-04T01:31:16Z",
+    "metadata": {
+      "source": "first-strike-ios",
+      "app_version": "1.0",
+      "grok_formatted": false,
+      "session_id": "2E2856D9-E006-4871-83E7-7E784C94ABB0"
+    }
+  }
+}

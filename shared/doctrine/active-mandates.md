@@ -36,15 +36,23 @@
 ## Recent Updates
 
 ### MANDATE-2026-008 (STRIKE-POINT Pipeline)
-**Last Update**: 2026-04-03 20:15 UTC
-**Status**: executing → Phase 1 in progress
+**Last Update**: 2026-04-03 22:00 UTC
+**Status**: executing → Phase 1 COMPLETE, Phase 2 in progress
 **Actions Completed**:
 - STRIKE-POINT repo created on GitHub (private)
 - FirstStrike repo created on GitHub (private)
 - Mandate artifacts generated (pump, council, mandate JSON)
-- Relay server exists but needs NCL file writer + /health endpoint
-**Next Milestone**: M1.1 — Relay writes pump prompts to NCL/mandate-generation/input/
-**Blocker**: Tailscale not installed on iPhone (NATRIX manual action required)
+- Relay v2.0 on port 8787 with NCL file writer (atomic writes) + /health + /status dashboard
+- NCL Brain Service on port 8800 with council engine, mandate system, memory, awarebot
+- Relay → NCL Brain API forwarding (auto-triggers council + mandate pipeline)
+- Pump Watcher daemon (filesystem fallback — catches pumps when brain is down)
+- Port conflict resolved: FirstStrike relay 8787 (external), NCL Brain 8800 (internal)
+- launchd plists for all 3 services (relay, brain, watcher)
+- Master install-services.command script
+- E2E test suite (test_e2e_pipeline.py)
+- Tailscale connected — iPhone hitting relay with 200 OK
+**Next Milestone**: M2.1 — Install services, run E2E test, verify council fires
+**Blocker**: None
 
 ### MANDATE-2026-001 (BRS Revenue Scanner)
 **Last Update**: 2026-04-01 17:00 UTC

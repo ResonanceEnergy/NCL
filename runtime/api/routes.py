@@ -20,8 +20,12 @@ from ..ncl_brain.models import (
     MandateStatus,
 )
 
-# Strike point authentication token — set via env or auto-generated on first boot
-STRIKE_TOKEN = os.getenv("STRIKE_AUTH_TOKEN", "")
+# Global brain instance
+brain: NCLBrain | None = None
+config = load_config()
+
+# Strike point authentication token — load from config (.env) FIRST, then env var, then auto-gen
+STRIKE_TOKEN = config.strike_auth_token or os.getenv("STRIKE_AUTH_TOKEN", "")
 if not STRIKE_TOKEN:
     # Auto-generate and log so NATRIX can copy it into the iOS Shortcut
     STRIKE_TOKEN = secrets.token_urlsafe(32)
@@ -30,11 +34,6 @@ if not STRIKE_TOKEN:
         f"No STRIKE_AUTH_TOKEN set. Auto-generated: {STRIKE_TOKEN} — "
         f"Set this in .env and in the iOS Shortcut."
     )
-
-
-# Global brain instance
-brain: NCLBrain | None = None
-config = load_config()
 
 
 @asynccontextmanager
@@ -233,8 +232,6 @@ async def review_pump(
     return review
 
 
-# TODO: Move ApprovalRequest and RejectionRequest to ncl_brain/models.py
-# These are API-specific request models and should be co-located with other model definitions
 from pydantic import BaseModel
 
 
@@ -277,8 +274,8 @@ async def approve_pump(
 
     result = await brain.approve_and_dispatch(
         pump_id=pump_id,
-        approved_mandate_ids=body.mandate_ids if body else None,
-        modifications=body.modifications if body else None,
+        approved_mandate_ids=body.mandate_ids if body and body.mandate_ids else None,
+        modifications=body.modifications if body and body.modifications else None,
     )
 
     if "error" in result:
@@ -700,6 +697,18 @@ async def exception_handler(request, exc: Exception):
 def main() -> None:
     """Main entry point."""
     import uvicorn
+
+    import signal
+    import sys
+
+    # Graceful shutdown handler — prevents stale sockets on Ctrl+C / SIGTERM
+    def _shutdown(signum, frame):
+        log_main = logging.getLogger("ncl.main")
+        log_main.info(f"Received signal {signum} — shutting down gracefully")
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, _shutdown)
+    signal.signal(signal.SIGINT, _shutdown)
 
     uvicorn.run(
         app,

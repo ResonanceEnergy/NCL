@@ -1,0 +1,22 @@
+{
+  "pump_id": "PUMP-20260404-001",
+  "relay_id": "RLY-20260404095951-C6020C5",
+  "received_at": "2026-04-04T15:59:51.863701+00:00",
+  "source": "first-strike-ios",
+  "pipeline": "STRIKE-POINT",
+  "mandate_ref": "MANDATE-2026-008",
+  "prompt": {
+    "id": "8792437F-097C-4BA7-A066-40763154C1FA",
+    "raw_intent": "Read all repos in http://github.com/resonanceenergy",
+    "formatted_prompt": null,
+    "target_pillar": "NCL",
+    "priority": "P2",
+    "timestamp": "2026-04-04T15:59:51Z",
+    "metadata": {
+      "source": "first-strike-ios",
+      "app_version": "1.0",
+      "grok_formatted": false,
+      "session_id": "A3B3AD70-E46D-487F-B094-213552474A43"
+    }
+  }
+}

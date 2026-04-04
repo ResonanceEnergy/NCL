@@ -8,6 +8,7 @@ from typing import Optional
 import uuid
 
 import aiofiles
+from pydantic import ValidationError
 
 log = logging.getLogger("ncl.memory")
 
@@ -180,8 +181,8 @@ class MemoryStore:
                         unit = MemUnit(**json.loads(line))
                         if unit.unit_id == unit_id:
                             return unit
-                    except json.JSONDecodeError as e:
-                        log.warning(f"Failed to parse JSON in memory file: {e}")
+                    except (json.JSONDecodeError, ValidationError) as e:
+                        log.warning(f"Failed to parse memory unit: {e}")
                         continue
         except FileNotFoundError:
             log.warning(f"Memory file not found: {self.memory_file}")
@@ -205,8 +206,8 @@ class MemoryStore:
                 try:
                     unit = MemUnit(**json.loads(line))
                     units.append(unit)
-                except json.JSONDecodeError as e:
-                    log.warning(f"Failed to parse JSON in memory file: {e}")
+                except (json.JSONDecodeError, ValidationError) as e:
+                    log.warning(f"Failed to parse memory unit: {e}")
                     continue
         return units
 

@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     service_name: str = "ncl-brain"
     service_version: str = "1.0.0"
     host: str = "0.0.0.0"
-    port: int = 8787
+    port: int = 8800
     debug: bool = False
 
     # Data storage — paths auto-expanded in validator
@@ -25,7 +25,6 @@ class Settings(BaseSettings):
 
     def model_post_init(self, __context) -> None:
         """Expand ~ in all path fields after init."""
-        import os
         self.data_dir = os.path.expanduser(self.data_dir)
         self.config_dir = os.path.expanduser(self.config_dir)
 
@@ -67,15 +66,19 @@ class Settings(BaseSettings):
 
     # Council settings
     council_timeout: int = 120  # seconds
-    council_model: str = "claude-3-5-sonnet-20241022"
+    council_model: str = "claude-sonnet-4-6"
 
     # WAR Room integration
     aac_war_room_url: Optional[str] = None
+
+    # Strike-Point pipeline auth
+    strike_auth_token: str = ""
 
     model_config = ConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        extra="ignore",
     )
 
 
@@ -138,7 +141,7 @@ def create_config_file(config_dir: str | Path = "~/NCL/config") -> Path:
 
 # Service
 service_name: ncl-brain
-port: 8787
+port: 8800
 debug: false
 
 # Storage
@@ -178,7 +181,7 @@ memory_decay_rate: 0.95
 
 # Council
 council_timeout: 120
-council_model: "claude-3-5-sonnet-20241022"
+council_model: "claude-sonnet-4-6"
 
 # War Room
 aac_war_room_url: ""

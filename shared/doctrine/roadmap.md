@@ -17,7 +17,7 @@
 | 2 | Make It Reliable | 2026-04-12 | Pending | launchd service, logging, retry logic, schema validation, alerts |
 | 3 | Make It Fast + Polish | 2026-04-20 | Pending | Priority queue, delivery confirmation, Siri shortcut, web dashboard, docs |
 
-**Phase 1 Progress** (as of 2026-04-03):
+**Phase 1 Progress** (as of 2026-04-03 22:00 UTC) — COMPLETE:
 - [x] STRIKE-POINT repo created on GitHub
 - [x] FirstStrike repo created on GitHub
 - [x] Relay v2.0 with NCL file writer (atomic writes)
@@ -25,10 +25,22 @@
 - [x] /status web dashboard
 - [x] STRIKE-POINT CLAUDE.md context file
 - [x] Mandate artifacts (pump, council, mandate JSON)
-- [x] launchd service plist created
-- [ ] Tailscale installed on iPhone (NATRIX action)
-- [ ] End-to-end test: iPhone → Relay → NCL
-- [ ] All repos pushed to GitHub with latest changes
+- [x] Tailscale connected — iPhone hitting relay
+- [x] Port reconciliation: Relay :8787, NCL Brain :8800
+- [x] Relay → NCL Brain API forwarding
+- [x] Pump Watcher daemon (filesystem fallback)
+- [x] launchd plists for all 3 services
+- [x] Master install-services.command
+- [x] E2E test suite
+
+**Phase 2 Progress** (as of 2026-04-03 22:00 UTC) — IN PROGRESS:
+- [x] launchd service plists (relay, brain, watcher)
+- [x] install-services.command master installer
+- [ ] Run installer on Mac Mini
+- [ ] Run E2E test
+- [ ] Verify council fires on pump receipt
+- [ ] Retry logic in FirstStrike iOS app
+- [ ] Alert on pump delivery failure
 
 ---
 

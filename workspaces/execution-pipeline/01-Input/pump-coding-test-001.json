@@ -1,0 +1,22 @@
+{
+  "pump_id": "PUMP-CODING-TEST-001",
+  "relay_id": "RLY-SIMULATED",
+  "received_at": "2026-04-04T01:55:00.000000+00:00",
+  "source": "first-strike-ios",
+  "pipeline": "STRIKE-POINT",
+  "mandate_ref": "MANDATE-2026-008",
+  "prompt": {
+    "id": "TEST-CODING-001",
+    "raw_intent": "Build a Python health-check dashboard CLI that monitors all NARTIX services (relay on :8787, NCL brain on :8800, Paperclip on :3100, Ollama on :11434) and outputs a color-coded status table. Should run as a single command 'nartix-health' and support --json flag for machine output.",
+    "formatted_prompt": null,
+    "target_pillar": "NCC",
+    "priority": "P1",
+    "timestamp": "2026-04-04T01:55:00Z",
+    "metadata": {
+      "source": "first-strike-ios",
+      "app_version": "1.0",
+      "grok_formatted": false,
+      "session_id": "CODING-TEST-SESSION-001"
+    }
+  }
+}
