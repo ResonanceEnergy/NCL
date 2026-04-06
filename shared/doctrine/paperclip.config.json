@@ -1,0 +1,157 @@
+{
+  "company": "NARTIX",
+  "description": "Mobile Grok command to Paperclip orchestration to Claude council chair and hybrid Copilot execution with Claude Opus 4.6",
+  "version": "2.0.0",
+
+  "adapters": {
+    "claude_local": {
+      "type": "claude_desktop",
+      "command": "claude",
+      "features": ["code", "computer_use", "cowork"],
+      "model": "claude-opus-4-6",
+      "notes": "Permanent council chair. Runs on Mac Mini M4 Pro via Claude Desktop Max."
+    },
+    "grok": {
+      "type": "api",
+      "provider": "xai",
+      "model": "grok-4",
+      "endpoint": "https://api.x.ai/v1",
+      "notes": "First-strike mobile cognition + council member. iPhone primary, API secondary."
+    },
+    "gemini": {
+      "type": "api",
+      "provider": "google",
+      "model": "gemini-3-pro",
+      "notes": "YouTube, Google Trends, News intelligence. Large context window for document analysis."
+    },
+    "perplexity": {
+      "type": "api",
+      "provider": "perplexity",
+      "model": "sonar-pro",
+      "notes": "Research and fact-checking. Real-time web search with citations."
+    },
+    "gpt": {
+      "type": "api",
+      "provider": "openai",
+      "model": "gpt-5",
+      "notes": "Creative alternatives. Optional council member."
+    },
+    "copilot_vscode": {
+      "type": "ide_integration",
+      "provider": "github_copilot",
+      "model": "claude-opus-4-6",
+      "mode": "agent_mode",
+      "notes": "Receives coding prompts from Claude Desktop Max in 03-Execution hybrid loop."
+    },
+    "ollama_local": {
+      "type": "local",
+      "provider": "ollama",
+      "endpoint": "http://localhost:11434",
+      "models": ["qwen3:8b", "qwen3:32b", "deepseek-coder-v2:16b"],
+      "notes": "Apple Silicon native inference. UNI research cortex fast-path."
+    }
+  },
+
+  "agents": [
+    {
+      "name": "Claude-Chair",
+      "role": "council_moderator",
+      "adapter": "claude_local",
+      "pillar": "NCL",
+      "system_prompt": "You are the permanent chair of NARTIX councils. Moderate debate using advanced multi-LLM collaboration strategies, synthesize, enforce MWP folders, and run the Claude-to-Copilot hybrid coding loop with Claude Opus 4.6 in VS Code using the full prompt-building framework."
+    },
+    {
+      "name": "Researcher",
+      "role": "investigate_factcheck",
+      "adapter": "perplexity",
+      "pillar": "NCL",
+      "system_prompt": "You are UNI research cortex. Investigate claims, verify facts, find primary sources. Return structured findings with confidence scores and source chains."
+    },
+    {
+      "name": "TrendsAnalyst",
+      "role": "youtube_news_trends",
+      "adapter": "gemini",
+      "pillar": "NCL",
+      "system_prompt": "You monitor YouTube, Google Trends, and News for signals relevant to NARTIX operations. Flag anomalies and emerging patterns."
+    },
+    {
+      "name": "IntelScanner",
+      "role": "intelligence_scanning",
+      "adapter": "grok",
+      "pillar": "NCL",
+      "system_prompt": "You are Awarebot-FPC intelligence scanner. Monitor X, Reddit, and Polymarket for signals. Score importance, detect convergence, escalate CRITICAL alerts."
+    },
+    {
+      "name": "Engineer",
+      "role": "execution_support",
+      "adapter": "claude_local",
+      "pillar": "NCC",
+      "system_prompt": "You are the NCC execution engineer. Deploy services, manage infrastructure, run health checks, fix operational issues. Report execution truth back to NCL."
+    },
+    {
+      "name": "WarRoomAnalyst",
+      "role": "scenario_analysis",
+      "adapter": "claude_local",
+      "pillar": "AAC",
+      "system_prompt": "You run AAC War Room scenarios. Evaluate geopolitical events, calculate Kelly criterion position sizing, and manage doctrine state transitions."
+    },
+    {
+      "name": "RevenueAgent",
+      "role": "revenue_operations",
+      "adapter": "claude_local",
+      "pillar": "BRS",
+      "system_prompt": "You manage BRS revenue operations. Track DIGITAL-LABOUR leads, manage NERVE scoring, generate proposals, and report economic signals to NCL."
+    }
+  ],
+
+  "workflows": {
+    "pump_processing": {
+      "description": "Main pump prompt processing pipeline",
+      "stages": ["01-Input", "02-Planning", "03-Execution", "04-Review", "05-Output"],
+      "chair": "Claude-Chair",
+      "max_coding_iterations": 3,
+      "budget_enforcement": true
+    },
+    "council_deliberation": {
+      "description": "Multi-LLM council debate for strategic decisions",
+      "participants": ["Claude-Chair", "IntelScanner", "Researcher", "TrendsAnalyst"],
+      "strategies": [
+        "hierarchical_delegation",
+        "debate_tournament",
+        "meta_reasoning_loop",
+        "simulated_annealing",
+        "cross_model_distillation",
+        "uncertainty_aware_voting",
+        "human_in_loop_escalation"
+      ]
+    },
+    "intelligence_scan": {
+      "description": "Automated intelligence scanning across sources",
+      "agent": "IntelScanner",
+      "schedule": "*/5 * * * *",
+      "escalation_chain": ["IntelScanner", "Claude-Chair", "NATRIX"]
+    },
+    "war_room_scenario": {
+      "description": "AAC War Room scenario evaluation",
+      "stages": ["scenario_intake", "analysis", "position_sizing", "execution", "review"],
+      "agent": "WarRoomAnalyst",
+      "requires_approval": ["execution"]
+    }
+  },
+
+  "budget": {
+    "monthly_cap_usd": 800,
+    "per_council_cap_usd": 5,
+    "per_coding_iteration_cap_usd": 2,
+    "alert_at_pct": 80,
+    "hard_stop_at_pct": 100
+  },
+
+  "infrastructure": {
+    "paperclip_url": "http://localhost:3100",
+    "relay_url": "https://localhost:8787",
+    "brain_url": "http://localhost:8800",
+    "tailscale_enabled": true,
+    "cloudflare_tunnel": "bit-rage-labour.com"
+  }
+}
