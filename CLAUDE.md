@@ -21,35 +21,47 @@ NCL is the canonical brain cortex of the NARTIX ecosystem. It receives pump prom
 NCL/
 ├── CLAUDE.md (this file)
 ├── CONTEXT.md (routing table)
+├── run-councils.sh (YouTube + X intelligence council launcher)
 ├── _core/
-│   └── CONVENTIONS.md (NCL-specific patterns + MWP reference)
+│   └── CONVENTIONS.md (NCL-specific patterns + ICM/MWP reference)
 ├── setup/
 │   └── questionnaire.md (onboarding)
 ├── mandate-generation/
+│   ├── LOG.md (handoff log — read first on cold start)
 │   ├── input/ (pump prompts from NATRIX via Grok)
 │   ├── council/ (council deliberation artifacts)
 │   └── output/ (finalized mandates)
 ├── research-pipeline/
+│   ├── LOG.md (handoff log)
 │   ├── queue/ (research requests)
 │   ├── active/ (ongoing research via UNI)
 │   └── archive/ (completed findings)
 ├── intelligence-scan/
+│   ├── LOG.md (handoff log)
 │   ├── sources.md (X, YouTube, Reddit subscriptions)
 │   ├── alerts/ (real-time anomalies from Awarebot-FPC)
-│   └── signals/ (processed intelligence)
+│   ├── signals/ (processed intelligence)
+│   └── council-reports/ (YouTube + X council output: .md + .json)
 ├── memory-processing/
+│   ├── LOG.md (handoff log)
 │   ├── long-term/ (institutional knowledge)
 │   ├── working/ (current context)
 │   └── decay/ (archived, low-confidence memories)
 ├── feedback-synthesis/
+│   ├── LOG.md (handoff log)
 │   ├── ncc-reports/ (execution truth)
 │   ├── brs-reports/ (economic signals)
 │   ├── aac-reports/ (capital performance)
 │   └── synthesis/ (integrated interpretation)
+├── runtime/
+│   └── councils/ (YouTube + X intelligence council engines)
 └── shared/
     ├── doctrine/
     │   ├── active-mandates.md
-    │   └── roadmap.md
+    │   ├── roadmap.md
+    │   ├── AGENTS.md (council + operational agent definitions)
+    │   ├── paperclip.config.json (adapter + workflow config)
+    │   └── NARTIX-Ecosystem-Build-Plan.md
     ├── contracts/
     │   ├── ncl-ncc-contract.md
     │   ├── ncl-feedback-contract.md

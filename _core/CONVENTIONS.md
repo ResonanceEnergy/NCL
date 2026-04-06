@@ -1,7 +1,24 @@
 # NCL Conventions — MWP Patterns + NCL-Specific Extensions
 
-**Reference**: Jake Van Clief's MWP (Model Workspace Protocol) provides 15 core patterns.
-**Extension**: NCL adds 4 patterns specific to the brain/think pillar: Mandate Lifecycle, Council Protocol, Memory Decay, Feedback Validation.
+**Reference**: Jake Van Clief's Interpretable Context Methodology (ICM) and Model Workspace Protocol (MWP).
+**Paper**: *Interpretable Context Methodology: Folder Structure as Agentic Architecture* (arXiv:2603.16021)
+**Extension**: NCL adds 5 patterns specific to the brain/think pillar: Mandate Lifecycle, Council Protocol, Memory Decay, Feedback Validation, Handoff Logs.
+
+---
+
+## ICM Alignment
+
+NARTIX implements Van Clief's five ICM principles natively:
+
+| ICM Principle | NARTIX Implementation |
+|---------------|----------------------|
+| One Stage, One Job | Each workspace folder has a single responsibility (mandate-generation ≠ feedback-synthesis) |
+| Plain Text Interface | All doctrine in Markdown/YAML/JSON — humans read and edit AI memory directly |
+| Human-in-the-Loop | Strike Point Doctrine — NATRIX via Grok is the sole input gate; mandate approval gates enforce review |
+| Implicit Context | MWP Layer 0 (CLAUDE.md) + Layer 1 (CONTEXT.md) give AI positional awareness without explicit instruction |
+| State Management | Filesystem tracks state; LOG.md per workspace captures last-known-state for cold-start recovery |
+
+**Where NARTIX extends ICM**: Multi-LLM council architecture (Claude chairs, 4+ model debate), autonomous intelligence pipelines (YouTube/X councils), Paperclip orchestration layer with budget tracking, and multi-pillar authority chain (NCL → NCC → BRS/AAC).
 
 ---
 
@@ -230,6 +247,45 @@ recommended_adjustments:
 4. Integrate all signals (NCC + BRS + AAC)
 5. Generate mandate adjustments if needed
 6. Log synthesis + send updated mandate back to NCC
+
+---
+
+### 5. Handoff Logs (LOG.md)
+
+**Inspired by**: Van Clief's "Handoff Layer" pattern — a session-end summary that enables any AI to cold-start into a workspace without loading full context history.
+
+**Location**: Every top-level NCL workspace gets a `LOG.md`:
+```
+mandate-generation/LOG.md
+research-pipeline/LOG.md
+intelligence-scan/LOG.md
+memory-processing/LOG.md
+feedback-synthesis/LOG.md
+```
+
+**Structure**:
+```markdown
+# {{Workspace Name}} — Handoff Log
+
+> Last updated: {{DATE}}
+> Last session: {{Brief session description}}
+
+## What Was Done
+- {{Completed actions from this session}}
+
+## Current State
+- {{What exists, what's empty, what's active}}
+
+## What's Next
+- {{Immediate next steps for the next session}}
+```
+
+**Rules**:
+1. Update LOG.md at the end of every session that touches that workspace
+2. Keep it concise — 3-5 bullets per section maximum
+3. LOG.md is the first file any AI reads when entering a workspace cold
+4. Never delete previous content — overwrite with current state
+5. If a workspace hasn't been touched, its LOG.md stays as-is
 
 ---
 
