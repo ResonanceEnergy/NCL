@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- NCL Intelligence Council Sweep — runs every 6 hours -->
+    <!-- Install: cp config/com.resonanceenergy.ncl-councils.plist ~/Library/LaunchAgents/ -->
+    <!-- Load:    launchctl load ~/Library/LaunchAgents/com.resonanceenergy.ncl-councils.plist -->
+    <!-- Unload:  launchctl unload ~/Library/LaunchAgents/com.resonanceenergy.ncl-councils.plist -->
+    <!-- Status:  launchctl list | grep ncl-councils -->
+
+    <key>Label</key>
+    <string>com.resonanceenergy.ncl-councils</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>cd ~/Projects/NCL &amp;&amp; ./run-councils.sh both --session-id=sweep-$(date +%Y%m%d-%H%M) 2>&1 | tee -a ~/Projects/NCL/logs/council-sweep.log</string>
+    </array>
+
+    <key>StartInterval</key>
+    <integer>21600</integer><!-- 6 hours = 21600 seconds -->
+
+    <key>WorkingDirectory</key>
+    <string>/Users/natrix/Projects/NCL</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/Users/natrix/.pyenv/shims</string>
+        <key>HOME</key>
+        <string>/Users/natrix</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/natrix/Projects/NCL/logs/council-sweep-stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/natrix/Projects/NCL/logs/council-sweep-stderr.log</string>
+
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>Nice</key>
+    <integer>10</integer><!-- Low priority — don't interfere with active work -->
+</dict>
+</plist>

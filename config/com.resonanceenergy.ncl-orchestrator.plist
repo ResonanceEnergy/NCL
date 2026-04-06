@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Strike Point Orchestrator — mandate watcher service -->
+    <!-- Install: cp config/com.resonanceenergy.ncl-orchestrator.plist ~/Library/LaunchAgents/ -->
+    <!-- Load:    launchctl load ~/Library/LaunchAgents/com.resonanceenergy.ncl-orchestrator.plist -->
+    <!-- Unload:  launchctl unload ~/Library/LaunchAgents/com.resonanceenergy.ncl-orchestrator.plist -->
+
+    <key>Label</key>
+    <string>com.resonanceenergy.ncl-orchestrator</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/natrix/.pyenv/shims/python3</string>
+        <string>-m</string>
+        <string>runtime.strike_point_orchestrator</string>
+        <string>--watch</string>
+        <string>--poll</string>
+        <string>30</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/natrix/Projects/NCL</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/Users/natrix/.pyenv/shims</string>
+        <key>HOME</key>
+        <string>/Users/natrix</string>
+        <key>PYTHONPATH</key>
+        <string>/Users/natrix/Projects/NCL</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/natrix/Projects/NCL/logs/orchestrator-stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/natrix/Projects/NCL/logs/orchestrator-stderr.log</string>
+
+    <key>RunAtLoad</key>
+    <true/><!-- Start automatically on login -->
+
+    <key>KeepAlive</key>
+    <true/><!-- Restart if it crashes -->
+
+    <key>Nice</key>
+    <integer>5</integer>
+</dict>
+</plist>

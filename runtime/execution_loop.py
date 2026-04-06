@@ -19,6 +19,7 @@ import logging
 import logging.handlers
 import os
 import shutil
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -34,6 +35,25 @@ OUTPUT_DIR = EXEC_PIPELINE / "05-Output"
 
 MAX_CODING_ITERATIONS = 3
 MAX_REVIEW_ROUNDS = 2
+
+# Claude Code CLI bridge mode: "auto" (try claude CLI), "manual" (write prompt file only)
+EXECUTION_MODE = os.getenv("NCL_EXECUTION_MODE", "auto")
+
+
+def _ensure_exec_dirs() -> None:
+    """Create all execution pipeline directories on startup."""
+    for d in [
+        EXEC_PIPELINE / "01-Input",
+        EXEC_PIPELINE / "02-Planning",
+        EXECUTION_DIR,
+        WORKING_FILES,
+        REVIEW_DIR,
+        OUTPUT_DIR,
+    ]:
+        d.mkdir(parents=True, exist_ok=True)
+
+
+_ensure_exec_dirs()
 
 # --- Logging ---
 
@@ -305,9 +325,91 @@ def _extract_criteria(content: str) -> list[str]:
     return criteria
 
 
+def _try_claude_code_bridge(prompt: str, pump_id: str, iteration: int) -> bool:
+    """
+    Attempt to execute coding task via Claude Code CLI (Gap 4 bridge).
+
+    Claude Code (`claude`) is a CLI tool that can receive a prompt and
+    execute coding tasks autonomously with file system access.
+
+    Returns True if Claude Code executed successfully, False if unavailable.
+    """
+    if EXECUTION_MODE != "auto":
+        log.info("Execution mode is 'manual' — skipping Claude Code bridge")
+        return False
+
+    # Check if claude CLI is available
+    claude_path = shutil.which("claude")
+    if not claude_path:
+        log.info("Claude Code CLI not found in PATH — falling back to manual mode")
+        return False
+
+    log.info(f"Claude Code CLI found at {claude_path} — attempting automated execution")
+
+    # Build the prompt for Claude Code with working directory context
+    claude_prompt = (
+        f"You are executing a NARTIX coding task.\n\n"
+        f"Pump ID: {pump_id}\n"
+        f"Iteration: {iteration}/{MAX_CODING_ITERATIONS}\n"
+        f"Working directory: {WORKING_FILES}\n\n"
+        f"Write all output files to: {WORKING_FILES}/\n\n"
+        f"--- TASK ---\n{prompt}\n--- END TASK ---\n\n"
+        f"Execute this task. Write code files to the working directory. "
+        f"Do not ask questions — just implement based on the specification above."
+    )
+
+    # Write prompt to temp file for claude --prompt-file
+    prompt_file = EXECUTION_DIR / f"claude-code-prompt-{pump_id}-v{iteration}.md"
+    prompt_file.write_text(claude_prompt)
+
+    try:
+        result = subprocess.run(
+            [
+                claude_path,
+                "--print",  # Non-interactive: print output and exit
+                "--max-turns", "10",
+                "--output-format", "text",
+                "-p", claude_prompt,
+            ],
+            cwd=str(WORKING_FILES),
+            capture_output=True,
+            text=True,
+            timeout=300,  # 5 minute timeout per iteration
+        )
+
+        # Save Claude Code output
+        output_file = EXECUTION_DIR / f"claude-code-output-{pump_id}-v{iteration}.md"
+        output_file.write_text(
+            f"# Claude Code Output — {pump_id} (iteration {iteration})\n\n"
+            f"## Exit Code: {result.returncode}\n\n"
+            f"## stdout\n```\n{result.stdout[-5000:] if result.stdout else '(empty)'}\n```\n\n"
+            f"## stderr\n```\n{result.stderr[-2000:] if result.stderr else '(empty)'}\n```\n"
+        )
+
+        if result.returncode == 0:
+            log.info(f"Claude Code executed successfully for {pump_id} iteration {iteration}")
+            # Check if files were created in working directory
+            created_files = list(WORKING_FILES.glob("*"))
+            log.info(f"Files in working directory: {[f.name for f in created_files]}")
+            return True
+        else:
+            log.warning(f"Claude Code exited with code {result.returncode}")
+            return False
+
+    except subprocess.TimeoutExpired:
+        log.warning(f"Claude Code timed out after 300s for {pump_id}")
+        return False
+    except Exception as e:
+        log.error(f"Claude Code bridge failed: {e}")
+        return False
+
+
 def run_execution_loop(pump_id: str, start_iteration: int = 1) -> dict:
     """
     Run the full hybrid execution loop for a pump.
+
+    Attempts Claude Code CLI bridge first (automated), falls back to
+    manual Copilot prompt mode if Claude Code is unavailable.
 
     Returns a feedback payload dict suitable for iPhone pump-back.
     """
@@ -330,15 +432,24 @@ def run_execution_loop(pump_id: str, start_iteration: int = 1) -> dict:
         prompt_path = write_copilot_prompt(prompt, pump_id, iteration)
 
         log.info(f"Prompt ready at {prompt_path}")
-        log.info(f"Waiting for Copilot output in {WORKING_FILES}/")
 
-        # In automated mode (Computer Use), Claude Desktop would:
-        # 1. Send prompt to VS Code Copilot Chat
-        # 2. Wait for generation
-        # 3. Review output and determine issues
-        #
-        # In manual mode, execution pauses here for human intervention.
-        # The loop continues when called again with start_iteration incremented.
+        # Try automated execution via Claude Code CLI (Gap 4 bridge)
+        if _try_claude_code_bridge(prompt, pump_id, iteration):
+            log.info(f"Claude Code completed iteration {iteration} — auto-reviewing")
+            # Auto-review: check if working files exist
+            created = list(WORKING_FILES.glob("*"))
+            if created:
+                log.info(f"Auto-execution produced {len(created)} files — proceeding to sign-off")
+                summary = f"Auto-executed via Claude Code CLI (iteration {iteration}, {len(created)} files)"
+                return run_sign_off(pump_id, summary, iterations=iteration)
+            else:
+                log.warning("Claude Code ran but produced no files — retrying")
+                issues.append("Claude Code produced no output files")
+                iteration += 1
+                continue
+
+        # Manual mode fallback — write prompt and wait for human
+        log.info(f"Waiting for manual Copilot output in {WORKING_FILES}/")
 
         if iteration == 1:
             # First iteration — just write the prompt and return

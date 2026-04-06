@@ -55,6 +55,31 @@ FEEDBACK_DIR = NCL_BASE / "feedback-synthesis" / "ncc-reports"
 AAC_INTELLIGENCE = AAC_BASE / "war-room" / "intelligence"
 BRS_SIGNALS = NCL_BASE / "feedback-synthesis" / "brs-reports"
 AAC_SIGNALS = NCL_BASE / "feedback-synthesis" / "aac-reports"
+WORKING_FILES = EXEC_PIPELINE / "03-Execution" / "working-files"
+
+
+def _ensure_directories() -> None:
+    """Create all required pipeline directories on startup."""
+    dirs = [
+        MANDATE_INPUT,
+        MANDATE_OUTPUT,
+        EXEC_PIPELINE / "01-Input",
+        EXEC_PIPELINE / "02-Planning",
+        EXEC_PIPELINE / "03-Execution" / "working-files",
+        EXEC_PIPELINE / "04-Review",
+        EXEC_PIPELINE / "05-Output",
+        FEEDBACK_DIR,
+        AAC_INTELLIGENCE,
+        NCL_BASE / "notifications",
+        NCC_BASE / "mandate-intake",
+        NCL_BASE / "logs",
+    ]
+    for d in dirs:
+        d.mkdir(parents=True, exist_ok=True)
+
+
+# Auto-create all directories on import
+_ensure_directories()
 
 # Service endpoints
 NCL_BRAIN_URL = os.getenv("NCL_BRAIN_URL", "http://localhost:8800")
@@ -502,11 +527,10 @@ def get_pipeline_status() -> dict:
 
     # Stage 3: Execution pipeline
     exec_input = list((EXEC_PIPELINE / "01-Input").glob("pump-*.json")) if (EXEC_PIPELINE / "01-Input").exists() else []
-    working = list(WORKING_FILES.glob("*")) if (EXEC_PIPELINE / "03-Execution" / "working-files").exists() else []
-    WORKING_FILES = EXEC_PIPELINE / "03-Execution" / "working-files"
+    working = list(WORKING_FILES.glob("*")) if WORKING_FILES.exists() else []
     status["stages"]["3_execution"] = {
         "queued": len(exec_input),
-        "working_files": len(working) if (WORKING_FILES).exists() else 0,
+        "working_files": len(working),
         "signed_off": (EXEC_PIPELINE / "03-Execution" / "signed-off.md").exists(),
     }
 
