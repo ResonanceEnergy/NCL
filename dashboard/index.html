@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>NCL Pipeline — NARTIX Command</title>
+<style>
+  :root {
+    --bg: #0a0e17;
+    --surface: #111827;
+    --surface2: #1a2332;
+    --border: #1e3a5f;
+    --text: #e2e8f0;
+    --text-muted: #8b9dc3;
+    --accent: #38bdf8;
+    --green: #22c55e;
+    --yellow: #eab308;
+    --red: #ef4444;
+    --orange: #f97316;
+    --purple: #a78bfa;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Header */
+  .header {
+    background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    backdrop-filter: blur(12px);
+  }
+  .header h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.3px; }
+  .header h1 span { color: var(--accent); }
+  .header-right { display: flex; gap: 12px; align-items: center; }
+  .status-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    display: inline-block; margin-right: 6px;
+  }
+  .dot-green { background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .dot-yellow { background: var(--yellow); box-shadow: 0 0 8px var(--yellow); }
+  .dot-red { background: var(--red); box-shadow: 0 0 8px var(--red); }
+  .refresh-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.2s;
+  }
+  .refresh-btn:hover { background: var(--border); }
+  .refresh-btn:active { transform: scale(0.96); }
+  .last-updated { font-size: 12px; color: var(--text-muted); }
+
+  /* Grid */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 16px;
+    padding: 20px 24px;
+    max-width: 1600px;
+    margin: 0 auto;
+  }
+
+  /* Cards */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+    transition: border-color 0.2s;
+  }
+  .card:hover { border-color: var(--accent); }
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+  .card-title {
+    font-size: 14px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+  }
+  .card-badge {
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-weight: 600;
+  }
+  .badge-live { background: rgba(34,197,94,0.15); color: var(--green); }
+  .badge-partial { background: rgba(234,179,8,0.15); color: var(--yellow); }
+  .badge-offline { background: rgba(239,68,68,0.15); color: var(--red); }
+  .badge-code { background: rgba(56,189,248,0.15); color: var(--accent); }
+
+  /* Pipeline stages */
+  .pipeline {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .stage {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    background: var(--surface2);
+    border-radius: 10px;
+    border-left: 3px solid transparent;
+    transition: all 0.15s;
+  }
+  .stage:hover { background: #1f2d40; }
+  .stage-ok { border-left-color: var(--green); }
+  .stage-warn { border-left-color: var(--yellow); }
+  .stage-err { border-left-color: var(--red); }
+  .stage-num {
+    width: 28px; height: 28px;
+    background: rgba(56,189,248,0.1);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700; color: var(--accent);
+    flex-shrink: 0;
+  }
+  .stage-info { flex: 1; }
+  .stage-name { font-size: 13px; font-weight: 600; }
+  .stage-detail { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .stage-status { font-size: 18px; flex-shrink: 0; }
+
+  /* Stats row */
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .stat {
+    background: var(--surface2);
+    padding: 14px;
+    border-radius: 10px;
+    text-align: center;
+  }
+  .stat-value { font-size: 28px; font-weight: 700; }
+  .stat-label { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+  .val-green { color: var(--green); }
+  .val-yellow { color: var(--yellow); }
+  .val-accent { color: var(--accent); }
+  .val-purple { color: var(--purple); }
+
+  /* API table */
+  .api-table { width: 100%; border-collapse: collapse; }
+  .api-table th {
+    text-align: left; font-size: 11px; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.5px;
+    padding: 6px 8px; border-bottom: 1px solid var(--border);
+  }
+  .api-table td {
+    font-size: 13px; padding: 8px;
+    border-bottom: 1px solid rgba(30,58,95,0.3);
+  }
+  .api-table tr:last-child td { border-bottom: none; }
+  .key-set { color: var(--green); }
+  .key-missing { color: var(--red); }
+
+  /* Service list */
+  .service-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(30,58,95,0.3);
+    font-size: 13px;
+  }
+  .service-row:last-child { border-bottom: none; }
+  .port { font-family: 'SF Mono', 'Fira Code', monospace; color: var(--accent); font-size: 12px; }
+
+  /* Full-width card */
+  .card-full { grid-column: 1 / -1; }
+
+  /* Responsive: iPad */
+  @media (max-width: 1024px) {
+    .grid { grid-template-columns: repeat(2, 1fr); padding: 16px; gap: 12px; }
+    .header { padding: 14px 16px; }
+    .stats { grid-template-columns: repeat(3, 1fr); }
+  }
+
+  /* Responsive: iPad portrait / large phone */
+  @media (max-width: 768px) {
+    .grid { grid-template-columns: 1fr; }
+    .header h1 { font-size: 17px; }
+    .stat-value { font-size: 22px; }
+  }
+
+  /* Scroll indicator for long cards */
+  .scroll-card { max-height: 400px; overflow-y: auto; }
+  .scroll-card::-webkit-scrollbar { width: 4px; }
+  .scroll-card::-webkit-scrollbar-track { background: transparent; }
+  .scroll-card::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+  /* Pulse animation */
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+  .pulse { animation: pulse 2s ease-in-out infinite; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1><span>NCL</span> Pipeline Dashboard</h1>
+  <div class="header-right">
+    <span class="last-updated" id="lastUpdated">Loading...</span>
+    <button class="refresh-btn" onclick="refreshAll()">↻ Refresh</button>
+  </div>
+</div>
+
+<div class="grid">
+
+  <!-- Pipeline Overview -->
+  <div class="card card-full">
+    <div class="card-header">
+      <span class="card-title">Pipeline Flow — First Strike → NCL → NCC → First Strike</span>
+      <span class="card-badge badge-partial" id="pipelineBadge">Checking...</span>
+    </div>
+    <div class="pipeline" id="pipelineStages">
+      <div class="stage stage-ok"><div class="stage-num">1</div><div class="stage-info"><div class="stage-name">First Strike (iPhone → Mac Mini)</div><div class="stage-detail">iOS Shortcut → Tailscale → Relay POST /pump</div></div><div class="stage-status">✅</div></div>
+      <div class="stage stage-ok"><div class="stage-num">2</div><div class="stage-info"><div class="stage-name">Strike Point (NCL Brain receives pump)</div><div class="stage-detail">POST /pump → authenticate → parse intent</div></div><div class="stage-status" id="s2">⏳</div></div>
+      <div class="stage stage-warn"><div class="stage-num">3</div><div class="stage-info"><div class="stage-name">NCL Council (Claude chairs debate)</div><div class="stage-detail">Claude + Grok + Gemini + Perplexity + GPT</div></div><div class="stage-status" id="s3">⏳</div></div>
+      <div class="stage stage-warn"><div class="stage-num">4</div><div class="stage-info"><div class="stage-name">NATRIX Approval Gate</div><div class="stage-detail">Pushover notification → human approval</div></div><div class="stage-status" id="s4">⏳</div></div>
+      <div class="stage stage-ok"><div class="stage-num">5</div><div class="stage-info"><div class="stage-name">NCC Dispatch (Mandate → Execution)</div><div class="stage-detail">Validate → enrich AAC/BRS → dispatch</div></div><div class="stage-status" id="s5">⏳</div></div>
+      <div class="stage stage-warn"><div class="stage-num">6</div><div class="stage-info"><div class="stage-name">Execution Loop (Claude Code → VS Code)</div><div class="stage-detail">Claude Code CLI bridge → Copilot fallback</div></div><div class="stage-status" id="s6">⏳</div></div>
+      <div class="stage stage-ok"><div class="stage-num">7</div><div class="stage-info"><div class="stage-name">Review & Sign-Off</div><div class="stage-detail">Verify → stage → feedback payload</div></div><div class="stage-status" id="s7">⏳</div></div>
+      <div class="stage stage-warn"><div class="stage-num">8</div><div class="stage-info"><div class="stage-name">Feedback Return (→ NCL → iPhone)</div><div class="stage-detail">POST /feedback → Pushover → relay completion</div></div><div class="stage-status" id="s8">⏳</div></div>
+    </div>
+  </div>
+
+  <!-- Quick Stats -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Pipeline Stats</span>
+    </div>
+    <div class="stats">
+      <div class="stat"><div class="stat-value val-accent" id="pumpCount">—</div><div class="stat-label">Pump Prompts</div></div>
+      <div class="stat"><div class="stat-value val-green" id="mandateCount">—</div><div class="stat-label">Mandates</div></div>
+      <div class="stat"><div class="stat-value val-purple" id="feedbackCount">—</div><div class="stat-label">Feedbacks</div></div>
+    </div>
+  </div>
+
+  <!-- Services -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Services</span>
+      <span class="card-badge badge-partial" id="servicesBadge">Checking...</span>
+    </div>
+    <div id="servicesList">
+      <div class="service-row"><span><span class="status-dot dot-yellow"></span>NCL Brain API</span><span class="port">:8800</span></div>
+      <div class="service-row"><span><span class="status-dot dot-yellow"></span>NCC Relay</span><span class="port">:8787</span></div>
+      <div class="service-row"><span><span class="status-dot dot-yellow"></span>NCC Master</span><span class="port">:8765</span></div>
+      <div class="service-row"><span><span class="status-dot dot-yellow"></span>One-Drop API</span><span class="port">:8123</span></div>
+      <div class="service-row"><span><span class="status-dot dot-yellow"></span>AAC Monitor</span><span class="port">:8080</span></div>
+      <div class="service-row"><span><span class="status-dot dot-yellow"></span>BRS Dashboard</span><span class="port">:8000</span></div>
+      <div class="service-row"><span><span class="status-dot dot-yellow"></span>Paperclip</span><span class="port">:3100</span></div>
+      <div class="service-row"><span><span class="status-dot dot-yellow"></span>Ollama</span><span class="port">:11434</span></div>
+    </div>
+  </div>
+
+  <!-- API Keys -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">API Keys</span>
+      <span class="card-badge badge-partial" id="apiKeysBadge">1/8</span>
+    </div>
+    <table class="api-table">
+      <thead><tr><th>Provider</th><th>Key</th><th>Used By</th></tr></thead>
+      <tbody id="apiKeysBody">
+        <tr><td>Anthropic Claude</td><td class="key-set">✓ Set</td><td>Council Chair, War Room</td></tr>
+        <tr><td>Pushover</td><td class="key-missing">✗ Missing</td><td>iPhone Notifications</td></tr>
+        <tr><td>xAI Grok</td><td class="key-missing">✗ Missing</td><td>Council, X Intelligence</td></tr>
+        <tr><td>Google/YouTube</td><td class="key-missing">✗ Missing</td><td>Gemini, YouTube Scrape</td></tr>
+        <tr><td>Perplexity</td><td class="key-missing">✗ Missing</td><td>Research, Fact-Check</td></tr>
+        <tr><td>OpenAI GPT</td><td class="key-missing">✗ Missing</td><td>Council (Optional)</td></tr>
+        <tr><td>X Bearer</td><td class="key-missing">✗ Missing</td><td>X API v2 (twscrape fallback)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Council Status -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Intelligence Councils</span>
+      <span class="card-badge badge-code">6h sweep</span>
+    </div>
+    <div class="stats" style="grid-template-columns: 1fr 1fr;">
+      <div class="stat"><div class="stat-value val-accent" id="ytReports">—</div><div class="stat-label">YouTube Reports</div></div>
+      <div class="stat"><div class="stat-value val-purple" id="xReports">—</div><div class="stat-label">X Reports</div></div>
+    </div>
+    <div style="margin-top: 14px;">
+      <div class="service-row"><span>YouTube Council</span><span id="ytStatus" style="font-size: 12px; color: var(--text-muted);">Not yet run</span></div>
+      <div class="service-row"><span>X Council</span><span id="xStatus" style="font-size: 12px; color: var(--text-muted);">Not yet run</span></div>
+      <div class="service-row"><span>War Room Synthesis</span><span id="wrStatus" style="font-size: 12px; color: var(--text-muted);">No briefings</span></div>
+      <div class="service-row"><span>Sweep Schedule</span><span style="font-size: 12px; color: var(--accent);">Every 6 hours (launchd)</span></div>
+    </div>
+  </div>
+
+  <!-- Orchestrator -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Strike Point Orchestrator</span>
+      <span class="card-badge badge-code" id="orchBadge">Watcher</span>
+    </div>
+    <div class="stats" style="grid-template-columns: 1fr 1fr 1fr;">
+      <div class="stat"><div class="stat-value val-green" id="dispatched">0</div><div class="stat-label">Dispatched</div></div>
+      <div class="stat"><div class="stat-value val-yellow" id="pending">0</div><div class="stat-label">Pending</div></div>
+      <div class="stat"><div class="stat-value val-accent" id="notifs">0</div><div class="stat-label">Notifications</div></div>
+    </div>
+    <div style="margin-top: 14px;">
+      <div class="service-row"><span>Execution Mode</span><span style="font-size: 12px; color: var(--green);">auto (Claude Code CLI)</span></div>
+      <div class="service-row"><span>Poll Interval</span><span style="font-size: 12px; color: var(--text-muted);">30s</span></div>
+      <div class="service-row"><span>launchd Service</span><span id="orchLaunchd" style="font-size: 12px; color: var(--text-muted);">Check pending</span></div>
+    </div>
+  </div>
+
+  <!-- All APIs Reference — Full Width -->
+  <div class="card card-full">
+    <div class="card-header">
+      <span class="card-title">Complete API Reference</span>
+    </div>
+    <div style="overflow-x: auto;">
+      <table class="api-table">
+        <thead>
+          <tr><th>API</th><th>Provider</th><th>Endpoint / URL</th><th>Used For</th><th>Required</th><th>Cost</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Anthropic Messages</td><td>Anthropic</td><td>api.anthropic.com/v1/messages</td><td>Council Chair, War Room Analysis, Brain API</td><td><span class="key-set">Required</span></td><td>~$0.50/council</td></tr>
+          <tr><td>xAI Chat</td><td>xAI</td><td>api.x.ai/v1/chat/completions</td><td>Grok Council Member, X Intelligence, War Room fallback</td><td><span class="key-set">Important</span></td><td>~$0.10/call</td></tr>
+          <tr><td>Pushover</td><td>Pushover</td><td>api.pushover.net/1/messages.json</td><td>iPhone push notifications (approval, completion)</td><td><span class="key-set">Required</span></td><td>$5 one-time</td></tr>
+          <tr><td>YouTube Data v3</td><td>Google</td><td>googleapis.com/youtube/v3</td><td>YouTube video search, metadata, channel info</td><td><span class="key-missing">Optional</span></td><td>Free (10k/day)</td></tr>
+          <tr><td>Gemini</td><td>Google</td><td>generativelanguage.googleapis.com</td><td>Gemini Council Member, YouTube/Trends analysis</td><td><span class="key-missing">Optional</span></td><td>Free tier avail</td></tr>
+          <tr><td>Perplexity Sonar</td><td>Perplexity</td><td>api.perplexity.ai/chat/completions</td><td>Research, fact-checking, source verification</td><td><span class="key-missing">Optional</span></td><td>~$0.05/query</td></tr>
+          <tr><td>OpenAI Chat</td><td>OpenAI</td><td>api.openai.com/v1/chat/completions</td><td>GPT Council Member (creative alternatives)</td><td><span class="key-missing">Optional</span></td><td>~$0.10/call</td></tr>
+          <tr><td>X API v2</td><td>X/Twitter</td><td>api.twitter.com/2/*</td><td>Tweet search, user lookup, trending topics</td><td><span class="key-missing">Optional</span></td><td>Free (basic)</td></tr>
+          <tr><td>twscrape</td><td>Open Source</td><td>Local Python lib (no API key)</td><td>X scraping fallback — logged-in account pool</td><td><span class="key-set">Fallback</span></td><td>Free</td></tr>
+          <tr><td>Ollama</td><td>Local</td><td>localhost:11434/api/generate</td><td>Local LLM fallback (qwen3, deepseek-coder)</td><td><span class="key-set">Fallback</span></td><td>Free (local)</td></tr>
+          <tr><td>yt-dlp</td><td>Open Source</td><td>Local CLI tool (no API key)</td><td>YouTube audio download for transcription</td><td><span class="key-set">Required</span></td><td>Free</td></tr>
+          <tr><td>faster-whisper</td><td>Open Source</td><td>Local Python lib</td><td>Audio → text transcription (CPU int8)</td><td><span class="key-set">Required</span></td><td>Free (local)</td></tr>
+          <tr><td>mlx-whisper</td><td>Apple/MLX</td><td>Local Python lib (Metal GPU)</td><td>Audio → text transcription (Apple Silicon native)</td><td><span class="key-missing">Optional</span></td><td>Free (local)</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Internal Services Reference -->
+  <div class="card card-full">
+    <div class="card-header">
+      <span class="card-title">Internal Service APIs (Mac Mini)</span>
+    </div>
+    <div style="overflow-x: auto;">
+      <table class="api-table">
+        <thead>
+          <tr><th>Service</th><th>Port</th><th>Key Endpoints</th><th>Pillar</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>NCL Brain API</td><td class="port">8800</td><td>POST /pump, GET /pump/pending, POST /pump/approve/{id}, POST /feedback, POST /feedback/synthesis</td><td>NCL</td></tr>
+          <tr><td>NCC Relay Server</td><td class="port">8787</td><td>POST /event, POST /events/batch, GET /events/recent, GET /events/search, GET /stats</td><td>NCC</td></tr>
+          <tr><td>NCC Master</td><td class="port">8765</td><td>POST /event (mandate dispatch), GET /health</td><td>NCC</td></tr>
+          <tr><td>One-Drop API</td><td class="port">8123</td><td>GET /progress, PUT /progress/{n}, GET /notes, POST /notes, GET /notes/export</td><td>NCC</td></tr>
+          <tr><td>AAC Monitor</td><td class="port">8080</td><td>GET /health, GET /status (trading state)</td><td>AAC</td></tr>
+          <tr><td>BRS Dashboard</td><td class="port">8000</td><td>GET /health, GET /leads, GET /revenue</td><td>BRS</td></tr>
+          <tr><td>Paperclip</td><td class="port">3100</td><td>Agent orchestration, workflow management, budget tracking</td><td>NCC</td></tr>
+          <tr><td>Ollama</td><td class="port">11434</td><td>POST /api/generate, POST /api/chat, GET /api/tags</td><td>NCL</td></tr>
+          <tr><td>FirstStrike Relay</td><td class="port">8443</td><td>POST /pump (iPhone → Mac), POST /responses (completion return)</td><td>NCL</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// Service health checks
+const SERVICES = [
+  { name: 'NCL Brain API', port: 8800, path: '/health' },
+  { name: 'NCC Relay', port: 8787, path: '/stats' },
+  { name: 'NCC Master', port: 8765, path: '/health' },
+  { name: 'One-Drop API', port: 8123, path: '/progress' },
+  { name: 'AAC Monitor', port: 8080, path: '/health' },
+  { name: 'BRS Dashboard', port: 8000, path: '/health' },
+  { name: 'Paperclip', port: 3100, path: '/health' },
+  { name: 'Ollama', port: 11434, path: '/api/tags' },
+];
+
+async function checkService(svc) {
+  try {
+    const ctrl = new AbortController();
+    setTimeout(() => ctrl.abort(), 3000);
+    const r = await fetch(`http://localhost:${svc.port}${svc.path}`, { signal: ctrl.signal });
+    return r.ok;
+  } catch { return false; }
+}
+
+async function checkAllServices() {
+  const rows = document.querySelectorAll('#servicesList .service-row');
+  let up = 0;
+  for (let i = 0; i < SERVICES.length; i++) {
+    const ok = await checkService(SERVICES[i]);
+    const dot = rows[i].querySelector('.status-dot');
+    dot.className = 'status-dot ' + (ok ? 'dot-green' : 'dot-red');
+    if (ok) up++;
+  }
+  const badge = document.getElementById('servicesBadge');
+  badge.textContent = `${up}/${SERVICES.length} Online`;
+  badge.className = 'card-badge ' + (up === SERVICES.length ? 'badge-live' : up > 0 ? 'badge-partial' : 'badge-offline');
+}
+
+async function checkPipelineStatus() {
+  try {
+    const r = await fetch('http://localhost:8800/health');
+    if (r.ok) {
+      document.getElementById('s2').textContent = '✅';
+    }
+  } catch {
+    document.getElementById('s2').textContent = '❌';
+  }
+
+  // Static status based on known state
+  document.getElementById('s3').textContent = '⚠️'; // Council degraded (1 API key)
+  document.getElementById('s4').textContent = '⚠️'; // Pushover not configured
+  document.getElementById('s5').textContent = '✅'; // Orchestrator code complete
+  document.getElementById('s6').textContent = '⚠️'; // Claude Code bridge (auto mode)
+  document.getElementById('s7').textContent = '✅'; // Review code complete
+  document.getElementById('s8').textContent = '⚠️'; // Depends on Pushover
+}
+
+function updateTimestamp() {
+  document.getElementById('lastUpdated').textContent =
+    'Updated: ' + new Date().toLocaleTimeString();
+}
+
+async function refreshAll() {
+  updateTimestamp();
+  await Promise.all([checkAllServices(), checkPipelineStatus()]);
+}
+
+// Auto-refresh every 30s
+refreshAll();
+setInterval(refreshAll, 30000);
+</script>
+
+</body>
+</html>
