@@ -1,0 +1,311 @@
+"""
+YouTube Council — AI Analyzer
+
+Takes transcribed videos and produces structured insights using
+Claude, Grok, or local Ollama models. This is the "council" reasoning
+layer that interprets content and extracts actionable intelligence.
+
+Supports multi-model analysis: Claude for deep synthesis, Grok for
+real-time context, Ollama for fast local processing.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+from datetime import datetime, timezone
+from typing import Optional
+
+from ..shared.models import (
+    CouncilReport, CouncilSource, Insight, SignalCategory, VideoMeta, Transcript,
+)
+
+log = logging.getLogger("ncl.councils.youtube.analyzer")
+
+# API config
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+XAI_API_KEY = os.getenv("XAI_API_KEY", "")
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+ANALYSIS_MODEL = os.getenv("YT_COUNCIL_MODEL", "claude-sonnet-4-6")  # or grok-4, qwen3:32b
+
+
+ANALYSIS_SYSTEM_PROMPT = """You are the YouTube Council Analyst for NARTIX — Resonance Energy studio.
+
+Your job: analyze transcribed YouTube video content and extract structured insights.
+
+For each video or batch of videos, produce:
+1. **Executive Summary** — 2-3 sentence overview of all content processed
+2. **Key Insights** — Each insight must have:
+   - title: concise headline
+   - description: 2-3 sentences explaining the insight
+   - category: one of [content, market, geopolitical, tech, music, culture, alt-science, gaming]
+   - confidence: 0.0-1.0 how confident you are in this insight
+   - tags: relevant keywords for convergence detection
+   - actionable: true/false — can NATRIX act on this?
+   - action_suggestion: if actionable, what should be done?
+3. **Cross-Video Patterns** — themes, contradictions, or convergence across videos
+4. **Content Opportunities** — ideas for new content based on gaps or trends
+
+Be specific and data-driven. Don't pad with generic observations. Every insight should pass the "so what?" test — if it doesn't lead to understanding or action, cut it.
+
+Output your analysis as JSON matching this exact schema:
+{
+  "summary": "string",
+  "insights": [
+    {
+      "title": "string",
+      "description": "string",
+      "category": "content|market|geopolitical|tech|music|culture|alt-science|gaming",
+      "confidence": 0.85,
+      "tags": ["tag1", "tag2"],
+      "actionable": true,
+      "action_suggestion": "string or empty"
+    }
+  ],
+  "cross_video_patterns": "string",
+  "content_opportunities": "string"
+}"""
+
+
+async def analyze_videos(
+    transcribed: list[tuple[dict, Transcript]],
+    session_id: str,
+) -> CouncilReport:
+    """
+    Run council analysis on transcribed videos.
+
+    Sends transcripts to the configured AI model for structured analysis,
+    then packages results into a CouncilReport.
+    """
+    if not transcribed:
+        log.warning("No transcribed videos to analyze")
+        return CouncilReport(
+            council_type=CouncilSource.YOUTUBE,
+            session_id=session_id,
+            summary="No videos available for analysis.",
+        )
+
+    # Build the analysis prompt with all transcripts
+    prompt_parts = []
+    videos: list[VideoMeta] = []
+    total_duration = 0.0
+
+    for video_info, transcript in transcribed:
+        vid = VideoMeta(
+            video_id=video_info.get("video_id", ""),
+            title=video_info.get("title", "Untitled"),
+            channel=video_info.get("channel", "Unknown"),
+            channel_id=video_info.get("channel_id", ""),
+            upload_date=video_info.get("upload_date", ""),
+            duration_seconds=video_info.get("duration", 0),
+            url=video_info.get("url", ""),
+            description=video_info.get("description", ""),
+            view_count=video_info.get("view_count", 0),
+            like_count=video_info.get("like_count", 0),
+            tags=video_info.get("tags", []),
+            thumbnail_url=video_info.get("thumbnail", ""),
+        )
+        videos.append(vid)
+        total_duration += transcript.duration_seconds
+
+        # Build per-video section
+        prompt_parts.append(f"\n## Video: {vid.title}")
+        prompt_parts.append(f"Channel: {vid.channel} | Duration: {vid.duration_seconds // 60}m | Views: {vid.view_count:,}")
+        prompt_parts.append(f"URL: {vid.url}")
+        if vid.description:
+            prompt_parts.append(f"Description: {vid.description[:300]}")
+        prompt_parts.append(f"\n### Transcript:\n{transcript.timestamped_text[:8000]}")
+        if len(transcript.timestamped_text) > 8000:
+            prompt_parts.append(f"\n[...transcript truncated, {len(transcript.segments)} total segments...]")
+
+    user_prompt = (
+        f"Analyze the following {len(transcribed)} YouTube videos "
+        f"({total_duration / 3600:.1f} hours total content):\n"
+        + "\n".join(prompt_parts)
+    )
+
+    # Call the AI model
+    raw_response = await _call_model(user_prompt)
+
+    # Parse structured response
+    insights, summary, raw_analysis = _parse_analysis(raw_response)
+
+    report = CouncilReport(
+        council_type=CouncilSource.YOUTUBE,
+        session_id=session_id,
+        sources_processed=len(transcribed),
+        total_duration_hours=total_duration / 3600,
+        insights=insights,
+        summary=summary,
+        raw_analysis=raw_analysis,
+        videos=videos,
+    )
+
+    log.info(
+        f"YouTube Council analysis complete: {len(insights)} insights "
+        f"from {len(transcribed)} videos ({total_duration / 3600:.1f}h)"
+    )
+    return report
+
+
+async def _call_model(user_prompt: str) -> str:
+    """Call the configured AI model for analysis."""
+
+    # Try Anthropic Claude first
+    if ANTHROPIC_API_KEY and ("claude" in ANALYSIS_MODEL.lower() or "sonnet" in ANALYSIS_MODEL.lower()):
+        return await _call_anthropic(user_prompt)
+
+    # Try xAI Grok
+    if XAI_API_KEY and "grok" in ANALYSIS_MODEL.lower():
+        return await _call_xai(user_prompt)
+
+    # Fallback to Ollama (local)
+    return await _call_ollama(user_prompt)
+
+
+async def _call_anthropic(prompt: str) -> str:
+    """Call Anthropic Claude API."""
+    try:
+        import httpx
+    except ImportError:
+        log.error("httpx not installed")
+        return ""
+
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": ANTHROPIC_API_KEY,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": ANALYSIS_MODEL,
+                    "max_tokens": 4096,
+                    "system": ANALYSIS_SYSTEM_PROMPT,
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+            text = data["content"][0]["text"]
+            log.info(f"Anthropic response: {len(text)} chars")
+            return text
+    except Exception as e:
+        log.error(f"Anthropic API failed: {e}")
+        return ""
+
+
+async def _call_xai(prompt: str) -> str:
+    """Call xAI Grok API (OpenAI-compatible)."""
+    try:
+        import httpx
+    except ImportError:
+        return ""
+
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(
+                "https://api.x.ai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {XAI_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": ANALYSIS_MODEL,
+                    "messages": [
+                        {"role": "system", "content": ANALYSIS_SYSTEM_PROMPT},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "max_tokens": 4096,
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+            text = data["choices"][0]["message"]["content"]
+            log.info(f"xAI response: {len(text)} chars")
+            return text
+    except Exception as e:
+        log.error(f"xAI API failed: {e}")
+        return ""
+
+
+async def _call_ollama(prompt: str) -> str:
+    """Call Ollama local model."""
+    try:
+        import httpx
+    except ImportError:
+        return ""
+
+    model = os.getenv("OLLAMA_COUNCIL_MODEL", "qwen3:32b")
+    try:
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            response = await client.post(
+                f"{OLLAMA_HOST}/api/chat",
+                json={
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": ANALYSIS_SYSTEM_PROMPT},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "stream": False,
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+            text = data.get("message", {}).get("content", "")
+            log.info(f"Ollama ({model}) response: {len(text)} chars")
+            return text
+    except Exception as e:
+        log.error(f"Ollama failed: {e}")
+        return ""
+
+
+def _parse_analysis(raw: str) -> tuple[list[Insight], str, str]:
+    """Parse AI model response into structured insights."""
+    if not raw:
+        return [], "Analysis failed — no model response.", ""
+
+    # Try to extract JSON from the response
+    json_str = raw
+    if "```json" in raw:
+        json_str = raw.split("```json")[1].split("```")[0].strip()
+    elif "```" in raw:
+        json_str = raw.split("```")[1].split("```")[0].strip()
+
+    try:
+        data = json.loads(json_str)
+    except json.JSONDecodeError:
+        log.warning("Could not parse JSON from model response — using raw text")
+        return [], raw[:500], raw
+
+    insights: list[Insight] = []
+    for item in data.get("insights", []):
+        try:
+            cat = SignalCategory(item.get("category", "content"))
+        except ValueError:
+            cat = SignalCategory.CONTENT
+
+        insights.append(Insight(
+            title=item.get("title", "Untitled"),
+            description=item.get("description", ""),
+            category=cat,
+            confidence=float(item.get("confidence", 0.5)),
+            tags=item.get("tags", []),
+            actionable=bool(item.get("actionable", False)),
+            action_suggestion=item.get("action_suggestion", ""),
+        ))
+
+    summary = data.get("summary", "")
+    cross_patterns = data.get("cross_video_patterns", "")
+    content_opps = data.get("content_opportunities", "")
+
+    raw_analysis = ""
+    if cross_patterns:
+        raw_analysis += f"## Cross-Video Patterns\n\n{cross_patterns}\n\n"
+    if content_opps:
+        raw_analysis += f"## Content Opportunities\n\n{content_opps}\n\n"
+
+    return insights, summary, raw_analysis

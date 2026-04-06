@@ -48,6 +48,34 @@ Canonical agent definitions for the NARTIX AI council and operational agents. Th
   - Importance scoring and convergence alerting
   - CRITICAL alert escalation to NCL
 
+## Intelligence Council Agents
+
+### YouTubeCouncil
+- **Role**: YouTube intelligence gathering and analysis
+- **Adapter**: claude_local (primary) → grok → ollama_local (fallback chain)
+- **Pillar**: NCL (Awarebot-FPC)
+- **Pipeline**: Scrape → Download → Transcribe → Analyze
+- **Responsibilities**:
+  - Scrape configured YouTube channels via yt-dlp (default: @NathansMRE, @substandard5858)
+  - Download and cache audio from last 24 hours of uploads
+  - Transcribe via faster-whisper (CPU int8) → mlx-whisper (Apple Silicon) → OpenAI API fallback
+  - AI analysis for content, market, geopolitical, tech, music, culture, alt-science, gaming signals
+  - Produce structured CouncilReport with insights, confidence scores, and actionability flags
+  - Write reports to `intelligence-scan/council-reports/`, signals to `intelligence-scan/signals/`, alerts to `intelligence-scan/alerts/`
+
+### XCouncil
+- **Role**: X (Twitter) full intelligence sweep and analysis
+- **Adapter**: claude_local (primary) → grok → ollama_local (fallback chain)
+- **Pillar**: NCL (Awarebot-FPC)
+- **Pipeline**: Full Sweep (3 vectors) → Analyze
+- **Responsibilities**:
+  - Vector 1 — Account monitoring: track key accounts (NathansMRE, elikiingz, DeItaone, unusual_whales, etc.)
+  - Vector 2 — Keyword intelligence: search domain-relevant terms (AI agent framework, geopolitical risk, etc.)
+  - Vector 3 — Trending analysis: capture breaking topics
+  - X API v2 primary with Grok-powered fallback for each vector
+  - AI analysis for sentiment landscape, convergence signals, risk alerts
+  - Produce structured CouncilReport with same output pipeline as YouTubeCouncil
+
 ## Operational Agents
 
 ### Engineer (NCC)

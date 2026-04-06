@@ -101,6 +101,22 @@
       "adapter": "claude_local",
       "pillar": "BRS",
       "system_prompt": "You manage BRS revenue operations. Track DIGITAL-LABOUR leads, manage NERVE scoring, generate proposals, and report economic signals to NCL."
+    },
+    {
+      "name": "YouTubeCouncil",
+      "role": "youtube_intelligence",
+      "adapter": "claude_local",
+      "pillar": "NCL",
+      "fallback_adapters": ["grok", "ollama_local"],
+      "system_prompt": "You are the YouTube Intelligence Council analyst. Scrape configured channels, download and transcribe audio via faster-whisper/mlx-whisper, then analyze transcripts for actionable intelligence across content, market, geopolitical, tech, music, culture, alt-science, and gaming signals."
+    },
+    {
+      "name": "XCouncil",
+      "role": "x_intelligence",
+      "adapter": "claude_local",
+      "pillar": "NCL",
+      "fallback_adapters": ["grok", "ollama_local"],
+      "system_prompt": "You are the X (Twitter) Intelligence Council analyst. Run full intelligence sweeps across tracked accounts, keyword searches, and trending topics. Analyze posts for signal-over-noise, narrative shifts, information asymmetry, and actionable intelligence."
     }
   ],
 
@@ -130,6 +146,17 @@
       "agent": "IntelScanner",
       "schedule": "*/5 * * * *",
       "escalation_chain": ["IntelScanner", "Claude-Chair", "NATRIX"]
+    },
+    "council_sweep": {
+      "description": "Full YouTube + X intelligence council sweep",
+      "agents": ["YouTubeCouncil", "XCouncil"],
+      "schedule": "0 */6 * * *",
+      "parallel": true,
+      "output": "intelligence-scan/council-reports/",
+      "pipeline": {
+        "youtube": ["scrape_channels", "download_audio", "transcribe", "analyze"],
+        "x": ["full_sweep", "analyze"]
+      }
     },
     "war_room_scenario": {
       "description": "AAC War Room scenario evaluation",
