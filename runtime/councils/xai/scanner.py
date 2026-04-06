@@ -28,18 +28,24 @@ XAI_API_KEY = os.getenv("XAI_API_KEY", "")
 # Default tracked accounts
 DEFAULT_ACCOUNTS: list[str] = [
     "NathansMRE",
-    "elikiingz",        # NATRIX personal
+    "agentbravo069",     # NATRIX primary X handle
+    "elikiingz",         # NATRIX personal
     "DeItaone",          # Breaking news
     "unusual_whales",    # Options flow
-    "wallaborealissys",  # Alt-science
-    "EndWokeness",       # Culture signal
+    "WatcherGuru",       # Market news
+    "tier10k",           # Breaking intelligence
     "MarioNawfal",       # News aggregation
+    "wallaborealissys",  # Alt-science
     "ABOREALISSYS",      # Alt-research
+    "EndWokeness",       # Culture signal
 ]
 
 # Default keyword searches
 DEFAULT_KEYWORDS: list[str] = [
     "first strike ration",
+    "first-strike",
+    "FSR",
+    "24 hour ration",
     "MRE review",
     "AI agent framework",
     "Claude Opus",
@@ -47,6 +53,8 @@ DEFAULT_KEYWORDS: list[str] = [
     "geopolitical risk",
     "prediction market",
     "dubstep production",
+    "bass music",
+    "substandard bass",
     "unity game dev",
     "Apple Silicon ML",
 ]
@@ -126,22 +134,42 @@ async def full_sweep(
     return results
 
 
+def _twscrape_available() -> bool:
+    """Check if twscrape is installed."""
+    try:
+        import twscrape  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 async def scan_account(
     handle: str,
     since: datetime,
     max_posts: int = MAX_POSTS_PER_ACCOUNT,
 ) -> list[XPost]:
-    """Scan a specific X account for recent posts."""
+    """Scan a specific X account for recent posts.
 
-    # Try X API v2 first
+    Fallback chain: X API v2 → twscrape → Grok
+    """
+
+    # Try X API v2 first (structured, reliable with Bearer Token)
     if X_BEARER_TOKEN:
-        return await _scan_account_api(handle, since, max_posts)
+        posts = await _scan_account_api(handle, since, max_posts)
+        if posts:
+            return posts
 
-    # Fallback: use Grok for X intelligence
+    # Fallback 2: twscrape (no API key needed, uses logged-in accounts)
+    if _twscrape_available():
+        posts = await _scan_account_twscrape(handle, since, max_posts)
+        if posts:
+            return posts
+
+    # Fallback 3: Grok for X intelligence
     if XAI_API_KEY:
         return await _scan_account_grok(handle, since, max_posts)
 
-    log.warning(f"No X API or Grok key — cannot scan @{handle}")
+    log.warning(f"No X API, twscrape, or Grok key — cannot scan @{handle}")
     return []
 
 
@@ -150,24 +178,40 @@ async def search_keyword(
     since: datetime,
     max_posts: int = MAX_POSTS_PER_KEYWORD,
 ) -> list[XPost]:
-    """Search X for posts matching a keyword/hashtag."""
+    """Search X for posts matching a keyword/hashtag.
+
+    Fallback chain: X API v2 → twscrape → Grok
+    """
 
     if X_BEARER_TOKEN:
-        return await _search_keyword_api(keyword, since, max_posts)
+        posts = await _search_keyword_api(keyword, since, max_posts)
+        if posts:
+            return posts
+
+    if _twscrape_available():
+        posts = await _search_keyword_twscrape(keyword, since, max_posts)
+        if posts:
+            return posts
 
     if XAI_API_KEY:
         return await _search_keyword_grok(keyword, since, max_posts)
 
-    log.warning(f"No X API or Grok key — cannot search '{keyword}'")
+    log.warning(f"No X API, twscrape, or Grok key — cannot search '{keyword}'")
     return []
 
 
 async def scan_trending(since: datetime) -> list[XPost]:
-    """Get posts from trending topics in configured categories."""
+    """Get posts from trending topics in configured categories.
+
+    Fallback chain: X API v2 → twscrape → Grok
+    """
 
     if X_BEARER_TOKEN:
-        return await _scan_trending_api(since)
+        posts = await _scan_trending_api(since)
+        if posts:
+            return posts
 
+    # twscrape doesn't have a trending endpoint — skip to Grok
     if XAI_API_KEY:
         return await _scan_trending_grok(since)
 
@@ -324,6 +368,105 @@ async def _scan_trending_api(since: datetime) -> list[XPost]:
         batch = await _search_keyword_api(query, since, max_posts=20)
         posts.extend(batch)
     return posts
+
+
+# ── twscrape fallbacks ─────────────────────────────────────────────────
+
+async def _scan_account_twscrape(
+    handle: str,
+    since: datetime,
+    max_posts: int,
+) -> list[XPost]:
+    """Scan account using twscrape (no API key, uses logged-in pool)."""
+    try:
+        from twscrape import API, gather as tw_gather
+    except ImportError:
+        return []
+
+    try:
+        api = API()
+        # twscrape user_tweets wants a user ID — look up first
+        user = await api.user_by_login(handle)
+        if not user:
+            log.warning(f"twscrape: user @{handle} not found")
+            return []
+
+        tweets = await tw_gather(api.user_tweets(user.id, limit=max_posts))
+
+        posts = []
+        for tweet in tweets:
+            created = tweet.date if hasattr(tweet, "date") else None
+            if created and created.replace(tzinfo=timezone.utc) < since:
+                continue
+
+            posts.append(XPost(
+                post_id=str(tweet.id),
+                author_handle=handle,
+                author_name=getattr(tweet.user, "name", handle) if hasattr(tweet, "user") else handle,
+                text=tweet.rawContent if hasattr(tweet, "rawContent") else str(tweet),
+                created_at=str(created) if created else "",
+                url=f"https://x.com/{handle}/status/{tweet.id}",
+                like_count=getattr(tweet, "likeCount", 0) or 0,
+                retweet_count=getattr(tweet, "retweetCount", 0) or 0,
+                reply_count=getattr(tweet, "replyCount", 0) or 0,
+                quote_count=getattr(tweet, "quoteCount", 0) or 0,
+                impression_count=getattr(tweet, "viewCount", 0) or 0,
+                hashtags=[h.get("tag", "") for h in (getattr(tweet, "hashtags", []) or [])],
+                media_urls=[
+                    m.url or m.previewUrl
+                    for m in (getattr(tweet, "media", []) or [])
+                    if hasattr(m, "url")
+                ],
+            ))
+
+        log.info(f"@{handle}: {len(posts)} posts via twscrape")
+        return posts
+
+    except Exception as e:
+        log.warning(f"twscrape scan failed for @{handle}: {e}")
+        return []
+
+
+async def _search_keyword_twscrape(
+    keyword: str,
+    since: datetime,
+    max_posts: int,
+) -> list[XPost]:
+    """Search using twscrape."""
+    try:
+        from twscrape import API, gather as tw_gather
+    except ImportError:
+        return []
+
+    try:
+        api = API()
+        since_str = since.strftime("%Y-%m-%d")
+        query = f"{keyword} since:{since_str} lang:en"
+        tweets = await tw_gather(api.search(query, limit=max_posts))
+
+        posts = []
+        for tweet in tweets:
+            handle = getattr(tweet.user, "username", "unknown") if hasattr(tweet, "user") else "unknown"
+            posts.append(XPost(
+                post_id=str(tweet.id),
+                author_handle=handle,
+                author_name=getattr(tweet.user, "name", handle) if hasattr(tweet, "user") else handle,
+                text=tweet.rawContent if hasattr(tweet, "rawContent") else str(tweet),
+                created_at=str(tweet.date) if hasattr(tweet, "date") else "",
+                url=f"https://x.com/{handle}/status/{tweet.id}",
+                like_count=getattr(tweet, "likeCount", 0) or 0,
+                retweet_count=getattr(tweet, "retweetCount", 0) or 0,
+                reply_count=getattr(tweet, "replyCount", 0) or 0,
+                impression_count=getattr(tweet, "viewCount", 0) or 0,
+                hashtags=[h.get("tag", "") for h in (getattr(tweet, "hashtags", []) or [])],
+            ))
+
+        log.info(f"Keyword '{keyword}': {len(posts)} posts via twscrape")
+        return posts
+
+    except Exception as e:
+        log.warning(f"twscrape search failed for '{keyword}': {e}")
+        return []
 
 
 # ── Grok-powered fallbacks ──────────────────────────────────────────────

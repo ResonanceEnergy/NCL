@@ -54,6 +54,12 @@ if ! python3 -c "import httpx" 2>/dev/null; then
     echo -e "${YELLOW}⚠${NC} httpx not installed (pip install httpx) — AI analysis will fail"
 fi
 
+if python3 -c "import twscrape" 2>/dev/null; then
+    echo -e "${GREEN}✓${NC} twscrape available (X scraping fallback)"
+else
+    echo -e "${YELLOW}⚠${NC} twscrape not installed (pip install twscrape) — X scraping will use API/Grok only"
+fi
+
 if [[ $MISSING -eq 1 ]]; then
     echo -e "${RED}Cannot proceed — install missing dependencies${NC}"
     exit 1

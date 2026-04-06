@@ -32,6 +32,21 @@ DEFAULT_LOOKBACK_HOURS = 24
 # Maximum total audio duration to download (hours) — prevents runaway
 MAX_TOTAL_DURATION_HOURS = 24
 
+# Strike Point relevance keywords — scored for priority selection
+STRIKE_POINT_KEYWORDS: list[str] = [
+    "first strike",
+    "first-strike",
+    "FSR",
+    "MRE",
+    "ration",
+    "24 hour",
+    "24hr",
+    "military ration",
+    "bass music",
+    "dubstep",
+    "substandard",
+]
+
 # Where to store downloaded audio temporarily
 AUDIO_CACHE_DIR = Path.home() / "Projects" / "NCL" / ".cache" / "youtube-audio"
 
@@ -106,10 +121,20 @@ def scrape_recent_videos(
         except Exception as e:
             log.error(f"Failed to scrape {channel_url}: {e}")
 
-    # Sort by upload date (newest first)
-    all_videos.sort(key=lambda v: v.get("upload_date", ""), reverse=True)
+    # ── Strike Point scoring ─────────────────────────────────────────
+    # Score each video by keyword relevance, then select highest-scoring
+    # videos that fit under the duration cap. This replaces naive
+    # chronological ordering with intelligent prioritization.
+    for video in all_videos:
+        video["strike_score"] = _strike_point_score(video)
 
-    # Cap at max total duration
+    # Sort by score (highest first), break ties by upload date (newest first)
+    all_videos.sort(
+        key=lambda v: (v.get("strike_score", 0), v.get("upload_date", "")),
+        reverse=True,
+    )
+
+    # Greedy selection under duration cap
     selected: list[dict] = []
     total_seconds = 0.0
     max_seconds = max_total_hours * 3600
@@ -122,7 +147,13 @@ def scrape_recent_videos(
         selected.append(video)
         total_seconds += dur
 
-    log.info(f"Selected {len(selected)} videos ({total_seconds/3600:.1f}h total) from {len(channels)} channels")
+    log.info(
+        f"Strike Point selected {len(selected)} videos "
+        f"({total_seconds/3600:.1f}h total) from {len(channels)} channels"
+    )
+    if selected:
+        top = selected[0]
+        log.info(f"  Top hit: \"{top['title']}\" (score={top.get('strike_score', 0)}, {top.get('duration', 0)//60}m)")
     return selected
 
 
@@ -211,3 +242,54 @@ def download_batch(
 
     log.info(f"Downloaded {len(results)}/{len(videos)} audio files")
     return results
+
+
+# ── Strike Point Scoring ──────────────────────────────────────────────
+
+def _strike_point_score(video: dict) -> float:
+    """
+    Score a video for Strike Point selection.
+
+    Higher score = higher priority for inclusion under the duration cap.
+
+    Factors:
+    - Keyword density in title (2 points per keyword hit)
+    - Keyword density in description (0.5 per hit)
+    - Keyword density in tags (1 per hit)
+    - Recency bias (today's uploads get +3)
+    - View count signal (+1 if >1000 views, +2 if >10000)
+    """
+    score = 0.0
+    title = (video.get("title") or "").lower()
+    desc = (video.get("description") or "").lower()
+    tags = " ".join(video.get("tags") or []).lower()
+
+    for kw in STRIKE_POINT_KEYWORDS:
+        kw_lower = kw.lower()
+        if kw_lower in title:
+            score += 2.0
+        if kw_lower in desc:
+            score += 0.5
+        if kw_lower in tags:
+            score += 1.0
+
+    # Recency bias — today's uploads get a boost
+    upload_date = video.get("upload_date", "")
+    if upload_date:
+        try:
+            today = datetime.now(timezone.utc).strftime("%Y%m%d")
+            if upload_date == today:
+                score += 3.0
+            elif upload_date >= (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y%m%d"):
+                score += 1.5
+        except (ValueError, TypeError):
+            pass
+
+    # View count signal
+    views = video.get("view_count", 0) or 0
+    if views >= 10000:
+        score += 2.0
+    elif views >= 1000:
+        score += 1.0
+
+    return score
