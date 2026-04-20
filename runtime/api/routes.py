@@ -5,7 +5,7 @@ import os
 import secrets
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Header, Query
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Header, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -24,16 +24,15 @@ from ..ncl_brain.models import (
 brain: NCLBrain | None = None
 config = load_config()
 
-# Strike point authentication token — load from config (.env) FIRST, then env var, then auto-gen
+# Strike point authentication token — load from config (.env) FIRST, then env var, then fail hard
 STRIKE_TOKEN = config.strike_auth_token or os.getenv("STRIKE_AUTH_TOKEN", "")
 if not STRIKE_TOKEN:
-    # Auto-generate and log so NATRIX can copy it into the iOS Shortcut
-    STRIKE_TOKEN = secrets.token_urlsafe(32)
+    # FIX #4: Hard-fail instead of auto-generating and logging plaintext token
     import logging
-    logging.getLogger("ncl.strike").warning(
-        f"No STRIKE_AUTH_TOKEN set. Auto-generated: {STRIKE_TOKEN} — "
-        f"Set this in .env and in the iOS Shortcut."
-    )
+    import sys
+    log = logging.getLogger("ncl.strike")
+    log.critical("STRIKE_AUTH_TOKEN must be set in .env or STRIKE_AUTH_TOKEN environment variable")
+    sys.exit(1)
 
 
 @asynccontextmanager
@@ -97,13 +96,23 @@ async def health_check() -> dict:
 
 
 # Strike Point Authentication
-def _verify_strike_token(authorization: str = Header(default="")):
-    """Verify the strike point auth token from iPhone."""
+# FIX #3: Create reusable dependency for FastAPI Depends()
+def verify_strike_token(authorization: str = Header(default="")) -> str:
+    """
+    Verify the strike point auth token from iPhone.
+    Returns the verified token for use as a FastAPI dependency.
+    """
     if not authorization:
         raise HTTPException(status_code=401, detail="Missing Authorization header")
     token = authorization.replace("Bearer ", "").strip()
     if not secrets.compare_digest(token, STRIKE_TOKEN):
         raise HTTPException(status_code=403, detail="Invalid strike token")
+    return token
+
+# Legacy function name for backward compatibility
+def _verify_strike_token(authorization: str = Header(default="")):
+    """Deprecated: use verify_strike_token() with Depends() instead."""
+    verify_strike_token(authorization)
 
 
 # Pump Prompt endpoint — THE SOLE STRIKE POINT INTO NCL
@@ -314,7 +323,8 @@ async def reject_pump(
 # Council endpoints
 @app.post("/council/spawn")
 async def spawn_council_session(
-    topic: str, prompt: str, members: list[str] | None = None
+    topic: str, prompt: str, members: list[str] | None = None,
+    _token: str = Depends(verify_strike_token),  # FIX #3: Add auth
 ) -> dict:
     """
     Spawn a new council debate session.
@@ -381,6 +391,7 @@ async def create_mandate(
     success_criteria: list[str],
     deadline: str | None = None,
     source_pump_id: str | None = None,
+    _token: str = Depends(verify_strike_token),  # FIX #3: Add auth
 ) -> dict:
     """
     Create a new mandate.
@@ -436,7 +447,10 @@ async def create_mandate(
 
 
 @app.get("/mandates")
-async def list_mandates(pillar: str | None = None, status: str | None = None) -> dict:
+async def list_mandates(
+    pillar: str | None = None, status: str | None = None,
+    _token: str = Depends(verify_strike_token),  # FIX #3: Add auth
+) -> dict:
     """
     List mandates with optional filters.
 
@@ -483,7 +497,10 @@ async def list_mandates(pillar: str | None = None, status: str | None = None) ->
 
 
 @app.get("/mandates/{mandate_id}")
-async def get_mandate(mandate_id: str) -> dict:
+async def get_mandate(
+    mandate_id: str,
+    _token: str = Depends(verify_strike_token),  # FIX #3: Add auth
+) -> dict:
     """
     Get mandate details.
 
@@ -515,7 +532,10 @@ async def get_mandate(mandate_id: str) -> dict:
 
 
 @app.post("/mandates/{mandate_id}/complete")
-async def complete_mandate(mandate_id: str, notes: str | None = None) -> dict:
+async def complete_mandate(
+    mandate_id: str, notes: str | None = None,
+    _token: str = Depends(verify_strike_token),  # FIX #3: Add auth
+) -> dict:
     """
     Mark mandate as completed.
 
@@ -539,6 +559,7 @@ async def query_memory(
     tags: list[str] | None = None,
     importance_threshold: float = 0.0,
     days_back: int | None = None,
+    _token: str = Depends(verify_strike_token),  # FIX #3: Add auth
 ) -> dict:
     """
     Query memory system.
@@ -563,7 +584,10 @@ async def query_memory(
 
 # Feedback endpoint
 @app.post("/feedback")
-async def receive_feedback(feedback: FeedbackReport) -> dict:
+async def receive_feedback(
+    feedback: FeedbackReport,
+    _token: str = Depends(verify_strike_token),  # FIX #3: Add auth
+) -> dict:
     """
     Receive feedback report from downstream pillar.
 
@@ -586,7 +610,10 @@ async def receive_feedback(feedback: FeedbackReport) -> dict:
 
 # Feedback synthesis endpoint (receives from feedback-loop server)
 @app.post("/feedback/synthesis")
-async def receive_synthesis(synthesis: dict) -> dict:
+async def receive_synthesis(
+    synthesis: dict,
+    _token: str = Depends(verify_strike_token),  # FIX #3: Add auth
+) -> dict:
     """
     Receive Claude-validated synthesis from feedback loop server.
 
@@ -635,7 +662,10 @@ async def receive_synthesis(synthesis: dict) -> dict:
 
 # Awarebot endpoints
 @app.post("/awarebot/scan")
-async def run_awarebot_scan(queries: list[str]) -> dict:
+async def run_awarebot_scan(
+    queries: list[str],
+    _token: str = Depends(verify_strike_token),  # FIX #3: Add auth
+) -> dict:
     """
     Run Awarebot intelligence scan.
 
@@ -653,7 +683,10 @@ async def run_awarebot_scan(queries: list[str]) -> dict:
 
 # Prediction endpoint
 @app.post("/prediction")
-async def run_prediction(topic: str) -> dict:
+async def run_prediction(
+    topic: str,
+    _token: str = Depends(verify_strike_token),  # FIX #3: Add auth
+) -> dict:
     """
     Run Future Predictor ensemble forecast.
 
@@ -710,12 +743,25 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)
 
-    uvicorn.run(
-        app,
-        host=config.host,
-        port=config.port,
-        log_level="info" if not config.debug else "debug",
-    )
+    # Optional TLS support via environment variables
+    ssl_certfile = os.getenv("NCL_TLS_CERT")
+    ssl_keyfile = os.getenv("NCL_TLS_KEY")
+
+    uvicorn_kwargs = {
+        "app": app,
+        "host": config.host,
+        "port": config.port,
+        "log_level": "info" if not config.debug else "debug",
+    }
+
+    # Add TLS parameters if both cert and key are provided
+    if ssl_certfile and ssl_keyfile:
+        uvicorn_kwargs["ssl_certfile"] = ssl_certfile
+        uvicorn_kwargs["ssl_keyfile"] = ssl_keyfile
+        log_main = logging.getLogger("ncl.main")
+        log_main.info(f"TLS enabled: {ssl_certfile}, {ssl_keyfile}")
+
+    uvicorn.run(**uvicorn_kwargs)
 
 
 if __name__ == "__main__":

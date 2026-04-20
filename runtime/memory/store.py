@@ -14,6 +14,10 @@ log = logging.getLogger("ncl.memory")
 
 from ..ncl_brain.models import MemUnit
 
+# Memory system constraints
+MAX_CONTENT_LENGTH = 50_000  # Max characters per memory unit
+MAX_TOTAL_UNITS = 10_000    # Max total memory units in store
+
 
 class MemoryStore:
     """
@@ -52,13 +56,25 @@ class MemoryStore:
         Returns:
             Created MemUnit
         """
+        # Validate and truncate content if necessary
+        truncated_content = content
+        if len(content) > MAX_CONTENT_LENGTH:
+            truncated_content = content[:MAX_CONTENT_LENGTH] + "[TRUNCATED]"
+            log.warning(
+                f"Memory unit content truncated from {len(content)} to {MAX_CONTENT_LENGTH} chars"
+            )
+
         unit = MemUnit(
             unit_id=str(uuid.uuid4()),
-            content=content,
+            content=truncated_content,
             source=source,
             importance=min(100.0, max(0.0, importance)),
             tags=tags or [],
         )
+
+        # Check total unit count and evict if necessary
+        await self._ensure_capacity()
+
         await self._persist_unit(unit)
         return unit
 
@@ -151,6 +167,53 @@ class MemoryStore:
         days_since = (datetime.now(timezone.utc) - unit.last_accessed).days
         decayed = unit.importance * (unit.decay_rate ** days_since)
         return max(0.0, min(100.0, decayed))
+
+    async def _ensure_capacity(self) -> None:
+        """
+        Ensure memory store stays within capacity limits.
+
+        If total units exceed MAX_TOTAL_UNITS, evict oldest low-importance units
+        (importance < 30, sorted by creation date ascending).
+        """
+        units = await self._load_all_units()
+
+        if len(units) >= MAX_TOTAL_UNITS:
+            # Find units eligible for eviction: importance < 30
+            evictable = [u for u in units if u.importance < 30]
+            if not evictable:
+                # If no low-importance units, evict oldest overall
+                evictable = sorted(units, key=lambda u: u.created_at)
+
+            # Sort by creation date (oldest first) and evict
+            evictable.sort(key=lambda u: u.created_at)
+            to_evict = evictable[:max(1, len(units) - MAX_TOTAL_UNITS + 1)]
+
+            # Get IDs of units to keep
+            evict_ids = {u.unit_id for u in to_evict}
+            kept_units = [u for u in units if u.unit_id not in evict_ids]
+
+            log.info(
+                f"Memory store at capacity ({len(units)} units). "
+                f"Evicting {len(to_evict)} low-importance units."
+            )
+
+            # Rewrite the memory file with only kept units
+            await self._rewrite_units(kept_units)
+
+    async def _rewrite_units(self, units: list[MemUnit]) -> None:
+        """
+        Rewrite the entire memory file with the given units.
+
+        Args:
+            units: List of MemUnits to persist
+        """
+        try:
+            async with aiofiles.open(self.memory_file, "w") as f:
+                for unit in units:
+                    await f.write(unit.model_dump_json() + "\n")
+            log.debug(f"Memory file rewritten with {len(units)} units")
+        except Exception as e:
+            log.error(f"Failed to rewrite memory file: {e}")
 
     async def _persist_unit(self, unit: MemUnit) -> None:
         """

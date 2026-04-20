@@ -346,6 +346,37 @@ class CouncilEngine:
 
         session.rounds.append(r1)
 
+        # ===================================================================
+        # QUORUM CHECK — After Round 1, verify minimum functioning members
+        # ===================================================================
+        unavailable_count = sum(
+            1 for resp in r1.responses.values()
+            if "unavailable" in resp.lower() or "[" in resp and "]" in resp and "unavailable" in resp.lower()
+        )
+        functioning_count = len(session.members) - unavailable_count
+
+        if unavailable_count > 2:  # More than 2 unavailable means fewer than 4 functioning
+            log.error(
+                f"[council:{session.session_id}] QUORUM FAILURE — "
+                f"{unavailable_count} members unavailable, only {functioning_count} functioning. "
+                f"Minimum 4 required. Halting debate."
+            )
+            session.status = CouncilStatus.COMPLETE
+            session.completed_at = datetime.now(timezone.utc)
+            session.synthesis = (
+                f"Council debate HALTED due to insufficient quorum. "
+                f"Unavailable members: {unavailable_count} / {len(session.members)}. "
+                f"Minimum 4 functioning members required. Round 1 responses preserved for manual review."
+            )
+            session.consensus_score = ConsensusScore(
+                agreement_pct=0.0,
+                confidence=0.0,
+                threshold_met=False,
+                reason="Quorum not met"
+            )
+            await self._paperclip_report_quorum_failure(session, _pc_issue_id, unavailable_count)
+            return session
+
         # PAPERCLIP — Report Round 1 costs
         await self._paperclip_report_round_costs(
             session.session_id, _pc_issue_id, 1,
@@ -379,6 +410,37 @@ class CouncilEngine:
             log.info(f"[council:{session.session_id}] R2 {member.value}: {len(response)} chars, confidence={r2.scores.get(member.value, 0)}")
 
         session.rounds.append(r2)
+
+        # ===================================================================
+        # QUORUM CHECK — After Round 2, verify minimum functioning members
+        # ===================================================================
+        unavailable_count = sum(
+            1 for resp in r2.responses.values()
+            if "unavailable" in resp.lower() or "[" in resp and "]" in resp and "unavailable" in resp.lower()
+        )
+        functioning_count = len(debaters) - unavailable_count
+
+        if unavailable_count > 2:  # More than 2 unavailable among debaters
+            log.error(
+                f"[council:{session.session_id}] QUORUM FAILURE at Round 2 — "
+                f"{unavailable_count} debaters unavailable, only {functioning_count} functioning. "
+                f"Minimum 4 required. Halting debate."
+            )
+            session.status = CouncilStatus.COMPLETE
+            session.completed_at = datetime.now(timezone.utc)
+            session.synthesis = (
+                f"Council debate HALTED due to insufficient quorum at Round 2. "
+                f"Unavailable debaters: {unavailable_count} / {len(debaters)}. "
+                f"Minimum 4 functioning members required. Rounds 1-2 responses preserved for manual review."
+            )
+            session.consensus_score = ConsensusScore(
+                agreement_pct=0.0,
+                confidence=0.0,
+                threshold_met=False,
+                reason="Quorum not met at Round 2"
+            )
+            await self._paperclip_report_quorum_failure(session, _pc_issue_id, unavailable_count)
+            return session
 
         # PAPERCLIP — Report Round 2 costs
         await self._paperclip_report_round_costs(
@@ -1075,6 +1137,48 @@ class CouncilEngine:
             )
         except Exception as e:
             log.warning(f"[council:paperclip] Approval request failed: {e}")
+
+    async def _paperclip_report_quorum_failure(
+        self, session: CouncilSession, issue_id: str | None, unavailable_count: int
+    ) -> None:
+        """Report council quorum failure to Paperclip."""
+        if not self._paperclip or not issue_id:
+            return
+        try:
+            paperclip_url = os.getenv("PAPERCLIP_URL", "http://localhost:3100")
+            company_id = os.getenv("PAPERCLIP_COMPANY_ID", "")
+            if not company_id:
+                return
+
+            # Report quorum failure to Paperclip
+            await self.http_client.post(
+                f"{paperclip_url}/api/companies/{company_id}/alerts",
+                json={
+                    "type": "council-quorum-failure",
+                    "severity": "critical",
+                    "payload": {
+                        "issue_id": issue_id,
+                        "session_id": session.session_id,
+                        "topic": session.topic,
+                        "unavailable_members": unavailable_count,
+                        "total_members": len(session.members),
+                        "functioning_members": len(session.members) - unavailable_count,
+                        "reason": (
+                            f"Council debate halted: {unavailable_count} members unavailable. "
+                            f"Minimum 4 functioning members required."
+                        ),
+                    },
+                    "issueIds": [issue_id],
+                },
+                timeout=10.0,
+            )
+
+            log.error(
+                f"[council:paperclip] Quorum failure ({unavailable_count} unavailable) — "
+                f"alert sent to Paperclip for session {session.session_id}"
+            )
+        except Exception as e:
+            log.warning(f"[council:paperclip] Quorum failure alert failed: {e}")
 
     async def close(self) -> None:
         """Close HTTP client."""

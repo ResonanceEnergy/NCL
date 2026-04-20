@@ -665,7 +665,7 @@ class NCLBrain:
         return mandates
 
     async def _dispatch_to_ncc(self, mandates: list[dict]) -> dict:
-        """Dispatch mandates to NCC for execution."""
+        """Dispatch mandates to NCC for execution with error handling and retry queue."""
         import httpx
         import os
 
@@ -675,6 +675,7 @@ class NCLBrain:
 
         dispatched = []
         failed = []
+        retry_queue = getattr(self, '_ncc_retry_queue', [])
 
         try:
             async with httpx.AsyncClient(timeout=15.0) as client:
@@ -724,13 +725,54 @@ class NCLBrain:
                     except Exception as e:
                         failed.append({"mandate": m.get("title"), "error": str(e)})
         except Exception as e:
-            return {"status": "ncc_unreachable", "error": str(e)}
+            log.warning(f"NCC server unreachable at {url} — mandates queued for retry")
+            # Queue failed mandates for retry
+            retry_queue.extend([
+                {
+                    "mandate_id": m.get("mandate_id", "unknown"),
+                    "title": m.get("title", "Untitled"),
+                    "payload": m,
+                    "failed_at": datetime.now(timezone.utc).isoformat(),
+                }
+                for m in mandates if "error" not in m
+            ])
+            self._ncc_retry_queue = retry_queue
+            return {"status": "ncc_unreachable", "error": str(e), "queued_for_retry": len(retry_queue)}
 
+        # Store retry queue as instance variable
+        self._ncc_retry_queue = retry_queue
         return {
             "status": "dispatched",
             "dispatched": dispatched,
             "failed": failed,
         }
+
+    async def retry_failed_ncc_dispatches(self) -> dict:
+        """Retry previously failed NCC dispatches from the retry queue."""
+        if not hasattr(self, '_ncc_retry_queue'):
+            self._ncc_retry_queue = []
+
+        if not self._ncc_retry_queue:
+            return {"status": "no_retry_queue", "count": 0}
+
+        retry_count = len(self._ncc_retry_queue)
+        log.info(f"Attempting to retry {retry_count} failed NCC dispatches")
+
+        # Extract payloads and clear queue
+        payloads = [item["payload"] for item in self._ncc_retry_queue]
+        self._ncc_retry_queue.clear()
+
+        # Attempt dispatch
+        result = await self._dispatch_to_ncc(payloads)
+        result["original_queue_size"] = retry_count
+
+        await self._log_event(
+            "ncc_retry_attempt",
+            f"Retried {retry_count} failed NCC dispatches",
+            {"queued": retry_count, "result": result},
+        )
+
+        return result
 
     async def spawn_council_session(
         self, topic: str, prompt: str, members: Optional[list[str]] = None
@@ -1112,6 +1154,37 @@ class NCLBrain:
         await self.predictor.close()
         await self.paperclip.close()
 
+    def _rotate_events_file(self) -> None:
+        """
+        FIX #12: Rotate events.ndjson when it exceeds 10MB.
+
+        Renames current file to events.ndjson.1 and rotates existing backups
+        up to events.ndjson.5, deleting any older backups.
+        """
+        if not self.events_file.exists():
+            return
+
+        # Check file size in bytes (10MB = 10485760 bytes)
+        file_size_mb = self.events_file.stat().st_size / (1024 * 1024)
+        if file_size_mb < 10:
+            return
+
+        # Rotate: events.ndjson.4 → .5 (delete), .3 → .4, .2 → .3, .1 → .2, then events.ndjson → .1
+        max_backups = 5
+        for i in range(max_backups - 1, 0, -1):
+            old_backup = self.events_file.with_suffix(f".ndjson.{i}")
+            new_backup = self.events_file.with_suffix(f".ndjson.{i + 1}")
+            if old_backup.exists():
+                if i + 1 > max_backups:
+                    old_backup.unlink()
+                else:
+                    old_backup.rename(new_backup)
+
+        # Rotate current file to .1
+        backup_file = self.events_file.with_suffix(".ndjson.1")
+        self.events_file.rename(backup_file)
+        log.info(f"Rotated events.ndjson (was {file_size_mb:.1f}MB) → {backup_file.name}")
+
     async def _log_event(
         self, event_type: str, description: str, metadata: Optional[dict] = None
     ) -> None:
@@ -1123,6 +1196,9 @@ class NCLBrain:
             description: Event description
             metadata: Additional metadata
         """
+        # FIX #12: Check and rotate events file if needed
+        self._rotate_events_file()
+
         event = {
             "event_id": str(uuid.uuid4()),
             "type": event_type,
