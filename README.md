@@ -1,32 +1,40 @@
-# NCL Brain Service
+# NCL — NuRealCortexLink
 
-RESONANCE ENERGY NCL (NUREALCORTEXLINK) Brain — the strategic thinking layer for the ecosystem.
+NATRIX's second brain. The strategic thinking, intelligence, and command layer for the Resonance Energy portfolio.
 
-Think, Research, Plan, Decide.
+Think, Research, Plan, Decide, Monitor.
+
+**Part of the Resonance Energy portfolio. See `RESONANCE_ENERGY_SOT.md` for system boundaries and architecture.**
 
 ## Overview
 
-NCL is the brain pillar of the RESONANCE ENERGY architecture. It:
+NCL is the top of the hierarchy. It:
 
-- **Receives pump prompts** from iPhone via Grok (first-strike strategic intent)
+- **Receives NATRIX's intent** via pump prompts (iPhone → Grok → NCL)
 - **Spawns council sessions** with Claude, Grok, Gemini, Perplexity, GPT for multi-AI debate
-- **Generates mandates** for downstream pillars (NCC, BRS, AAC)
-- **Manages memory** with episodic→semantic consolidation and decay
-- **Integrates Awarebot-FPC** for intelligence scanning and forecasting
+- **Generates mandates** for downstream projects (Bit Rage Labour, AAC)
+- **Monitors all projects** via their APIs — Bit Rage on Railway, AAC (future)
+- **Manages institutional memory** with episodic→semantic consolidation and decay
+- **Scans intelligence sources** (X, YouTube, Reddit) via Awarebot-FPC
 - **Coordinates with Paperclip** for issue tracking and cost accounting
-- **Runs 24/7** on Mac Mini as a headless service
+- **Runs 24/7** on Mac Mini M4 Pro as a headless service
 
 ## Architecture
 
 ```
-Grok (iPhone)
+NATRIX (iPhone → Grok)
     ↓ pump_prompt
 NCL Brain (FastAPI on 0.0.0.0:8787)
     ├─ Council Engine (Claude as chair + Grok/Gemini/Perplexity/GPT)
     ├─ Memory Store (three-phase lifecycle, decay/reinforcement)
     ├─ Awarebot Scanner (X, YouTube, Reddit signals)
     ├─ Future Predictor (ensemble forecasts)
+    ├─ Digital Labour Bridge (NCL → Bit Rage API)
     └─ Paperclip Adapter (issue creation, activity logging, cost tracking)
+
+Downstream Projects (monitored via API):
+    ├─ Bit Rage Labour → Railway (bitrage-labour-api-production.up.railway.app)
+    └─ AAC → TBD
 ```
 
 ## Installation
@@ -359,9 +367,8 @@ curl http://localhost:8787/mandates | jq
 
 ## Architecture Docs
 
-See `/Projects/CLAUDE.md` for RESONANCE ENERGY architecture.
-See `/Projects/NCC_CONTEXT.md` for NCC coordination.
-See `/Projects/RESONANCE-ENERGY-CONTEXT.md` for full portfolio context.
+See `RESONANCE_ENERGY_SOT.md` for the system-wide source of truth.
+See `STRUCTURE.md` for the NCL file manifest and core classes.
 
 ## License
 
