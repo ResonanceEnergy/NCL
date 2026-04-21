@@ -1,0 +1,8 @@
+{
+  "id": "notif-20260418-051802",
+  "title": "TEST \u2014 NCL Online",
+  "message": "If you see this, push notifications are working.\n\nNCL Intelligence Engine will push:\n\u2022 Briefs every 4 hours\n\u2022 Hot signal alerts instantly\n\u2022 STRIKE-POINT escalation confirmations",
+  "priority": 0,
+  "created_at": "2026-04-18T05:18:02.276501+00:00",
+  "acknowledged": false
+}

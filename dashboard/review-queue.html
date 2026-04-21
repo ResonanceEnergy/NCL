@@ -1,0 +1,1344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Review Queue — NCL Brain Inbox Triage</title>
+  <style>
+    :root {
+      --bg: #0a0e17;
+      --surface: #111827;
+      --surface2: #1a2332;
+      --border: #1e3a5f;
+      --text: #e2e8f0;
+      --text-muted: #8b9dc3;
+      --accent: #38bdf8;
+      --green: #22c55e;
+      --yellow: #eab308;
+      --red: #ef4444;
+      --orange: #f97316;
+      --purple: #a78bfa;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Header */
+    .header {
+      background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: blur(12px);
+    }
+    .header h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.3px; }
+    .header h1 span { color: var(--accent); }
+    .header-right { display: flex; gap: 12px; align-items: center; }
+    .notification-badge {
+      background: var(--red);
+      color: white;
+      border-radius: 50%;
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .refresh-btn {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 14px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: all 0.2s;
+    }
+    .refresh-btn:hover { background: var(--border); }
+    .refresh-btn:active { transform: scale(0.96); }
+    .refresh-btn.spin { animation: spin 1s linear; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .last-updated { font-size: 12px; color: var(--text-muted); }
+
+    /* Toolbar */
+    .toolbar {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 24px;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+      position: sticky;
+      top: 64px;
+      z-index: 90;
+      backdrop-filter: blur(8px);
+    }
+    .toolbar-group {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      border-right: 1px solid var(--border);
+      padding-right: 12px;
+    }
+    .toolbar-group:last-child { border-right: none; padding-right: 0; }
+    .toolbar-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 600;
+    }
+
+    /* Buttons */
+    .btn {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+    .btn:hover { background: var(--border); }
+    .btn:active { transform: scale(0.96); }
+    .btn.danger {
+      background: rgba(239, 68, 68, 0.15);
+      border-color: var(--red);
+      color: var(--red);
+    }
+    .btn.danger:hover { background: rgba(239, 68, 68, 0.25); }
+    .btn.success {
+      background: rgba(34, 197, 94, 0.15);
+      border-color: var(--green);
+      color: var(--green);
+    }
+    .btn.success:hover { background: rgba(34, 197, 94, 0.25); }
+    .btn.disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+
+    /* Filter bar */
+    .filter-bar {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 24px;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+      position: sticky;
+      top: 112px;
+      z-index: 85;
+      backdrop-filter: blur(8px);
+    }
+    .filter-group {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .filter-label {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .filter-select {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 5px 10px;
+      border-radius: 5px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .filter-select:hover { border-color: var(--accent); }
+
+    /* Content area */
+    .content {
+      padding: 20px 24px;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    /* Main grid */
+    .inbox-grid {
+      display: grid;
+      grid-template-columns: 1fr 380px;
+      gap: 20px;
+    }
+    @media (max-width: 1200px) {
+      .inbox-grid { grid-template-columns: 1fr; }
+      .detail-panel { display: none; }
+    }
+
+    /* Inbox list */
+    .inbox-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    /* Inbox item */
+    .inbox-item {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+      cursor: pointer;
+      transition: all 0.2s;
+      position: relative;
+    }
+    .inbox-item:hover { border-color: var(--accent); background: #141e2e; }
+    .inbox-item.selected {
+      border-color: var(--accent);
+      background: rgba(56, 189, 248, 0.05);
+    }
+    .inbox-item.archived { opacity: 0.5; pointer-events: none; }
+
+    .item-header {
+      display: grid;
+      grid-template-columns: 24px 1fr auto auto;
+      gap: 12px;
+      align-items: start;
+      margin-bottom: 10px;
+    }
+
+    .item-checkbox {
+      width: 20px;
+      height: 20px;
+      cursor: pointer;
+      accent-color: var(--accent);
+      margin-top: 2px;
+    }
+
+    .item-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .item-type-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .badge-pump { background: rgba(56, 189, 248, 0.2); color: var(--accent); }
+    .badge-action { background: rgba(168, 139, 250, 0.2); color: var(--purple); }
+    .badge-council { background: rgba(34, 197, 94, 0.2); color: var(--green); }
+    .badge-mandate { background: rgba(249, 115, 22, 0.2); color: var(--orange); }
+
+    .urgency-indicator {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .urgency-critical { background: var(--red); box-shadow: 0 0 4px var(--red); }
+    .urgency-high { background: var(--orange); }
+    .urgency-normal { background: var(--yellow); }
+    .urgency-low { background: var(--accent); }
+
+    .item-source {
+      font-size: 10px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    .item-title {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 6px;
+      color: var(--text);
+    }
+
+    .item-description {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+      line-height: 1.4;
+    }
+
+    .item-footer {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .tag-pill {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-size: 10px;
+      font-weight: 500;
+      background: rgba(56, 189, 248, 0.1);
+      color: var(--accent);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+    }
+
+    .link-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-size: 10px;
+      background: rgba(168, 139, 250, 0.1);
+      color: var(--purple);
+      border: 1px solid rgba(168, 139, 250, 0.3);
+    }
+
+    .timestamp {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .suggestions {
+      margin-top: 8px;
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .suggestion-chip {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 10px;
+      background: rgba(139, 157, 195, 0.15);
+      color: var(--text-muted);
+      border: 1px solid rgba(139, 157, 195, 0.3);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .suggestion-chip:hover {
+      background: rgba(139, 157, 195, 0.25);
+      border-color: rgba(139, 157, 195, 0.5);
+    }
+
+    /* Detail panel */
+    .detail-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      height: fit-content;
+      position: sticky;
+      top: 160px;
+    }
+    .panel-title {
+      font-size: 12px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 600;
+      margin-bottom: 12px;
+    }
+    .panel-content {
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--text);
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .panel-content::-webkit-scrollbar { width: 4px; }
+    .panel-content::-webkit-scrollbar-track { background: transparent; }
+    .panel-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    .panel-section {
+      margin-bottom: 14px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .panel-section:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+
+    .panel-label {
+      font-size: 10px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      margin-bottom: 4px;
+    }
+
+    /* Tag modal */
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+      backdrop-filter: blur(4px);
+    }
+    .modal.active { display: flex; }
+
+    .modal-content {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      max-width: 400px;
+      width: 90%;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+    }
+
+    .modal-header {
+      font-size: 14px;
+      font-weight: 700;
+      margin-bottom: 16px;
+      color: var(--text);
+    }
+
+    .tag-options {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .tag-option {
+      padding: 8px 12px;
+      border-radius: 6px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 12px;
+      text-align: left;
+      transition: all 0.2s;
+    }
+    .tag-option:hover { border-color: var(--accent); }
+    .tag-option.selected {
+      background: rgba(56, 189, 248, 0.2);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .modal-input {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      margin-bottom: 16px;
+    }
+    .modal-input::placeholder { color: var(--text-muted); }
+
+    .modal-buttons {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
+    /* Empty state */
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--text-muted);
+    }
+    .empty-state h3 { font-size: 16px; margin-bottom: 8px; color: var(--text); }
+
+    /* Keyboard shortcuts hint */
+    .keyboard-hint {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 10px;
+      color: var(--text-muted);
+      max-width: 200px;
+      line-height: 1.5;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .header h1 { font-size: 16px; }
+      .toolbar { padding: 12px 16px; }
+      .filter-bar { padding: 10px 16px; }
+      .content { padding: 16px; }
+      .inbox-item { padding: 12px; }
+      .keyboard-hint { display: none; }
+    }
+
+    /* Animations */
+    .fade-in { animation: fadeIn 0.3s ease-in; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    .pulse { animation: pulse 2s ease-in-out infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <h1><span>NCL</span> Review Queue</h1>
+  <div class="header-right">
+    <div class="notification-badge" id="notificationBadge">0</div>
+    <button class="refresh-btn" id="refreshBtn" onclick="manualRefresh()">↻ Refresh</button>
+    <span class="last-updated" id="lastUpdated">Loading...</span>
+  </div>
+</div>
+
+<div class="toolbar">
+  <div class="toolbar-group">
+    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+      <input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll()">
+      <span class="toolbar-label">Select All</span>
+    </label>
+  </div>
+  <div class="toolbar-group">
+    <button class="btn" id="tagBtn" onclick="openTagModal()" disabled>🏷 Tag</button>
+    <button class="btn" id="linkBtn" onclick="openLinkModal()" disabled>🔗 Link</button>
+    <button class="btn" id="archiveBtn" onclick="archiveSelected()" disabled>📦 Archive</button>
+  </div>
+  <div class="toolbar-group">
+    <button class="btn success" id="approveBtn" onclick="approveSelected()" disabled>✓ Approve</button>
+    <button class="btn danger" id="rejectBtn" onclick="rejectSelected()" disabled>✕ Reject</button>
+  </div>
+</div>
+
+<div class="filter-bar">
+  <div class="filter-group">
+    <span class="filter-label">Type</span>
+    <select class="filter-select" id="typeFilter" onchange="applyFilters()">
+      <option value="">All</option>
+      <option value="PUMP">Pump</option>
+      <option value="ACTION">Action</option>
+      <option value="COUNCIL">Council</option>
+      <option value="MANDATE">Mandate</option>
+    </select>
+  </div>
+  <div class="filter-group">
+    <span class="filter-label">Urgency</span>
+    <select class="filter-select" id="urgencyFilter" onchange="applyFilters()">
+      <option value="">All</option>
+      <option value="critical">Critical</option>
+      <option value="high">High</option>
+      <option value="normal">Normal</option>
+      <option value="low">Low</option>
+    </select>
+  </div>
+  <div class="filter-group">
+    <span class="filter-label">Tag</span>
+    <select class="filter-select" id="tagFilter" onchange="applyFilters()">
+      <option value="">All</option>
+      <option value="urgent">Urgent</option>
+      <option value="revenue">Revenue</option>
+      <option value="research">Research</option>
+      <option value="defer">Defer</option>
+    </select>
+  </div>
+  <div class="filter-group">
+    <span class="filter-label">Archived</span>
+    <select class="filter-select" id="archivedFilter" onchange="applyFilters()">
+      <option value="false">Active Only</option>
+      <option value="true">Archived Only</option>
+      <option value="all">All</option>
+    </select>
+  </div>
+</div>
+
+<div class="content">
+  <div class="inbox-grid">
+    <div class="inbox-list" id="inboxList">
+      <div class="empty-state">
+        <h3>Loading inbox...</h3>
+      </div>
+    </div>
+    <div class="detail-panel" id="detailPanel">
+      <div class="panel-title">Item Details</div>
+      <div class="panel-content" id="panelContent">
+        <p style="color: var(--text-muted);">Select an item to view details</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Tag Modal -->
+<div class="modal" id="tagModal">
+  <div class="modal-content">
+    <div class="modal-header">Tag Selected Items</div>
+    <div class="tag-options">
+      <label class="tag-option" onclick="toggleTag('urgent')">
+        <input type="checkbox" style="margin-right: 4px;"> Urgent
+      </label>
+      <label class="tag-option" onclick="toggleTag('revenue')">
+        <input type="checkbox" style="margin-right: 4px;"> Revenue
+      </label>
+      <label class="tag-option" onclick="toggleTag('research')">
+        <input type="checkbox" style="margin-right: 4px;"> Research
+      </label>
+      <label class="tag-option" onclick="toggleTag('defer')">
+        <input type="checkbox" style="margin-right: 4px;"> Defer
+      </label>
+    </div>
+    <input type="text" class="modal-input" id="customTagInput" placeholder="Or type custom tag...">
+    <div class="modal-buttons">
+      <button class="btn" onclick="closeTagModal()">Cancel</button>
+      <button class="btn success" onclick="applyTags()">Apply Tags</button>
+    </div>
+  </div>
+</div>
+
+<!-- Link Modal -->
+<div class="modal" id="linkModal">
+  <div class="modal-content">
+    <div class="modal-header">Link Selected Items</div>
+    <p style="font-size: 12px; color: var(--text-muted); margin-bottom: 12px;">
+      This will associate all selected items together as related.
+    </p>
+    <div class="modal-buttons">
+      <button class="btn" onclick="closeLinkModal()">Cancel</button>
+      <button class="btn success" onclick="applyLinks()">Link Items</button>
+    </div>
+  </div>
+</div>
+
+<div class="keyboard-hint" id="keyboardHint">
+  <strong>Keyboard Shortcuts:</strong><br>
+  <kbd>A</kbd> = Approve<br>
+  <kbd>R</kbd> = Reject<br>
+  <kbd>T</kbd> = Tag<br>
+  <kbd>S</kbd> = Select All<br>
+  <kbd>ESC</kbd> = Clear Selection
+</div>
+
+<script>
+// ============================================================================
+// STATE MANAGEMENT
+// ============================================================================
+
+let allItems = [];
+let filteredItems = [];
+let selectedItems = new Set();
+let selectedTags = new Set();
+const POLL_INTERVAL = 15000;
+let pollInterval = null;
+let selectedItemForDetail = null;
+
+// API endpoints
+const API_BASE = 'http://localhost:8800';
+const ENDPOINTS = {
+  reviewQueue: '/review-queue/items',
+  pump: '/pump/pending',
+  actions: '/governance/actions/pending',
+  council: '/councils/pending',
+  batchOps: '/review-queue/batch',
+  tag: '/review-queue/tag',
+  link: '/review-queue/link',
+  archive: '/review-queue/archive',
+  pumpApprove: (id) => `/pump/approve/${id}`,
+  pumpReject: (id) => `/pump/reject/${id}`,
+  actionApprove: (id) => `/governance/actions/${id}/approve`,
+  actionReject: (id) => `/governance/actions/${id}/reject`,
+};
+
+// ============================================================================
+// UTILITIES
+// ============================================================================
+
+function getRelativeTime(dateStr) {
+  if (!dateStr) return '—';
+  const date = new Date(dateStr);
+  const now = new Date();
+  const seconds = Math.floor((now - date) / 1000);
+  if (seconds < 60) return 'now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `${days}d`;
+}
+
+function escapeHtml(text) {
+  const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+  return text.replace(/[&<>"']/g, m => map[m]);
+}
+
+// ============================================================================
+// API CALLS
+// ============================================================================
+
+async function fetchReviewQueue() {
+  try {
+    const response = await fetch(`${API_BASE}${ENDPOINTS.reviewQueue}`);
+    if (!response.ok) throw new Error('API error');
+    return await response.json();
+  } catch (err) {
+    console.error('Review queue fetch error:', err);
+    return [];
+  }
+}
+
+async function fetchPumpPending() {
+  try {
+    const response = await fetch(`${API_BASE}${ENDPOINTS.pump}`);
+    if (!response.ok) return [];
+    return await response.json();
+  } catch (err) {
+    return [];
+  }
+}
+
+async function fetchActionsPending() {
+  try {
+    const response = await fetch(`${API_BASE}${ENDPOINTS.actions}`);
+    if (!response.ok) return [];
+    return await response.json();
+  } catch (err) {
+    return [];
+  }
+}
+
+async function batchTag(itemIds, tags) {
+  try {
+    const response = await fetch(`${API_BASE}${ENDPOINTS.tag}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ item_ids: itemIds, tags: Array.from(tags) })
+    });
+    return response.ok;
+  } catch (err) {
+    console.error('Tag error:', err);
+    return false;
+  }
+}
+
+async function batchLink(itemIds) {
+  try {
+    const response = await fetch(`${API_BASE}${ENDPOINTS.link}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ item_ids: itemIds })
+    });
+    return response.ok;
+  } catch (err) {
+    console.error('Link error:', err);
+    return false;
+  }
+}
+
+async function batchArchive(itemIds) {
+  try {
+    const response = await fetch(`${API_BASE}${ENDPOINTS.archive}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ item_ids: itemIds })
+    });
+    return response.ok;
+  } catch (err) {
+    console.error('Archive error:', err);
+    return false;
+  }
+}
+
+async function approvePump(pumpId) {
+  try {
+    const response = await fetch(`${API_BASE}${ENDPOINTS.pumpApprove(pumpId)}`, {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer nartix-token' }
+    });
+    return response.ok;
+  } catch (err) {
+    console.error('Approve pump error:', err);
+    return false;
+  }
+}
+
+async function rejectPump(pumpId) {
+  try {
+    const response = await fetch(`${API_BASE}${ENDPOINTS.pumpReject(pumpId)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason: 'Rejected via Review Queue' })
+    });
+    return response.ok;
+  } catch (err) {
+    console.error('Reject pump error:', err);
+    return false;
+  }
+}
+
+async function approveAction(actionId) {
+  try {
+    const response = await fetch(`${API_BASE}${ENDPOINTS.actionApprove(actionId)}`, {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer nartix-token' }
+    });
+    return response.ok;
+  } catch (err) {
+    console.error('Approve action error:', err);
+    return false;
+  }
+}
+
+async function rejectAction(actionId) {
+  try {
+    const response = await fetch(`${API_BASE}${ENDPOINTS.actionReject(actionId)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason: 'Rejected via Review Queue' })
+    });
+    return response.ok;
+  } catch (err) {
+    console.error('Reject action error:', err);
+    return false;
+  }
+}
+
+// ============================================================================
+// RENDERING
+// ============================================================================
+
+function renderInboxItem(item) {
+  const isSelected = selectedItems.has(item.item_id);
+  const badgeClass = `badge-${item.item_type.toLowerCase()}`;
+  const urgencyClass = `urgency-${item.urgency}`;
+  const linkedCount = item.linked_items ? item.linked_items.length : 0;
+
+  let suggestionsHtml = '';
+  if (item.suggestions && item.suggestions.length > 0) {
+    suggestionsHtml = '<div class="suggestions">' + item.suggestions.map(s =>
+      `<span class="suggestion-chip" title="${escapeHtml(s.reasoning)}" onclick="applySuggestion('${escapeHtml(item.item_id)}', '${escapeHtml(s.action_type)}')">${escapeHtml(s.action_text)}</span>`
+    ).join('') + '</div>';
+  }
+
+  let tagsHtml = '';
+  if (item.tags && item.tags.length > 0) {
+    tagsHtml = item.tags.map(tag => `<span class="tag-pill">${escapeHtml(tag)}</span>`).join('');
+  }
+
+  let linkHtml = '';
+  if (linkedCount > 0) {
+    linkHtml = `<span class="link-indicator">🔗 ${linkedCount}</span>`;
+  }
+
+  return `
+    <div class="inbox-item ${isSelected ? 'selected' : ''} ${item.archived ? 'archived' : ''}" onclick="selectItem('${escapeHtml(item.item_id)}', event)">
+      <div class="item-header">
+        <input type="checkbox" class="item-checkbox" data-item-id="${escapeHtml(item.item_id)}" ${isSelected ? 'checked' : ''} onclick="event.stopPropagation();">
+        <div style="flex: 1;">
+          <div class="item-meta">
+            <span class="item-type-badge ${badgeClass}">${item.item_type}</span>
+            <span class="urgency-indicator ${urgencyClass}"></span>
+            <span class="item-source">${escapeHtml(item.source_agent)}</span>
+          </div>
+          <div class="item-title">${escapeHtml(item.title)}</div>
+          <div class="item-description">${escapeHtml(item.description)}</div>
+        </div>
+      </div>
+      <div class="item-footer">
+        ${tagsHtml}
+        ${linkHtml}
+        <span class="timestamp">${getRelativeTime(item.created_at)}</span>
+      </div>
+      ${suggestionsHtml}
+    </div>
+  `;
+}
+
+function renderInboxList() {
+  const container = document.getElementById('inboxList');
+
+  if (filteredItems.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <h3>No items in queue</h3>
+        <p>All caught up!</p>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = filteredItems.map(item => renderInboxItem(item)).join('');
+
+  // Attach checkbox listeners
+  document.querySelectorAll('.item-checkbox').forEach(checkbox => {
+    checkbox.addEventListener('change', (e) => {
+      const itemId = checkbox.dataset.itemId;
+      if (e.target.checked) {
+        selectedItems.add(itemId);
+      } else {
+        selectedItems.delete(itemId);
+      }
+      updateToolbar();
+    });
+  });
+}
+
+function renderDetailPanel(item) {
+  const panel = document.getElementById('panelContent');
+
+  if (!item) {
+    panel.innerHTML = '<p style="color: var(--text-muted);">Select an item to view details</p>';
+    return;
+  }
+
+  let detailHtml = `
+    <div class="panel-section">
+      <div class="panel-label">Type</div>
+      <div>${item.item_type}</div>
+    </div>
+    <div class="panel-section">
+      <div class="panel-label">Source Agent</div>
+      <div>${escapeHtml(item.source_agent)}</div>
+    </div>
+    <div class="panel-section">
+      <div class="panel-label">Urgency</div>
+      <div style="text-transform: capitalize;">${item.urgency}</div>
+    </div>
+  `;
+
+  if (item.payload) {
+    detailHtml += `
+      <div class="panel-section">
+        <div class="panel-label">Payload</div>
+        <pre style="font-size: 10px; overflow-x: auto; max-height: 150px; background: var(--surface2); padding: 8px; border-radius: 4px;">${escapeHtml(JSON.stringify(item.payload, null, 2))}</pre>
+      </div>
+    `;
+  }
+
+  if (item.tags && item.tags.length > 0) {
+    detailHtml += `
+      <div class="panel-section">
+        <div class="panel-label">Tags</div>
+        <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+          ${item.tags.map(tag => `<span class="tag-pill">${escapeHtml(tag)}</span>`).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  if (item.suggestions && item.suggestions.length > 0) {
+    detailHtml += `
+      <div class="panel-section">
+        <div class="panel-label">Suggestions</div>
+        <div style="font-size: 11px; line-height: 1.6;">
+          ${item.suggestions.map(s => `
+            <div style="margin-bottom: 6px; padding: 6px; background: var(--surface2); border-radius: 4px;">
+              <strong>${escapeHtml(s.action_text)}</strong><br>
+              <span style="color: var(--text-muted);">${escapeHtml(s.reasoning)}</span>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  panel.innerHTML = detailHtml;
+}
+
+// ============================================================================
+// INTERACTIONS
+// ============================================================================
+
+function selectItem(itemId, event) {
+  if (event.target.type === 'checkbox') return;
+
+  selectedItemForDetail = allItems.find(i => i.item_id === itemId);
+  renderDetailPanel(selectedItemForDetail);
+}
+
+function selectAllCheckboxes(checked) {
+  document.querySelectorAll('.item-checkbox').forEach(cb => {
+    cb.checked = checked;
+    const itemId = cb.dataset.itemId;
+    if (checked) {
+      selectedItems.add(itemId);
+    } else {
+      selectedItems.delete(itemId);
+    }
+  });
+  updateToolbar();
+}
+
+function toggleSelectAll() {
+  const allChecked = selectedItems.size === filteredItems.length;
+  selectAllCheckboxes(!allChecked);
+  document.getElementById('selectAllCheckbox').checked = !allChecked;
+}
+
+function updateToolbar() {
+  const hasSelection = selectedItems.size > 0;
+  document.getElementById('tagBtn').disabled = !hasSelection;
+  document.getElementById('linkBtn').disabled = selectedItems.size < 2;
+  document.getElementById('archiveBtn').disabled = !hasSelection;
+  document.getElementById('approveBtn').disabled = !hasSelection;
+  document.getElementById('rejectBtn').disabled = !hasSelection;
+  document.getElementById('selectAllCheckbox').checked = selectedItems.size > 0 && selectedItems.size === filteredItems.length;
+}
+
+// ============================================================================
+// BATCH OPERATIONS
+// ============================================================================
+
+function openTagModal() {
+  document.getElementById('tagModal').classList.add('active');
+  selectedTags.clear();
+}
+
+function closeTagModal() {
+  document.getElementById('tagModal').classList.remove('active');
+  document.getElementById('customTagInput').value = '';
+  selectedTags.clear();
+}
+
+function toggleTag(tag) {
+  if (selectedTags.has(tag)) {
+    selectedTags.delete(tag);
+  } else {
+    selectedTags.add(tag);
+  }
+}
+
+async function applyTags() {
+  const customTag = document.getElementById('customTagInput').value.trim();
+  if (customTag) selectedTags.add(customTag);
+
+  if (selectedTags.size === 0) {
+    alert('Select at least one tag');
+    return;
+  }
+
+  const success = await batchTag(Array.from(selectedItems), selectedTags);
+  if (success) {
+    closeTagModal();
+    await refreshQueue();
+  } else {
+    alert('Failed to tag items');
+  }
+}
+
+function openLinkModal() {
+  if (selectedItems.size < 2) {
+    alert('Select at least 2 items to link');
+    return;
+  }
+  document.getElementById('linkModal').classList.add('active');
+}
+
+function closeLinkModal() {
+  document.getElementById('linkModal').classList.remove('active');
+}
+
+async function applyLinks() {
+  const success = await batchLink(Array.from(selectedItems));
+  if (success) {
+    closeLinkModal();
+    await refreshQueue();
+  } else {
+    alert('Failed to link items');
+  }
+}
+
+async function archiveSelected() {
+  if (!confirm(`Archive ${selectedItems.size} item(s)?`)) return;
+
+  const success = await batchArchive(Array.from(selectedItems));
+  if (success) {
+    selectedItems.clear();
+    await refreshQueue();
+  } else {
+    alert('Failed to archive items');
+  }
+}
+
+async function approveSelected() {
+  const count = selectedItems.size;
+  if (!confirm(`Approve ${count} item(s)?`)) return;
+
+  for (const itemId of selectedItems) {
+    const item = allItems.find(i => i.item_id === itemId);
+    if (!item) continue;
+
+    if (item.item_type === 'PUMP') {
+      await approvePump(item.source_id);
+    } else if (item.item_type === 'ACTION') {
+      await approveAction(item.source_id);
+    }
+  }
+
+  selectedItems.clear();
+  await refreshQueue();
+}
+
+async function rejectSelected() {
+  const count = selectedItems.size;
+  if (!confirm(`Reject ${count} item(s)?`)) return;
+
+  for (const itemId of selectedItems) {
+    const item = allItems.find(i => i.item_id === itemId);
+    if (!item) continue;
+
+    if (item.item_type === 'PUMP') {
+      await rejectPump(item.source_id);
+    } else if (item.item_type === 'ACTION') {
+      await rejectAction(item.source_id);
+    }
+  }
+
+  selectedItems.clear();
+  await refreshQueue();
+}
+
+function applySuggestion(itemId, actionType) {
+  const item = allItems.find(i => i.item_id === itemId);
+  if (!item) return;
+
+  if (actionType === 'approve') {
+    selectedItems.clear();
+    selectedItems.add(itemId);
+    approveSelected();
+  } else if (actionType === 'reject') {
+    selectedItems.clear();
+    selectedItems.add(itemId);
+    rejectSelected();
+  }
+}
+
+// ============================================================================
+// FILTERING
+// ============================================================================
+
+function applyFilters() {
+  const typeFilter = document.getElementById('typeFilter').value;
+  const urgencyFilter = document.getElementById('urgencyFilter').value;
+  const tagFilter = document.getElementById('tagFilter').value;
+  const archivedFilter = document.getElementById('archivedFilter').value;
+
+  filteredItems = allItems.filter(item => {
+    if (typeFilter && item.item_type !== typeFilter) return false;
+    if (urgencyFilter && item.urgency !== urgencyFilter) return false;
+    if (tagFilter && (!item.tags || !item.tags.includes(tagFilter))) return false;
+    if (archivedFilter === 'true' && !item.archived) return false;
+    if (archivedFilter === 'false' && item.archived) return false;
+    return true;
+  });
+
+  selectedItems.clear();
+  updateToolbar();
+  renderInboxList();
+}
+
+// ============================================================================
+// DATA LOADING
+// ============================================================================
+
+async function refreshQueue() {
+  const [queueItems, pumpItems, actionItems] = await Promise.all([
+    fetchReviewQueue(),
+    fetchPumpPending(),
+    fetchActionsPending()
+  ]);
+
+  allItems = [
+    ...(queueItems || []),
+    ...((pumpItems || []).map(p => ({
+      item_id: `pump-${p.pump_id}`,
+      item_type: 'PUMP',
+      title: p.intent || 'Pump Prompt',
+      description: p.payload?.description || '',
+      urgency: p.urgency || 'normal',
+      source_agent: p.source_agent || 'First Strike',
+      source_id: p.pump_id,
+      payload: p,
+      tags: [],
+      linked_items: [],
+      suggestions: generateSuggestions(p, 'PUMP'),
+      created_at: p.created_at,
+      archived: false
+    }))),
+    ...((actionItems || []).map(a => ({
+      item_id: `action-${a.action_id}`,
+      item_type: 'ACTION',
+      title: a.title || 'Governance Action',
+      description: a.description || '',
+      urgency: a.urgency || 'normal',
+      source_agent: 'Governance',
+      source_id: a.action_id,
+      payload: a,
+      tags: [],
+      linked_items: [],
+      suggestions: generateSuggestions(a, 'ACTION'),
+      created_at: a.created_at,
+      archived: false
+    })))
+  ];
+
+  // Update notification badge
+  document.getElementById('notificationBadge').textContent = allItems.filter(i => !i.archived).length;
+
+  applyFilters();
+  updateTimestamp();
+}
+
+function generateSuggestions(item, type) {
+  const suggestions = [];
+
+  if (item.urgency === 'critical') {
+    suggestions.push({
+      suggestion_id: 'urgent-review',
+      action_text: 'Review immediately',
+      action_type: 'escalate',
+      confidence: 0.95,
+      reasoning: 'Critical urgency detected'
+    });
+  }
+
+  if (type === 'PUMP') {
+    suggestions.push({
+      suggestion_id: 'pump-approve',
+      action_text: 'Approve & dispatch',
+      action_type: 'approve',
+      confidence: 0.75,
+      reasoning: 'Suggest approving pump prompt and dispatching to NCC'
+    });
+    suggestions.push({
+      suggestion_id: 'pump-defer',
+      action_text: 'Defer to next council',
+      action_type: 'defer',
+      confidence: 0.6,
+      reasoning: 'Suggest deferring to next council session'
+    });
+  }
+
+  if (type === 'ACTION') {
+    suggestions.push({
+      suggestion_id: 'action-verify',
+      action_text: 'Verify consent',
+      action_type: 'escalate',
+      confidence: 0.8,
+      reasoning: 'Verify consent requirements before execution'
+    });
+  }
+
+  const createdAt = new Date(item.created_at);
+  const now = new Date();
+  const hoursDiff = (now - createdAt) / (1000 * 60 * 60);
+  if (hoursDiff > 24) {
+    suggestions.push({
+      suggestion_id: 'old-item',
+      action_text: 'Archive or escalate',
+      action_type: 'escalate',
+      confidence: 0.7,
+      reasoning: 'Item is older than 24 hours'
+    });
+  }
+
+  return suggestions;
+}
+
+// ============================================================================
+// REFRESH & TIMING
+// ============================================================================
+
+function updateTimestamp() {
+  const now = new Date();
+  const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  document.getElementById('lastUpdated').textContent = `${timeStr}`;
+}
+
+async function manualRefresh() {
+  const btn = document.getElementById('refreshBtn');
+  btn.classList.add('spin');
+  await refreshQueue();
+  setTimeout(() => btn.classList.remove('spin'), 1000);
+}
+
+function startAutoRefresh() {
+  if (pollInterval) clearInterval(pollInterval);
+  pollInterval = setInterval(refreshQueue, POLL_INTERVAL);
+}
+
+// ============================================================================
+// KEYBOARD SHORTCUTS
+// ============================================================================
+
+document.addEventListener('keydown', (e) => {
+  if (e.target.matches('input, textarea, [contenteditable]')) return;
+
+  const key = e.key.toLowerCase();
+
+  if (key === 'a') {
+    e.preventDefault();
+    toggleSelectAll();
+  } else if (key === 'r') {
+    e.preventDefault();
+    if (!document.getElementById('rejectBtn').disabled) rejectSelected();
+  } else if (key === 't') {
+    e.preventDefault();
+    if (!document.getElementById('tagBtn').disabled) openTagModal();
+  } else if (key === 's') {
+    e.preventDefault();
+    toggleSelectAll();
+  } else if (key === 'escape') {
+    e.preventDefault();
+    selectedItems.clear();
+    updateToolbar();
+    renderInboxList();
+  }
+});
+
+// Close modals on escape
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    closeTagModal();
+    closeLinkModal();
+  }
+});
+
+// ============================================================================
+// INITIALIZATION
+// ============================================================================
+
+async function init() {
+  await refreshQueue();
+  startAutoRefresh();
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}
+</script>
+
+</body>
+</html>

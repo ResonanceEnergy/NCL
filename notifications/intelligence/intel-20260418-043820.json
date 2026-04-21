@@ -1,0 +1,49 @@
+{
+  "id": "intel-20260418-043820",
+  "brief_id": "6aa6a799-3a76-430b-a096-3bb791ebb520",
+  "brief_type": "DAILY",
+  "message": "The politics sector shows neutral signals across 528 data points (confidence: 88%). Largest move: ETH at $2,404.95 (+3.1%). Top prediction m\n\n\u2191 BTC $76,984.00 (+2.9%) [SourceType.CRYPTO]\n\u2191 ETH $2,404.95 (+3.1%) [SourceType.CRYPTO]\n\u2191 XRP $1.47 (+2.5%) [SourceType.CRYPTO]\n\n\ud83d\udcca Full report: http://localhost:8800/intelligence/latest",
+  "created_at": "2026-04-18T04:38:20.537986+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/intelligence/latest"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "6aa6a799-3a76-430b-a096-3bb791ebb520",
+        "signal_ids": [
+          "5bc1a77b-a767-475a-8773-7b34ee1ae8e1",
+          "95778671-88db-4ce8-979e-852fe714373c",
+          "3fd767aa-0c1d-47d5-9998-d64c5708c06d",
+          "b4c59e6a-3faf-48a8-b29a-2117a9cd4dcf",
+          "54651435-3ffb-41da-aa5b-e6b4bd80f568"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/6aa6a799-3a76-430b-a096-3bb791ebb520",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "The politics sector shows neutral signals across 528 data points (confidence: 88%). Largest move: ETH at $2,404.95 (+3.1%). Top prediction market: \"Will Jesus Christ return before GTA VI?\" at 48% probability.",
+    "total_signals": 985,
+    "risk_alerts": [],
+    "source_counts": {
+      "polymarket": 966,
+      "crypto": 19
+    }
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "id": "intel-20260418-091249",
+  "brief_id": "838d7e0e-9708-452f-8232-2bb462089dfa",
+  "brief_type": "DAILY",
+  "message": "**Executive Summary:**  \nThe crypto sector remains the dominant development, with confidence at 96% (10 signals) despite mixed performance: BTC (+1.0%) and ETH (+1.0%) outperformed altcoins like SOL (\n\n\u2191 Google Trends: AI automation \u2014 AI automation interest up 79% over period. Current=100, avg=\n\u2193 Google Trends: crypto regulation \u2014 crypto regulation interest down 100% over period. Current=0,\n\u2193 Google Trends: prediction markets \u2014 prediction markets interest down 100% over period. Current=0\n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11031252.524460984, 'direction':\n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-04-18T09:12:49.276276+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "838d7e0e-9708-452f-8232-2bb462089dfa",
+        "signal_ids": [
+          "8d05fd83-5def-47a7-8018-83c422b72fac",
+          "28260ed0-53ba-47db-b4b6-30ecaac650ce",
+          "5b6dbaa4-0aba-46fa-b32d-5caf18280409",
+          "84a492ee-fb3e-4b55-9a33-25339f2a4583",
+          "dedbf501-d8ce-435c-8314-606635e94ae5"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/838d7e0e-9708-452f-8232-2bb462089dfa",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "**Executive Summary:**  \nThe crypto sector remains the dominant development, with confidence at 96% (10 signals) despite mixed performance: BTC (+1.0%) and ETH (+1.0%) outperformed altcoins like SOL (-1.6%) and DOGE (-1.3%), signaling potential consolidation ahead of key resistan",
+    "total_signals": 84,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 15,
+      "polymarket": 50,
+      "crypto": 19
+    }
+  }
+}

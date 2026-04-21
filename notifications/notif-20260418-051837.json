@@ -1,0 +1,8 @@
+{
+  "id": "notif-20260418-051837",
+  "title": "SIGNAL ALERT \u2014 GOOGLE_TRENDS",
+  "message": "\u25cf Google Trends: algorithmic trading (-100.0%)\nSource: SourceType.GOOGLE_TRENDS | Confidence: 70%\nDirection: SignalDirection.CONTRACTING\n\n\ud83c\udfaf Act via FirstStrike or escalate to STRIKE-POINT",
+  "priority": 1,
+  "created_at": "2026-04-18T05:18:37.343968+00:00",
+  "acknowledged": false
+}

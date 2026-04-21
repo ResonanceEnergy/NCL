@@ -1,0 +1,8 @@
+{
+  "id": "notif-20260418-043820",
+  "title": "Intel DAILY",
+  "message": "The politics sector shows neutral signals across 528 data points (confidence: 88%). Largest move: ETH at $2,404.95 (+3.1%). Top prediction m\n\n\u2191 BTC $76,984.00 (+2.9%) [SourceType.CRYPTO]\n\u2191 ETH $2,404.95 (+3.1%) [SourceType.CRYPTO]\n\u2191 XRP $1.47 (+2.5%) [SourceType.CRYPTO]\n\n\ud83d\udcca Full report: http://localhost:8800/intelligence/latest",
+  "priority": 0,
+  "created_at": "2026-04-18T04:38:20.537752+00:00",
+  "acknowledged": false
+}

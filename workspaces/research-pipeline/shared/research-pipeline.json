@@ -1,0 +1,34 @@
+{
+  "workspace": "research-pipeline",
+  "last_run": "2026-04-07T20:20:06.055692+00:00",
+  "stages": {
+    "01-source-scan": {
+      "status": "idle",
+      "artifacts": 0,
+      "last_processed": ""
+    },
+    "02-extraction": {
+      "status": "idle",
+      "artifacts": 0,
+      "last_processed": ""
+    },
+    "03-analysis": {
+      "status": "idle",
+      "artifacts": 0,
+      "last_processed": ""
+    },
+    "04-convergence": {
+      "status": "idle",
+      "artifacts": 0,
+      "last_processed": ""
+    },
+    "05-archive": {
+      "status": "idle",
+      "artifacts": 0,
+      "last_processed": ""
+    }
+  },
+  "total_artifacts": 0,
+  "active_stages": 0,
+  "health": "idle"
+}

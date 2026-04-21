@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Living Doctrine Engine — NARTIX</title>
+    <style>
+        :root {
+            --bg: #0a0e17;
+            --surface: #111827;
+            --surface2: #1a2332;
+            --accent: #38bdf8;
+            --green: #22c55e;
+            --red: #ef4444;
+            --yellow: #f59e0b;
+            --purple: #8b5cf6;
+            --orange: #f97316;
+            --cyan: #06b6d4;
+            --text: #e5e7eb;
+            --muted: #6b7280;
+            --border: #1e293b;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+        .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { font-size: 18px; color: var(--accent); letter-spacing: 1px; }
+        .header .stats { display: flex; gap: 20px; font-size: 12px; color: var(--muted); align-items: center; }
+        .connection-indicator { display: flex; align-items: center; gap: 6px; padding: 4px 10px; background: rgba(30,58,95,0.3); border-radius: 6px; font-size: 11px; font-weight: 600; }
+        .connection-indicator.online { color: var(--green); }
+        .connection-indicator.offline { color: var(--red); }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+        .header .stats .stat-val { color: var(--text); font-weight: bold; }
+
+        .container { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px 24px; max-width: 1600px; margin: 0 auto; }
+        .full-width { grid-column: 1 / -1; }
+
+        .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+        .card h2 { font-size: 13px; color: var(--accent); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+        .card h2 .badge { background: var(--accent); color: var(--bg); border-radius: 10px; padding: 1px 8px; font-size: 11px; }
+
+        /* URL Input */
+        .url-input-row { display: flex; gap: 8px; margin-bottom: 16px; }
+        .url-input-row input { flex: 1; background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 10px 14px; border-radius: 6px; font-family: inherit; font-size: 13px; }
+        .url-input-row input:focus { outline: none; border-color: var(--accent); }
+        .url-input-row button { background: var(--accent); color: var(--bg); border: none; padding: 10px 20px; border-radius: 6px; font-family: inherit; font-weight: bold; cursor: pointer; font-size: 13px; }
+        .url-input-row button:hover { opacity: 0.9; }
+        .url-input-row button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        /* Bias Meter */
+        .bias-meter { display: flex; align-items: center; gap: 12px; padding: 12px; background: var(--surface2); border-radius: 6px; margin-bottom: 12px; }
+        .bias-bar { flex: 1; height: 8px; background: var(--border); border-radius: 4px; position: relative; overflow: hidden; }
+        .bias-fill { height: 100%; border-radius: 4px; transition: width 0.5s; }
+        .bias-label { font-size: 14px; font-weight: bold; min-width: 80px; text-align: center; }
+
+        /* Rules, Signals, Trends */
+        .item-list { max-height: 400px; overflow-y: auto; }
+        .item { background: var(--surface2); border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; border-left: 3px solid var(--border); }
+        .item.bullish { border-left-color: var(--green); }
+        .item.bearish { border-left-color: var(--red); }
+        .item.neutral { border-left-color: var(--yellow); }
+        .item .item-title { font-size: 13px; font-weight: bold; margin-bottom: 4px; }
+        .item .item-meta { font-size: 11px; color: var(--muted); display: flex; gap: 12px; flex-wrap: wrap; }
+        .item .item-meta .tag { background: var(--border); padding: 1px 6px; border-radius: 3px; }
+
+        /* Strength bar */
+        .strength { display: inline-flex; gap: 2px; margin-left: 8px; }
+        .strength .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--border); }
+        .strength .dot.filled { background: var(--accent); }
+        .strength .dot.high { background: var(--green); }
+        .strength .dot.critical { background: var(--red); }
+
+        /* History feed */
+        .history-feed { max-height: 300px; overflow-y: auto; font-size: 12px; }
+        .history-entry { padding: 8px 0; border-bottom: 1px solid var(--border); }
+        .history-entry .ts { color: var(--muted); }
+        .history-entry .url { color: var(--cyan); word-break: break-all; }
+
+        /* Pipeline status */
+        .pipeline-stages { display: flex; gap: 4px; align-items: center; }
+        .pipeline-stages .stage { padding: 6px 12px; background: var(--surface2); border-radius: 4px; font-size: 11px; text-transform: uppercase; }
+        .pipeline-stages .stage.active { background: var(--accent); color: var(--bg); animation: pulse 1s infinite; }
+        .pipeline-stages .stage.done { background: var(--green); color: var(--bg); }
+        .pipeline-stages .arrow { color: var(--muted); }
+
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+
+        .loading { color: var(--muted); text-align: center; padding: 20px; }
+        .error-msg { color: var(--red); font-size: 12px; margin-top: 4px; }
+        .tickers { display: flex; gap: 4px; flex-wrap: wrap; }
+        .ticker { background: var(--purple); color: white; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: bold; }
+
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: var(--surface); }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>LIVING DOCTRINE ENGINE</h1>
+        <div class="stats">
+            <div class="connection-indicator" id="connectionIndicator">
+                <span class="status-dot" style="background: var(--green); box-shadow: 0 0 6px var(--green);"></span>
+                <span>Checking...</span>
+            </div>
+            <span>URLs: <span class="stat-val" id="stat-urls">0</span></span>
+            <span>Insights: <span class="stat-val" id="stat-insights">0</span></span>
+            <span>Rules: <span class="stat-val" id="stat-rules">0</span></span>
+            <span>Signals: <span class="stat-val" id="stat-signals">0</span></span>
+            <span>Trends: <span class="stat-val" id="stat-trends">0</span></span>
+            <span>Confidence: <span class="stat-val" id="stat-confidence">--</span></span>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- URL Input + Pipeline Status -->
+        <div class="card full-width">
+            <h2>Process URL</h2>
+            <div class="url-input-row">
+                <input type="text" id="url-input" placeholder="Paste any URL — YouTube, article, earnings call, interview..." />
+                <button id="process-btn" onclick="processUrl()">PROCESS</button>
+            </div>
+            <div id="pipeline-status"></div>
+            <div id="process-error" class="error-msg"></div>
+        </div>
+
+        <!-- Market Bias + Top Tickers -->
+        <div class="card">
+            <h2>Market Bias</h2>
+            <div class="bias-meter">
+                <span style="color: var(--red); font-size: 12px;">BEAR</span>
+                <div class="bias-bar">
+                    <div class="bias-fill" id="bias-fill" style="width: 50%; background: var(--yellow);"></div>
+                </div>
+                <span style="color: var(--green); font-size: 12px;">BULL</span>
+            </div>
+            <div class="bias-label" id="bias-label">NEUTRAL</div>
+            <div style="margin-top: 12px;">
+                <h2>Top Tickers</h2>
+                <div class="tickers" id="top-tickers"></div>
+            </div>
+        </div>
+
+        <!-- Risk Thresholds -->
+        <div class="card">
+            <h2>Risk Thresholds</h2>
+            <div class="item-list" id="risk-list">
+                <div class="loading">Loading doctrine...</div>
+            </div>
+        </div>
+
+        <!-- Active Rules -->
+        <div class="card">
+            <h2>Active Rules <span class="badge" id="rules-count">0</span></h2>
+            <div class="item-list" id="rules-list">
+                <div class="loading">Loading...</div>
+            </div>
+        </div>
+
+        <!-- Active Signals -->
+        <div class="card">
+            <h2>Active Signals <span class="badge" id="signals-count">0</span></h2>
+            <div class="item-list" id="signals-list">
+                <div class="loading">Loading...</div>
+            </div>
+        </div>
+
+        <!-- Monitored Trends -->
+        <div class="card">
+            <h2>Monitored Trends <span class="badge" id="trends-count">0</span></h2>
+            <div class="item-list" id="trends-list">
+                <div class="loading">Loading...</div>
+            </div>
+        </div>
+
+        <!-- Processing History -->
+        <div class="card">
+            <h2>Processing History</h2>
+            <div class="history-feed" id="history-feed">
+                <div class="loading">Loading...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API = window.location.origin;
+        let refreshTimer = null;
+
+        async function fetchJSON(path) {
+            try {
+                const resp = await fetch(`${API}${path}`);
+                if (!resp.ok) throw new Error(`${resp.status}`);
+                return await resp.json();
+            } catch (e) {
+                console.warn(`Fetch ${path} failed:`, e);
+                return null;
+            }
+        }
+
+        function strengthDots(val, max = 10) {
+            let html = '<span class="strength">';
+            for (let i = 1; i <= max; i++) {
+                const cls = i <= val ? (val >= 8 ? 'filled high' : val >= 6 ? 'filled' : 'filled') : '';
+                html += `<span class="dot ${cls}"></span>`;
+            }
+            return html + '</span>';
+        }
+
+        function renderBias(bias, confidence) {
+            const fill = document.getElementById('bias-fill');
+            const label = document.getElementById('bias-label');
+            let pct = 50, color = 'var(--yellow)', text = 'NEUTRAL';
+            if (bias === 'bullish') { pct = 75; color = 'var(--green)'; text = 'BULLISH'; }
+            else if (bias === 'bearish') { pct = 25; color = 'var(--red)'; text = 'BEARISH'; }
+            else if (bias === 'mixed') { pct = 50; color = 'var(--orange)'; text = 'MIXED'; }
+            fill.style.width = pct + '%';
+            fill.style.background = color;
+            label.textContent = text;
+            label.style.color = color;
+        }
+
+        function renderRules(rules) {
+            const el = document.getElementById('rules-list');
+            document.getElementById('rules-count').textContent = rules.length;
+            if (!rules.length) { el.innerHTML = '<div class="loading">No active rules yet</div>'; return; }
+            el.innerHTML = rules.slice(0, 20).map(r => {
+                const dir = r.action?.toLowerCase().includes('buy') || r.action?.toLowerCase().includes('long') ? 'bullish' :
+                            r.action?.toLowerCase().includes('sell') || r.action?.toLowerCase().includes('short') ? 'bearish' : 'neutral';
+                return `<div class="item ${dir}">
+                    <div class="item-title">${r.title || 'Untitled'} ${strengthDots(r.strength || 5)}</div>
+                    <div class="item-meta">
+                        <span class="tag">${r.category || '?'}</span>
+                        ${(r.tickers || []).map(t => `<span class="ticker">${t}</span>`).join('')}
+                        <span>${r.action || ''}</span>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        function renderSignals(signals) {
+            const el = document.getElementById('signals-list');
+            document.getElementById('signals-count').textContent = signals.length;
+            if (!signals.length) { el.innerHTML = '<div class="loading">No signals yet</div>'; return; }
+            el.innerHTML = signals.slice(0, 15).map(s => `
+                <div class="item ${s.direction || 'neutral'}">
+                    <div class="item-title">${s.name || 'Untitled'} ${strengthDots(s.strength || 5)}</div>
+                    <div class="item-meta">
+                        <span class="tag">${s.direction || '?'}</span>
+                        <span class="tag">${s.category || '?'}</span>
+                        ${(s.tickers || []).map(t => `<span class="ticker">${t}</span>`).join('')}
+                        <span>Confirmed ${s.confirmation_count || 1}x</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function renderTrends(trends) {
+            const el = document.getElementById('trends-list');
+            document.getElementById('trends-count').textContent = trends.length;
+            if (!trends.length) { el.innerHTML = '<div class="loading">No trends yet</div>'; return; }
+            el.innerHTML = trends.slice(0, 10).map(t => `
+                <div class="item ${t.direction === 'accelerating' ? 'bullish' : t.direction === 'declining' ? 'bearish' : 'neutral'}">
+                    <div class="item-title">${t.name || 'Untitled'} ${strengthDots(t.confidence || 5)}</div>
+                    <div class="item-meta">
+                        <span class="tag">${t.direction || '?'}</span>
+                        <span class="tag">${t.category || '?'}</span>
+                        ${(t.sectors || []).map(s => `<span class="tag">${s}</span>`).join('')}
+                        <span>${t.data_points || 1} data points</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function renderRisks(thresholds) {
+            const el = document.getElementById('risk-list');
+            if (!thresholds.length) { el.innerHTML = '<div class="loading">No risk thresholds set</div>'; return; }
+            el.innerHTML = thresholds.map(r => {
+                const level = r.current_level || 5;
+                const alertAt = r.alert_level || 7;
+                const isAlert = level >= alertAt;
+                return `<div class="item ${isAlert ? 'bearish' : 'neutral'}">
+                    <div class="item-title">${r.name || '?'} ${strengthDots(level)}</div>
+                    <div class="item-meta">
+                        <span class="tag">${r.category || '?'}</span>
+                        <span>Level: ${level}/10</span>
+                        <span>Alert at: ${alertAt}</span>
+                        ${isAlert ? '<span style="color:var(--red);">⚠ ALERT</span>' : ''}
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        function renderHistory(entries) {
+            const el = document.getElementById('history-feed');
+            if (!entries.length) { el.innerHTML = '<div class="loading">No processing history yet</div>'; return; }
+            el.innerHTML = entries.reverse().map(e => `
+                <div class="history-entry">
+                    <span class="ts">${(e.processed_at || '').slice(0, 19)}</span>
+                    <span class="url">${e.source_url || e.url || '?'}</span>
+                    <div style="color: var(--muted); margin-top: 2px;">
+                        ${e.insights ? e.insights.length + ' insights' : e.insights_extracted ? e.insights_extracted + ' insights' : ''}
+                        ${e.doctrine_changes ? ' — ' + e.doctrine_changes.slice(0, 100) : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function refreshDashboard() {
+            const [doctrine, stats, history] = await Promise.all([
+                fetchJSON('/lde/doctrine'),
+                fetchJSON('/lde/stats'),
+                fetchJSON('/lde/history?limit=20'),
+            ]);
+
+            if (stats) {
+                document.getElementById('stat-urls').textContent = stats.urls_processed || 0;
+                document.getElementById('stat-insights').textContent = stats.total_insights || 0;
+                document.getElementById('stat-rules').textContent = stats.active_rules || 0;
+                document.getElementById('stat-signals').textContent = stats.active_signals || 0;
+                document.getElementById('stat-trends').textContent = stats.monitored_trends || 0;
+                document.getElementById('stat-confidence').textContent = (stats.confidence_score || 5).toFixed(1) + '/10';
+            }
+
+            if (doctrine) {
+                renderBias(doctrine.market_bias, doctrine.confidence_score);
+                renderRules(doctrine.core_rules || []);
+                renderSignals(doctrine.active_signals || []);
+                renderTrends(doctrine.monitored_trends || []);
+                renderRisks(doctrine.risk_thresholds || []);
+
+                const tickersEl = document.getElementById('top-tickers');
+                tickersEl.innerHTML = (doctrine.top_tickers || []).map(t => `<span class="ticker">${t}</span>`).join('');
+            }
+
+            if (history && history.entries) {
+                renderHistory(history.entries);
+            }
+        }
+
+        async function processUrl() {
+            const input = document.getElementById('url-input');
+            const btn = document.getElementById('process-btn');
+            const statusEl = document.getElementById('pipeline-status');
+            const errorEl = document.getElementById('process-error');
+            const url = input.value.trim();
+
+            if (!url) return;
+
+            btn.disabled = true;
+            btn.textContent = 'PROCESSING...';
+            errorEl.textContent = '';
+
+            statusEl.innerHTML = `
+                <div class="pipeline-stages">
+                    <span class="stage active">INGEST</span>
+                    <span class="arrow">→</span>
+                    <span class="stage">EXTRACT</span>
+                    <span class="arrow">→</span>
+                    <span class="stage">ANALYZE</span>
+                    <span class="arrow">→</span>
+                    <span class="stage">DOCTRINE</span>
+                </div>
+            `;
+
+            try {
+                const resp = await fetch(`${API}/lde/process`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url }),
+                });
+
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const data = await resp.json();
+
+                statusEl.innerHTML = `
+                    <div class="pipeline-stages">
+                        <span class="stage active">INGEST</span>
+                        <span class="arrow">→</span>
+                        <span class="stage active">EXTRACT</span>
+                        <span class="arrow">→</span>
+                        <span class="stage active">ANALYZE</span>
+                        <span class="arrow">→</span>
+                        <span class="stage active">DOCTRINE</span>
+                    </div>
+                    <div style="margin-top: 8px; font-size: 12px; color: var(--green);">
+                        Pipeline queued: ${data.session_id}. Doctrine will update when complete.
+                    </div>
+                `;
+
+                input.value = '';
+
+                // Poll for updates
+                setTimeout(refreshDashboard, 5000);
+                setTimeout(refreshDashboard, 15000);
+                setTimeout(refreshDashboard, 30000);
+                setTimeout(refreshDashboard, 60000);
+
+            } catch (e) {
+                errorEl.textContent = `Failed: ${e.message}`;
+                statusEl.innerHTML = '';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'PROCESS';
+            }
+        }
+
+        // Enter key to submit
+        document.getElementById('url-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') processUrl();
+        });
+
+        // Initial load + auto-refresh
+        refreshDashboard();
+        refreshTimer = setInterval(refreshDashboard, 30000);
+    </script>
+</body>
+</html>

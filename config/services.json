@@ -1,0 +1,84 @@
+{
+  "_meta": {
+    "description": "Resonance Energy — Cross-repo service discovery",
+    "updated": "2026-04-18",
+    "note": "Single source of truth for all service URLs. Each repo loads this at startup."
+  },
+  "services": {
+    "ncl_brain": {
+      "name": "NCL Brain",
+      "url": "http://localhost:8800",
+      "health": "/health",
+      "repo": "NCL",
+      "description": "Command center, councils, intelligence, mandate pipeline"
+    },
+    "brl_api": {
+      "name": "BIT RAGE LABOUR API",
+      "url": "http://localhost:8001",
+      "health": "/health",
+      "repo": "DIGITAL-LABOUR",
+      "description": "30-agent fleet, OpenClaw engine, task dispatch",
+      "production": "https://bitrage-labour-api-production.up.railway.app"
+    },
+    "ncc_relay": {
+      "name": "NCC Relay",
+      "url": "http://localhost:8787",
+      "health": "/health",
+      "repo": "NCC-Doctrine",
+      "description": "Cross-system directive relay, NCC orchestrator"
+    },
+    "ncc_master": {
+      "name": "NCC Master",
+      "url": "http://localhost:8765",
+      "health": "/health",
+      "repo": "NCC-Doctrine",
+      "description": "NCC governance server"
+    },
+    "paperclip": {
+      "name": "Paperclip",
+      "url": "http://localhost:3100",
+      "health": "/api/health",
+      "description": "Project management, mandate tracking, cost reporting, approval gates"
+    },
+    "aac": {
+      "name": "AAC Trading Platform",
+      "url": "http://localhost:8500",
+      "health": "/health",
+      "repo": "AAC",
+      "description": "Accelerated Arbitrage Capital — trading agents, market data"
+    },
+    "ollama": {
+      "name": "Ollama (Local LLM)",
+      "url": "http://localhost:11434",
+      "health": "/api/tags",
+      "description": "Local model inference — qwen3, deepseek-coder"
+    },
+    "cloudflare_tunnel": {
+      "name": "Cloudflare Tunnel (ncc)",
+      "tunnel_id": "afc84bab-daea-41c9-b341-d783d90c20d9",
+      "subdomains": {
+        "ncc": "ncc.bit-rage-labour.com",
+        "aac": "aac.bit-rage-labour.com"
+      }
+    }
+  },
+  "email": {
+    "provider": "zoho",
+    "smtp_host": "smtp.zohocloud.ca",
+    "smtp_port": 587,
+    "imap_host": "imappro.zohocloud.ca",
+    "imap_port": 993,
+    "address": "sales@bit-rage-labour.com",
+    "admin_login": "gripandripphdd@outlook.com"
+  },
+  "deployment": {
+    "brl_fly": {
+      "app": "bit-rage-labour-api",
+      "region": "yyz",
+      "port": 8001
+    },
+    "domain": "bit-rage-labour.com",
+    "dns": "cloudflare",
+    "nameservers": ["aragorn.ns.cloudflare.com", "elly.ns.cloudflare.com"]
+  }
+}

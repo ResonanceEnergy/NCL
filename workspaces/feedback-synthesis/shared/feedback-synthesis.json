@@ -1,0 +1,34 @@
+{
+  "workspace": "feedback-synthesis",
+  "last_run": "2026-04-07T20:20:06.019318+00:00",
+  "stages": {
+    "01-report-intake": {
+      "status": "idle",
+      "artifacts": 0,
+      "last_processed": ""
+    },
+    "02-validation": {
+      "status": "idle",
+      "artifacts": 0,
+      "last_processed": ""
+    },
+    "03-pattern-detection": {
+      "status": "idle",
+      "artifacts": 0,
+      "last_processed": ""
+    },
+    "04-recommendation": {
+      "status": "idle",
+      "artifacts": 0,
+      "last_processed": ""
+    },
+    "05-mandate-update": {
+      "status": "idle",
+      "artifacts": 0,
+      "last_processed": ""
+    }
+  },
+  "total_artifacts": 0,
+  "active_stages": 0,
+  "health": "idle"
+}

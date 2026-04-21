@@ -1,0 +1,34 @@
+{
+  "workspace": "memory-processing",
+  "last_run": "2026-04-07T20:20:06.037371+00:00",
+  "stages": {
+    "01-episodic-intake": {
+      "status": "idle",
+      "artifacts": 0,
+      "last_processed": ""
+    },
+    "02-semantic-extraction": {
+      "status": "idle",
+      "artifacts": 0,
+      "last_processed": ""
+    },
+    "03-consolidation": {
+      "status": "idle",
+      "artifacts": 0,
+      "last_processed": ""
+    },
+    "04-decay-reinforcement": {
+      "status": "idle",
+      "artifacts": 0,
+      "last_processed": ""
+    },
+    "05-retrieval-indexing": {
+      "status": "idle",
+      "artifacts": 0,
+      "last_processed": ""
+    }
+  },
+  "total_artifacts": 0,
+  "active_stages": 0,
+  "health": "idle"
+}

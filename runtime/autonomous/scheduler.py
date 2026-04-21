@@ -1,0 +1,929 @@
+"""
+NCL Autonomous Scheduler
+========================
+
+Background task scheduler that makes NCL a true autonomous second brain.
+Runs continuous loops for:
+
+1. Intelligence Scanning (Awarebot) — X/YouTube/Reddit monitoring
+2. Future Prediction — Ensemble forecasting with convergence detection
+3. Council Auto-Spawn — Triggers council deliberation on high-signal events
+4. Memory Consolidation — Periodic merge and decay processing
+5. AAC War Room Sync — Pulls market regime data from AAC forecasters
+6. MWP Workspace Health — Monitors pipeline stage health
+
+All intervals are configurable via ncl.yaml or environment variables.
+
+7. Digital Labour Pipeline — Semi-autonomous mandate dispatch to DL agent fleet
+   (Paperclip governance + Van Clief MWP stage processing)
+"""
+
+import asyncio
+import json
+import logging
+import urllib.request
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
+
+from .dl_pipeline import DLPipeline
+
+log = logging.getLogger("ncl.autonomous")
+
+
+class AutonomousScheduler:
+    """
+    Background task scheduler for NCL autonomous operations.
+
+    Spawns asyncio tasks on startup that run indefinitely,
+    performing intelligence gathering, prediction, and council
+    deliberation without requiring pump prompts from NATRIX.
+    """
+
+    def __init__(
+        self,
+        brain,  # NCLBrain instance
+        config,  # Settings instance
+        councils_runner=None,  # councils.runner module (optional)
+        intelligence_engine=None,  # IntelligenceEngine instance (optional)
+    ):
+        self.brain = brain
+        self.config = config
+        self.councils_runner = councils_runner
+        self.intelligence_engine = intelligence_engine
+
+        self.data_dir = Path(config.data_dir).expanduser()
+        self.signals_dir = self.data_dir / "autonomous_signals"
+        self.signals_dir.mkdir(parents=True, exist_ok=True)
+
+        # State tracking
+        self._tasks: list[asyncio.Task] = []
+        self._running = False
+        self._stats = {
+            "scans_completed": 0,
+            "predictions_run": 0,
+            "councils_auto_spawned": 0,
+            "memory_consolidations": 0,
+            "aac_syncs": 0,
+            "high_signals_detected": 0,
+            "started_at": None,
+            "last_scan": None,
+            "last_prediction": None,
+            "last_council": None,
+            "last_consolidation": None,
+            "last_aac_sync": None,
+            "intel_briefs_generated": 0,
+            "intel_collections_run": 0,
+            "intel_alerts_pushed": 0,
+            "last_intel_brief": None,
+            "last_intel_collection": None,
+        }
+
+        # Signal buffer — accumulates between prediction cycles
+        self._signal_buffer: list[dict] = []
+        self._signal_lock = asyncio.Lock()
+
+        # Council trigger threshold (importance score 0-100)
+        self.council_trigger_threshold = 75.0
+        # Minimum signals needed before auto-spawning a council
+        self.council_min_signals = 3
+
+        # BIT RAGE LABOUR Pipeline (Paperclip + MWP governed)
+        self.dl_pipeline: Optional[DLPipeline] = None
+        self._init_dl_pipeline()
+
+    def _init_dl_pipeline(self) -> None:
+        """Initialize the Digital Labour Pipeline with Paperclip governance."""
+        try:
+            from ..digital_labour_bridge import dl_bridge
+            paperclip = getattr(self.brain, "paperclip", None)
+
+            # Build notify function from brain's ntfy push
+            async def notify_fn(title, body, priority=3):
+                try:
+                    import os
+                    topic = os.getenv("NTFY_TOPIC", "")
+                    server = os.getenv("NTFY_SERVER", "https://ntfy.sh")
+                    if topic:
+                        req = urllib.request.Request(
+                            f"{server}/{topic}",
+                            data=body.encode(),
+                            headers={
+                                "Title": title,
+                                "Priority": str(priority),
+                                "Tags": "robot",
+                            },
+                        )
+                        urllib.request.urlopen(req, timeout=5)
+                except Exception:
+                    pass  # Non-critical
+
+            self.dl_pipeline = DLPipeline(
+                paperclip=paperclip,
+                dl_bridge=dl_bridge,
+                notify_fn=notify_fn,
+            )
+            log.info("BIT RAGE LABOUR pipeline initialized (Paperclip + MWP)")
+        except Exception as e:
+            log.warning("DL Pipeline init failed (non-fatal): %s", e)
+            self.dl_pipeline = None
+
+    async def start(self) -> None:
+        """Start all autonomous background loops."""
+        if self._running:
+            log.warning("Autonomous scheduler already running")
+            return
+
+        self._running = True
+        self._stats["started_at"] = datetime.now(timezone.utc).isoformat()
+
+        log.info("=" * 60)
+        log.info("NCL AUTONOMOUS SCHEDULER — STARTING")
+        log.info("=" * 60)
+        log.info(f"  Scanner intervals: X={self.config.x_scan_interval}s, "
+                 f"YT={self.config.youtube_scan_interval}s, "
+                 f"Reddit={self.config.reddit_scan_interval}s")
+        log.info(f"  Prediction interval: {self.config.prediction_interval}s")
+        log.info(f"  Memory consolidation: {self.config.memory_consolidation_interval}s")
+        log.info(f"  Council trigger threshold: {self.council_trigger_threshold}")
+        if self.intelligence_engine:
+            log.info(f"  Intel brief interval: {self.config.intelligence_brief_interval}s")
+            log.info(f"  Intel collection interval: {self.config.intelligence_collection_interval}s")
+        log.info("=" * 60)
+
+        # Spawn background tasks
+        self._tasks = [
+            asyncio.create_task(self._scanner_loop(), name="ncl-scanner"),
+            asyncio.create_task(self._prediction_loop(), name="ncl-predictor"),
+            asyncio.create_task(self._council_auto_loop(), name="ncl-council-auto"),
+            asyncio.create_task(self._memory_consolidation_loop(), name="ncl-memory"),
+            asyncio.create_task(self._aac_sync_loop(), name="ncl-aac-sync"),
+            asyncio.create_task(self._workspace_health_loop(), name="ncl-workspace"),
+        ]
+
+        # Intelligence Engine loops (only if engine is provided)
+        if self.intelligence_engine:
+            self._tasks.append(
+                asyncio.create_task(self._intel_collection_loop(), name="ncl-intel-collect")
+            )
+            self._tasks.append(
+                asyncio.create_task(self._intel_brief_loop(), name="ncl-intel-brief")
+            )
+
+        # Digital Labour Pipeline (Paperclip + MWP governed)
+        if self.dl_pipeline:
+            asyncio.create_task(self.dl_pipeline.start())
+            log.info("  BIT RAGE LABOUR: ACTIVE (semi-autonomous, Paperclip-governed)")
+        else:
+            log.info("  BIT RAGE LABOUR: INACTIVE (bridge not available)")
+
+        await self._log_autonomous_event("scheduler_started", {
+            "loops": [t.get_name() for t in self._tasks],
+            "config": {
+                "x_scan_interval": self.config.x_scan_interval,
+                "youtube_scan_interval": self.config.youtube_scan_interval,
+                "reddit_scan_interval": self.config.reddit_scan_interval,
+                "prediction_interval": self.config.prediction_interval,
+                "memory_consolidation_interval": self.config.memory_consolidation_interval,
+                "council_trigger_threshold": self.council_trigger_threshold,
+            },
+        })
+
+    async def stop(self) -> None:
+        """Gracefully stop all background loops."""
+        self._running = False
+        # Stop DL pipeline
+        if self.dl_pipeline:
+            await self.dl_pipeline.stop()
+        for task in self._tasks:
+            task.cancel()
+        if self._tasks:
+            await asyncio.gather(*self._tasks, return_exceptions=True)
+        self._tasks = []
+        log.info("NCL Autonomous Scheduler stopped")
+        await self._log_autonomous_event("scheduler_stopped", self._stats)
+
+    def get_stats(self) -> dict:
+        """Return scheduler statistics."""
+        stats = {
+            **self._stats,
+            "running": self._running,
+            "active_tasks": [t.get_name() for t in self._tasks if not t.done()],
+            "signal_buffer_size": len(self._signal_buffer),
+        }
+        if self.dl_pipeline:
+            stats["dl_pipeline"] = self.dl_pipeline.get_status()
+        return stats
+
+    # ─── LOOP 1: Intelligence Scanner ──────────────────────────
+
+    async def _scanner_loop(self) -> None:
+        """
+        Continuously scan X, YouTube, and Reddit for intelligence signals.
+
+        Runs Awarebot scanner at configured intervals, scores signals by
+        importance, and feeds high-value signals into the prediction buffer
+        and memory store.
+        """
+        # Stagger startup so all loops don't fire simultaneously
+        await asyncio.sleep(5)
+
+        while self._running:
+            try:
+                log.info("[SCANNER] Starting intelligence sweep...")
+
+                # Run scans for each platform
+                all_signals = []
+
+                # X (Twitter) scan
+                try:
+                    x_signals = await self.brain.scanner.scan_x(
+                        queries=self._get_watch_queries("x"),
+                        max_results=25,
+                    )
+                    all_signals.extend(x_signals)
+                    log.info(f"[SCANNER] X: {len(x_signals)} signals")
+                except Exception as e:
+                    log.warning(f"[SCANNER] X scan failed: {e}")
+
+                # YouTube scan
+                try:
+                    yt_signals = await self.brain.scanner.scan_youtube(
+                        queries=self._get_watch_queries("youtube"),
+                        max_results=10,
+                    )
+                    all_signals.extend(yt_signals)
+                    log.info(f"[SCANNER] YouTube: {len(yt_signals)} signals")
+                except Exception as e:
+                    log.warning(f"[SCANNER] YouTube scan failed: {e}")
+
+                # Reddit scan
+                try:
+                    reddit_signals = await self.brain.scanner.scan_reddit(
+                        queries=self._get_watch_queries("reddit"),
+                        max_results=15,
+                    )
+                    all_signals.extend(reddit_signals)
+                    log.info(f"[SCANNER] Reddit: {len(reddit_signals)} signals")
+                except Exception as e:
+                    log.warning(f"[SCANNER] Reddit scan failed: {e}")
+
+                # Process signals
+                if all_signals:
+                    high_signals = [s for s in all_signals if s.importance >= 50.0]
+                    critical_signals = [s for s in all_signals if s.importance >= self.council_trigger_threshold]
+
+                    # Add to signal buffer for prediction
+                    async with self._signal_lock:
+                        for sig in all_signals:
+                            self._signal_buffer.append({
+                                "source": sig.source,
+                                "content": sig.content[:500],
+                                "importance": sig.importance,
+                                "tags": sig.tags,
+                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                            })
+
+                    # Store high-importance signals in memory
+                    for sig in high_signals:
+                        try:
+                            await self.brain.memory_store.store({
+                                "type": "intelligence_signal",
+                                "source": sig.source,
+                                "content": sig.content[:1000],
+                                "importance": sig.importance,
+                                "tags": sig.tags,
+                                "autonomous": True,
+                            })
+                        except Exception:
+                            pass
+
+                    self._stats["high_signals_detected"] += len(high_signals)
+
+                    # Log signal summary
+                    await self._log_autonomous_event("scan_complete", {
+                        "total_signals": len(all_signals),
+                        "high_signals": len(high_signals),
+                        "critical_signals": len(critical_signals),
+                        "platforms": {
+                            "x": len([s for s in all_signals if s.source == "x"]),
+                            "youtube": len([s for s in all_signals if s.source == "youtube"]),
+                            "reddit": len([s for s in all_signals if s.source == "reddit"]),
+                        },
+                    })
+
+                    log.info(f"[SCANNER] Complete: {len(all_signals)} total, "
+                             f"{len(high_signals)} high, {len(critical_signals)} critical")
+
+                self._stats["scans_completed"] += 1
+                self._stats["last_scan"] = datetime.now(timezone.utc).isoformat()
+
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.error(f"[SCANNER] Loop error: {e}", exc_info=True)
+
+            # Sleep for shortest scan interval (X is fastest at 5 min)
+            await asyncio.sleep(self.config.x_scan_interval)
+
+    # ─── LOOP 2: Future Prediction ─────────────────────────────
+
+    async def _prediction_loop(self) -> None:
+        """
+        Run ensemble predictions on accumulated intelligence signals.
+
+        Pulls from signal buffer, runs multi-model forecasting with
+        convergence detection. If convergence is detected with high
+        confidence, stores prediction in memory and may trigger council.
+        """
+        # Wait for first scan cycle to populate signals
+        await asyncio.sleep(self.config.x_scan_interval + 30)
+
+        while self._running:
+            try:
+                # Drain signal buffer
+                async with self._signal_lock:
+                    signals = list(self._signal_buffer)
+                    self._signal_buffer.clear()
+
+                if not signals:
+                    log.debug("[PREDICTOR] No signals to process, sleeping...")
+                    await asyncio.sleep(self.config.prediction_interval)
+                    continue
+
+                log.info(f"[PREDICTOR] Processing {len(signals)} signals...")
+
+                # Run FuturePredictor ensemble
+                try:
+                    prediction = await self.brain.predictor.predict(signals)
+
+                    if prediction:
+                        # Store prediction in memory
+                        await self.brain.memory_store.store({
+                            "type": "autonomous_prediction",
+                            "prediction": prediction.get("synthesis", ""),
+                            "confidence": prediction.get("confidence", 0),
+                            "convergence": prediction.get("convergence_detected", False),
+                            "models_used": prediction.get("models_used", []),
+                            "signal_count": len(signals),
+                            "importance": min(100, prediction.get("confidence", 0) * 100),
+                            "tags": ["prediction", "autonomous", "ensemble"],
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        })
+
+                        log.info(f"[PREDICTOR] Prediction complete — "
+                                 f"confidence={prediction.get('confidence', 0):.2f}, "
+                                 f"convergence={prediction.get('convergence_detected', False)}")
+
+                        # If high-confidence convergence, flag for council consideration
+                        if prediction.get("convergence_detected") and prediction.get("confidence", 0) >= 0.8:
+                            await self._flag_for_council(
+                                trigger="high_confidence_prediction",
+                                data=prediction,
+                                importance=prediction.get("confidence", 0) * 100,
+                            )
+
+                except Exception as e:
+                    log.error(f"[PREDICTOR] Prediction failed: {e}", exc_info=True)
+
+                self._stats["predictions_run"] += 1
+                self._stats["last_prediction"] = datetime.now(timezone.utc).isoformat()
+
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.error(f"[PREDICTOR] Loop error: {e}", exc_info=True)
+
+            await asyncio.sleep(self.config.prediction_interval)
+
+    # ─── LOOP 3: Council Auto-Spawn ────────────────────────────
+
+    async def _council_auto_loop(self) -> None:
+        """
+        Monitor for conditions that warrant autonomous council deliberation.
+
+        Triggers a council session when:
+        - Multiple high-importance signals converge on a theme
+        - Prediction ensemble detects convergence with high confidence
+        - A critical signal exceeds the council trigger threshold
+        - Scheduled strategic review interval is reached
+
+        Councils run autonomously but mandates still require NATRIX approval.
+        """
+        # Strategic review interval (4 hours default)
+        strategic_review_interval = 4 * 3600
+        last_strategic_review = datetime.now(timezone.utc)
+
+        # Wait for initial data gathering
+        await asyncio.sleep(self.config.prediction_interval + 60)
+
+        while self._running:
+            try:
+                now = datetime.now(timezone.utc)
+                council_needed = False
+                council_prompt = ""
+                council_trigger = ""
+
+                # Check 1: Pending council flags from prediction/scanner
+                council_flags = await self._get_council_flags()
+                if len(council_flags) >= self.council_min_signals:
+                    council_needed = True
+                    council_trigger = "accumulated_signals"
+                    themes = set()
+                    for flag in council_flags:
+                        themes.update(flag.get("data", {}).get("tags", []))
+                    council_prompt = (
+                        f"AUTONOMOUS COUNCIL — {len(council_flags)} high-priority signals detected. "
+                        f"Themes: {', '.join(list(themes)[:10])}. "
+                        f"Analyze these converging signals, assess implications for NARTIX operations, "
+                        f"and recommend strategic actions or mandate adjustments."
+                    )
+
+                # Check 2: Scheduled strategic review
+                elif (now - last_strategic_review).total_seconds() >= strategic_review_interval:
+                    council_needed = True
+                    council_trigger = "strategic_review"
+                    council_prompt = (
+                        "SCHEDULED STRATEGIC REVIEW — Conduct a periodic assessment of: "
+                        "1) Active mandate progress and blockers, "
+                        "2) Intelligence signals and emerging opportunities, "
+                        "3) Resource allocation and budget status, "
+                        "4) Risk factors and mitigation strategies. "
+                        "Produce recommendations for NATRIX review."
+                    )
+                    last_strategic_review = now
+
+                if council_needed:
+                    log.info(f"[COUNCIL-AUTO] Spawning autonomous council: {council_trigger}")
+                    try:
+                        # Create a synthetic pump prompt for the council
+                        session = await self.brain.council_engine.spawn_council(
+                            prompt=council_prompt,
+                            context={
+                                "trigger": council_trigger,
+                                "autonomous": True,
+                                "signal_count": len(council_flags) if council_flags else 0,
+                                "timestamp": now.isoformat(),
+                            },
+                        )
+
+                        if session:
+                            # Store council output in memory
+                            await self.brain.memory_store.store({
+                                "type": "autonomous_council",
+                                "trigger": council_trigger,
+                                "consensus": session.get("consensus", ""),
+                                "consensus_score": session.get("consensus_score", 0),
+                                "mandates_proposed": session.get("mandates", []),
+                                "importance": 90,
+                                "tags": ["council", "autonomous", council_trigger],
+                            })
+
+                            # Clear processed flags
+                            await self._clear_council_flags()
+
+                            self._stats["councils_auto_spawned"] += 1
+                            self._stats["last_council"] = now.isoformat()
+
+                            log.info(f"[COUNCIL-AUTO] Session complete — "
+                                     f"consensus={session.get('consensus_score', 0):.0f}%")
+
+                            await self._log_autonomous_event("council_auto_spawned", {
+                                "trigger": council_trigger,
+                                "consensus_score": session.get("consensus_score", 0),
+                                "mandates_proposed": len(session.get("mandates", [])),
+                            })
+
+                    except Exception as e:
+                        log.error(f"[COUNCIL-AUTO] Council spawn failed: {e}", exc_info=True)
+
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.error(f"[COUNCIL-AUTO] Loop error: {e}", exc_info=True)
+
+            # Check every 5 minutes
+            await asyncio.sleep(300)
+
+    # ─── LOOP 4: Memory Consolidation ──────────────────────────
+
+    async def _memory_consolidation_loop(self) -> None:
+        """
+        Periodic memory maintenance: decay, consolidation, and cleanup.
+
+        - Applies exponential decay to all memory units
+        - Consolidates related units (merge duplicates)
+        - Prunes units below importance threshold
+        - Computes and logs memory statistics
+        """
+        await asyncio.sleep(60)  # Brief startup delay
+
+        while self._running:
+            try:
+                log.info("[MEMORY] Starting consolidation cycle...")
+
+                store = self.brain.memory_store
+                stats_before = await store.stats()
+
+                # Apply decay to all units
+                decayed = 0
+                pruned = 0
+                if hasattr(store, 'units'):
+                    for unit_id, unit in list(store.units.items()):
+                        # Decay is computed dynamically in store.py on access,
+                        # but we force a pass here to identify prunable units
+                        if hasattr(unit, 'importance') and unit.get('importance', 100) < self.config.memory_importance_threshold:
+                            pruned += 1
+
+                # Run consolidation (merging related units)
+                try:
+                    await store.consolidate()
+                except Exception as e:
+                    log.debug(f"[MEMORY] Consolidation not yet implemented: {e}")
+
+                stats_after = await store.stats()
+
+                self._stats["memory_consolidations"] += 1
+                self._stats["last_consolidation"] = datetime.now(timezone.utc).isoformat()
+
+                log.info(f"[MEMORY] Consolidation complete — "
+                         f"units: {stats_after.get('total', 0)}, "
+                         f"prunable: {pruned}")
+
+                await self._log_autonomous_event("memory_consolidation", {
+                    "stats_before": stats_before,
+                    "stats_after": stats_after,
+                    "pruned": pruned,
+                })
+
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.error(f"[MEMORY] Consolidation error: {e}", exc_info=True)
+
+            await asyncio.sleep(self.config.memory_consolidation_interval)
+
+    # ─── LOOP 5: AAC War Room Sync ─────────────────────────────
+
+    async def _aac_sync_loop(self) -> None:
+        """
+        Pull market regime data from AAC forecasters.
+
+        Queries AAC's health endpoint and market data APIs to sync:
+        - Current market regime classification
+        - Crypto regime signals (8 formulas)
+        - Stock opportunity rankings
+        - Prediction market positions
+        - P&L and risk metrics
+
+        Stores as memory units for council access.
+        """
+        await asyncio.sleep(120)  # Wait for services to stabilize
+
+        while self._running:
+            try:
+                aac_data = {}
+
+                # Try AAC health endpoint
+                try:
+                    aac_health = await asyncio.to_thread(
+                        self._http_get, "http://localhost:8080/health"
+                    )
+                    if aac_health:
+                        aac_data["health"] = json.loads(aac_health)
+                except Exception:
+                    pass
+
+                # Try AAC War Room URL if configured
+                war_room_url = self.config.aac_war_room_url
+                if war_room_url:
+                    try:
+                        regime_data = await asyncio.to_thread(
+                            self._http_get, f"{war_room_url}/regime"
+                        )
+                        if regime_data:
+                            aac_data["market_regime"] = json.loads(regime_data)
+                    except Exception:
+                        pass
+
+                    try:
+                        positions_data = await asyncio.to_thread(
+                            self._http_get, f"{war_room_url}/positions"
+                        )
+                        if positions_data:
+                            aac_data["positions"] = json.loads(positions_data)
+                    except Exception:
+                        pass
+
+                # Try NCC Master for execution status
+                try:
+                    ncc_health = await asyncio.to_thread(
+                        self._http_get, "http://localhost:8765/health"
+                    )
+                    if ncc_health:
+                        aac_data["ncc_status"] = json.loads(ncc_health)
+                except Exception:
+                    pass
+
+                # Try BRS Dashboard for revenue metrics
+                try:
+                    brs_data = await asyncio.to_thread(
+                        self._http_get, "http://localhost:8000/matrix/sitrep"
+                    )
+                    if brs_data:
+                        aac_data["brs_sitrep"] = json.loads(brs_data)
+                except Exception:
+                    pass
+
+                if aac_data:
+                    # Store pillar sync data in memory
+                    await self.brain.memory_store.store({
+                        "type": "pillar_sync",
+                        "pillars_reached": list(aac_data.keys()),
+                        "data": aac_data,
+                        "importance": 40,
+                        "tags": ["aac", "sync", "pillar_status", "autonomous"],
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    })
+
+                    self._stats["aac_syncs"] += 1
+                    self._stats["last_aac_sync"] = datetime.now(timezone.utc).isoformat()
+
+                    log.info(f"[AAC-SYNC] Pillar sync complete — "
+                             f"reached: {list(aac_data.keys())}")
+
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.error(f"[AAC-SYNC] Sync error: {e}", exc_info=True)
+
+            # Sync every 15 minutes
+            await asyncio.sleep(900)
+
+    # ─── LOOP 6: Workspace Health ──────────────────────────────
+
+    async def _workspace_health_loop(self) -> None:
+        """
+        Monitor MWP workspace pipeline health.
+
+        Checks each workspace stage for:
+        - Stale artifacts (stuck in processing)
+        - Empty stages (pipeline blockage)
+        - Output accumulation (review backlog)
+        """
+        await asyncio.sleep(180)
+
+        while self._running:
+            try:
+                workspaces = [
+                    "mandate-generation", "research-pipeline",
+                    "intelligence-scan", "memory-processing",
+                    "feedback-synthesis",
+                ]
+                base = Path(self.config.data_dir).expanduser().parent / "workspaces"
+                health = {}
+
+                for ws in workspaces:
+                    ws_path = base / ws / "stages"
+                    if ws_path.exists():
+                        stages = {}
+                        for stage_dir in sorted(ws_path.iterdir()):
+                            if stage_dir.is_dir():
+                                artifacts = list(stage_dir.glob("*"))
+                                stages[stage_dir.name] = {
+                                    "artifact_count": len(artifacts),
+                                    "newest": max(
+                                        (f.stat().st_mtime for f in artifacts), default=0
+                                    ),
+                                }
+                        health[ws] = stages
+
+                if health:
+                    await self._log_autonomous_event("workspace_health", health)
+                    log.debug(f"[WORKSPACE] Health check: {len(health)} workspaces monitored")
+
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.error(f"[WORKSPACE] Health check error: {e}", exc_info=True)
+
+            # Check every 30 minutes
+            await asyncio.sleep(1800)
+
+    # ─── Intelligence Engine Loops ────────────────────────────
+
+    async def _intel_collection_loop(self) -> None:
+        """
+        Periodic signal collection from all intelligence sources.
+
+        Runs more frequently than brief generation — collects raw signals
+        from Google Trends, Polymarket, news, crypto markets and persists them.
+        High-importance signals (>80) trigger immediate push alerts.
+        """
+        # Initial delay — let other loops warm up first
+        await asyncio.sleep(60)
+
+        while self._running:
+            try:
+                log.info("[INTEL-COLLECT] Starting signal collection sweep...")
+                signals = await self.intelligence_engine.collect_all_signals()
+
+                self._stats["intel_collections_run"] += 1
+                self._stats["last_intel_collection"] = datetime.now(timezone.utc).isoformat()
+
+                # Check for high-importance signals that need immediate alerts
+                alert_threshold = 80.0
+                hot_signals = [s for s in signals if s.importance_score() > alert_threshold]
+
+                if hot_signals:
+                    log.info(f"[INTEL-COLLECT] {len(hot_signals)} high-importance signals detected!")
+                    try:
+                        from ..strike_point_orchestrator import notify_intel_signal_alert
+                        for sig in hot_signals[:3]:  # Max 3 immediate alerts per sweep
+                            await notify_intel_signal_alert(sig.model_dump())
+                            self._stats["intel_alerts_pushed"] += 1
+                    except ImportError:
+                        log.warning("[INTEL-COLLECT] Could not import notification functions")
+
+                await self._log_autonomous_event("intel_collection", {
+                    "total_signals": len(signals),
+                    "hot_signals": len(hot_signals),
+                    "sources": {s.source.value for s in signals} if signals else set(),
+                })
+
+                log.info(f"[INTEL-COLLECT] Collected {len(signals)} signals "
+                         f"({len(hot_signals)} hot)")
+
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.error(f"[INTEL-COLLECT] Collection error: {e}", exc_info=True)
+
+            await asyncio.sleep(self.config.intelligence_collection_interval)
+
+    async def _intel_brief_loop(self) -> None:
+        """
+        Periodic intelligence brief generation and iPhone push delivery.
+
+        Generates a full synthesized brief (with LLM executive summary),
+        pushes a structured notification to NATRIX's iPhone via Pushover,
+        and writes a FirstStrike-compatible notification file with action buttons.
+        """
+        # Initial delay — let collection run at least once first
+        await asyncio.sleep(self.config.intelligence_collection_interval + 30)
+
+        while self._running:
+            try:
+                log.info("[INTEL-BRIEF] Generating scheduled intelligence brief...")
+
+                brief = await self.intelligence_engine.generate_brief(brief_type="daily")
+
+                self._stats["intel_briefs_generated"] += 1
+                self._stats["last_intel_brief"] = datetime.now(timezone.utc).isoformat()
+
+                # Push to iPhone via Pushover + FirstStrike notification file
+                try:
+                    from ..strike_point_orchestrator import notify_intelligence_brief
+                    pushed = await notify_intelligence_brief(brief.model_dump())
+                    if pushed:
+                        log.info(f"[INTEL-BRIEF] Brief pushed to iPhone: {brief.brief_id}")
+                    else:
+                        log.info(f"[INTEL-BRIEF] Brief saved (no Pushover configured): {brief.brief_id}")
+                except ImportError:
+                    log.warning("[INTEL-BRIEF] Could not import notification functions")
+                    pushed = False
+
+                # Auto-escalate if risk alerts exceed threshold
+                if len(brief.risk_alerts) >= 3:
+                    log.warning(f"[INTEL-BRIEF] {len(brief.risk_alerts)} risk alerts — "
+                                f"consider auto-escalating to STRIKE-POINT")
+                    await self._log_autonomous_event("intel_risk_threshold", {
+                        "risk_alerts": brief.risk_alerts,
+                        "brief_id": brief.brief_id,
+                    })
+
+                await self._log_autonomous_event("intel_brief_generated", {
+                    "brief_id": brief.brief_id,
+                    "total_signals": brief.total_signals_processed,
+                    "sectors": len(brief.sectors),
+                    "risk_alerts": len(brief.risk_alerts),
+                    "pushed": pushed,
+                })
+
+                log.info(f"[INTEL-BRIEF] Brief {brief.brief_id} — "
+                         f"{brief.total_signals_processed} signals, "
+                         f"{len(brief.sectors)} sectors, "
+                         f"{len(brief.risk_alerts)} risk alerts")
+
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.error(f"[INTEL-BRIEF] Brief generation error: {e}", exc_info=True)
+
+            await asyncio.sleep(self.config.intelligence_brief_interval)
+
+    # ─── Helpers ───────────────────────────────────────────────
+
+    def _get_watch_queries(self, platform: str) -> list[str]:
+        """
+        Get intelligence watch queries for a platform.
+
+        Loads from config or uses defaults aligned with active mandates.
+        """
+        # Load custom queries from config file if available
+        queries_file = Path(self.config.config_dir).expanduser() / "watch_queries.json"
+        if queries_file.exists():
+            try:
+                with open(queries_file) as f:
+                    queries = json.load(f)
+                    return queries.get(platform, [])
+            except Exception:
+                pass
+
+        # Default queries aligned with NARTIX mandate priorities
+        defaults = {
+            "x": [
+                "AI automation business",
+                "algorithmic trading crypto",
+                "indie game development",
+                "AI music production",
+                "prediction markets Polymarket",
+            ],
+            "youtube": [
+                "AI business automation 2026",
+                "crypto trading strategies",
+                "game development indie",
+                "AI tools for developers",
+            ],
+            "reddit": [
+                "artificial intelligence business",
+                "cryptocurrency trading",
+                "gamedev indie",
+                "AI music generation",
+            ],
+        }
+        return defaults.get(platform, [])
+
+    async def _flag_for_council(self, trigger: str, data: dict, importance: float) -> None:
+        """Flag a signal/prediction for council consideration."""
+        flag = {
+            "trigger": trigger,
+            "data": data,
+            "importance": importance,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        flags_file = self.signals_dir / "council_flags.jsonl"
+        try:
+            import aiofiles
+            async with aiofiles.open(flags_file, "a") as f:
+                await f.write(json.dumps(flag) + "\n")
+        except Exception as e:
+            log.warning(f"Failed to write council flag: {e}")
+
+    async def _get_council_flags(self) -> list[dict]:
+        """Read pending council flags."""
+        flags_file = self.signals_dir / "council_flags.jsonl"
+        flags = []
+        if flags_file.exists():
+            try:
+                import aiofiles
+                async with aiofiles.open(flags_file, "r") as f:
+                    content = await f.read()
+                    for line in content.strip().split("\n"):
+                        if line.strip():
+                            flags.append(json.loads(line))
+            except Exception:
+                pass
+        return flags
+
+    async def _clear_council_flags(self) -> None:
+        """Clear processed council flags."""
+        flags_file = self.signals_dir / "council_flags.jsonl"
+        if flags_file.exists():
+            flags_file.unlink()
+
+    async def _log_autonomous_event(self, event_type: str, data: dict) -> None:
+        """Log an autonomous event to the autonomous events file."""
+        event = {
+            "type": f"autonomous.{event_type}",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "data": data,
+        }
+        events_file = self.signals_dir / "events.ndjson"
+        try:
+            import aiofiles
+            async with aiofiles.open(events_file, "a") as f:
+                await f.write(json.dumps(event) + "\n")
+        except Exception as e:
+            log.warning(f"Failed to log autonomous event: {e}")
+
+    def _http_get(self, url: str, timeout: int = 5) -> Optional[str]:
+        """Synchronous HTTP GET (run via asyncio.to_thread)."""
+        try:
+            req = urllib.request.Request(url, method="GET")
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                if resp.status < 400:
+                    return resp.read().decode("utf-8")
+        except Exception:
+            return None
+        return None

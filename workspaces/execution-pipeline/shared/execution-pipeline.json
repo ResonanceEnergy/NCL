@@ -1,0 +1,34 @@
+{
+  "workspace": "execution-pipeline",
+  "last_run": "2026-04-07T20:20:05.965148+00:00",
+  "stages": {
+    "01-Input": {
+      "status": "active",
+      "artifacts": 15,
+      "last_processed": "2026-04-07T19:03:17.353771+00:00"
+    },
+    "02-Planning": {
+      "status": "active",
+      "artifacts": 3,
+      "last_processed": "2026-04-07T19:03:17.354034+00:00"
+    },
+    "03-Execution": {
+      "status": "active",
+      "artifacts": 4,
+      "last_processed": "2026-04-07T19:03:17.354496+00:00"
+    },
+    "04-Review": {
+      "status": "active",
+      "artifacts": 2,
+      "last_processed": "2026-04-07T19:03:17.354745+00:00"
+    },
+    "05-Output": {
+      "status": "active",
+      "artifacts": 3,
+      "last_processed": "2026-04-07T19:03:17.355117+00:00"
+    }
+  },
+  "total_artifacts": 27,
+  "active_stages": 5,
+  "health": "operational"
+}

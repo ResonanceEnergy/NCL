@@ -1,0 +1,856 @@
+{
+  "suite_version": "1.0",
+  "total_tasks": 50,
+  "passed": 50,
+  "failed": 0,
+  "skipped": 0,
+  "pass_rate": 100.0,
+  "total_duration_ms": 3.391265869140625,
+  "results": [
+    {
+      "task_id": "16342e5b-2099-41e8-bc25-e3d31d18be49",
+      "task_name": "capture_simple_json_pump",
+      "passed": true,
+      "duration_ms": 0.09942054748535156,
+      "actual_output": {
+        "action": "analyze",
+        "target": "market_signal",
+        "parsed": true
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.893703Z"
+    },
+    {
+      "task_id": "f00aaf36-c2e1-4711-89c0-8ac172109d96",
+      "task_name": "capture_url_detection",
+      "passed": true,
+      "duration_ms": 1.1458396911621094,
+      "actual_output": {
+        "urls": [
+          "https://example.com/api",
+          "http://test.org/data"
+        ],
+        "text": "Check https://example.com/api for updates and http://test.org/data",
+        "preserved": true,
+        "unicode_preserved": true
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.894857Z"
+    },
+    {
+      "task_id": "d47767fa-08d5-4e05-a004-c6facb9675f6",
+      "task_name": "capture_event_schema_creation",
+      "passed": true,
+      "duration_ms": 0.0476837158203125,
+      "actual_output": {
+        "timestamp": "2026-04-13T10:30:00Z",
+        "event_type": "signal_received",
+        "source": "market_feed",
+        "severity": "high",
+        "ticker": "ACME",
+        "price": 42.5
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.894909Z"
+    },
+    {
+      "task_id": "7bd527de-6726-405b-b7a9-2ec981c4325b",
+      "task_name": "capture_multi_field_extraction",
+      "passed": true,
+      "duration_ms": 0.22792816162109375,
+      "actual_output": {
+        "email": "john@example.com",
+        "date": "2026-04-13",
+        "priority": "CRITICAL",
+        "length": 70,
+        "received": true
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.895141Z"
+    },
+    {
+      "task_id": "8a4c6f2d-6b66-4268-8d53-382fccb2741f",
+      "task_name": "capture_empty_input_handling",
+      "passed": true,
+      "duration_ms": 0.0286102294921875,
+      "actual_output": {
+        "empty": true,
+        "error": "empty",
+        "content": ""
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.895173Z"
+    },
+    {
+      "task_id": "9edfea4d-a22a-4c48-8c59-f87bef37085b",
+      "task_name": "capture_unicode_handling",
+      "passed": true,
+      "duration_ms": 0.04220008850097656,
+      "actual_output": {
+        "urls": [],
+        "text": "Signal from \u65e5\u672c market: \u20ac500K allocation. Status: \u2713 confirmed",
+        "preserved": true,
+        "unicode_preserved": true,
+        "unicode_content": "\u65e5\u672c\u20ac\u2713"
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.895217Z"
+    },
+    {
+      "task_id": "5ec19a66-c11b-4c1e-bcaf-87b3bad5e46d",
+      "task_name": "capture_large_payload",
+      "passed": true,
+      "duration_ms": 0.017642974853515625,
+      "actual_output": {
+        "length": 15000,
+        "received": true
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.895238Z"
+    },
+    {
+      "task_id": "a5771cc8-c252-4d0c-8759-154af5a7c157",
+      "task_name": "capture_nested_json_parsing",
+      "passed": true,
+      "duration_ms": 0.02956390380859375,
+      "actual_output": {
+        "level1": {
+          "level2": {
+            "level3": {
+              "value": "nested_target",
+              "metadata": {
+                "type": "signal"
+              }
+            }
+          }
+        },
+        "nested_target": "nested_target",
+        "signal": "signal"
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.895271Z"
+    },
+    {
+      "task_id": "0196438a-b6ec-40b4-bc63-d61615d69912",
+      "task_name": "summarize_council_synthesis",
+      "passed": true,
+      "duration_ms": 0.034809112548828125,
+      "actual_output": {
+        "summary": "empty",
+        "consensus_score": 0.75,
+        "monitor_status": "monitor",
+        "caution_flag": "caution",
+        "empty": true
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.895309Z"
+    },
+    {
+      "task_id": "eef3d40f-2801-4b6b-a595-c81a50c2c520",
+      "task_name": "summarize_mandate_output",
+      "passed": true,
+      "duration_ms": 0.01811981201171875,
+      "actual_output": {
+        "action_summary": "['Allocate 5K units', 'Set stop at 40.5', 'Monitor for 2h']",
+        "priority": "high",
+        "summary": "empty",
+        "empty": true
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.895330Z"
+    },
+    {
+      "task_id": "01b51ac7-54db-40bc-99a9-55f251a2eb69",
+      "task_name": "summarize_event_log",
+      "passed": true,
+      "duration_ms": 0.041961669921875,
+      "actual_output": {
+        "timeline": [
+          "10:00",
+          "10:15",
+          "10:30"
+        ],
+        "event_count": 3,
+        "summary": "empty",
+        "empty": true
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.895374Z"
+    },
+    {
+      "task_id": "8755accf-406c-4250-9f8c-6a4099cdccfb",
+      "task_name": "summarize_multi_source_content",
+      "passed": true,
+      "duration_ms": 0.06461143493652344,
+      "actual_output": {
+        "summary": "empty",
+        "empty": true,
+        "merged_summary": "Merged 2 sources",
+        "source_count": 2,
+        "feed_a": "Long analysis text here",
+        "feed_b": "Different market view"
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.895443Z"
+    },
+    {
+      "task_id": "346a6618-5e73-4138-b02b-402bba919ab3",
+      "task_name": "summarize_empty_content",
+      "passed": true,
+      "duration_ms": 0.029325485229492188,
+      "actual_output": {
+        "summary": "empty",
+        "empty": true
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.895475Z"
+    },
+    {
+      "task_id": "4a9d0d57-9d08-4aee-a29c-dde129171775",
+      "task_name": "summarize_truncation_behavior",
+      "passed": true,
+      "duration_ms": 0.08940696716308594,
+      "actual_output": {
+        "truncated": true,
+        "summary": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word",
+        "word_count": 100
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.895568Z"
+    },
+    {
+      "task_id": "f2539b3a-7f3e-45d3-b3fa-7c06e92d228b",
+      "task_name": "plan_mandate_generation",
+      "passed": true,
+      "duration_ms": 0.03528594970703125,
+      "actual_output": {
+        "mandate": {
+          "action": "allocate",
+          "target": "asset_pool",
+          "amount": 5000,
+          "confidence": 0.85
+        },
+        "action": "allocate",
+        "target": "asset_pool",
+        "amount": 5000
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.895607Z"
+    },
+    {
+      "task_id": "5e37d728-176b-4302-a9bb-abbe2098aafa",
+      "task_name": "plan_multi_pillar_planning",
+      "passed": true,
+      "duration_ms": 0.04029273986816406,
+      "actual_output": {
+        "finance_plan": "Plan for finance",
+        "risk_plan": "Plan for risk",
+        "execution_plan": "Plan for execution"
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.895650Z"
+    },
+    {
+      "task_id": "2987c2f0-f59b-42ef-b545-50de85ada8b3",
+      "task_name": "plan_priority_assignment",
+      "passed": true,
+      "duration_ms": 0.03719329833984375,
+      "actual_output": {
+        "priorities": [
+          "buy",
+          "alert",
+          "monitor"
+        ],
+        "ranked": true
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.895691Z"
+    },
+    {
+      "task_id": "ece2f366-0505-46f5-91c8-787a47b79798",
+      "task_name": "plan_deadline_extraction",
+      "passed": true,
+      "duration_ms": 0.031232833862304688,
+      "actual_output": {
+        "deadlines": [
+          "2026-04-13T12:00:00Z",
+          "2026-04-13T13:00:00Z"
+        ],
+        "earliest": "2026-04-13T12:00:00Z",
+        "latest": "2026-04-13T13:00:00Z"
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.895725Z"
+    },
+    {
+      "task_id": "ffe3c482-d09d-4da5-a1b6-9955ad944aef",
+      "task_name": "plan_resource_allocation",
+      "passed": true,
+      "duration_ms": 0.03886222839355469,
+      "actual_output": {
+        "core_allocation": 6000.0,
+        "buffer_allocation": 4000.0
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.895767Z"
+    },
+    {
+      "task_id": "8e5b26f8-4beb-4c19-8d09-d8386e8f32d3",
+      "task_name": "recall_memory_search_by_tags",
+      "passed": true,
+      "duration_ms": 0.020742416381835938,
+      "actual_output": {
+        "matches": [
+          {
+            "id": "m1",
+            "tags": [
+              "market",
+              "signal"
+            ],
+            "content": "Signal data"
+          }
+        ],
+        "count": 1
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.895791Z"
+    },
+    {
+      "task_id": "897828ae-9315-4403-a3ac-1c85cbeb7332",
+      "task_name": "recall_memory_by_importance",
+      "passed": true,
+      "duration_ms": 0.024557113647460938,
+      "actual_output": {
+        "results": [
+          {
+            "id": "m1",
+            "importance": 0.95,
+            "content": "Critical"
+          }
+        ],
+        "count": 1
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.895818Z"
+    },
+    {
+      "task_id": "2435d210-c4f2-4a77-abff-6112c72c29a5",
+      "task_name": "recall_memory_by_time_range",
+      "passed": true,
+      "duration_ms": 0.008344650268554688,
+      "actual_output": {
+        "results": [
+          {
+            "id": "m1",
+            "timestamp": "2026-04-13T10:00:00Z",
+            "content": "In range"
+          }
+        ],
+        "in_range_count": 1
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.895829Z"
+    },
+    {
+      "task_id": "7eceddd1-26fd-4b07-8d6d-2458fefb2fb9",
+      "task_name": "recall_memory_by_content_similarity",
+      "passed": true,
+      "duration_ms": 0.008344650268554688,
+      "actual_output": {
+        "similar": [
+          {
+            "id": "m1",
+            "content": "market signal received"
+          }
+        ],
+        "best_match": "m1"
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.895840Z"
+    },
+    {
+      "task_id": "fabfeca7-c236-46cf-b9f3-e454cf0db949",
+      "task_name": "recall_empty_memory",
+      "passed": true,
+      "duration_ms": 0.028371810913085938,
+      "actual_output": {
+        "similar": [],
+        "best_match": null,
+        "results": [],
+        "count": 0
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.895871Z"
+    },
+    {
+      "task_id": "71914de6-24ce-4f40-9af6-ec4f35b55d1c",
+      "task_name": "recall_memory_with_decay",
+      "passed": true,
+      "duration_ms": 0.027179718017578125,
+      "actual_output": {
+        "decayed_importance": 0.85,
+        "m1": 0.95,
+        "m2": 0.7
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.895901Z"
+    },
+    {
+      "task_id": "bf3e23d5-c677-4ecf-9a91-e4b0e1dd5d32",
+      "task_name": "classify_event_type",
+      "passed": true,
+      "duration_ms": 0.031948089599609375,
+      "actual_output": {
+        "classification": "event_type",
+        "type": "market_event"
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.895937Z"
+    },
+    {
+      "task_id": "05cada6b-839a-4613-9678-a96d11795b70",
+      "task_name": "classify_pump_urgency",
+      "passed": true,
+      "duration_ms": 0.03838539123535156,
+      "actual_output": {
+        "urgency": "high",
+        "level": "high"
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.895978Z"
+    },
+    {
+      "task_id": "d85ab08b-585d-4439-9126-c15e5bfee6aa",
+      "task_name": "classify_pillar_routing",
+      "passed": true,
+      "duration_ms": 0.028848648071289062,
+      "actual_output": {
+        "pillar": "risk",
+        "target": "risk"
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.896009Z"
+    },
+    {
+      "task_id": "26bddd57-53cd-41f4-898b-084d1e1e29ac",
+      "task_name": "classify_signal_category",
+      "passed": true,
+      "duration_ms": 0.030994415283203125,
+      "actual_output": {
+        "category": "technical",
+        "category_name": "volume_analysis"
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.896043Z"
+    },
+    {
+      "task_id": "c2b6bd54-676d-4741-a4b8-d0df50cce0ef",
+      "task_name": "classify_ambiguous_input",
+      "passed": true,
+      "duration_ms": 0.03504753112792969,
+      "actual_output": {
+        "classification": "neutral",
+        "confidence": 0.65
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.896081Z"
+    },
+    {
+      "task_id": "c0c7c8ff-6d1e-41cc-979e-78d7cf55e563",
+      "task_name": "extract_from_council_debate",
+      "passed": true,
+      "duration_ms": 0.14352798461914062,
+      "actual_output": {
+        "votes": [
+          "yes",
+          "no"
+        ],
+        "confidences": [
+          0.9,
+          0.6
+        ],
+        "consensus": "proceed",
+        "metrics": [
+          0.9,
+          0.6
+        ]
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.896229Z"
+    },
+    {
+      "task_id": "568def9b-7bbc-4087-bd98-dda8966144f8",
+      "task_name": "extract_mandate_from_text",
+      "passed": true,
+      "duration_ms": 0.07128715515136719,
+      "actual_output": {
+        "action": "Buy",
+        "amount": 5000,
+        "price_limit": 42.5,
+        "deadline": "14:00",
+        "stop_loss": 40.0,
+        "metrics": [
+          5000.0,
+          42.5,
+          14.0,
+          0.0,
+          40.0
+        ]
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.896303Z"
+    },
+    {
+      "task_id": "3a10b4e5-db90-4b48-bf31-29c826915eb7",
+      "task_name": "extract_ticker_symbols",
+      "passed": true,
+      "duration_ms": 0.08225440979003906,
+      "actual_output": {
+        "tickers": [
+          "BRK.B",
+          "AAPL",
+          "GOOGL"
+        ],
+        "metrics": []
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.896388Z"
+    },
+    {
+      "task_id": "20efeee7-c783-4eb8-8bcf-39cbb740fdcc",
+      "task_name": "extract_numerical_signals",
+      "passed": true,
+      "duration_ms": 0.041484832763671875,
+      "actual_output": {
+        "tickers": [
+          "RSI"
+        ],
+        "metrics": [
+          250.0,
+          3.5,
+          72.0
+        ]
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.896433Z"
+    },
+    {
+      "task_id": "82412a88-949e-4e78-8b44-7d43c28cf011",
+      "task_name": "extract_from_malformed_input",
+      "passed": true,
+      "duration_ms": 0.0286102294921875,
+      "actual_output": {
+        "metrics": [],
+        "extracted": "key",
+        "recovered": true
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.896464Z"
+    },
+    {
+      "task_id": "0cef84a9-e910-484f-9606-f20fee675933",
+      "task_name": "debate_council_response_validation",
+      "passed": true,
+      "duration_ms": 0.02193450927734375,
+      "actual_output": {
+        "proposer": "Alpha",
+        "position": "proceed",
+        "reasoning": "Market conditions favorable",
+        "confidence": 0.88
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.896489Z"
+    },
+    {
+      "task_id": "53fdace3-092c-424d-b352-0cce0051b942",
+      "task_name": "debate_consensus_scoring",
+      "passed": true,
+      "duration_ms": 0.030040740966796875,
+      "actual_output": {
+        "consensus_score": 0.6666666666666666,
+        "agreement_percentage": "66.7%"
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.896522Z"
+    },
+    {
+      "task_id": "ecc51ce5-c2b5-4e87-85c9-30250fae1b2c",
+      "task_name": "debate_dissent_detection",
+      "passed": true,
+      "duration_ms": 0.04839897155761719,
+      "actual_output": {
+        "consensus_score": 0.6,
+        "agreement_percentage": "60.0%",
+        "dissent_detected": true,
+        "dissent_count": 2
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.896574Z"
+    },
+    {
+      "task_id": "e1c6eb76-0f96-4364-a7f4-133700873150",
+      "task_name": "debate_role_adherence",
+      "passed": true,
+      "duration_ms": 0.034809112548828125,
+      "actual_output": {
+        "adherent": true,
+        "role_match": "risk"
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.896612Z"
+    },
+    {
+      "task_id": "ae08219c-567c-4be7-ab27-0ab45b4a9172",
+      "task_name": "debate_synthesis_quality",
+      "passed": true,
+      "duration_ms": 0.00762939453125,
+      "actual_output": {
+        "quality_score": 0.85,
+        "synthesis_valid": true
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.896622Z"
+    },
+    {
+      "task_id": "3a6748cb-efd5-47ce-bf8a-0e55bbb2e40f",
+      "task_name": "mandate_structure_validation",
+      "passed": true,
+      "duration_ms": 0.0476837158203125,
+      "actual_output": {
+        "id": "mandate_001",
+        "action": "buy",
+        "amount": 5000,
+        "price_limit": 42.5,
+        "deadline": "2026-04-13T14:00:00Z",
+        "status": "active"
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.896672Z"
+    },
+    {
+      "task_id": "be141961-361f-490d-be1a-ebda553a8281",
+      "task_name": "mandate_priority_bounds",
+      "passed": true,
+      "duration_ms": 0.0247955322265625,
+      "actual_output": {
+        "priority": 8,
+        "priority_range": [
+          1,
+          10
+        ],
+        "priority_valid": true
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.896699Z"
+    },
+    {
+      "task_id": "292667a8-994d-4cdd-aec3-565006d0e683",
+      "task_name": "mandate_status_transitions",
+      "passed": true,
+      "duration_ms": 0.020742416381835938,
+      "actual_output": {
+        "transition_valid": true,
+        "new_status": "executed"
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.896723Z"
+    },
+    {
+      "task_id": "d8bf6cf6-daa8-458e-a731-29135df37f6f",
+      "task_name": "mandate_pillar_assignment",
+      "passed": true,
+      "duration_ms": 0.042438507080078125,
+      "actual_output": {
+        "assigned_pillar": "finance",
+        "assignment_confidence": 0.9
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.896768Z"
+    },
+    {
+      "task_id": "c5563158-5b8f-441f-9248-793d14f7545b",
+      "task_name": "mandate_success_criteria",
+      "passed": true,
+      "duration_ms": 0.06103515625,
+      "actual_output": {
+        "criteria_count": 2,
+        "criteria": [
+          "Execute buy order: success = order filled at \u226442.5 within 1h",
+          " no slippage >0.2%"
+        ]
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.896832Z"
+    },
+    {
+      "task_id": "12cb4cfd-4cf3-4ece-b1b1-41db3372a59f",
+      "task_name": "search_tfidf_accuracy",
+      "passed": true,
+      "duration_ms": 0.03337860107421875,
+      "actual_output": {
+        "results": [
+          {
+            "id": "d1",
+            "text": "market signal received today"
+          },
+          {
+            "id": "d3",
+            "text": "market analysis with signal"
+          },
+          {
+            "id": "d2",
+            "text": "unrelated content here"
+          }
+        ],
+        "top_match": "d1"
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.896868Z"
+    },
+    {
+      "task_id": "0459556d-a8a0-4463-a4f0-9f2f4622261d",
+      "task_name": "search_tag_based",
+      "passed": true,
+      "duration_ms": 0.027418136596679688,
+      "actual_output": {
+        "results": [
+          {
+            "id": "d1",
+            "tags": [
+              "urgent",
+              "market"
+            ]
+          },
+          {
+            "id": "d2",
+            "tags": [
+              "urgent"
+            ]
+          },
+          {
+            "id": "d3",
+            "tags": [
+              "market"
+            ]
+          }
+        ],
+        "top_match": "d1",
+        "matches": [
+          {
+            "id": "d1",
+            "tags": [
+              "urgent",
+              "market"
+            ]
+          }
+        ],
+        "match_ids": [
+          "d1"
+        ]
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.896898Z"
+    },
+    {
+      "task_id": "34681815-9306-4fec-87f0-4d1a5dc734d6",
+      "task_name": "search_correlation_chain",
+      "passed": true,
+      "duration_ms": 0.03170967102050781,
+      "actual_output": {
+        "chain": [
+          "m1",
+          "m2",
+          "m3",
+          "m4",
+          "m4"
+        ],
+        "correlation_count": 3
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.896932Z"
+    },
+    {
+      "task_id": "846e199f-72a1-4074-b964-a844d684fb54",
+      "task_name": "pipeline_pump_to_mandate",
+      "passed": true,
+      "duration_ms": 0.03814697265625,
+      "actual_output": {
+        "mandate": {
+          "id": "generated_mandate",
+          "action": "analyze",
+          "target": "market",
+          "status": "active"
+        },
+        "status": "active",
+        "pillar": "finance"
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.896973Z"
+    },
+    {
+      "task_id": "6caf48a3-5d7c-4f68-b144-103fdb8ada11",
+      "task_name": "pipeline_feedback_loop",
+      "passed": true,
+      "duration_ms": 0.0069141387939453125,
+      "actual_output": {
+        "feedback_recorded": true,
+        "memory_updated": true
+      },
+      "errors": [],
+      "failure_reasons": [],
+      "timestamp": "2026-04-14T03:05:54.896983Z"
+    }
+  ],
+  "regression_detected": false,
+  "regression_tasks": [],
+  "timestamp": "2026-04-14T03:05:54.897518Z"
+}

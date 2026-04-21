@@ -1,0 +1,860 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>NCL Memory Dashboard</title>
+<style>
+  :root {
+    --bg: #0a0e17;
+    --surface: #111827;
+    --surface2: #1a2332;
+    --border: #1e3a5f;
+    --text: #e2e8f0;
+    --text-muted: #8b9dc3;
+    --accent: #38bdf8;
+    --green: #22c55e;
+    --yellow: #eab308;
+    --red: #ef4444;
+    --orange: #f97316;
+    --purple: #a78bfa;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Header */
+  .header {
+    background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    backdrop-filter: blur(12px);
+  }
+  .header h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.3px; }
+  .header h1 span { color: var(--accent); }
+  .header-right { display: flex; gap: 12px; align-items: center; }
+  .last-updated { font-size: 12px; color: var(--text-muted); }
+  .refresh-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: all 0.2s;
+  }
+  .refresh-btn:hover { background: var(--border); }
+  .refresh-btn:active { transform: scale(0.96); }
+  .refresh-btn.spin { animation: spin 1s linear; }
+  @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+  /* Grid */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 16px;
+    padding: 20px 24px;
+    max-width: 1600px;
+    margin: 0 auto;
+  }
+
+  /* Cards */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 20px;
+    transition: border-color 0.2s;
+  }
+  .card:hover { border-color: var(--accent); }
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+  .card-title {
+    font-size: 14px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+  }
+  .card-full { grid-column: 1 / -1; }
+
+  /* Stats */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .stat {
+    background: var(--surface2);
+    padding: 14px;
+    border-radius: 10px;
+    text-align: center;
+  }
+  .stat-value { font-size: 28px; font-weight: 700; color: var(--accent); }
+  .stat-label { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+
+  /* Search section */
+  .search-section {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .search-bar {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .search-input {
+    flex: 1;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+  }
+  .search-input::placeholder { color: var(--text-muted); }
+  .search-input:focus { outline: none; border-color: var(--accent); }
+  .search-btn {
+    background: rgba(56, 189, 248, 0.2);
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    padding: 10px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    transition: all 0.2s;
+  }
+  .search-btn:hover { background: rgba(56, 189, 248, 0.3); }
+
+  /* Filter controls */
+  .filter-controls {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 10px;
+  }
+  .filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .filter-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+  }
+  .filter-input {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+  }
+  .filter-input:focus { outline: none; border-color: var(--accent); }
+
+  /* Tags input */
+  .tags-input {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 8px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+  }
+  .tag-pill {
+    background: rgba(56, 189, 248, 0.15);
+    color: var(--accent);
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .tag-pill button {
+    background: none;
+    border: none;
+    color: var(--accent);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+  }
+  .tag-input-field {
+    background: transparent;
+    border: none;
+    color: var(--text);
+    font-size: 12px;
+    flex: 1;
+    min-width: 60px;
+    outline: none;
+  }
+  .tag-input-field::placeholder { color: var(--text-muted); }
+
+  /* Memory units list */
+  .memory-units {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 600px;
+    overflow-y: auto;
+  }
+  .memory-units::-webkit-scrollbar { width: 4px; }
+  .memory-units::-webkit-scrollbar-track { background: transparent; }
+  .memory-units::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+  .unit-card {
+    background: var(--surface2);
+    border: 1px solid rgba(30, 58, 95, 0.5);
+    border-radius: 8px;
+    padding: 12px;
+    transition: all 0.2s;
+  }
+  .unit-card:hover { border-color: var(--accent); background: rgba(30, 58, 95, 0.3); }
+
+  .unit-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 8px;
+  }
+  .unit-source {
+    display: inline-block;
+    background: rgba(56, 189, 248, 0.15);
+    color: var(--accent);
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .unit-importance {
+    font-size: 12px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  /* Importance bar */
+  .importance-bar {
+    width: 100%;
+    height: 4px;
+    background: rgba(139, 157, 195, 0.2);
+    border-radius: 2px;
+    overflow: hidden;
+    margin: 8px 0;
+  }
+  .importance-fill {
+    height: 100%;
+    border-radius: 2px;
+    background: linear-gradient(90deg, var(--red), var(--yellow), var(--green));
+    transition: width 0.3s ease;
+  }
+
+  .unit-content {
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.4;
+    margin-bottom: 8px;
+    word-break: break-word;
+  }
+  .unit-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .unit-age { }
+  .unit-reinforcements { }
+
+  .unit-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 8px;
+  }
+  .unit-tag {
+    background: rgba(167, 139, 250, 0.15);
+    color: var(--purple);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+  }
+
+  /* Stats panels */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+
+  /* Pie chart placeholder */
+  .chart-container {
+    position: relative;
+    width: 200px;
+    height: 200px;
+    margin: 0 auto;
+  }
+  canvas { max-width: 100%; }
+
+  /* Timeline */
+  .timeline {
+    max-height: 400px;
+    overflow-y: auto;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 12px;
+  }
+  .timeline::-webkit-scrollbar { width: 4px; }
+  .timeline::-webkit-scrollbar-track { background: transparent; }
+  .timeline::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+  .timeline-event {
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(30, 58, 95, 0.2);
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+  }
+  .timeline-event:last-child { border-bottom: none; }
+  .timeline-time { color: var(--accent); flex-shrink: 0; font-weight: 600; }
+  .timeline-type {
+    color: var(--purple);
+    flex-shrink: 0;
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 10px;
+  }
+  .timeline-msg { color: var(--text-muted); flex: 1; }
+
+  /* Histogram */
+  .histogram {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 8px;
+  }
+  .histogram-bar {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+  .bar-visual {
+    width: 100%;
+    background: linear-gradient(180deg, var(--accent), rgba(56, 189, 248, 0.3));
+    border-radius: 4px 4px 0 0;
+    min-height: 10px;
+  }
+  .bar-label { font-size: 10px; color: var(--text-muted); }
+  .bar-value { font-size: 12px; font-weight: 600; color: var(--accent); }
+
+  /* Loading state */
+  .loading { opacity: 0.6; pointer-events: none; }
+  .spinner {
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  /* Responsive */
+  @media (max-width: 1024px) {
+    .grid { grid-template-columns: repeat(2, 1fr); }
+    .stats-grid { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 768px) {
+    .grid { grid-template-columns: 1fr; }
+    .filter-controls { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1><span>NCL</span> Memory Dashboard</h1>
+  <div class="header-right">
+    <button class="refresh-btn" id="refreshBtn" onclick="manualRefresh()">↻ Refresh</button>
+    <span class="last-updated" id="lastUpdated">Loading...</span>
+  </div>
+</div>
+
+<div class="grid">
+
+  <!-- Search Panel -->
+  <div class="card card-full">
+    <div class="card-header">
+      <span class="card-title">Memory Search</span>
+    </div>
+    <div class="search-section">
+      <div class="search-bar">
+        <input type="text" class="search-input" id="searchInput" placeholder="Search memory content...">
+        <button class="search-btn" onclick="performSearch()">Search</button>
+      </div>
+      <div class="filter-controls">
+        <div class="filter-group">
+          <label class="filter-label">Importance Min</label>
+          <input type="range" class="filter-input" id="importanceFilter" min="0" max="100" value="0" style="cursor: pointer;">
+          <span style="font-size: 11px; color: var(--accent);" id="importanceValue">0</span>
+        </div>
+        <div class="filter-group">
+          <label class="filter-label">Days Back</label>
+          <input type="number" class="filter-input" id="daysBackFilter" min="1" max="365" value="30">
+        </div>
+        <div class="filter-group" style="grid-column: 1 / -1;">
+          <label class="filter-label">Tags (Enter to add)</label>
+          <div class="tags-input" id="tagsInput">
+            <input type="text" class="tag-input-field" id="tagInputField" placeholder="Add tag...">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Memory Stats -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Memory Statistics</span>
+    </div>
+    <div class="stats">
+      <div class="stat">
+        <div class="stat-value" id="totalUnits">—</div>
+        <div class="stat-label">Total Units</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="avgImportance">—</div>
+        <div class="stat-label">Avg Importance</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="decayFactor">—</div>
+        <div class="stat-label">Decay Factor</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Units by Source -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Units by Source</span>
+    </div>
+    <div id="sourceList"></div>
+  </div>
+
+  <!-- Top Tags -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Top Tags (Tag Cloud)</span>
+    </div>
+    <div id="tagCloud" style="display: flex; flex-wrap: wrap; gap: 8px;"></div>
+  </div>
+
+  <!-- Memory Units List -->
+  <div class="card card-full">
+    <div class="card-header">
+      <span class="card-title">Search Results</span>
+      <span id="resultCount" style="font-size: 12px; color: var(--text-muted);">0 results</span>
+    </div>
+    <div class="memory-units" id="memoryUnits">
+      <div style="text-align: center; padding: 20px; color: var(--text-muted);">
+        Perform a search to view results
+      </div>
+    </div>
+  </div>
+
+  <!-- Importance Distribution -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Importance Distribution</span>
+    </div>
+    <div class="histogram" id="histogram"></div>
+  </div>
+
+  <!-- Decay Visualization -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Memory Decay Status</span>
+    </div>
+    <div id="decayStatus" style="font-size: 13px; line-height: 1.6;"></div>
+  </div>
+
+  <!-- Memory Timeline -->
+  <div class="card card-full">
+    <div class="card-header">
+      <span class="card-title">Memory Timeline (Recent Events)</span>
+      <span id="timelineCount" style="font-size: 12px; color: var(--text-muted);">0 events</span>
+    </div>
+    <div class="timeline" id="timeline"></div>
+  </div>
+
+</div>
+
+<script>
+// State
+let tags = [];
+let autoRefresh = null;
+const POLL_INTERVAL = 30000; // 30 seconds
+
+// Relative time formatter
+function getRelativeTime(dateStr) {
+  if (!dateStr) return '—';
+  const date = new Date(dateStr);
+  const now = new Date();
+  const seconds = Math.floor((now - date) / 1000);
+  if (seconds < 60) return 'now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+// Fetch stats
+async function fetchStats() {
+  try {
+    const response = await fetch('http://localhost:8800/memory/stats');
+    if (!response.ok) throw new Error('Failed to fetch stats');
+    return await response.json();
+  } catch (err) {
+    console.error('Fetch stats error:', err);
+    return null;
+  }
+}
+
+// Fetch timeline
+async function fetchTimeline() {
+  try {
+    const response = await fetch('http://localhost:8800/memory/timeline');
+    if (!response.ok) throw new Error('Failed to fetch timeline');
+    return await response.json();
+  } catch (err) {
+    console.error('Fetch timeline error:', err);
+    return [];
+  }
+}
+
+// Search memory
+async function searchMemory(queryText, filterTags, importanceThreshold, daysBack) {
+  try {
+    const response = await fetch('http://localhost:8800/memory/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query_text: queryText,
+        tags: filterTags,
+        importance_threshold: importanceThreshold,
+        days_back: daysBack,
+      }),
+    });
+    if (!response.ok) throw new Error('Failed to search');
+    return await response.json();
+  } catch (err) {
+    console.error('Search error:', err);
+    return [];
+  }
+}
+
+// Render stats
+function renderStats(stats) {
+  if (!stats) {
+    document.getElementById('totalUnits').textContent = '—';
+    document.getElementById('avgImportance').textContent = '—';
+    document.getElementById('decayFactor').textContent = '—';
+    return;
+  }
+
+  document.getElementById('totalUnits').textContent = stats.total_units || 0;
+  document.getElementById('avgImportance').textContent = (stats.avg_importance || 0).toFixed(1);
+  document.getElementById('decayFactor').textContent = (stats.decay_factor || 0.95).toFixed(2);
+
+  // Render source breakdown
+  const sourceList = document.getElementById('sourceList');
+  const sources = stats.units_by_source || {};
+  if (Object.keys(sources).length === 0) {
+    sourceList.innerHTML = '<div style="color: var(--text-muted); font-size: 12px;">No units yet</div>';
+  } else {
+    sourceList.innerHTML = Object.entries(sources)
+      .map(
+        ([source, count]) =>
+          `<div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(30,58,95,0.3); font-size: 13px;">
+        <span>${source}</span>
+        <span style="color: var(--accent); font-weight: 600;">${count}</span>
+      </div>`
+      )
+      .join('');
+  }
+
+  // Render tag cloud
+  const tagCloud = document.getElementById('tagCloud');
+  const topTags = stats.top_tags || [];
+  if (topTags.length === 0) {
+    tagCloud.innerHTML = '<div style="color: var(--text-muted); font-size: 12px;">No tags yet</div>';
+  } else {
+    const maxCount = Math.max(...topTags.map((t) => t.count), 1);
+    tagCloud.innerHTML = topTags
+      .map(
+        ({ tag, count }) => {
+          const size = 12 + (count / maxCount) * 12; // 12-24px
+          return `<div style="
+        background: rgba(167, 139, 250, 0.2);
+        color: var(--purple);
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: ${size}px;
+        font-weight: ${500 + Math.round((count / maxCount) * 300)};
+        transition: all 0.2s;
+        cursor: pointer;"
+      onclick="addTagFilter('${tag}')"
+      title="${count} units">${tag}</div>`;
+        }
+      )
+      .join('');
+  }
+
+  // Render importance distribution
+  const dist = stats.importance_distribution || {};
+  const histogram = document.getElementById('histogram');
+  const ranges = ['0-20', '20-40', '40-60', '60-80', '80-100'];
+  const maxCount = Math.max(...ranges.map((r) => dist[r] || 0), 1);
+  histogram.innerHTML = ranges
+    .map((range) => {
+      const count = dist[range] || 0;
+      const height = (count / maxCount) * 100 || 5;
+      return `
+    <div class="histogram-bar">
+      <div class="bar-visual" style="height: ${height}px;"></div>
+      <div class="bar-value">${count}</div>
+      <div class="bar-label">${range}</div>
+    </div>
+  `;
+    })
+    .join('');
+
+  // Decay status summary
+  const decayingCount = (dist['0-20'] || 0);
+  const decayStatus = document.getElementById('decayStatus');
+  if (decayingCount === 0) {
+    decayStatus.innerHTML =
+      '<span style="color: var(--green);">✓ All memories above decay threshold</span>';
+  } else {
+    decayStatus.innerHTML = `
+    <span style="color: var(--yellow);">⚠ ${decayingCount} memories decaying below importance 20</span>
+    <div style="margin-top: 10px; font-size: 12px; color: var(--text-muted);">
+      Consider reinforcing or archiving low-importance units.
+    </div>
+  `;
+  }
+}
+
+// Render timeline
+function renderTimeline(events) {
+  const timeline = document.getElementById('timeline');
+  const badge = document.getElementById('timelineCount');
+
+  if (!events || events.length === 0) {
+    timeline.innerHTML = '<div class="timeline-event"><span class="timeline-time">[--:--]</span><span class="timeline-type">INFO</span><span class="timeline-msg">No events</span></div>';
+    badge.textContent = '0 events';
+    return;
+  }
+
+  timeline.innerHTML = events
+    .slice(0, 50)
+    .map((e) => {
+      const date = new Date(e.timestamp);
+      const time = date.toLocaleTimeString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+      const type = (e.type || 'event').toUpperCase().substring(0, 8);
+      let msg = '';
+      if (e.type === 'created') {
+        msg = `Created (${e.source})`;
+      } else if (e.type === 'accessed') {
+        msg = `Accessed (+${e.reinforcement_count} count)`;
+      } else if (e.type === 'decay_warning') {
+        msg = `Decay: ${e.original_importance.toFixed(0)} → ${e.decayed_importance}`;
+      }
+      return `
+    <div class="timeline-event">
+      <span class="timeline-time">${time}</span>
+      <span class="timeline-type">${type}</span>
+      <span class="timeline-msg">${msg}</span>
+    </div>
+  `;
+    })
+    .join('');
+
+  badge.textContent = `${events.length} events`;
+}
+
+// Render search results
+function renderResults(results) {
+  const container = document.getElementById('memoryUnits');
+  const badge = document.getElementById('resultCount');
+
+  if (!results || results.length === 0) {
+    container.innerHTML =
+      '<div style="text-align: center; padding: 20px; color: var(--text-muted);">No results found</div>';
+    badge.textContent = '0 results';
+    return;
+  }
+
+  badge.textContent = `${results.length} results`;
+  container.innerHTML = results
+    .map((unit) => {
+      const color = unit.importance >= 80 ? 'green' : unit.importance >= 60 ? 'yellow' : unit.importance >= 40 ? 'orange' : 'red';
+      return `
+    <div class="unit-card">
+      <div class="unit-header">
+        <span class="unit-source">${unit.source}</span>
+        <span class="unit-importance">${unit.importance.toFixed(0)}%</span>
+      </div>
+      <div class="importance-bar">
+        <div class="importance-fill" style="width: ${unit.importance}%;"></div>
+      </div>
+      <div class="unit-content">${escapeHtml(unit.content)}</div>
+      <div class="unit-meta">
+        <span class="unit-age">Age: ${getRelativeTime(unit.created_at)}</span>
+        <span class="unit-reinforcements">Reinforced: ${unit.reinforcement_count}x</span>
+      </div>
+      ${unit.tags.length > 0 ? `<div class="unit-tags">${unit.tags.map((t) => `<span class="unit-tag">${t}</span>`).join('')}</div>` : ''}
+    </div>
+  `;
+    })
+    .join('');
+}
+
+// Escape HTML
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// Add tag to filter
+function addTagFilter(tag) {
+  if (!tags.includes(tag)) {
+    tags.push(tag);
+    renderTags();
+    performSearch();
+  }
+}
+
+// Remove tag from filter
+function removeTag(tag) {
+  tags = tags.filter((t) => t !== tag);
+  renderTags();
+  performSearch();
+}
+
+// Render tags
+function renderTags() {
+  const container = document.getElementById('tagsInput');
+  const field = container.querySelector('.tag-input-field');
+  container.innerHTML = tags.map((tag) => `<div class="tag-pill">${tag}<button onclick="removeTag('${tag}')">×</button></div>`).join('') + `<input type="text" class="tag-input-field" id="tagInputField" placeholder="Add tag...">`;
+  const newField = container.querySelector('.tag-input-field');
+  newField.onkeypress = handleTagInput;
+}
+
+// Handle tag input
+function handleTagInput(e) {
+  if (e.key === 'Enter') {
+    const value = e.target.value.trim();
+    if (value && !tags.includes(value)) {
+      tags.push(value);
+      renderTags();
+      performSearch();
+    }
+  }
+}
+
+// Perform search
+async function performSearch() {
+  const queryText = document.getElementById('searchInput').value;
+  const importanceThreshold = parseFloat(document.getElementById('importanceFilter').value);
+  const daysBack = parseInt(document.getElementById('daysBackFilter').value) || 30;
+
+  const results = await searchMemory(queryText, tags, importanceThreshold, daysBack);
+  renderResults(results);
+}
+
+// Update timestamp
+function updateTimestamp() {
+  const now = new Date();
+  const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  document.getElementById('lastUpdated').textContent = `Updated: ${timeStr}`;
+}
+
+// Manual refresh
+async function manualRefresh() {
+  const btn = document.getElementById('refreshBtn');
+  btn.classList.add('spin');
+  await refreshAll();
+  setTimeout(() => btn.classList.remove('spin'), 1000);
+}
+
+// Refresh all data
+async function refreshAll() {
+  const [stats, timeline] = await Promise.all([fetchStats(), fetchTimeline()]);
+  renderStats(stats);
+  renderTimeline(timeline);
+  updateTimestamp();
+}
+
+// Initialize
+async function init() {
+  // Set up importance filter label updater
+  const importanceFilter = document.getElementById('importanceFilter');
+  importanceFilter.oninput = (e) => {
+    document.getElementById('importanceValue').textContent = e.target.value;
+  };
+
+  // Set up tag input
+  document.getElementById('tagInputField').onkeypress = handleTagInput;
+
+  // Initial load
+  await refreshAll();
+
+  // Auto-refresh every 30s
+  autoRefresh = setInterval(refreshAll, POLL_INTERVAL);
+}
+
+// Start on load
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}
+</script>
+
+</body>
+</html>

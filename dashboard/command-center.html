@@ -1,0 +1,2046 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="NCL Command">
+<meta name="theme-color" content="#0a0a0f">
+<link rel="manifest" href="/app/manifest.json">
+<link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%230a0a0f' width='100' height='100' rx='20'/><text x='50' y='68' text-anchor='middle' font-size='50' fill='%2300ff88'>⚡</text></svg>">
+<title>NCL Command Center</title>
+<style>
+:root {
+  --bg: #0a0a0f;
+  --surface: #12121a;
+  --surface2: #1a1a28;
+  --border: #2a2a3a;
+  --text: #e0e0e8;
+  --text2: #8888a0;
+  --accent: #00ff88;
+  --accent2: #00cc6a;
+  --red: #ff4466;
+  --orange: #ff8844;
+  --blue: #4488ff;
+  --purple: #aa66ff;
+  --radius: 12px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100dvh;
+  padding-top: var(--safe-top);
+  padding-bottom: calc(var(--safe-bottom) + 70px);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(10,10,15,0.92);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.header-left { display:flex; align-items:center; gap:10px; }
+.header h1 { font-size:18px; font-weight:700; letter-spacing:-0.3px; }
+.header h1 span { color: var(--accent); }
+.status-dot {
+  width:8px; height:8px; border-radius:50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+  animation: pulse 2s infinite;
+}
+.status-dot.offline { background: var(--red); box-shadow: 0 0 8px var(--red); }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+.refresh-btn {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text2);
+  font-size: 14px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.refresh-btn:active { transform:scale(0.95); background: var(--border); }
+.refresh-btn.spinning { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.container { max-width: 900px; margin: 0 auto; padding: 12px; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 12px;
+}
+.card-title {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text2);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.card-title .icon { font-size: 16px; }
+
+/* Health Grid */
+.health-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+}
+.health-item {
+  background: var(--surface2);
+  border-radius: 8px;
+  padding: 12px;
+  text-align: center;
+}
+.health-item .value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1.2;
+}
+.health-item .label {
+  font-size: 11px;
+  color: var(--text2);
+  margin-top: 4px;
+}
+
+/* Intel Brief */
+.brief-content {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+  white-space: pre-wrap;
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 12px;
+  background: var(--surface2);
+  border-radius: 8px;
+  border-left: 3px solid var(--accent);
+}
+.brief-meta {
+  font-size: 11px;
+  color: var(--text2);
+  margin-top: 8px;
+  display: flex;
+  gap: 12px;
+}
+.no-data {
+  color: var(--text2);
+  font-size: 13px;
+  padding: 20px;
+  text-align: center;
+  font-style: italic;
+}
+
+/* Signals */
+.signal-item {
+  background: var(--surface2);
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 10px;
+  border-left: 3px solid var(--blue);
+  transition: all 0.2s;
+}
+.signal-item.critical { border-left-color: var(--red); }
+.signal-item.high { border-left-color: var(--orange); }
+.signal-item.medium { border-left-color: var(--blue); }
+.signal-item .signal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.signal-item .signal-title {
+  font-size: 14px;
+  font-weight: 600;
+  flex: 1;
+}
+.signal-item .signal-direction {
+  font-size: 18px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.signal-item .signal-content {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  margin-bottom: 8px;
+  opacity: 0.85;
+}
+.signal-item .signal-stats {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.signal-stat {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text2);
+}
+.signal-stat .stat-value {
+  color: var(--text);
+  font-weight: 700;
+}
+.signal-stat.positive .stat-value { color: var(--accent); }
+.signal-stat.negative .stat-value { color: var(--red); }
+.signal-item .signal-meta {
+  font-size: 11px;
+  color: var(--text2);
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.signal-item .signal-tags {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+.signal-tag {
+  background: rgba(68,136,255,0.1);
+  color: var(--blue);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 500;
+}
+.signal-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.signal-badge.critical { background: rgba(255,68,102,0.2); color: var(--red); }
+.signal-badge.high { background: rgba(255,136,68,0.2); color: var(--orange); }
+.signal-badge.medium { background: rgba(68,136,255,0.2); color: var(--blue); }
+.signal-link {
+  color: var(--accent2);
+  text-decoration: none;
+  font-size: 11px;
+  font-weight: 500;
+}
+.signal-link:hover { text-decoration: underline; }
+
+/* Signal action buttons */
+.signal-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.signal-action-btn {
+  flex: 1;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  background: var(--surface);
+  color: var(--text);
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+.signal-action-btn:active { transform: scale(0.96); }
+.signal-action-btn.pump-it {
+  background: rgba(0,255,136,0.08);
+  border-color: var(--accent2);
+  color: var(--accent);
+}
+.signal-action-btn.council-it {
+  background: rgba(170,102,255,0.08);
+  border-color: var(--purple);
+  color: var(--purple);
+}
+.signal-action-btn.pump-it:active { background: rgba(0,255,136,0.2); }
+.signal-action-btn.council-it:active { background: rgba(170,102,255,0.2); }
+
+/* Predictions */
+.prediction-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: var(--surface2);
+  border-radius: 8px;
+  margin-bottom: 6px;
+  gap: 10px;
+}
+.prediction-item .pred-question {
+  font-size: 13px;
+  font-weight: 500;
+  flex: 1;
+  line-height: 1.3;
+}
+.prediction-item .pred-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.pred-prob {
+  font-size: 16px;
+  font-weight: 700;
+  min-width: 48px;
+  text-align: right;
+}
+.pred-prob.bullish { color: var(--accent); }
+.pred-prob.bearish { color: var(--red); }
+.pred-prob.neutral { color: var(--text2); }
+.pred-bar {
+  width: 50px;
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.pred-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.5s;
+}
+.pred-vol {
+  font-size: 10px;
+  color: var(--text2);
+}
+
+/* Brief History */
+.brief-history-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: var(--surface2);
+  border-radius: 8px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.brief-history-item:active { transform: scale(0.98); background: var(--border); }
+.brief-history-item .bh-left { flex: 1; }
+.brief-history-item .bh-type {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--accent);
+  letter-spacing: 0.5px;
+}
+.brief-history-item .bh-summary {
+  font-size: 13px;
+  margin-top: 2px;
+  color: var(--text);
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.brief-history-item .bh-right {
+  text-align: right;
+  flex-shrink: 0;
+  margin-left: 10px;
+}
+.brief-history-item .bh-date {
+  font-size: 11px;
+  color: var(--text2);
+}
+.brief-history-item .bh-stats {
+  font-size: 10px;
+  color: var(--text2);
+  margin-top: 2px;
+}
+
+/* Council Reports */
+.report-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  background: var(--surface2);
+  border-radius: 8px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border-left: 3px solid var(--purple);
+}
+.report-item:active { transform: scale(0.98); }
+.report-item .rpt-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+.report-item .rpt-preview {
+  font-size: 12px;
+  color: var(--text2);
+  margin-top: 3px;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.report-item .rpt-meta {
+  font-size: 10px;
+  color: var(--text2);
+  text-align: right;
+  flex-shrink: 0;
+  margin-left: 10px;
+}
+
+/* Brief detail modal */
+.brief-detail-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.8);
+  z-index: 300;
+  padding: calc(var(--safe-top) + 10px) 10px calc(var(--safe-bottom) + 80px);
+  overflow-y: auto;
+}
+.brief-detail-overlay.show { display: block; }
+.brief-detail-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  max-width: 900px;
+  margin: 0 auto;
+}
+.brief-detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.brief-detail-close {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.brief-detail-close:active { background: var(--border); }
+
+/* Services */
+.service-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.service-row:last-child { border-bottom: none; }
+.service-name { font-size: 13px; font-weight: 500; }
+.service-status {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+.service-status.up { background: rgba(0,255,136,0.15); color: var(--accent); }
+.service-status.down { background: rgba(255,68,102,0.15); color: var(--red); }
+.service-status.unknown { background: rgba(136,136,160,0.15); color: var(--text2); }
+
+/* Action Buttons */
+.actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.action-btn {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 14px 12px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.action-btn:active { transform:scale(0.97); }
+.action-btn.primary {
+  background: rgba(0,255,136,0.12);
+  border-color: var(--accent2);
+  color: var(--accent);
+}
+.action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.action-btn .spinner {
+  display: none;
+  width: 14px; height: 14px;
+  border: 2px solid var(--text2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+.action-btn.loading .spinner { display: inline-block; }
+.action-btn.loading .btn-text { display: none; }
+
+/* Pump Input */
+.pump-area {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pump-input {
+  width: 100%;
+  min-height: 80px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 14px;
+  padding: 12px;
+  resize: vertical;
+  font-family: inherit;
+}
+.pump-input:focus { outline: none; border-color: var(--accent); }
+.pump-input::placeholder { color: var(--text2); }
+
+/* Bottom Nav */
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(10,10,15,0.95);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid var(--border);
+  display: flex;
+  padding: 8px 0 calc(var(--safe-bottom) + 4px);
+  z-index: 100;
+}
+.nav-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px;
+  cursor: pointer;
+  color: var(--text2);
+  transition: color 0.2s;
+  border: none;
+  background: none;
+  font-family: inherit;
+}
+.nav-item.active { color: var(--accent); }
+.nav-item .nav-icon { font-size: 20px; }
+.nav-item .nav-label { font-size: 10px; font-weight: 600; }
+
+/* Tab content */
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* Toast */
+.toast {
+  position: fixed;
+  top: calc(var(--safe-top) + 60px);
+  left: 50%;
+  transform: translateX(-50%) translateY(-20px);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 10px 20px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  z-index: 200;
+  opacity: 0;
+  transition: all 0.3s;
+  pointer-events: none;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.toast.success { border-color: var(--accent); }
+.toast.error { border-color: var(--red); }
+
+/* Pending Pumps */
+.pump-pending {
+  background: var(--surface2);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 8px;
+  border-left: 3px solid var(--purple);
+}
+.pump-pending .pump-id {
+  font-size: 11px;
+  color: var(--text2);
+  font-family: monospace;
+}
+.pump-pending .pump-preview {
+  font-size: 13px;
+  margin: 6px 0;
+  line-height: 1.4;
+  max-height: 60px;
+  overflow: hidden;
+}
+.pump-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.pump-actions button {
+  flex: 1;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+.pump-actions .approve {
+  background: rgba(0,255,136,0.12);
+  color: var(--accent);
+  border-color: var(--accent2);
+}
+.pump-actions .reject {
+  background: rgba(255,68,102,0.1);
+  color: var(--red);
+  border-color: var(--red);
+}
+.pump-actions button:active { transform: scale(0.97); }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+/* Loading skeleton */
+.skeleton {
+  background: linear-gradient(90deg, var(--surface2) 25%, var(--border) 50%, var(--surface2) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 6px;
+  height: 16px;
+  margin: 4px 0;
+}
+@keyframes shimmer { to { background-position: -200% 0; } }
+
+@media (min-width: 768px) {
+  .container { padding: 20px; }
+  .card { padding: 20px; }
+  .actions { grid-template-columns: repeat(4, 1fr); }
+  .health-grid { grid-template-columns: repeat(4, 1fr); }
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <div class="status-dot" id="statusDot"></div>
+    <h1><span>NCL</span> Command Center</h1>
+  </div>
+  <div style="display:flex;gap:6px;align-items:center">
+    <button class="refresh-btn" id="notifPermBtn" onclick="requestNotifPermission()" style="font-size:11px">🔕 Enable Notifications</button>
+    <button class="refresh-btn" id="refreshBtn" onclick="refreshAll()">↻</button>
+  </div>
+</div>
+
+<div class="container">
+  <!-- TAB: Overview -->
+  <div class="tab-content active" id="tab-overview">
+    <div class="card">
+      <div class="card-title"><span class="icon">⚡</span> System Health</div>
+      <div class="health-grid" id="healthGrid">
+        <div class="health-item"><div class="value" id="h-uptime">--</div><div class="label">Uptime</div></div>
+        <div class="health-item"><div class="value" id="h-pumps">--</div><div class="label">Pumps</div></div>
+        <div class="health-item"><div class="value" id="h-mandates">--</div><div class="label">Mandates</div></div>
+        <div class="health-item"><div class="value" id="h-councils">--</div><div class="label">Councils</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="icon">🛰</span> Services</div>
+      <div id="servicesList"><div class="no-data">Loading...</div></div>
+    </div>
+  </div>
+
+  <!-- TAB: Intel -->
+  <div class="tab-content" id="tab-intel">
+    <div class="card">
+      <div class="card-title"><span class="icon">📡</span> Latest Intelligence Brief</div>
+      <div id="briefContent"><div class="no-data">Loading...</div></div>
+      <div class="brief-meta" id="briefMeta"></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="icon">🔮</span> Predictions</div>
+      <div id="predictionsList"><div class="no-data">Loading...</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="icon">🔥</span> Top Signals</div>
+      <div id="signalsList"><div class="no-data">Loading...</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="icon">📂</span> Brief History</div>
+      <div id="briefHistory"><div class="no-data">Loading...</div></div>
+    </div>
+  </div>
+
+  <!-- TAB: Reports -->
+  <div class="tab-content" id="tab-reports">
+    <div class="card">
+      <div class="card-title"><span class="icon">🏛</span> Council Reports</div>
+      <div id="councilReportsList"><div class="no-data">Loading...</div></div>
+    </div>
+    <div class="card" id="reportViewerCard" style="display:none">
+      <div class="card-title"><span class="icon">📄</span> <span id="reportViewerTitle">Report</span></div>
+      <div class="brief-content" id="reportViewerContent" style="max-height:600px"></div>
+    </div>
+  </div>
+
+  <!-- TAB: Actions -->
+  <div class="tab-content" id="tab-actions">
+    <div class="card">
+      <div class="card-title"><span class="icon">🎯</span> Quick Actions</div>
+      <div class="actions">
+        <button class="action-btn primary" onclick="doAction('brief')">
+          <span class="spinner"></span>
+          <span class="btn-text">📡 Generate Brief</span>
+        </button>
+        <button class="action-btn" onclick="doAction('collect')">
+          <span class="spinner"></span>
+          <span class="btn-text">🔍 Collect Signals</span>
+        </button>
+        <button class="action-btn" onclick="doAction('council')">
+          <span class="spinner"></span>
+          <span class="btn-text">🏛 Run Council</span>
+        </button>
+        <button class="action-btn" onclick="doAction('notify')">
+          <span class="spinner"></span>
+          <span class="btn-text">🔔 Test Push</span>
+        </button>
+        <button class="action-btn" onclick="doAction('scan')">
+          <span class="spinner"></span>
+          <span class="btn-text">📊 Scan Now</span>
+        </button>
+        <button class="action-btn" onclick="doAction('escalate')">
+          <span class="spinner"></span>
+          <span class="btn-text">🚨 Escalate</span>
+        </button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="icon">💉</span> Pump Input</div>
+      <div class="pump-area">
+        <textarea class="pump-input" id="pumpInput" placeholder="Enter pump prompt... (strategic question, research directive, etc.)"></textarea>
+        <div style="display:flex; gap:8px; margin-top:8px;">
+          <button class="action-btn primary" id="pumpSubmitBtn" onclick="submitPump(false)" style="flex:1">
+            <span class="spinner"></span>
+            <span class="btn-text">⚡ Quick Pump</span>
+          </button>
+          <button class="action-btn" id="councilSubmitBtn" onclick="submitPump(true)" style="flex:1; background:var(--surface2); border:1px solid var(--purple);">
+            <span class="spinner"></span>
+            <span class="btn-text">🏛 Council Deep-Dive</span>
+          </button>
+        </div>
+      </div>
+    </div>
+    <!-- PUMP RESPONSE PANEL -->
+    <div class="card" id="pumpResponseCard" style="display:none;">
+      <div class="card-title"><span class="icon" id="pumpResponseIcon">⏳</span> <span id="pumpResponseTitle">Processing...</span></div>
+      <div id="pumpResponseStatus" style="font-size:12px; color:var(--text2); margin-bottom:8px;"></div>
+      <div id="pumpResponseBody" style="
+        background: var(--surface2);
+        border-radius: 8px;
+        padding: 12px;
+        font-size: 13px;
+        line-height: 1.6;
+        max-height: 400px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+      "></div>
+      <div id="pumpResponseActions" style="display:none; margin-top:10px; gap:8px;">
+        <button class="action-btn primary" id="pumpApproveBtn" style="flex:1; font-size:13px;" onclick="pumpResponseApprove()">
+          <span class="btn-text">✅ Approve & Dispatch</span>
+        </button>
+        <button class="action-btn" id="pumpRejectBtn" style="flex:1; font-size:13px; background:var(--surface2); border:1px solid var(--red);" onclick="pumpResponseReject()">
+          <span class="btn-text">❌ Reject</span>
+        </button>
+      </div>
+      <div id="pumpResponseMeta" style="margin-top:8px; font-size:11px; color:var(--text2);"></div>
+    </div>
+    <!-- PUMP HISTORY (last 5) -->
+    <div class="card" id="pumpHistoryCard">
+      <div class="card-title"><span class="icon">📜</span> Recent Pumps</div>
+      <div id="pumpHistory"><div class="no-data">No recent pumps</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="icon">📋</span> Pending Approvals</div>
+      <div id="pendingList"><div class="no-data">Loading...</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- FLEET TAB -->
+<div id="tab-fleet" class="tab-content">
+  <div class="card">
+    <div class="card-title"><span class="icon">🤖</span> BIT RAGE LABOUR Fleet</div>
+    <div id="fleetStatus"><div class="no-data">Loading fleet status...</div></div>
+  </div>
+  <div class="card">
+    <div class="card-title"><span class="icon">⚙️</span> Fleet Controls</div>
+    <div class="actions-grid">
+      <button class="action-btn" onclick="dlAction('csuite')">
+        <span class="spinner"></span>
+        <span class="btn-text">👔 C-Suite Meeting</span>
+      </button>
+      <button class="action-btn" onclick="dlAction('nerve-start')">
+        <span class="spinner"></span>
+        <span class="btn-text">🧠 Start NERVE</span>
+      </button>
+      <button class="action-btn" onclick="dlAction('nerve-stop')">
+        <span class="spinner"></span>
+        <span class="btn-text">🛑 Stop NERVE</span>
+      </button>
+      <button class="action-btn" onclick="dlAction('outreach')">
+        <span class="spinner"></span>
+        <span class="btn-text">📧 Push Outreach</span>
+      </button>
+      <button class="action-btn" onclick="dlAction('followups')">
+        <span class="spinner"></span>
+        <span class="btn-text">🔄 Run Follow-ups</span>
+      </button>
+      <button class="action-btn" onclick="dlAction('sync')">
+        <span class="spinner"></span>
+        <span class="btn-text">🔗 Resonance Sync</span>
+      </button>
+      <button class="action-btn" onclick="dlAction('diagnostics')">
+        <span class="spinner"></span>
+        <span class="btn-text">🔍 Diagnostics</span>
+      </button>
+    </div>
+  </div>
+  <!-- DL PIPELINE (Semi-Autonomous) -->
+  <div class="card" id="dlPipelineCard" style="border-left: 3px solid var(--purple);">
+    <div class="card-title"><span class="icon">🏗</span> BIT RAGE LABOUR (Semi-Autonomous)</div>
+    <div id="dlPipelineStatus"><div class="no-data">Loading pipeline...</div></div>
+  </div>
+  <div class="card" id="dlPipelineBlockedCard" style="display:none; border-left: 3px solid var(--orange);">
+    <div class="card-title"><span class="icon">🔒</span> Awaiting Approval</div>
+    <div id="dlPipelineBlocked"></div>
+  </div>
+  <div class="card">
+    <div class="card-title"><span class="icon">📊</span> Agent Registry</div>
+    <div id="agentRegistry"><div class="no-data">Loading agents...</div></div>
+  </div>
+  <div class="card">
+    <div class="card-title"><span class="icon">📜</span> Recent NCC Decisions</div>
+    <div id="nccDecisions"><div class="no-data">Loading...</div></div>
+  </div>
+</div>
+
+<nav class="bottom-nav">
+  <button class="nav-item active" data-tab="overview">
+    <span class="nav-icon">⚡</span>
+    <span class="nav-label">Overview</span>
+  </button>
+  <button class="nav-item" data-tab="intel">
+    <span class="nav-icon">📡</span>
+    <span class="nav-label">Intel</span>
+  </button>
+  <button class="nav-item" data-tab="reports">
+    <span class="nav-icon">🏛</span>
+    <span class="nav-label">Reports</span>
+  </button>
+  <button class="nav-item" data-tab="fleet">
+    <span class="nav-icon">🤖</span>
+    <span class="nav-label">Fleet</span>
+  </button>
+  <button class="nav-item" data-tab="actions">
+    <span class="nav-icon">🎯</span>
+    <span class="nav-label">Actions</span>
+  </button>
+</nav>
+
+<div class="brief-detail-overlay" id="briefOverlay">
+  <div class="brief-detail-card">
+    <div class="brief-detail-header">
+      <div class="card-title" style="margin:0"><span class="icon">📡</span> <span id="briefDetailTitle">Brief</span></div>
+      <button class="brief-detail-close" onclick="closeBriefDetail()">✕</button>
+    </div>
+    <div class="brief-content" id="briefDetailBody" style="max-height:70vh"></div>
+    <div class="brief-meta" id="briefDetailMeta" style="margin-top:8px"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const AUTH = 'QKpHcK8lnL9s4P4mFkwzN4ugLP9sokvBWrmqNcs2ItU';
+const HEADERS = { 'Authorization': `Bearer ${AUTH}`, 'Content-Type': 'application/json' };
+const HEADERS_NO_AUTH = { 'Content-Type': 'application/json' };
+
+let refreshTimer = null;
+let online = false;
+
+// ── Tabs ──
+document.querySelectorAll('.nav-item').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+// ── Toast ──
+function toast(msg, type='success') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show ' + type;
+  setTimeout(() => el.className = 'toast', 3000);
+}
+
+// ── API helper ──
+async function api(path, opts={}) {
+  const needsAuth = ['/pump', '/pump/pending', '/pump/approve', '/pump/reject'].some(p => path.startsWith(p));
+  try {
+    const res = await fetch(path, {
+      headers: needsAuth ? HEADERS : HEADERS_NO_AUTH,
+      ...opts,
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return await res.json();
+  } catch(e) {
+    console.error(`API ${path}:`, e);
+    throw e;
+  }
+}
+
+// ── Format uptime ──
+function fmtUptime(secs) {
+  if (!secs) return '--';
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  if (h > 24) return Math.floor(h/24) + 'd';
+  if (h > 0) return h + 'h ' + m + 'm';
+  return m + 'm';
+}
+
+// ── Load Health ──
+async function loadHealth() {
+  try {
+    const data = await api('/health');
+    online = true;
+    document.getElementById('statusDot').classList.remove('offline');
+    document.getElementById('h-uptime').textContent = fmtUptime(data.uptime);
+  } catch {
+    online = false;
+    document.getElementById('statusDot').classList.add('offline');
+    document.getElementById('h-uptime').textContent = '⛔';
+  }
+}
+
+// ── Load Dashboard ──
+async function loadDashboard() {
+  try {
+    const data = await api('/dashboard');
+    document.getElementById('h-pumps').textContent = data.pump_count || 0;
+    document.getElementById('h-mandates').textContent = data.active_mandates || 0;
+    document.getElementById('h-councils').textContent = data.council_sessions || 0;
+
+    // Services
+    const services = data.services || [];
+    const container = document.getElementById('servicesList');
+    if (services.length === 0) {
+      container.innerHTML = '<div class="no-data">No services registered</div>';
+    } else {
+      container.innerHTML = services.map(s => `
+        <div class="service-row">
+          <span class="service-name">${s.name || s.service || 'Unknown'}</span>
+          <span class="service-status ${s.status === 'running' || s.status === 'up' ? 'up' : s.status === 'down' ? 'down' : 'unknown'}">${s.status || '?'}</span>
+        </div>
+      `).join('');
+    }
+  } catch {
+    document.getElementById('servicesList').innerHTML = '<div class="no-data">Could not load dashboard</div>';
+  }
+}
+
+// ── Load Intel ──
+async function loadIntel() {
+  try {
+    const data = await api('/intelligence/latest');
+    const el = document.getElementById('briefContent');
+    const meta = document.getElementById('briefMeta');
+    if (data.status === 'no_brief') {
+      el.innerHTML = '<div class="no-data">No brief generated yet. Tap "Generate Brief" to create one.</div>';
+      meta.innerHTML = '';
+    } else {
+      el.innerHTML = `<div class="brief-content">${escHtml(data.text || JSON.stringify(data.data, null, 2))}</div>`;
+      meta.innerHTML = `
+        <span>Type: ${data.brief_type || 'daily'}</span>
+        <span>Signals: ${data.total_signals || 0}</span>
+        <span>${data.timestamp ? new Date(data.timestamp).toLocaleString() : ''}</span>
+      `;
+    }
+  } catch {
+    document.getElementById('briefContent').innerHTML = '<div class="no-data">Intel engine offline</div>';
+  }
+}
+
+// ── Load Signals ──
+async function loadSignals() {
+  try {
+    const data = await api('/intelligence/signals/top?limit=10');
+    const el = document.getElementById('signalsList');
+    const signals = data.signals || [];
+    if (signals.length === 0) {
+      el.innerHTML = '<div class="no-data">No signals yet</div>';
+    } else {
+      el.innerHTML = signals.map(s => {
+        const sev = (s.severity || s.importance || 50);
+        const level = sev >= 80 ? 'critical' : sev >= 60 ? 'high' : 'medium';
+        const dir = s.direction || 'neutral';
+        const arrows = {bullish:'▲',bearish:'▼',emerging:'★',expanding:'↑',contracting:'↓',neutral:'●'};
+        const arrow = arrows[dir] || '●';
+        const arrowColor = dir==='bullish'||dir==='expanding' ? 'var(--accent)' : dir==='bearish'||dir==='contracting' ? 'var(--red)' : 'var(--text2)';
+
+        // Content / context snippet
+        const content = s.content || '';
+        const contentHtml = content ? `<div class="signal-content">${escHtml(content.slice(0, 300))}${content.length > 300 ? '...' : ''}</div>` : '';
+
+        // Stats pills
+        let stats = [];
+        if (s.change_pct != null) {
+          const sign = s.change_pct > 0 ? '+' : '';
+          const cls = s.change_pct > 0 ? 'positive' : s.change_pct < 0 ? 'negative' : '';
+          stats.push(`<div class="signal-stat ${cls}"><span class="stat-value">${sign}${s.change_pct.toFixed(1)}%</span> change</div>`);
+        }
+        if (s.value != null) {
+          stats.push(`<div class="signal-stat">Value: <span class="stat-value">${fmtNum(s.value)}</span></div>`);
+        }
+        if (s.volume != null) {
+          stats.push(`<div class="signal-stat">Vol: <span class="stat-value">${fmtNum(s.volume)}</span></div>`);
+        }
+        if (s.confidence) {
+          stats.push(`<div class="signal-stat">Conf: <span class="stat-value">${(s.confidence * 100).toFixed(0)}%</span></div>`);
+        }
+        stats.push(`<div class="signal-stat">Score: <span class="stat-value">${Math.round(sev)}</span></div>`);
+        const statsHtml = stats.length ? `<div class="signal-stats">${stats.join('')}</div>` : '';
+
+        // Tags
+        const tags = s.tags || [];
+        const cat = s.category || '';
+        const allTags = cat ? [cat, ...tags] : tags;
+        const tagsHtml = allTags.length ? `<div class="signal-tags">${allTags.slice(0,6).map(t => `<span class="signal-tag">${escHtml(t)}</span>`).join('')}</div>` : '';
+
+        // Source link
+        const linkHtml = s.url ? ` · <a class="signal-link" href="${escHtml(s.url)}" target="_blank" rel="noopener">Source ↗</a>` : '';
+
+        // Timestamp
+        const ts = s.timestamp ? new Date(s.timestamp).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '';
+
+        // Encode signal data for action buttons
+        const sigData = btoa(encodeURIComponent(JSON.stringify({
+          title: s.title, content: content.slice(0,500), source: s.source,
+          direction: dir, category: cat, change_pct: s.change_pct,
+          value: s.value, confidence: s.confidence, tags: allTags, url: s.url
+        })));
+
+        return `
+          <div class="signal-item ${level}">
+            <div class="signal-header">
+              <div class="signal-title">${escHtml(s.title || 'Signal')}</div>
+              <div class="signal-direction" style="color:${arrowColor}">${arrow}</div>
+            </div>
+            ${contentHtml}
+            ${statsHtml}
+            <div class="signal-meta">
+              <span class="signal-badge ${level}">${level}</span>
+              <span>${escHtml(s.source || '')}</span>
+              <span>${dir}</span>
+              <span>${ts}</span>
+              ${linkHtml}
+            </div>
+            ${tagsHtml}
+            <div class="signal-actions">
+              <button class="signal-action-btn pump-it" onclick="expandSignal('${sigData}')">⚡ Expand via Pump</button>
+              <button class="signal-action-btn council-it" onclick="councilSignal('${sigData}')">🏛 Send to Council</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+  } catch {
+    document.getElementById('signalsList').innerHTML = '<div class="no-data">Could not load signals</div>';
+  }
+}
+
+// ── Load Predictions ──
+async function loadPredictions() {
+  try {
+    const data = await api('/intelligence/latest');
+    const el = document.getElementById('predictionsList');
+    const preds = (data.data || {}).predictions || [];
+    if (preds.length === 0) {
+      el.innerHTML = '<div class="no-data">No predictions available</div>';
+      return;
+    }
+    // Sort by volume descending
+    preds.sort((a,b) => (b.volume||0) - (a.volume||0));
+    el.innerHTML = preds.slice(0, 15).map(p => {
+      const prob = p.probability || 0;
+      const pct = (prob * 100).toFixed(0);
+      const dir = p.direction || (prob > 0.6 ? 'bullish' : prob < 0.4 ? 'bearish' : 'neutral');
+      const color = dir === 'bullish' ? 'var(--accent)' : dir === 'bearish' ? 'var(--red)' : 'var(--text2)';
+      return `
+        <div class="prediction-item">
+          <div class="pred-question">${escHtml(p.question || 'Unknown')}</div>
+          <div class="pred-right">
+            <div>
+              <div class="pred-prob ${dir}">${pct}%</div>
+              ${p.volume ? `<div class="pred-vol">$${fmtNum(p.volume)}</div>` : ''}
+            </div>
+            <div class="pred-bar"><div class="pred-bar-fill" style="width:${pct}%;background:${color}"></div></div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch {
+    document.getElementById('predictionsList').innerHTML = '<div class="no-data">Could not load predictions</div>';
+  }
+}
+
+// ── Load Brief History ──
+async function loadBriefHistory() {
+  try {
+    const data = await api('/intelligence/briefs?limit=20');
+    const el = document.getElementById('briefHistory');
+    const briefs = data.briefs || [];
+    if (briefs.length === 0) {
+      el.innerHTML = '<div class="no-data">No briefs generated yet</div>';
+      return;
+    }
+    el.innerHTML = briefs.map(b => {
+      const ts = b.timestamp ? new Date(b.timestamp).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '';
+      return `
+        <div class="brief-history-item" onclick="viewBrief('${escHtml(b.brief_id)}')">
+          <div class="bh-left">
+            <div class="bh-type">${escHtml(b.brief_type)} brief</div>
+            <div class="bh-summary">${escHtml(b.executive_summary || 'No summary')}</div>
+          </div>
+          <div class="bh-right">
+            <div class="bh-date">${ts}</div>
+            <div class="bh-stats">${b.total_signals || 0} sig · ${b.sectors || 0} sec · ${b.predictions || 0} pred</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch {
+    document.getElementById('briefHistory').innerHTML = '<div class="no-data">Could not load brief history</div>';
+  }
+}
+
+async function viewBrief(briefId) {
+  try {
+    const data = await api(`/intelligence/briefs/${briefId}`);
+    document.getElementById('briefDetailTitle').textContent = `${data.brief_type || 'Daily'} Brief`;
+    document.getElementById('briefDetailBody').textContent = data.text || JSON.stringify(data.data, null, 2);
+    document.getElementById('briefDetailMeta').innerHTML = `
+      <span>Type: ${data.brief_type || 'daily'}</span>
+      <span>Signals: ${data.total_signals || 0}</span>
+      <span>${data.timestamp ? new Date(data.timestamp).toLocaleString() : ''}</span>
+    `;
+    document.getElementById('briefOverlay').classList.add('show');
+  } catch(e) {
+    toast('Could not load brief: ' + e.message, 'error');
+  }
+}
+
+function closeBriefDetail() {
+  document.getElementById('briefOverlay').classList.remove('show');
+}
+
+// ── Load Council Reports ──
+async function loadCouncilReports() {
+  try {
+    const data = await api('/councils/reports');
+    const el = document.getElementById('councilReportsList');
+    const reports = data.reports || [];
+    if (reports.length === 0) {
+      el.innerHTML = '<div class="no-data">' + (data.note || 'No council reports yet. Run a council session first.') + '</div>';
+      return;
+    }
+    el.innerHTML = reports.map(r => {
+      const ts = r.modified_at ? new Date(r.modified_at).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '';
+      const size = r.size_bytes ? (r.size_bytes / 1024).toFixed(1) + 'KB' : '';
+      return `
+        <div class="report-item" onclick="viewReport('${escHtml(r.filename)}')">
+          <div>
+            <div class="rpt-name">${escHtml(r.filename.replace('.md',''))}</div>
+            <div class="rpt-preview">${escHtml(r.preview || '')}</div>
+          </div>
+          <div class="rpt-meta">${ts}<br>${size}</div>
+        </div>
+      `;
+    }).join('');
+  } catch {
+    document.getElementById('councilReportsList').innerHTML = '<div class="no-data">Could not load council reports</div>';
+  }
+}
+
+async function viewReport(filename) {
+  try {
+    const data = await api(`/councils/reports/${filename}`);
+    document.getElementById('reportViewerTitle').textContent = filename.replace('.md','');
+    document.getElementById('reportViewerContent').textContent = data.content || 'Empty report';
+    document.getElementById('reportViewerCard').style.display = 'block';
+    document.getElementById('reportViewerCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch(e) {
+    toast('Could not load report: ' + e.message, 'error');
+  }
+}
+
+// ── Load Pending ──
+async function loadPending() {
+  try {
+    const data = await api('/pump/pending');
+    const el = document.getElementById('pendingList');
+    const count = data.pending_count || 0;
+    if (count === 0) {
+      el.innerHTML = '<div class="no-data">No pending approvals</div>';
+    } else {
+      const items = Object.entries(data.pending || {});
+      el.innerHTML = items.map(([id, p]) => `
+        <div class="pump-pending">
+          <div class="pump-id">${id.slice(0,12)}</div>
+          <div class="pump-preview">${escHtml((p.prompt || p.input || '').slice(0,200))}</div>
+          <div class="pump-actions">
+            <button class="approve" onclick="approvePump('${id}')">✓ Approve</button>
+            <button class="reject" onclick="rejectPump('${id}')">✕ Reject</button>
+          </div>
+        </div>
+      `).join('');
+    }
+  } catch {
+    document.getElementById('pendingList').innerHTML = '<div class="no-data">Could not load pending</div>';
+  }
+}
+
+// ── Actions ──
+const ACTION_MAP = {
+  brief:    { method:'POST', path:'/intelligence/brief', msg:'Brief generated' },
+  collect:  { method:'POST', path:'/intelligence/collect', msg:'Signals collected' },
+  council:  { method:'POST', path:'/councils/run', body:{council_type:'both', dry_run:false}, msg:'Council session started' },
+  notify:   { method:'POST', path:'/notifications/test', msg:'Test notification sent' },
+  scan:     { method:'POST', path:'/autonomous/scan-now', msg:'Scan complete' },
+  escalate: { method:'POST', path:'/intelligence/escalate', msg:'Escalation triggered' },
+};
+
+async function doAction(key) {
+  const cfg = ACTION_MAP[key];
+  if (!cfg) return;
+  const btns = document.querySelectorAll('.action-btn');
+  const btn = [...btns].find(b => b.querySelector('.btn-text')?.textContent.toLowerCase().includes(key.slice(0,4)));
+  if (btn) { btn.classList.add('loading'); btn.disabled = true; }
+  try {
+    const opts = { method: cfg.method };
+    if (cfg.body) opts.body = JSON.stringify(cfg.body);
+    await api(cfg.path, opts);
+    toast(cfg.msg, 'success');
+    setTimeout(refreshAll, 1500);
+  } catch(e) {
+    toast('Error: ' + e.message, 'error');
+  } finally {
+    if (btn) { btn.classList.remove('loading'); btn.disabled = false; }
+  }
+}
+
+// ── Pump state ──
+let _lastPumpId = null;
+let _pumpHistory = [];
+
+async function submitPump(autoFlow = false) {
+  const input = document.getElementById('pumpInput');
+  const text = input.value.trim();
+  if (!text) { toast('Enter a prompt first', 'error'); return; }
+
+  const btn = autoFlow ? document.getElementById('councilSubmitBtn') : document.getElementById('pumpSubmitBtn');
+  const otherBtn = autoFlow ? document.getElementById('pumpSubmitBtn') : document.getElementById('councilSubmitBtn');
+  btn.classList.add('loading'); btn.disabled = true; otherBtn.disabled = true;
+
+  // Show response panel immediately with loading state
+  const mode = autoFlow ? 'Council Deep-Dive' : 'Quick Pump';
+  showPumpResponse({
+    status: 'processing',
+    icon: '⏳',
+    title: `${mode} — Processing...`,
+    statusText: `Sent: "${text.substring(0, 80)}${text.length > 80 ? '...' : ''}"`,
+    body: autoFlow
+      ? '🏛 Council session starting...\n\nClaude (Chair) is convening the council.\nGrok, Gemini, and GPT are being briefed.\n\nThis typically takes 30-60 seconds.\nThe response will appear here automatically.'
+      : '⚡ Processing pump prompt...\n\nThe brain is analyzing your directive.\nResponse will appear momentarily.',
+    showActions: false,
+  });
+
+  const startTime = Date.now();
+
+  try {
+    const result = await api(`/pump?auto_flow=${autoFlow}`, {
+      method: 'POST',
+      body: JSON.stringify({ prompt: text }),
+    });
+
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    _lastPumpId = result.pump_id || result.prompt_id || null;
+
+    if (autoFlow && result.council_output) {
+      // Council mode — show full council response
+      showPumpResponse({
+        status: 'complete',
+        icon: '🏛',
+        title: 'Council Report Ready',
+        statusText: `Completed in ${elapsed}s | Pump ID: ${_lastPumpId || 'N/A'}`,
+        body: formatCouncilOutput(result),
+        showActions: !!(result.proposed_mandates && result.proposed_mandates.length),
+        pumpId: _lastPumpId,
+      });
+      toast('Council report ready — review below', 'success');
+    } else if (autoFlow && result.status === 'council_session_started') {
+      // Council started but response is async — poll for it
+      showPumpResponse({
+        status: 'waiting',
+        icon: '🏛',
+        title: 'Council Session Running...',
+        statusText: `Session started | Pump ID: ${_lastPumpId || 'N/A'}`,
+        body: '🏛 Council is deliberating...\n\nThe session is running in the background.\nCheck "Pending Approvals" below for the result,\nor refresh in ~60 seconds.',
+        showActions: false,
+      });
+      toast('Council session launched — results will appear when ready', 'success');
+      // Poll pending list after delay
+      setTimeout(loadPending, 5000);
+      setTimeout(loadPending, 15000);
+      setTimeout(loadPending, 30000);
+    } else {
+      // Quick pump — show the acknowledgment with any data returned
+      showPumpResponse({
+        status: 'complete',
+        icon: '⚡',
+        title: 'Pump Received',
+        statusText: `Acknowledged in ${elapsed}s | ID: ${_lastPumpId || 'N/A'}`,
+        body: formatPumpResult(result, text),
+        showActions: false,
+      });
+      toast('Pump received by brain', 'success');
+    }
+
+    // Add to history
+    _pumpHistory.unshift({
+      time: new Date().toLocaleTimeString(),
+      mode: mode,
+      prompt: text.substring(0, 60),
+      pumpId: _lastPumpId,
+      elapsed: elapsed + 's',
+    });
+    if (_pumpHistory.length > 5) _pumpHistory.pop();
+    renderPumpHistory();
+
+    input.value = '';
+    setTimeout(loadPending, 2000);
+
+  } catch(e) {
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    showPumpResponse({
+      status: 'error',
+      icon: '❌',
+      title: 'Pump Failed',
+      statusText: `Failed after ${elapsed}s`,
+      body: `Error: ${e.message}\n\nPrompt: "${text.substring(0, 200)}"`,
+      showActions: false,
+    });
+    toast('Pump failed: ' + e.message, 'error');
+  } finally {
+    btn.classList.remove('loading'); btn.disabled = false; otherBtn.disabled = false;
+  }
+}
+
+function showPumpResponse({ status, icon, title, statusText, body, showActions, pumpId }) {
+  const card = document.getElementById('pumpResponseCard');
+  card.style.display = 'block';
+  document.getElementById('pumpResponseIcon').textContent = icon;
+  document.getElementById('pumpResponseTitle').textContent = title;
+  document.getElementById('pumpResponseStatus').textContent = statusText || '';
+  document.getElementById('pumpResponseBody').innerHTML = escHtml(body);
+  const actionsEl = document.getElementById('pumpResponseActions');
+  actionsEl.style.display = showActions ? 'flex' : 'none';
+  if (pumpId) {
+    actionsEl.dataset.pumpId = pumpId;
+  }
+  // Color code the card border
+  const borderColor = status === 'error' ? 'var(--red)' : status === 'processing' || status === 'waiting' ? 'var(--orange)' : 'var(--accent)';
+  card.style.borderLeft = `3px solid ${borderColor}`;
+  // Scroll into view
+  card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function formatCouncilOutput(result) {
+  let output = '';
+  if (result.council_output) {
+    output += result.council_output;
+  }
+  if (result.summary) {
+    output += '\n\n📋 SUMMARY:\n' + result.summary;
+  }
+  if (result.proposed_mandates && result.proposed_mandates.length) {
+    output += '\n\n📋 PROPOSED MANDATES (' + result.proposed_mandates.length + '):\n';
+    result.proposed_mandates.forEach((m, i) => {
+      output += `\n${i+1}. ${m.title || m.objective || 'Mandate ' + (i+1)}`;
+      if (m.pillar) output += ` [${m.pillar}]`;
+      if (m.priority) output += ` P${m.priority}`;
+    });
+  }
+  if (result.consensus) {
+    output += '\n\n🤝 CONSENSUS:\n' + result.consensus;
+  }
+  return output || JSON.stringify(result, null, 2);
+}
+
+function formatPumpResult(result, originalPrompt) {
+  let output = `Prompt: "${originalPrompt.substring(0, 150)}${originalPrompt.length > 150 ? '...' : ''}"\n\n`;
+  output += '── Response ──\n';
+
+  if (result.pump_id) output += `Pump ID: ${result.pump_id}\n`;
+  if (result.intent) output += `Intent: ${result.intent}\n`;
+  if (result.urgency) output += `Urgency: ${result.urgency}\n`;
+  if (result.status) output += `Status: ${result.status}\n`;
+
+  // Show any additional data in the response
+  const knownKeys = new Set(['pump_id', 'prompt_id', 'intent', 'urgency', 'status']);
+  const extra = Object.entries(result).filter(([k]) => !knownKeys.has(k));
+  if (extra.length) {
+    output += '\n── Details ──\n';
+    extra.forEach(([k, v]) => {
+      if (typeof v === 'string') {
+        output += `${k}: ${v}\n`;
+      } else if (v !== null && v !== undefined) {
+        output += `${k}: ${JSON.stringify(v, null, 2)}\n`;
+      }
+    });
+  }
+
+  return output;
+}
+
+async function pumpResponseApprove() {
+  const pumpId = document.getElementById('pumpResponseActions').dataset.pumpId;
+  if (!pumpId) { toast('No pump ID to approve', 'error'); return; }
+  try {
+    await api(`/pump/approve/${pumpId}`, { method: 'POST' });
+    toast('Approved and dispatched', 'success');
+    showPumpResponse({
+      status: 'complete',
+      icon: '✅',
+      title: 'Approved & Dispatched',
+      statusText: `Pump ${pumpId} dispatched to NCC`,
+      body: 'Mandates have been approved and dispatched to the execution pipeline.',
+      showActions: false,
+    });
+    loadPending();
+  } catch(e) {
+    toast('Approve failed: ' + e.message, 'error');
+  }
+}
+
+async function pumpResponseReject() {
+  const pumpId = document.getElementById('pumpResponseActions').dataset.pumpId;
+  if (!pumpId) { toast('No pump ID to reject', 'error'); return; }
+  try {
+    await api(`/pump/reject/${pumpId}`, { method: 'POST' });
+    toast('Rejected', 'success');
+    showPumpResponse({
+      status: 'complete',
+      icon: '🗑',
+      title: 'Rejected',
+      statusText: `Pump ${pumpId} rejected`,
+      body: 'Pump prompt and proposed mandates have been discarded.',
+      showActions: false,
+    });
+    loadPending();
+  } catch(e) {
+    toast('Reject failed: ' + e.message, 'error');
+  }
+}
+
+function renderPumpHistory() {
+  const el = document.getElementById('pumpHistory');
+  if (!_pumpHistory.length) {
+    el.innerHTML = '<div class="no-data">No recent pumps</div>';
+    return;
+  }
+  el.innerHTML = _pumpHistory.map(h => `
+    <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--border); font-size:12px;">
+      <div>
+        <span style="color:${h.mode.includes('Council') ? 'var(--purple)' : 'var(--accent)'}">${h.mode.includes('Council') ? '🏛' : '⚡'}</span>
+        <span style="color:var(--text2)">${h.time}</span>
+        <span style="margin-left:6px">${escHtml(h.prompt)}${h.prompt.length >= 60 ? '...' : ''}</span>
+      </div>
+      <span style="color:var(--text2); font-size:11px">${h.elapsed}</span>
+    </div>
+  `).join('');
+}
+
+async function approvePump(id) {
+  try {
+    await api(`/pump/approve/${id}`, { method:'POST' });
+    toast('Approved', 'success');
+    loadPending();
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+async function rejectPump(id) {
+  try {
+    await api(`/pump/reject/${id}`, { method:'POST' });
+    toast('Rejected', 'success');
+    loadPending();
+  } catch(e) { toast('Error: ' + e.message, 'error'); }
+}
+
+// ── Signal → Pump (expand on topic) ──
+function expandSignal(encoded) {
+  const sig = JSON.parse(decodeURIComponent(atob(encoded)));
+  const changeLine = sig.change_pct != null ? ` (${sig.change_pct > 0 ? '+' : ''}${sig.change_pct.toFixed(1)}% change)` : '';
+  const prompt = [
+    `EXPAND SIGNAL: ${sig.title}${changeLine}`,
+    ``,
+    `Source: ${sig.source} | Direction: ${sig.direction} | Category: ${sig.category || 'general'}`,
+    sig.content ? `\nContext: ${sig.content}` : '',
+    sig.url ? `\nRef: ${sig.url}` : '',
+    ``,
+    `Directive: Produce an expanded intelligence report on this signal.`,
+    `- What is driving this movement/trend?`,
+    `- What are the 2nd and 3rd order effects?`,
+    `- Who are the key players and what are their positions?`,
+    `- What actionable opportunities or risks does this create?`,
+    `- What related signals should we monitor?`,
+    `- Confidence assessment and timeline.`,
+  ].filter(Boolean).join('\n');
+
+  // Switch to Actions tab and populate pump input
+  document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelector('[data-tab="actions"]').classList.add('active');
+  document.getElementById('tab-actions').classList.add('active');
+  document.getElementById('pumpInput').value = prompt;
+  document.getElementById('pumpInput').focus();
+  toast('Signal loaded into pump — review and submit', 'success');
+  // Scroll to pump input
+  document.getElementById('pumpInput').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+// ── Signal → Council (deep-dive report) ──
+async function councilSignal(encoded) {
+  const sig = JSON.parse(decodeURIComponent(atob(encoded)));
+  const changeLine = sig.change_pct != null ? ` (${sig.change_pct > 0 ? '+' : ''}${sig.change_pct.toFixed(1)}%)` : '';
+  const prompt = [
+    `COUNCIL DEEP-DIVE: ${sig.title}${changeLine}`,
+    `Source: ${sig.source} | Direction: ${sig.direction}`,
+    sig.content ? `Context: ${sig.content}` : '',
+    ``,
+    `Run a full council session analyzing this signal.`,
+    `Each council member should assess from their domain perspective.`,
+    `Produce a consensus report with:`,
+    `1. Root cause analysis`,
+    `2. Cross-domain impact assessment`,
+    `3. Actionable recommendations with confidence levels`,
+    `4. Dissenting opinions and risk factors`,
+    `5. Monitoring triggers for follow-up`,
+  ].filter(Boolean).join('\n');
+
+  // Populate the pump input with the composed prompt and fire it as council deep-dive
+  const input = document.getElementById('pumpInput');
+  input.value = prompt;
+  await submitPump(true);
+}
+
+function escHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function fmtNum(n) {
+  if (n == null) return '--';
+  if (Math.abs(n) >= 1e9) return (n/1e9).toFixed(1) + 'B';
+  if (Math.abs(n) >= 1e6) return (n/1e6).toFixed(1) + 'M';
+  if (Math.abs(n) >= 1e3) return (n/1e3).toFixed(1) + 'K';
+  if (Number.isInteger(n)) return n.toLocaleString();
+  return n.toFixed(2);
+}
+
+// ── Refresh all ──
+async function refreshAll() {
+  const btn = document.getElementById('refreshBtn');
+  btn.classList.add('spinning');
+  await Promise.allSettled([
+    loadHealth(), loadDashboard(), loadIntel(), loadSignals(),
+    loadPredictions(), loadBriefHistory(), loadCouncilReports(), loadPending(),
+    loadDLPipeline()
+  ]);
+  btn.classList.remove('spinning');
+}
+
+// ── Browser Native Notifications ──
+let notifPermission = Notification?.permission || 'default';
+let lastBriefId = null;
+let lastSignalCount = 0;
+let lastPendingCount = 0;
+
+async function requestNotifPermission() {
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'default') {
+    notifPermission = await Notification.requestPermission();
+  } else {
+    notifPermission = Notification.permission;
+  }
+  updateNotifUI();
+}
+
+function updateNotifUI() {
+  const btn = document.getElementById('notifPermBtn');
+  if (!btn) return;
+  if (notifPermission === 'granted') {
+    btn.textContent = '🔔 Notifications On';
+    btn.classList.add('active');
+  } else {
+    btn.textContent = '🔕 Enable Notifications';
+    btn.classList.remove('active');
+  }
+}
+
+function sendBrowserNotif(title, body, tag) {
+  if (notifPermission !== 'granted') return;
+  try {
+    const n = new Notification(title, {
+      body: body,
+      icon: '/app/manifest.json',
+      tag: tag || 'ncl-' + Date.now(),
+      badge: '/app/manifest.json',
+      renotify: true,
+    });
+    n.onclick = () => { window.focus(); n.close(); };
+    // Auto-close after 10s
+    setTimeout(() => n.close(), 10000);
+  } catch(e) { console.warn('Notification failed:', e); }
+}
+
+// ── Change Detection (triggers browser notifications) ──
+async function checkForChanges() {
+  try {
+    // Check for new brief
+    const briefData = await api('/intelligence/latest').catch(() => null);
+    if (briefData && briefData.brief_id && briefData.brief_id !== lastBriefId) {
+      if (lastBriefId !== null) { // Don't notify on first load
+        const summary = (briefData.text || '').slice(0, 150);
+        sendBrowserNotif(
+          '📡 New Intelligence Brief',
+          summary || `${briefData.brief_type} brief — ${briefData.total_signals} signals`,
+          'ncl-brief-' + briefData.brief_id
+        );
+      }
+      lastBriefId = briefData.brief_id;
+    }
+
+    // Check for new high-importance signals
+    const sigData = await api('/intelligence/signals/top?limit=5').catch(() => null);
+    if (sigData && sigData.total > lastSignalCount && lastSignalCount > 0) {
+      const newSigs = sigData.signals.slice(0, sigData.total - lastSignalCount);
+      for (const s of newSigs) {
+        if ((s.importance || 0) >= 70) {
+          sendBrowserNotif(
+            `🔥 ${s.title}`,
+            `${s.content?.slice(0,100) || s.source + ' — ' + s.direction}`,
+            'ncl-signal-' + s.signal_id
+          );
+        }
+      }
+      lastSignalCount = sigData.total;
+    } else if (sigData) {
+      lastSignalCount = sigData.total;
+    }
+
+    // Check for new pending pumps
+    const pendData = await api('/pump/pending').catch(() => null);
+    if (pendData && (pendData.pending_count || 0) > lastPendingCount && lastPendingCount >= 0) {
+      if (lastPendingCount > 0) {
+        sendBrowserNotif(
+          '⚡ Pump Needs Approval',
+          `${pendData.pending_count} pending pump(s) waiting for review`,
+          'ncl-pending'
+        );
+      }
+      lastPendingCount = pendData.pending_count || 0;
+    } else if (pendData) {
+      lastPendingCount = pendData.pending_count || 0;
+    }
+  } catch(e) { console.warn('Change detection error:', e); }
+}
+
+// ── Smart Auto-Refresh ──
+// Active tab: 15s refresh + change detection
+// Hidden tab: 60s refresh (saves battery on phone)
+let refreshInterval = 15000;
+
+function startAutoRefresh() {
+  if (refreshTimer) clearInterval(refreshTimer);
+  refreshAll();
+  refreshTimer = setInterval(() => {
+    refreshAll();
+    checkForChanges();
+  }, refreshInterval);
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    refreshInterval = 60000; // slow down when hidden
+  } else {
+    refreshInterval = 15000; // speed up when visible
+    refreshAll(); // immediate refresh on return
+  }
+  startAutoRefresh();
+});
+
+// ── Server-Sent Events (instant push from brain) ──
+let evtSource = null;
+function connectSSE() {
+  if (evtSource) evtSource.close();
+  evtSource = new EventSource('/app/events');
+  evtSource.onmessage = (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      if (data.type === 'new_brief') {
+        sendBrowserNotif('📡 New Intelligence Brief', data.summary || `${data.brief_type} — ${data.total_signals} signals`, 'ncl-brief');
+        refreshAll();
+      } else if (data.type === 'signals_collected') {
+        toast(`${data.total} signals collected`, 'success');
+        refreshAll();
+      } else if (data.type === 'pump_pending') {
+        sendBrowserNotif('⚡ Pump Needs Approval', data.message || 'New pump waiting', 'ncl-pump');
+        refreshAll();
+      }
+    } catch(err) { console.warn('SSE parse error:', err); }
+  };
+  evtSource.onerror = () => {
+    // Reconnect after 5s on error
+    setTimeout(connectSSE, 5000);
+  };
+}
+
+// ── BIT RAGE LABOUR Fleet ──
+async function loadFleetStatus() {
+  try {
+    const data = await api('/digital-labour/status');
+    const el = document.getElementById('fleetStatus');
+    if (!el) return;
+    if (data.status === 'not_configured') {
+      el.innerHTML = '<div class="no-data">BIT RAGE LABOUR not configured. Clone repo to ~/dev/DIGITAL-LABOUR</div>';
+      return;
+    }
+    const nerve = data.nerve || {};
+    const agents = data.agents || {};
+    el.innerHTML = `
+      <div class="stats-pills">
+        <span class="stat-pill ${data.status === 'online' ? 'up' : 'down'}">${data.status?.toUpperCase()}</span>
+        <span class="stat-pill">${agents.total || 30} Agents</span>
+        <span class="stat-pill ${agents.active > 0 ? 'up' : ''}">${agents.active || 0} Active</span>
+        <span class="stat-pill ${(agents.paused?.length || 0) > 0 ? 'down' : ''}">${agents.paused?.length || 0} Paused</span>
+        <span class="stat-pill ${nerve.running ? 'up' : 'down'}">NERVE: ${nerve.running ? '🟢 Running' : '🔴 Stopped'}</span>
+      </div>
+      <div style="margin-top:8px;font-size:12px;color:#888;">
+        Mode: ${data.mode || 'local'} | Root: ${(data.dl_root || '').split('/').pop()}
+      </div>
+    `;
+  } catch(e) {
+    const el = document.getElementById('fleetStatus');
+    if (el) el.innerHTML = '<div class="no-data">Fleet status unavailable</div>';
+  }
+}
+
+async function loadAgentRegistry() {
+  try {
+    const data = await api('/digital-labour/agents');
+    const el = document.getElementById('agentRegistry');
+    if (!el) return;
+    if (!data.agents || data.agents.length === 0) {
+      el.innerHTML = '<div class="no-data">No agents found</div>';
+      return;
+    }
+    el.innerHTML = data.agents.map(a => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.05);">
+        <div>
+          <span style="color:${a.status === 'active' ? '#4ade80' : '#f87171'};font-size:10px;">●</span>
+          <span style="font-weight:500;margin-left:4px;">${a.name.replace(/_/g,' ')}</span>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          ${a.cost_ceiling ? `<span style="font-size:11px;color:#888;">$${a.cost_ceiling}/task</span>` : ''}
+          <button style="font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid rgba(255,255,255,0.1);background:transparent;color:#ccc;cursor:pointer;"
+                  onclick="toggleAgent('${a.name}','${a.status}')">${a.status === 'active' ? 'Pause' : 'Resume'}</button>
+        </div>
+      </div>
+    `).join('');
+  } catch(e) {
+    const el = document.getElementById('agentRegistry');
+    if (el) el.innerHTML = '<div class="no-data">Agent registry unavailable</div>';
+  }
+}
+
+async function loadNccDecisions() {
+  try {
+    const data = await api('/digital-labour/status');
+    const el = document.getElementById('nccDecisions');
+    if (!el) return;
+    const decisions = data.recent_decisions || [];
+    if (decisions.length === 0) {
+      el.innerHTML = '<div class="no-data">No recent decisions</div>';
+      return;
+    }
+    el.innerHTML = decisions.reverse().map(d => {
+      const dir = d.directive || {};
+      const res = d.result || {};
+      const time = d.timestamp ? new Date(d.timestamp).toLocaleTimeString() : '';
+      return `
+        <div style="padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.05);">
+          <div style="display:flex;justify-content:space-between;">
+            <span style="font-weight:500;">${dir.type || 'unknown'}</span>
+            <span style="font-size:11px;color:${res.executed ? '#4ade80' : '#f87171'};">${res.executed ? '✓' : '✗'} ${time}</span>
+          </div>
+          ${dir.target ? `<div style="font-size:11px;color:#888;">Target: ${dir.target}</div>` : ''}
+        </div>
+      `;
+    }).join('');
+  } catch(e) {}
+}
+
+async function dlAction(action) {
+  const btn = event?.target?.closest('.action-btn');
+  if (btn) { btn.classList.add('loading'); btn.disabled = true; }
+  try {
+    let result;
+    switch(action) {
+      case 'csuite':
+        result = await api('/digital-labour/csuite?quick=false', { method:'POST' });
+        toast('C-Suite board meeting launched', 'success');
+        break;
+      case 'nerve-start':
+        result = await api('/digital-labour/nerve/start', { method:'POST' });
+        toast('NERVE daemon started', 'success');
+        break;
+      case 'nerve-stop':
+        result = await api('/digital-labour/nerve/stop', { method:'POST' });
+        toast('NERVE daemon stopped', 'success');
+        break;
+      case 'outreach':
+        result = await api('/digital-labour/outreach/push', { method:'POST' });
+        toast('Outreach push triggered (50 emails)', 'success');
+        break;
+      case 'followups':
+        result = await api('/digital-labour/outreach/followups', { method:'POST' });
+        toast('Follow-up sequences running', 'success');
+        break;
+      case 'sync':
+        result = await api('/digital-labour/sync', { method:'POST' });
+        toast('Resonance sync triggered', 'success');
+        break;
+      case 'diagnostics':
+        result = await api('/digital-labour/directive', {
+          method:'POST', body: JSON.stringify({type:'system.check'})
+        });
+        toast('System diagnostics running', 'success');
+        break;
+    }
+    setTimeout(() => { loadFleetStatus(); loadNccDecisions(); }, 2000);
+  } catch(e) {
+    toast('Fleet action failed: ' + e.message, 'error');
+  } finally {
+    if (btn) { btn.classList.remove('loading'); btn.disabled = false; }
+  }
+}
+
+async function toggleAgent(name, currentStatus) {
+  try {
+    const action = currentStatus === 'active' ? 'agent.pause' : 'agent.resume';
+    await api('/digital-labour/directive', {
+      method:'POST', body: JSON.stringify({type: action, target: name})
+    });
+    toast(`Agent ${name} ${action === 'agent.pause' ? 'paused' : 'resumed'}`, 'success');
+    setTimeout(loadAgentRegistry, 1000);
+  } catch(e) {
+    toast('Toggle failed: ' + e.message, 'error');
+  }
+}
+
+// Add fleet to refreshAll
+const _origRefreshAll = refreshAll;
+refreshAll = async function() {
+  await _origRefreshAll();
+  loadFleetStatus();
+  loadAgentRegistry();
+  loadNccDecisions();
+};
+
+// Add auth header for DL endpoints
+const _dlPaths = ['/digital-labour/directive','/digital-labour/task','/digital-labour/mandate-route',
+                   '/digital-labour/csuite','/digital-labour/nerve/','/digital-labour/outreach/',
+                   '/digital-labour/sync','/dl-pipeline/submit','/dl-pipeline/approve/','/dl-pipeline/reject/'];
+
+// Patch the api helper to include auth for DL paths
+const _origApi = api;
+api = async function(path, opts={}) {
+  if (_dlPaths.some(p => path.startsWith(p))) {
+    const merged = { ...opts };
+    merged.headers = { ...HEADERS };
+    if (opts.body) merged.body = opts.body;
+    return _origApi(path, merged);
+  }
+  return _origApi(path, opts);
+};
+
+// ── DL Pipeline Status ──
+async function loadDLPipeline() {
+  try {
+    const data = await api('/dl-pipeline/status');
+    const el = document.getElementById('dlPipelineStatus');
+    if (data.status === 'not_initialized') {
+      el.innerHTML = '<div class="no-data">BIT RAGE LABOUR pipeline not active</div>';
+      return;
+    }
+    const s = data.stats || {};
+    const riskColors = { low: 'var(--accent)', medium: 'var(--orange)', high: 'var(--red)', critical: '#ff0044' };
+    let html = `<div style="display:grid; grid-template-columns: repeat(4,1fr); gap:8px; margin-bottom:10px;">
+      <div style="text-align:center"><div style="font-size:18px; color:var(--accent)">${s.total_completed || 0}</div><div style="font-size:11px; color:var(--text2)">Completed</div></div>
+      <div style="text-align:center"><div style="font-size:18px; color:var(--blue)">${s.total_auto_executed || 0}</div><div style="font-size:11px; color:var(--text2)">Auto-Exec</div></div>
+      <div style="text-align:center"><div style="font-size:18px; color:var(--orange)">${s.total_blocked || 0}</div><div style="font-size:11px; color:var(--text2)">Blocked</div></div>
+      <div style="text-align:center"><div style="font-size:18px; color:var(--text)">\$${((s.total_cost_cents||0)/100).toFixed(2)}</div><div style="font-size:11px; color:var(--text2)">Cost</div></div>
+    </div>`;
+
+    // Active items
+    const active = Object.values(data.active || {});
+    if (active.length) {
+      html += '<div style="font-size:12px; color:var(--text2); margin-bottom:4px;">IN FLIGHT:</div>';
+      active.forEach(i => {
+        html += `<div style="padding:4px 0; border-bottom:1px solid var(--border); font-size:12px;">
+          <span style="color:${riskColors[i.risk_level] || 'var(--text)'}">●</span>
+          <b>${escHtml(i.mandate_title || i.id)}</b> → ${i.target_agent} <span style="color:var(--text2)">[${i.stage}]</span>
+        </div>`;
+      });
+    }
+
+    // Recent completed
+    const recent = (data.completed_recent || []).slice(-3);
+    if (recent.length) {
+      html += '<div style="font-size:12px; color:var(--text2); margin-top:8px; margin-bottom:4px;">RECENT:</div>';
+      recent.forEach(i => {
+        html += `<div style="padding:3px 0; font-size:11px; color:var(--text2);">
+          ✓ ${escHtml(i.mandate_title || i.id)} → ${i.target_agent} (\$${(i.cost_cents/100).toFixed(2)})
+        </div>`;
+      });
+    }
+
+    el.innerHTML = html || '<div class="no-data">BRL idle — submit mandates to dispatch agents</div>';
+
+    // Show blocked items
+    const blocked = Object.values(data.blocked || {});
+    const blockedCard = document.getElementById('dlPipelineBlockedCard');
+    const blockedEl = document.getElementById('dlPipelineBlocked');
+    if (blocked.length) {
+      blockedCard.style.display = 'block';
+      blockedEl.innerHTML = blocked.map(i => `
+        <div style="padding:8px 0; border-bottom:1px solid var(--border);">
+          <div style="font-size:13px; font-weight:600;">${escHtml(i.mandate_title || i.id)}</div>
+          <div style="font-size:11px; color:var(--text2); margin:2px 0;">
+            Agent: ${i.target_agent} | Risk: <span style="color:${riskColors[i.risk_level]}">${i.risk_score}/100 (${i.risk_level.toUpperCase()})</span>
+          </div>
+          <div style="display:flex; gap:6px; margin-top:6px;">
+            <button class="action-btn primary" style="flex:1; font-size:12px; padding:6px;" onclick="dlPipelineApprove('${i.id}')">✅ Approve</button>
+            <button class="action-btn" style="flex:1; font-size:12px; padding:6px; background:var(--surface2); border:1px solid var(--red);" onclick="dlPipelineReject('${i.id}')">❌ Reject</button>
+          </div>
+        </div>
+      `).join('');
+    } else {
+      blockedCard.style.display = 'none';
+    }
+  } catch(e) {
+    const el = document.getElementById('dlPipelineStatus');
+    if (el) el.innerHTML = '<div class="no-data">Pipeline status unavailable</div>';
+  }
+}
+
+async function dlPipelineApprove(itemId) {
+  try {
+    await api(`/dl-pipeline/approve/${itemId}`, { method: 'POST' });
+    toast('Approved — dispatching to agent', 'success');
+    setTimeout(loadDLPipeline, 1500);
+  } catch(e) { toast('Approve failed: ' + e.message, 'error'); }
+}
+
+async function dlPipelineReject(itemId) {
+  try {
+    await api(`/dl-pipeline/reject/${itemId}?reason=Rejected+from+dashboard`, { method: 'POST' });
+    toast('Rejected', 'success');
+    setTimeout(loadDLPipeline, 1500);
+  } catch(e) { toast('Reject failed: ' + e.message, 'error'); }
+}
+
+// ── Init ──
+requestNotifPermission();
+connectSSE();
+startAutoRefresh();
+loadFleetStatus();
+loadAgentRegistry();
+loadNccDecisions();
+loadDLPipeline();
+
+// ── PWA service worker ──
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/app/sw.js').catch(() => {});
+}
+</script>
+</body>
+</html>

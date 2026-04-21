@@ -1,0 +1,34 @@
+{
+  "workspace": "intelligence-scan",
+  "last_run": "2026-04-07T20:20:06.001273+00:00",
+  "stages": {
+    "01-source-ingest": {
+      "status": "idle",
+      "artifacts": 0,
+      "last_processed": ""
+    },
+    "02-signal-extraction": {
+      "status": "idle",
+      "artifacts": 0,
+      "last_processed": ""
+    },
+    "03-importance-scoring": {
+      "status": "idle",
+      "artifacts": 0,
+      "last_processed": ""
+    },
+    "04-insight-synthesis": {
+      "status": "idle",
+      "artifacts": 0,
+      "last_processed": ""
+    },
+    "05-distribution": {
+      "status": "idle",
+      "artifacts": 0,
+      "last_processed": ""
+    }
+  },
+  "total_artifacts": 0,
+  "active_stages": 0,
+  "health": "idle"
+}
