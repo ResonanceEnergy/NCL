@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -19,7 +20,7 @@ from .models import CouncilReport, CouncilSource, Insight, VideoMeta, XPost
 log = logging.getLogger("ncl.councils.report_writer")
 
 # Default output locations within NCL
-NCL_BASE = Path.home() / "Projects" / "NCL"
+NCL_BASE = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
 SIGNALS_DIR = NCL_BASE / "intelligence-scan" / "signals"
 ALERTS_DIR = NCL_BASE / "intelligence-scan" / "alerts"
 REPORTS_DIR = NCL_BASE / "intelligence-scan" / "council-reports"

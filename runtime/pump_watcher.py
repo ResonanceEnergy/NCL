@@ -33,7 +33,7 @@ import httpx
 
 # --- Config ---
 
-NCL_BASE = Path.home() / "Projects" / "NCL"
+NCL_BASE = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
 INPUT_DIR = NCL_BASE / "mandate-generation" / "input"
 PROCESSED_DIR = NCL_BASE / "mandate-generation" / "processed"
 FAILED_DIR = NCL_BASE / "mandate-generation" / "failed"

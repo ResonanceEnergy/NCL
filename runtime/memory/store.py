@@ -140,17 +140,124 @@ class MemoryStore:
         results.sort(key=lambda u: u.importance, reverse=True)
         return results
 
-    async def consolidate(self) -> None:
+    async def consolidate(self) -> dict:
         """
-        Merge related memory units periodically.
+        Merge related memory units and prune decayed ones.
 
-        This is a background consolidation task that runs periodically
-        to combine similar memories and improve recall efficiency.
+        Follows MWP memory-processing conventions:
+        1. Apply decay to all units
+        2. Prune units below importance threshold
+        3. Cluster related units by tag overlap + content similarity
+        4. Merge clusters into consolidated semantic units
+
+        Returns:
+            Consolidation stats dict
         """
         units = await self._load_all_units()
-        # Placeholder for intelligent consolidation logic
-        # In production, this would cluster related units and merge them
-        pass
+        if not units:
+            return {"total": 0, "pruned": 0, "merged": 0}
+
+        pruned = 0
+        merged = 0
+        importance_threshold = 5.0  # Below this, units are pruned
+
+        # Phase 1: Apply decay and separate prunable from active
+        active_units = []
+        for unit in units:
+            decayed_importance = self._apply_decay(unit)
+            unit.importance = decayed_importance
+            if decayed_importance < importance_threshold:
+                pruned += 1
+            else:
+                active_units.append(unit)
+
+        # Phase 2: Cluster related units by tag overlap
+        # Build adjacency by shared tags (2+ shared tags = related)
+        clusters: list[list[MemUnit]] = []
+        clustered: set[str] = set()
+
+        for i, unit_a in enumerate(active_units):
+            if unit_a.unit_id in clustered:
+                continue
+            cluster = [unit_a]
+            clustered.add(unit_a.unit_id)
+
+            tags_a = set(unit_a.tags)
+            if not tags_a:
+                continue
+
+            for j, unit_b in enumerate(active_units[i + 1:], i + 1):
+                if unit_b.unit_id in clustered:
+                    continue
+                tags_b = set(unit_b.tags)
+                # Require 2+ shared tags for clustering
+                shared = tags_a & tags_b
+                if len(shared) >= 2:
+                    # Also check content similarity (word overlap)
+                    words_a = set(unit_a.content.lower().split())
+                    words_b = set(unit_b.content.lower().split())
+                    if len(words_a) > 0 and len(words_b) > 0:
+                        similarity = len(words_a & words_b) / min(len(words_a), len(words_b))
+                        if similarity >= 0.3:  # 30% word overlap
+                            cluster.append(unit_b)
+                            clustered.add(unit_b.unit_id)
+
+            if len(cluster) >= 2:
+                clusters.append(cluster)
+
+        # Phase 3: Merge clusters into consolidated units
+        consolidated_units = []
+        merged_ids: set[str] = set()
+
+        for cluster in clusters:
+            if len(cluster) < 2:
+                continue
+
+            # Merge: combine content, union tags, max importance, sum reinforcements
+            combined_content = " | ".join(
+                u.content[:200] for u in sorted(cluster, key=lambda x: x.importance, reverse=True)
+            )
+            all_tags = list(set(tag for u in cluster for tag in u.tags))
+            max_importance = max(u.importance for u in cluster)
+            total_reinforcements = sum(u.reinforcement_count for u in cluster)
+
+            # Create consolidated unit
+            consolidated = MemUnit(
+                unit_id=cluster[0].unit_id,  # Keep oldest ID
+                content=f"[CONSOLIDATED from {len(cluster)} units] {combined_content}"[:2000],
+                source=f"consolidation:{','.join(u.source for u in cluster[:3])}",
+                importance=min(100.0, max_importance * 1.1),  # Slight boost for consolidation
+                tags=all_tags[:20],
+                reinforcement_count=total_reinforcements,
+            )
+            consolidated_units.append(consolidated)
+            merged_ids.update(u.unit_id for u in cluster)
+            merged += len(cluster) - 1  # N units merged into 1 = N-1 merges
+
+        # Phase 4: Rebuild the memory file with active + consolidated units
+        surviving = [u for u in active_units if u.unit_id not in merged_ids]
+        surviving.extend(consolidated_units)
+
+        if pruned > 0 or merged > 0:
+            # Rewrite memory file atomically
+            tmp_file = self.memory_file.with_suffix(".tmp")
+            async with aiofiles.open(tmp_file, "w") as f:
+                for unit in surviving:
+                    await f.write(unit.model_dump_json() + "\n")
+            tmp_file.rename(self.memory_file)
+
+            log.info(
+                f"Memory consolidation: {len(units)} → {len(surviving)} units "
+                f"(pruned={pruned}, merged={merged})"
+            )
+
+        return {
+            "total_before": len(units),
+            "total_after": len(surviving),
+            "pruned": pruned,
+            "merged": merged,
+            "clusters": len(clusters),
+        }
 
     def _apply_decay(self, unit: MemUnit) -> float:
         """

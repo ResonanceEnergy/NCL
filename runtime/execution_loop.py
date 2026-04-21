@@ -26,7 +26,7 @@ from typing import Optional
 
 # --- Config ---
 
-NCL_BASE = Path.home() / "Projects" / "NCL"
+NCL_BASE = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
 EXEC_PIPELINE = NCL_BASE / "workspaces" / "execution-pipeline"
 EXECUTION_DIR = EXEC_PIPELINE / "03-Execution"
 WORKING_FILES = EXECUTION_DIR / "working-files"

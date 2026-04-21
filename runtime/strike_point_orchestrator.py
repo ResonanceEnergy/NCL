@@ -41,7 +41,7 @@ from typing import Optional
 
 # ── Config ────────────────────────────────────────────────────────────────
 
-NCL_BASE = Path.home() / "Projects" / "NCL"
+NCL_BASE = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
 NCC_BASE = Path.home() / "Projects" / "ncc-server"
 AAC_BASE = Path.home() / "Projects" / "AAC-v2"
 BRS_BASE = Path.home() / "Projects" / "BRS-v2"
@@ -91,6 +91,11 @@ STRIKE_TOKEN = os.getenv("STRIKE_AUTH_TOKEN", "")
 PUSHOVER_TOKEN = os.getenv("PUSHOVER_APP_TOKEN", "")
 PUSHOVER_USER = os.getenv("PUSHOVER_USER_KEY", "")
 
+# ntfy.sh — free push notifications, no account needed
+# Install ntfy app on iPhone → subscribe to this topic → done
+NTFY_TOPIC = os.getenv("NTFY_TOPIC", "ncl-natrix-intel-7x9k")
+NTFY_SERVER = os.getenv("NTFY_SERVER", "https://ntfy.sh")
+
 # ── Logging ───────────────────────────────────────────────────────────────
 
 LOG_DIR = NCL_BASE / "logs"
@@ -115,7 +120,9 @@ log = logging.getLogger("ncl.strike-point")
 
 async def notify_natrix(title: str, message: str, priority: int = 0) -> bool:
     """
-    Send push notification to NATRIX's iPhone via Pushover.
+    Send push notification to NATRIX's iPhone.
+
+    Tries ntfy.sh first (free, no account needed), then Pushover fallback.
 
     Priority levels:
       -2 = no notification
@@ -124,33 +131,62 @@ async def notify_natrix(title: str, message: str, priority: int = 0) -> bool:
        1 = high priority (bypasses quiet hours)
        2 = emergency (repeats until acknowledged)
     """
-    if not PUSHOVER_TOKEN or not PUSHOVER_USER:
-        log.info(f"[NOTIFY] (no Pushover configured) {title}: {message}")
-        # Fallback: write to notification file for polling
-        _write_notification_file(title, message, priority)
-        return False
+    sent = False
 
-    try:
-        import httpx
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(
-                "https://api.pushover.net/1/messages.json",
-                data={
-                    "token": PUSHOVER_TOKEN,
-                    "user": PUSHOVER_USER,
-                    "title": f"NARTIX: {title}",
-                    "message": message,
-                    "priority": priority,
-                    "sound": "cosmic" if priority >= 1 else "pushover",
-                },
-            )
-            resp.raise_for_status()
-            log.info(f"Push notification sent: {title}")
-            return True
-    except Exception as e:
-        log.warning(f"Pushover notification failed: {e}")
+    # 1. Try ntfy.sh (free, no config needed)
+    if NTFY_TOPIC:
+        try:
+            import httpx
+            ntfy_priority = {-2: 1, -1: 2, 0: 3, 1: 4, 2: 5}.get(priority, 3)
+            # Strip non-ASCII for ntfy compatibility
+            safe_title = title.encode("ascii", "replace").decode("ascii")
+            safe_message = message.encode("utf-8")
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.post(
+                    f"{NTFY_SERVER}/{NTFY_TOPIC}",
+                    content=safe_message,
+                    headers={
+                        "Content-Type": "text/plain; charset=utf-8",
+                        "Title": safe_title,
+                        "Priority": str(ntfy_priority),
+                        "Tags": "brain,zap" if priority >= 1 else "brain",
+                        "Click": f"{NCL_BRAIN_URL}/app",
+                    },
+                )
+                resp.raise_for_status()
+                log.info(f"ntfy.sh notification sent: {title}")
+                sent = True
+        except Exception as e:
+            log.warning(f"ntfy.sh notification failed: {e}")
+
+    # 2. Try Pushover if configured
+    if not sent and PUSHOVER_TOKEN and PUSHOVER_USER:
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.post(
+                    "https://api.pushover.net/1/messages.json",
+                    data={
+                        "token": PUSHOVER_TOKEN,
+                        "user": PUSHOVER_USER,
+                        "title": f"NARTIX: {title}",
+                        "message": message,
+                        "priority": priority,
+                        "sound": "cosmic" if priority >= 1 else "pushover",
+                    },
+                )
+                resp.raise_for_status()
+                log.info(f"Pushover notification sent: {title}")
+                sent = True
+        except Exception as e:
+            log.warning(f"Pushover notification failed: {e}")
+
+    # 3. File fallback
+    if not sent:
+        log.info(f"[NOTIFY] (file fallback) {title}: {message}")
         _write_notification_file(title, message, priority)
-        return False
+
+    return sent
 
 
 def _write_notification_file(title: str, message: str, priority: int) -> None:
@@ -169,6 +205,245 @@ def _write_notification_file(title: str, message: str, priority: int) -> None:
     path = notif_dir / f"notif-{ts}.json"
     path.write_text(json.dumps(notif, indent=2))
     log.info(f"Notification saved to file → {path.name}")
+
+
+async def notify_intelligence_brief(brief: dict, top_n: int = 3) -> bool:
+    """
+    Push a structured intelligence "tweet" to NATRIX's iPhone.
+
+    This is the primary delivery mechanism for intelligence briefs.
+    Sends a compact push notification with the executive summary headline,
+    top signals as one-liners, and a URL link back to the full report.
+
+    Args:
+        brief: IntelBrief dict (from brief.model_dump() or raw dict)
+        top_n: Number of top signals to include in the push
+    """
+    brief_id = brief.get("brief_id", "unknown")
+    brief_type = brief.get("brief_type", "daily").upper()
+    total_signals = brief.get("total_signals_processed", 0)
+    exec_summary = brief.get("executive_summary", "")
+
+    # Build a punchy executive summary — lead with the "so what"
+    headline = exec_summary[:200] if exec_summary else f"{brief_type} brief — {total_signals} signals processed"
+
+    # Extract predictions / key takeaways for context
+    predictions = brief.get("predictions", [])
+    sectors = brief.get("sectors", [])
+    prediction_line = ""
+    if predictions:
+        top_pred = predictions[0] if isinstance(predictions[0], str) else predictions[0].get("text", str(predictions[0]))
+        prediction_line = f"\n\n🔮 {str(top_pred)[:120]}"
+
+    # Top signal one-liners — include brief context snippet
+    top_signals = brief.get("top_signals", [])[:top_n]
+    signal_lines = []
+    for sig in top_signals:
+        title = sig.get("title", "")[:50]
+        direction = sig.get("direction", "neutral")
+        source = sig.get("source", "")
+        content = sig.get("content", "") or sig.get("description", "")
+        snippet = f" — {content[:60]}" if content else ""
+        arrow = {"bullish": "▲", "bearish": "▼", "emerging": "★", "expanding": "↑", "contracting": "↓"}.get(direction, "●")
+        signal_lines.append(f"{arrow} {title}{snippet}")
+
+    # Risk alerts — include the first alert's actual text
+    risk_alerts = brief.get("risk_alerts", [])
+    risk_line = ""
+    if risk_alerts:
+        first_risk = risk_alerts[0] if isinstance(risk_alerts[0], str) else risk_alerts[0].get("text", str(risk_alerts[0]))
+        risk_line = f"\n\n⚠ RISK: {str(first_risk)[:100]}"
+        if len(risk_alerts) > 1:
+            risk_line += f" (+{len(risk_alerts)-1} more)"
+
+    # Compose push message
+    message = headline
+    if signal_lines:
+        message += "\n\n" + "\n".join(signal_lines)
+    message += prediction_line
+    message += risk_line
+    message += f"\n\n📊 {NCL_BRAIN_URL}/app"
+
+    # Determine priority based on brief type and risk alerts
+    if brief_type == "ALERT" or len(risk_alerts) >= 3:
+        priority = 1  # high — bypasses quiet hours
+    elif brief_type == "STRATEGIC_REVIEW":
+        priority = 0  # normal
+    else:
+        priority = 0  # daily = normal
+
+    # Always write for FirstStrike polling
+    _write_intel_notification(brief_id, brief_type, message, brief)
+
+    sent = False
+
+    # 1. Try ntfy.sh (free, no config)
+    if NTFY_TOPIC:
+        try:
+            import httpx
+            ntfy_priority = 4 if priority >= 1 else 3
+            safe_title = f"NCL INTEL - {brief_type}"
+            safe_message = message.encode("utf-8")
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.post(
+                    f"{NTFY_SERVER}/{NTFY_TOPIC}",
+                    content=safe_message,
+                    headers={
+                        "Content-Type": "text/plain; charset=utf-8",
+                        "Title": safe_title,
+                        "Priority": str(ntfy_priority),
+                        "Tags": "rotating_light,chart_with_upwards_trend" if priority >= 1 else "brain,chart_with_upwards_trend",
+                        "Click": f"{NCL_BRAIN_URL}/app",
+                    },
+                )
+                resp.raise_for_status()
+                log.info(f"ntfy.sh intel brief push sent: {brief_type} ({brief_id})")
+                sent = True
+        except Exception as e:
+            log.warning(f"ntfy.sh intel push failed: {e}")
+
+    # 2. Try Pushover if configured
+    if not sent and PUSHOVER_TOKEN and PUSHOVER_USER:
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.post(
+                    "https://api.pushover.net/1/messages.json",
+                    data={
+                        "token": PUSHOVER_TOKEN,
+                        "user": PUSHOVER_USER,
+                        "title": f"NCL INTEL — {brief_type}",
+                        "message": message,
+                        "priority": priority,
+                        "sound": "cosmic" if priority >= 1 else "magic",
+                        "url": f"{NCL_BRAIN_URL}/app",
+                        "url_title": "View Full Report",
+                        "html": 1,
+                    },
+                )
+                resp.raise_for_status()
+                log.info(f"Pushover intel brief push sent: {brief_type} ({brief_id})")
+                sent = True
+        except Exception as e:
+            log.warning(f"Pushover intel push failed: {e}")
+
+    if not sent:
+        _write_notification_file(f"Intel {brief_type}", message, priority)
+
+    return sent
+
+
+async def notify_intel_signal_alert(signal: dict) -> bool:
+    """
+    Push a single high-importance signal as an immediate alert.
+
+    Used when a signal exceeds the alert threshold (importance > 80)
+    and needs NATRIX's attention before the next scheduled brief.
+
+    Args:
+        signal: IntelSignal dict
+    """
+    title = signal.get("title", "Unknown signal")
+    source = signal.get("source", "")
+    direction = signal.get("direction", "neutral")
+    change_pct = signal.get("change_pct")
+    confidence = signal.get("confidence", 0)
+
+    arrow = {"bullish": "▲", "bearish": "▼", "emerging": "★"}.get(direction, "●")
+    change_str = f" ({'+' if change_pct > 0 else ''}{change_pct:.1f}%)" if change_pct is not None else ""
+
+    # Build a human-readable punchline from signal content
+    content = signal.get("content", "") or signal.get("description", "") or signal.get("summary", "")
+    punchline = content[:200].strip() if content else ""
+    # If no content blob, synthesize a readable sentence from metadata
+    if not punchline:
+        if direction == "bullish":
+            punchline = f"{title} is showing strong upward momentum{change_str}."
+        elif direction == "bearish":
+            punchline = f"{title} is trending down{change_str} — monitor for risk exposure."
+        elif direction == "emerging":
+            punchline = f"New trend detected: {title}. Early signal, confidence {confidence:.0%}."
+        else:
+            punchline = f"{title}{change_str} flagged by {source} — review recommended."
+
+    message = (
+        f"{arrow} {title}{change_str}\n\n"
+        f"{punchline}\n\n"
+        f"Source: {source} | Confidence: {confidence:.0%} | Direction: {direction}\n"
+        f"📊 {NCL_BRAIN_URL}/app"
+    )
+
+    return await notify_natrix(
+        f"🚨 {title[:60]}",
+        message,
+        priority=1,
+    )
+
+
+def _write_intel_notification(
+    brief_id: str,
+    brief_type: str,
+    message: str,
+    brief_data: dict,
+) -> None:
+    """
+    Write structured intelligence notification for FirstStrike relay polling.
+
+    FirstStrike can poll /notifications/intel-*.json to pick up briefs
+    and present them with action buttons on iPhone.
+    """
+    notif_dir = NCL_BASE / "notifications" / "intelligence"
+    notif_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+
+    # Extract actionable signal IDs for FirstStrike action buttons
+    top_signal_ids = [
+        sig.get("signal_id", "") for sig in brief_data.get("top_signals", [])[:5]
+    ]
+
+    notif = {
+        "id": f"intel-{ts}",
+        "brief_id": brief_id,
+        "brief_type": brief_type,
+        "message": message,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "acknowledged": False,
+        # FirstStrike action options
+        "actions": [
+            {
+                "id": "view_report",
+                "label": "View Full Report",
+                "type": "url",
+                "url": f"{NCL_BRAIN_URL}/app",
+            },
+            {
+                "id": "escalate_to_strike_point",
+                "label": "Send to STRIKE-POINT",
+                "type": "api_call",
+                "endpoint": f"{NCL_BRAIN_URL}/intelligence/escalate",
+                "method": "POST",
+                "body": {"brief_id": brief_id, "signal_ids": top_signal_ids},
+            },
+            {
+                "id": "acknowledge",
+                "label": "Acknowledge",
+                "type": "api_call",
+                "endpoint": f"{NCL_BRAIN_URL}/intelligence/ack/{brief_id}",
+                "method": "POST",
+            },
+        ],
+        # Compact brief data for inline display
+        "brief_summary": {
+            "executive_summary": brief_data.get("executive_summary", "")[:280],
+            "total_signals": brief_data.get("total_signals_processed", 0),
+            "risk_alerts": brief_data.get("risk_alerts", []),
+            "source_counts": brief_data.get("source_counts", {}),
+        },
+    }
+
+    path = notif_dir / f"intel-{ts}.json"
+    path.write_text(json.dumps(notif, indent=2, default=str))
+    log.info(f"Intel notification saved → {path.name} (actions: view/escalate/ack)")
 
 
 async def notify_relay_completion(pump_id: str, feedback: dict) -> bool:
@@ -290,8 +565,10 @@ async def dispatch_mandate(mandate: dict) -> dict:
     if not validation["valid"]:
         log.error(f"Mandate validation failed: {validation['errors']}")
         await notify_natrix(
-            "Mandate Rejected",
-            f"{mandate_id}: {', '.join(validation['errors'])}",
+            f"❌ Mandate Rejected — {title[:40]}",
+            f"{title}\n\n"
+            f"Validation failed: {', '.join(validation['errors'])}\n\n"
+            f"Fix and resubmit via pump.",
             priority=1,
         )
         return {"status": "rejected", "errors": validation["errors"]}
@@ -329,10 +606,14 @@ async def dispatch_mandate(mandate: dict) -> dict:
         log.info(f"Coding mandate detected — launching execution loop")
         _trigger_execution_loop(pump_id or mandate_id)
 
-    # Step 7: Notify NATRIX
+    # Step 7: Notify NATRIX — include objective context so the push has substance
+    objective = mandate.get("objective", "") or title
+    priority_lvl = mandate.get("priority_level", "P2")
     await notify_natrix(
-        "Execution Started",
-        f"{mandate_id}: {title}\nPillar: {pillar}\nPriority: {mandate.get('priority_level', 'P2')}",
+        f"⚡ {title[:60]}",
+        f"Mandate dispatched to {pillar} ({priority_lvl})\n\n"
+        f"{objective[:200]}\n\n"
+        f"📋 {NCL_BRAIN_URL}/app",
     )
 
     return {
@@ -459,11 +740,14 @@ async def process_execution_feedback(pump_id: str) -> dict:
     }, indent=2))
     log.info(f"Feedback saved to {report_file.name}")
 
-    # 3. Notify NATRIX
+    # 3. Notify NATRIX — include the actual summary so the push tells you what happened
     emoji = "✅" if status == "complete" else "⚠️" if status == "escalated" else "📋"
+    artifacts = feedback.get("artifacts", [])
+    artifact_line = f"\n\nArtifacts: {', '.join(str(a) for a in artifacts[:3])}" if artifacts else ""
     await notify_natrix(
-        f"{emoji} Execution {status.title()}",
-        f"Pump: {pump_id}\n{summary}",
+        f"{emoji} {status.title()}: {summary[:50]}",
+        f"{summary[:300]}{artifact_line}\n\n"
+        f"📊 {NCL_BRAIN_URL}/app",
         priority=1 if status == "escalated" else 0,
     )
 

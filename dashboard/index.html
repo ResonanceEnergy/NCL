@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>NCL Pipeline — NARTIX Command</title>
+<title>NCL Pipeline — Live Dashboard</title>
 <style>
   :root {
     --bg: #0a0e17;
@@ -46,6 +46,18 @@
   .header h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.3px; }
   .header h1 span { color: var(--accent); }
   .header-right { display: flex; gap: 12px; align-items: center; }
+  .connection-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: rgba(30, 58, 95, 0.3);
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .connection-indicator.online { color: var(--green); }
+  .connection-indicator.offline { color: var(--red); }
   .status-dot {
     width: 10px; height: 10px; border-radius: 50%;
     display: inline-block; margin-right: 6px;
@@ -53,6 +65,26 @@
   .dot-green { background: var(--green); box-shadow: 0 0 8px var(--green); }
   .dot-yellow { background: var(--yellow); box-shadow: 0 0 8px var(--yellow); }
   .dot-red { background: var(--red); box-shadow: 0 0 8px var(--red); }
+  .header-controls {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+  .toggle-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .toggle-btn:hover { background: var(--border); }
+  .toggle-btn.active { background: rgba(34, 197, 94, 0.2); border-color: var(--green); }
   .refresh-btn {
     background: var(--surface2);
     border: 1px solid var(--border);
@@ -65,6 +97,8 @@
   }
   .refresh-btn:hover { background: var(--border); }
   .refresh-btn:active { transform: scale(0.96); }
+  .refresh-btn.spin { animation: spin 1s linear; }
+  @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
   .last-updated { font-size: 12px; color: var(--text-muted); }
 
   /* Grid */
@@ -104,6 +138,7 @@
     padding: 3px 10px;
     border-radius: 20px;
     font-weight: 600;
+    transition: all 0.3s;
   }
   .badge-live { background: rgba(34,197,94,0.15); color: var(--green); }
   .badge-partial { background: rgba(234,179,8,0.15); color: var(--yellow); }
@@ -144,12 +179,13 @@
   .stage-status { font-size: 18px; flex-shrink: 0; }
 
   /* Stats row */
-  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
   .stat {
     background: var(--surface2);
     padding: 14px;
     border-radius: 10px;
     text-align: center;
+    transition: all 0.3s;
   }
   .stat-value { font-size: 28px; font-weight: 700; }
   .stat-label { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
@@ -157,21 +193,6 @@
   .val-yellow { color: var(--yellow); }
   .val-accent { color: var(--accent); }
   .val-purple { color: var(--purple); }
-
-  /* API table */
-  .api-table { width: 100%; border-collapse: collapse; }
-  .api-table th {
-    text-align: left; font-size: 11px; color: var(--text-muted);
-    text-transform: uppercase; letter-spacing: 0.5px;
-    padding: 6px 8px; border-bottom: 1px solid var(--border);
-  }
-  .api-table td {
-    font-size: 13px; padding: 8px;
-    border-bottom: 1px solid rgba(30,58,95,0.3);
-  }
-  .api-table tr:last-child td { border-bottom: none; }
-  .key-set { color: var(--green); }
-  .key-missing { color: var(--red); }
 
   /* Service list */
   .service-row {
@@ -183,41 +204,152 @@
   .service-row:last-child { border-bottom: none; }
   .port { font-family: 'SF Mono', 'Fira Code', monospace; color: var(--accent); font-size: 12px; }
 
+  /* Table */
+  .data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .data-table th {
+    text-align: left; font-size: 11px; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.5px;
+    padding: 10px 8px; border-bottom: 1px solid var(--border);
+    font-weight: 600;
+  }
+  .data-table td {
+    padding: 8px;
+    border-bottom: 1px solid rgba(30,58,95,0.3);
+  }
+  .data-table tr:hover { background: rgba(56,189,248,0.05); }
+  .data-table tr:last-child td { border-bottom: none; }
+
+  /* Status badges */
+  .status-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .badge-pending { background: rgba(234,179,8,0.2); color: var(--yellow); }
+  .badge-active { background: rgba(34,197,94,0.2); color: var(--green); }
+  .badge-completed { background: rgba(56,189,248,0.2); color: var(--accent); }
+  .badge-failed { background: rgba(239,68,68,0.2); color: var(--red); }
+
+  /* Events log */
+  .events-log {
+    max-height: 400px;
+    overflow-y: auto;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 12px;
+  }
+  .events-log::-webkit-scrollbar { width: 4px; }
+  .events-log::-webkit-scrollbar-track { background: transparent; }
+  .events-log::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  .event-line {
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(30,58,95,0.2);
+    display: flex;
+    gap: 8px;
+  }
+  .event-line:last-child { border-bottom: none; }
+  .event-time { color: var(--accent); flex-shrink: 0; }
+  .event-type { color: var(--purple); flex-shrink: 0; }
+  .event-msg { color: var(--text-muted); flex: 1; }
+
   /* Full-width card */
   .card-full { grid-column: 1 / -1; }
+
+  /* Offline overlay */
+  .offline-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(10, 14, 23, 0.95);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    z-index: 1000;
+    text-align: center;
+    backdrop-filter: blur(6px);
+  }
+  .offline-overlay h2 { font-size: 32px; margin-bottom: 12px; color: var(--red); }
+  .offline-overlay p { color: var(--text-muted); font-size: 16px; margin-bottom: 24px; }
+  .offline-overlay.hidden { display: none; }
+  .spinner {
+    width: 40px;
+    height: 40px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+
+  /* Button styles */
+  .btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.2s;
+  }
+  .btn:hover { background: var(--border); }
+  .btn:active { transform: scale(0.96); }
+  .btn-primary {
+    background: rgba(34, 197, 94, 0.2);
+    border-color: var(--green);
+    color: var(--green);
+  }
+  .btn-primary:hover { background: rgba(34, 197, 94, 0.3); }
 
   /* Responsive: iPad */
   @media (max-width: 1024px) {
     .grid { grid-template-columns: repeat(2, 1fr); padding: 16px; gap: 12px; }
     .header { padding: 14px 16px; }
-    .stats { grid-template-columns: repeat(3, 1fr); }
+    .stats { grid-template-columns: repeat(2, 1fr); }
   }
 
   /* Responsive: iPad portrait / large phone */
   @media (max-width: 768px) {
     .grid { grid-template-columns: 1fr; }
     .header h1 { font-size: 17px; }
+    .header-right { flex-wrap: wrap; }
     .stat-value { font-size: 22px; }
+    .stats { grid-template-columns: repeat(2, 1fr); }
   }
 
-  /* Scroll indicator for long cards */
-  .scroll-card { max-height: 400px; overflow-y: auto; }
-  .scroll-card::-webkit-scrollbar { width: 4px; }
-  .scroll-card::-webkit-scrollbar-track { background: transparent; }
-  .scroll-card::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  /* Smooth transitions */
+  .fade-in { animation: fadeIn 0.3s ease-in; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
-  /* Pulse animation */
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
   .pulse { animation: pulse 2s ease-in-out infinite; }
 </style>
 </head>
 <body>
 
+<div class="offline-overlay" id="offlineOverlay">
+  <h2>Brain Offline</h2>
+  <p>Waiting for connection...</p>
+  <div class="spinner"></div>
+</div>
+
 <div class="header">
   <h1><span>NCL</span> Pipeline Dashboard</h1>
   <div class="header-right">
+    <div class="connection-indicator" id="connectionIndicator">
+      <span class="status-dot dot-green"></span>
+      <span>Checking...</span>
+    </div>
+    <div class="header-controls">
+      <button class="toggle-btn active" id="autoRefreshToggle" onclick="toggleAutoRefresh()">
+        <span class="status-dot dot-green"></span>Auto
+      </button>
+      <button class="refresh-btn" id="refreshBtn" onclick="manualRefresh()">↻ Refresh</button>
+    </div>
     <span class="last-updated" id="lastUpdated">Loading...</span>
-    <button class="refresh-btn" onclick="refreshAll()">↻ Refresh</button>
   </div>
 </div>
 
@@ -230,7 +362,7 @@
       <span class="card-badge badge-partial" id="pipelineBadge">Checking...</span>
     </div>
     <div class="pipeline" id="pipelineStages">
-      <div class="stage stage-ok"><div class="stage-num">1</div><div class="stage-info"><div class="stage-name">First Strike (iPhone → Mac Mini)</div><div class="stage-detail">iOS Shortcut → Tailscale → Relay POST /pump</div></div><div class="stage-status">✅</div></div>
+      <div class="stage stage-ok"><div class="stage-num">1</div><div class="stage-info"><div class="stage-name">First Strike (iPhone → Mac Mini)</div><div class="stage-detail">iOS Shortcut → Tailscale → Relay POST /pump</div></div><div class="stage-status" id="s1">⏳</div></div>
       <div class="stage stage-ok"><div class="stage-num">2</div><div class="stage-info"><div class="stage-name">Strike Point (NCL Brain receives pump)</div><div class="stage-detail">POST /pump → authenticate → parse intent</div></div><div class="stage-status" id="s2">⏳</div></div>
       <div class="stage stage-warn"><div class="stage-num">3</div><div class="stage-info"><div class="stage-name">NCL Council (Claude chairs debate)</div><div class="stage-detail">Claude + Grok + Gemini + Perplexity + GPT</div></div><div class="stage-status" id="s3">⏳</div></div>
       <div class="stage stage-warn"><div class="stage-num">4</div><div class="stage-info"><div class="stage-name">NATRIX Approval Gate</div><div class="stage-detail">Pushover notification → human approval</div></div><div class="stage-status" id="s4">⏳</div></div>
@@ -241,15 +373,16 @@
     </div>
   </div>
 
-  <!-- Quick Stats -->
+  <!-- Pipeline Stats -->
   <div class="card">
     <div class="card-header">
       <span class="card-title">Pipeline Stats</span>
     </div>
-    <div class="stats">
+    <div class="stats" style="grid-template-columns: repeat(2, 1fr);">
       <div class="stat"><div class="stat-value val-accent" id="pumpCount">—</div><div class="stat-label">Pump Prompts</div></div>
-      <div class="stat"><div class="stat-value val-green" id="mandateCount">—</div><div class="stat-label">Mandates</div></div>
-      <div class="stat"><div class="stat-value val-purple" id="feedbackCount">—</div><div class="stat-label">Feedbacks</div></div>
+      <div class="stat"><div class="stat-value val-green" id="mandateCount">—</div><div class="stat-label">Active Mandates</div></div>
+      <div class="stat"><div class="stat-value val-purple" id="completedCount">—</div><div class="stat-label">Completed</div></div>
+      <div class="stat"><div class="stat-value val-orange" id="councilCount">—</div><div class="stat-label">Council Sessions</div></div>
     </div>
   </div>
 
@@ -259,198 +392,502 @@
       <span class="card-title">Services</span>
       <span class="card-badge badge-partial" id="servicesBadge">Checking...</span>
     </div>
-    <div id="servicesList">
-      <div class="service-row"><span><span class="status-dot dot-yellow"></span>NCL Brain API</span><span class="port">:8800</span></div>
-      <div class="service-row"><span><span class="status-dot dot-yellow"></span>NCC Relay</span><span class="port">:8787</span></div>
-      <div class="service-row"><span><span class="status-dot dot-yellow"></span>NCC Master</span><span class="port">:8765</span></div>
-      <div class="service-row"><span><span class="status-dot dot-yellow"></span>One-Drop API</span><span class="port">:8123</span></div>
-      <div class="service-row"><span><span class="status-dot dot-yellow"></span>AAC Monitor</span><span class="port">:8080</span></div>
-      <div class="service-row"><span><span class="status-dot dot-yellow"></span>BRS Dashboard</span><span class="port">:8000</span></div>
-      <div class="service-row"><span><span class="status-dot dot-yellow"></span>Paperclip</span><span class="port">:3100</span></div>
-      <div class="service-row"><span><span class="status-dot dot-yellow"></span>Ollama</span><span class="port">:11434</span></div>
-    </div>
+    <div id="servicesList"></div>
   </div>
 
-  <!-- API Keys -->
-  <div class="card">
-    <div class="card-header">
-      <span class="card-title">API Keys</span>
-      <span class="card-badge badge-partial" id="apiKeysBadge">1/8</span>
-    </div>
-    <table class="api-table">
-      <thead><tr><th>Provider</th><th>Key</th><th>Used By</th></tr></thead>
-      <tbody id="apiKeysBody">
-        <tr><td>Anthropic Claude</td><td class="key-set">✓ Set</td><td>Council Chair, War Room</td></tr>
-        <tr><td>Pushover</td><td class="key-missing">✗ Missing</td><td>iPhone Notifications</td></tr>
-        <tr><td>xAI Grok</td><td class="key-missing">✗ Missing</td><td>Council, X Intelligence</td></tr>
-        <tr><td>Google/YouTube</td><td class="key-missing">✗ Missing</td><td>Gemini, YouTube Scrape</td></tr>
-        <tr><td>Perplexity</td><td class="key-missing">✗ Missing</td><td>Research, Fact-Check</td></tr>
-        <tr><td>OpenAI GPT</td><td class="key-missing">✗ Missing</td><td>Council (Optional)</td></tr>
-        <tr><td>X Bearer</td><td class="key-missing">✗ Missing</td><td>X API v2 (twscrape fallback)</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <!-- Council Status -->
+  <!-- Intelligence Councils -->
   <div class="card">
     <div class="card-header">
       <span class="card-title">Intelligence Councils</span>
-      <span class="card-badge badge-code">6h sweep</span>
     </div>
-    <div class="stats" style="grid-template-columns: 1fr 1fr;">
-      <div class="stat"><div class="stat-value val-accent" id="ytReports">—</div><div class="stat-label">YouTube Reports</div></div>
-      <div class="stat"><div class="stat-value val-purple" id="xReports">—</div><div class="stat-label">X Reports</div></div>
+    <div class="stats" style="grid-template-columns: 1fr 1fr; margin-bottom: 14px;">
+      <div class="stat"><div class="stat-value val-accent" id="youtubeCount">—</div><div class="stat-label">YouTube Reports</div></div>
+      <div class="stat"><div class="stat-value val-purple" id="xCount">—</div><div class="stat-label">X Reports</div></div>
     </div>
     <div style="margin-top: 14px;">
-      <div class="service-row"><span>YouTube Council</span><span id="ytStatus" style="font-size: 12px; color: var(--text-muted);">Not yet run</span></div>
-      <div class="service-row"><span>X Council</span><span id="xStatus" style="font-size: 12px; color: var(--text-muted);">Not yet run</span></div>
-      <div class="service-row"><span>War Room Synthesis</span><span id="wrStatus" style="font-size: 12px; color: var(--text-muted);">No briefings</span></div>
-      <div class="service-row"><span>Sweep Schedule</span><span style="font-size: 12px; color: var(--accent);">Every 6 hours (launchd)</span></div>
+      <div class="service-row"><span>Latest Council</span><span id="latestCouncil" style="font-size: 12px; color: var(--text-muted);">—</span></div>
+      <div class="service-row"><span>Council Time</span><span id="councilTime" style="font-size: 12px; color: var(--accent);">—</span></div>
     </div>
+    <button class="btn btn-primary" style="width: 100%; margin-top: 12px;" onclick="runCouncil()">⚡ Run Council</button>
   </div>
 
-  <!-- Orchestrator -->
+  <!-- Strike Point Orchestrator -->
   <div class="card">
     <div class="card-header">
       <span class="card-title">Strike Point Orchestrator</span>
       <span class="card-badge badge-code" id="orchBadge">Watcher</span>
     </div>
     <div class="stats" style="grid-template-columns: 1fr 1fr 1fr;">
-      <div class="stat"><div class="stat-value val-green" id="dispatched">0</div><div class="stat-label">Dispatched</div></div>
-      <div class="stat"><div class="stat-value val-yellow" id="pending">0</div><div class="stat-label">Pending</div></div>
-      <div class="stat"><div class="stat-value val-accent" id="notifs">0</div><div class="stat-label">Notifications</div></div>
-    </div>
-    <div style="margin-top: 14px;">
-      <div class="service-row"><span>Execution Mode</span><span style="font-size: 12px; color: var(--green);">auto (Claude Code CLI)</span></div>
-      <div class="service-row"><span>Poll Interval</span><span style="font-size: 12px; color: var(--text-muted);">30s</span></div>
-      <div class="service-row"><span>launchd Service</span><span id="orchLaunchd" style="font-size: 12px; color: var(--text-muted);">Check pending</span></div>
+      <div class="stat"><div class="stat-value val-green" id="dispatchedCount">0</div><div class="stat-label">Dispatched</div></div>
+      <div class="stat"><div class="stat-value val-yellow" id="pendingCount">0</div><div class="stat-label">Pending</div></div>
+      <div class="stat"><div class="stat-value val-accent" id="notifCount">0</div><div class="stat-label">Notifications</div></div>
     </div>
   </div>
 
-  <!-- All APIs Reference — Full Width -->
+  <!-- Mandates Table -->
   <div class="card card-full">
     <div class="card-header">
-      <span class="card-title">Complete API Reference</span>
+      <span class="card-title">Active Mandates</span>
+      <span class="card-badge badge-code" id="mandatesCount">0 Items</span>
     </div>
     <div style="overflow-x: auto;">
-      <table class="api-table">
+      <table class="data-table">
         <thead>
-          <tr><th>API</th><th>Provider</th><th>Endpoint / URL</th><th>Used For</th><th>Required</th><th>Cost</th></tr>
+          <tr>
+            <th>ID</th>
+            <th>Pillar</th>
+            <th>Priority</th>
+            <th>Title</th>
+            <th>Status</th>
+            <th>Deadline</th>
+            <th>Created</th>
+          </tr>
         </thead>
-        <tbody>
-          <tr><td>Anthropic Messages</td><td>Anthropic</td><td>api.anthropic.com/v1/messages</td><td>Council Chair, War Room Analysis, Brain API</td><td><span class="key-set">Required</span></td><td>~$0.50/council</td></tr>
-          <tr><td>xAI Chat</td><td>xAI</td><td>api.x.ai/v1/chat/completions</td><td>Grok Council Member, X Intelligence, War Room fallback</td><td><span class="key-set">Important</span></td><td>~$0.10/call</td></tr>
-          <tr><td>Pushover</td><td>Pushover</td><td>api.pushover.net/1/messages.json</td><td>iPhone push notifications (approval, completion)</td><td><span class="key-set">Required</span></td><td>$5 one-time</td></tr>
-          <tr><td>YouTube Data v3</td><td>Google</td><td>googleapis.com/youtube/v3</td><td>YouTube video search, metadata, channel info</td><td><span class="key-missing">Optional</span></td><td>Free (10k/day)</td></tr>
-          <tr><td>Gemini</td><td>Google</td><td>generativelanguage.googleapis.com</td><td>Gemini Council Member, YouTube/Trends analysis</td><td><span class="key-missing">Optional</span></td><td>Free tier avail</td></tr>
-          <tr><td>Perplexity Sonar</td><td>Perplexity</td><td>api.perplexity.ai/chat/completions</td><td>Research, fact-checking, source verification</td><td><span class="key-missing">Optional</span></td><td>~$0.05/query</td></tr>
-          <tr><td>OpenAI Chat</td><td>OpenAI</td><td>api.openai.com/v1/chat/completions</td><td>GPT Council Member (creative alternatives)</td><td><span class="key-missing">Optional</span></td><td>~$0.10/call</td></tr>
-          <tr><td>X API v2</td><td>X/Twitter</td><td>api.twitter.com/2/*</td><td>Tweet search, user lookup, trending topics</td><td><span class="key-missing">Optional</span></td><td>Free (basic)</td></tr>
-          <tr><td>twscrape</td><td>Open Source</td><td>Local Python lib (no API key)</td><td>X scraping fallback — logged-in account pool</td><td><span class="key-set">Fallback</span></td><td>Free</td></tr>
-          <tr><td>Ollama</td><td>Local</td><td>localhost:11434/api/generate</td><td>Local LLM fallback (qwen3, deepseek-coder)</td><td><span class="key-set">Fallback</span></td><td>Free (local)</td></tr>
-          <tr><td>yt-dlp</td><td>Open Source</td><td>Local CLI tool (no API key)</td><td>YouTube audio download for transcription</td><td><span class="key-set">Required</span></td><td>Free</td></tr>
-          <tr><td>faster-whisper</td><td>Open Source</td><td>Local Python lib</td><td>Audio → text transcription (CPU int8)</td><td><span class="key-set">Required</span></td><td>Free (local)</td></tr>
-          <tr><td>mlx-whisper</td><td>Apple/MLX</td><td>Local Python lib (Metal GPU)</td><td>Audio → text transcription (Apple Silicon native)</td><td><span class="key-missing">Optional</span></td><td>Free (local)</td></tr>
+        <tbody id="mandatesBody">
+          <tr><td colspan="7" style="text-align: center; padding: 20px;">Loading mandates...</td></tr>
         </tbody>
       </table>
     </div>
   </div>
 
-  <!-- Internal Services Reference -->
+  <!-- Recent Events Log -->
   <div class="card card-full">
     <div class="card-header">
-      <span class="card-title">Internal Service APIs (Mac Mini)</span>
+      <span class="card-title">Recent Events</span>
+      <span class="card-badge badge-code" id="eventsCount">0</span>
     </div>
-    <div style="overflow-x: auto;">
-      <table class="api-table">
-        <thead>
-          <tr><th>Service</th><th>Port</th><th>Key Endpoints</th><th>Pillar</th></tr>
-        </thead>
-        <tbody>
-          <tr><td>NCL Brain API</td><td class="port">8800</td><td>POST /pump, GET /pump/pending, POST /pump/approve/{id}, POST /feedback, POST /feedback/synthesis</td><td>NCL</td></tr>
-          <tr><td>NCC Relay Server</td><td class="port">8787</td><td>POST /event, POST /events/batch, GET /events/recent, GET /events/search, GET /stats</td><td>NCC</td></tr>
-          <tr><td>NCC Master</td><td class="port">8765</td><td>POST /event (mandate dispatch), GET /health</td><td>NCC</td></tr>
-          <tr><td>One-Drop API</td><td class="port">8123</td><td>GET /progress, PUT /progress/{n}, GET /notes, POST /notes, GET /notes/export</td><td>NCC</td></tr>
-          <tr><td>AAC Monitor</td><td class="port">8080</td><td>GET /health, GET /status (trading state)</td><td>AAC</td></tr>
-          <tr><td>BRS Dashboard</td><td class="port">8000</td><td>GET /health, GET /leads, GET /revenue</td><td>BRS</td></tr>
-          <tr><td>Paperclip</td><td class="port">3100</td><td>Agent orchestration, workflow management, budget tracking</td><td>NCC</td></tr>
-          <tr><td>Ollama</td><td class="port">11434</td><td>POST /api/generate, POST /api/chat, GET /api/tags</td><td>NCL</td></tr>
-          <tr><td>FirstStrike Relay</td><td class="port">8443</td><td>POST /pump (iPhone → Mac), POST /responses (completion return)</td><td>NCL</td></tr>
-        </tbody>
-      </table>
+    <div class="events-log" id="eventsLog">
+      <div class="event-line"><span class="event-time">[--:--:--]</span><span class="event-type">INIT</span><span class="event-msg">Waiting for events...</span></div>
     </div>
   </div>
 
 </div>
 
 <script>
-// Service health checks
+// State
+let apiData = null;
+let autoRefresh = true;
+let refreshInterval = null;
+let lastRefreshTime = null;
+const POLL_INTERVAL = 15000; // 15 seconds
+let API_OFFLINE = false;
+
+// Demo data for offline mode
+const DEMO_DATA = {
+  pump_count: 3,
+  active_mandates: 2,
+  completed_count: 12,
+  council_sessions: 5,
+  youtube_reports: 2,
+  x_reports: 1,
+  latest_council_type: 'Mixed Intelligence',
+  latest_council_time: new Date(Date.now() - 3600000).toISOString(),
+  dispatched_count: 8,
+  pending_count: 2,
+  notification_count: 0,
+  pipeline_status: 'online',
+  stage_1_status: 'ok',
+  stage_2_status: 'ok',
+  stage_3_status: 'warn',
+  stage_4_status: 'warn',
+  stage_5_status: 'ok',
+  stage_6_status: 'warn',
+  stage_7_status: 'ok',
+  stage_8_status: 'warn',
+  mandates: [
+    { id: 'mnd-001', pillar: 'Research', priority: 95, title: 'Q2 Market Analysis', status: 'active', deadline: '2026-06-30', created_at: new Date(Date.now() - 86400000).toISOString() },
+    { id: 'mnd-002', pillar: 'Operations', priority: 75, title: 'System Optimization', status: 'pending', deadline: '2026-05-15', created_at: new Date(Date.now() - 604800000).toISOString() }
+  ],
+  recent_events: [
+    { timestamp: new Date(Date.now() - 300000).toISOString(), type: 'council', message: 'YouTube intelligence council completed' },
+    { timestamp: new Date(Date.now() - 900000).toISOString(), type: 'pump', message: 'Pump prompt received from First Strike' },
+    { timestamp: new Date(Date.now() - 1800000).toISOString(), type: 'dispatch', message: 'Mandate dispatched to execution engine' }
+  ]
+};
+
+// Service list
 const SERVICES = [
-  { name: 'NCL Brain API', port: 8800, path: '/health' },
-  { name: 'NCC Relay', port: 8787, path: '/stats' },
+  { name: 'NCL Brain', port: 8800, path: '/health' },
+  { name: 'NCC Relay', port: 8787, path: '/health' },
   { name: 'NCC Master', port: 8765, path: '/health' },
-  { name: 'One-Drop API', port: 8123, path: '/progress' },
+  { name: 'One-Drop', port: 8123, path: '/health' },
   { name: 'AAC Monitor', port: 8080, path: '/health' },
   { name: 'BRS Dashboard', port: 8000, path: '/health' },
   { name: 'Paperclip', port: 3100, path: '/health' },
   { name: 'Ollama', port: 11434, path: '/api/tags' },
 ];
 
-async function checkService(svc) {
-  try {
-    const ctrl = new AbortController();
-    setTimeout(() => ctrl.abort(), 3000);
-    const r = await fetch(`http://localhost:${svc.port}${svc.path}`, { signal: ctrl.signal });
-    return r.ok;
-  } catch { return false; }
+// Relative time formatter
+function getRelativeTime(dateStr) {
+  if (!dateStr) return '—';
+  const date = new Date(dateStr);
+  const now = new Date();
+  const seconds = Math.floor((now - date) / 1000);
+  if (seconds < 60) return 'now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
 }
 
-async function checkAllServices() {
-  const rows = document.querySelectorAll('#servicesList .service-row');
-  let up = 0;
-  for (let i = 0; i < SERVICES.length; i++) {
-    const ok = await checkService(SERVICES[i]);
-    const dot = rows[i].querySelector('.status-dot');
-    dot.className = 'status-dot ' + (ok ? 'dot-green' : 'dot-red');
-    if (ok) up++;
-  }
-  const badge = document.getElementById('servicesBadge');
-  badge.textContent = `${up}/${SERVICES.length} Online`;
-  badge.className = 'card-badge ' + (up === SERVICES.length ? 'badge-live' : up > 0 ? 'badge-partial' : 'badge-offline');
+// Format date short
+function formatDateShort(dateStr) {
+  if (!dateStr) return '—';
+  const date = new Date(dateStr);
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-async function checkPipelineStatus() {
+// Format time short
+function formatTimeShort(dateStr) {
+  if (!dateStr) return '—';
+  const date = new Date(dateStr);
+  return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+}
+
+// Check API health on load
+async function checkAPIHealth() {
   try {
     const r = await fetch('http://localhost:8800/health');
     if (r.ok) {
-      document.getElementById('s2').textContent = '✅';
+      API_OFFLINE = false;
+      updateConnectionIndicator(true);
+      return true;
     }
   } catch {
-    document.getElementById('s2').textContent = '❌';
+    API_OFFLINE = true;
+  }
+  updateConnectionIndicator(false);
+  return false;
+}
+
+// Update connection indicator UI
+function updateConnectionIndicator(isOnline) {
+  const indicator = document.getElementById('connectionIndicator');
+  if (isOnline) {
+    indicator.className = 'connection-indicator online';
+    indicator.innerHTML = '<span class="status-dot dot-green"></span><span>Connected</span>';
+  } else {
+    indicator.className = 'connection-indicator offline';
+    indicator.innerHTML = '<span class="status-dot dot-red"></span><span>Offline — Demo Data</span>';
+  }
+}
+
+// Update services display via server-side proxy (avoids CORS issues)
+async function updateServices() {
+  const servicesList = document.getElementById('servicesList');
+  servicesList.innerHTML = '';
+  let online = 0;
+  let services = SERVICES;
+
+  // Use server-side health proxy to avoid cross-origin browser blocks
+  try {
+    const r = await fetch('http://localhost:8800/services/status');
+    if (r.ok) {
+      const data = await r.json();
+      services = data.services || SERVICES;
+      online = data.online || 0;
+
+      for (const svc of services) {
+        const row = document.createElement('div');
+        row.className = 'service-row';
+        row.innerHTML = `
+          <span><span class="status-dot ${svc.online ? 'dot-green' : 'dot-red'}"></span>${svc.name}</span>
+          <span class="port">:${svc.port}</span>
+        `;
+        servicesList.appendChild(row);
+      }
+
+      const badge = document.getElementById('servicesBadge');
+      badge.textContent = `${online}/${data.total} Online`;
+      badge.className = 'card-badge ' + (online === data.total ? 'badge-live' : online > 0 ? 'badge-partial' : 'badge-offline');
+      return;
+    }
+  } catch {
+    // Fallback: try direct fetch per-service (works if same-origin or CORS enabled)
   }
 
-  // Static status based on known state
-  document.getElementById('s3').textContent = '⚠️'; // Council degraded (1 API key)
-  document.getElementById('s4').textContent = '⚠️'; // Pushover not configured
-  document.getElementById('s5').textContent = '✅'; // Orchestrator code complete
-  document.getElementById('s6').textContent = '⚠️'; // Claude Code bridge (auto mode)
-  document.getElementById('s7').textContent = '✅'; // Review code complete
-  document.getElementById('s8').textContent = '⚠️'; // Depends on Pushover
+  // Fallback: direct per-service check
+  for (const svc of SERVICES) {
+    let isOnline = false;
+    try {
+      const r = await fetch(`http://localhost:${svc.port}${svc.path || '/health'}`);
+      isOnline = r.ok;
+    } catch {}
+    if (isOnline) online++;
+
+    const row = document.createElement('div');
+    row.className = 'service-row';
+    row.innerHTML = `
+      <span><span class="status-dot ${isOnline ? 'dot-green' : 'dot-red'}"></span>${svc.name}</span>
+      <span class="port">:${svc.port}</span>
+    `;
+    servicesList.appendChild(row);
+  }
+
+  const badge = document.getElementById('servicesBadge');
+  badge.textContent = `${online}/${SERVICES.length} Online`;
+  badge.className = 'card-badge ' + (online === SERVICES.length ? 'badge-live' : online > 0 ? 'badge-partial' : 'badge-offline');
 }
 
-function updateTimestamp() {
-  document.getElementById('lastUpdated').textContent =
-    'Updated: ' + new Date().toLocaleTimeString();
+// Fetch dashboard data from API with offline fallback
+async function fetchDashboardData() {
+  if (API_OFFLINE) {
+    return DEMO_DATA;
+  }
+  try {
+    const response = await fetch('http://localhost:8800/dashboard');
+    if (!response.ok) {
+      API_OFFLINE = true;
+      updateConnectionIndicator(false);
+      return DEMO_DATA;
+    }
+    const data = await response.json();
+    API_OFFLINE = false;
+    updateConnectionIndicator(true);
+    return data;
+  } catch (err) {
+    console.error('Dashboard API error:', err);
+    API_OFFLINE = true;
+    updateConnectionIndicator(false);
+    return DEMO_DATA;
+  }
 }
 
-async function refreshAll() {
+// Update UI with data
+function renderDashboard(data) {
+  if (!data) {
+    showOffline();
+    return;
+  }
+
+  hideOffline();
+  apiData = data;
+
+  // Update stats
+  document.getElementById('pumpCount').textContent = data.pump_count || 0;
+  document.getElementById('mandateCount').textContent = data.active_mandates || 0;
+  document.getElementById('completedCount').textContent = data.completed_count || 0;
+  document.getElementById('councilCount').textContent = data.council_sessions || 0;
+
+  // Update councils
+  document.getElementById('youtubeCount').textContent = data.youtube_reports || 0;
+  document.getElementById('xCount').textContent = data.x_reports || 0;
+  document.getElementById('latestCouncil').textContent = data.latest_council_type || '—';
+  if (data.latest_council_time) {
+    document.getElementById('councilTime').textContent = getRelativeTime(data.latest_council_time);
+  }
+
+  // Update orchestrator
+  document.getElementById('dispatchedCount').textContent = data.dispatched_count || 0;
+  document.getElementById('pendingCount').textContent = data.pending_count || 0;
+  document.getElementById('notifCount').textContent = data.notification_count || 0;
+
+  // Update pipeline stages based on data
+  updatePipelineStages(data);
+
+  // Update mandates table
+  renderMandatesTable(data.mandates || []);
+
+  // Update events log
+  renderEventsLog(data.recent_events || []);
+
+  // Update pipeline badge
+  const pipelineStatus = data.pipeline_status || 'degraded';
+  const pipelineBadge = document.getElementById('pipelineBadge');
+  pipelineBadge.textContent = pipelineStatus.charAt(0).toUpperCase() + pipelineStatus.slice(1);
+  pipelineBadge.className = 'card-badge ' + (pipelineStatus === 'online' ? 'badge-live' : pipelineStatus === 'degraded' ? 'badge-partial' : 'badge-offline');
+
+  // Update timestamp
   updateTimestamp();
-  await Promise.all([checkAllServices(), checkPipelineStatus()]);
 }
 
-// Auto-refresh every 30s
-refreshAll();
-setInterval(refreshAll, 30000);
+// Update pipeline stages
+function updatePipelineStages(data) {
+  const stages = [
+    data.stage_1_status || 'ok',
+    data.stage_2_status || 'ok',
+    data.stage_3_status || 'warn',
+    data.stage_4_status || 'warn',
+    data.stage_5_status || 'ok',
+    data.stage_6_status || 'warn',
+    data.stage_7_status || 'ok',
+    data.stage_8_status || 'warn',
+  ];
+
+  const statusIcons = {
+    ok: '✅',
+    warn: '⚠️',
+    err: '❌'
+  };
+
+  for (let i = 0; i < 8; i++) {
+    const el = document.getElementById(`s${i + 1}`);
+    const status = stages[i] || 'warn';
+    el.textContent = statusIcons[status] || '⏳';
+  }
+}
+
+// Render mandates table
+function renderMandatesTable(mandates) {
+  const tbody = document.getElementById('mandatesBody');
+  const badge = document.getElementById('mandatesCount');
+
+  if (!mandates || mandates.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 20px;">No active mandates</td></tr>';
+    badge.textContent = '0 Items';
+    return;
+  }
+
+  // Sort by priority (higher first)
+  const sorted = [...mandates].sort((a, b) => (b.priority || 0) - (a.priority || 0));
+
+  tbody.innerHTML = sorted.map(m => {
+    const statusClass = m.status === 'pending' ? 'badge-pending' : m.status === 'active' ? 'badge-active' : m.status === 'completed' ? 'badge-completed' : 'badge-failed';
+    return `
+      <tr>
+        <td>${m.id ? m.id.substring(0, 8) : '—'}</td>
+        <td>${m.pillar || '—'}</td>
+        <td>${m.priority || '—'}</td>
+        <td>${m.title || '—'}</td>
+        <td><span class="status-badge ${statusClass}">${m.status || '—'}</span></td>
+        <td>${formatDateShort(m.deadline)}</td>
+        <td>${getRelativeTime(m.created_at)}</td>
+      </tr>
+    `;
+  }).join('');
+
+  badge.textContent = `${mandates.length} Item${mandates.length !== 1 ? 's' : ''}`;
+}
+
+// Render events log
+function renderEventsLog(events) {
+  const log = document.getElementById('eventsLog');
+  const badge = document.getElementById('eventsCount');
+
+  if (!events || events.length === 0) {
+    log.innerHTML = '<div class="event-line"><span class="event-time">[--:--:--]</span><span class="event-type">INFO</span><span class="event-msg">No events yet</span></div>';
+    badge.textContent = '0';
+    return;
+  }
+
+  // Reverse to show newest first
+  const sorted = [...events].reverse().slice(0, 50);
+
+  log.innerHTML = sorted.map(e => {
+    const time = new Date(e.timestamp);
+    const timeStr = time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const type = (e.type || 'EVENT').toUpperCase().substring(0, 6);
+    return `
+      <div class="event-line">
+        <span class="event-time">[${timeStr}]</span>
+        <span class="event-type">${type}</span>
+        <span class="event-msg">${e.message || e.summary || '—'}</span>
+      </div>
+    `;
+  }).join('');
+
+  badge.textContent = events.length.toString();
+}
+
+// Show offline overlay
+function showOffline() {
+  document.getElementById('offlineOverlay').classList.remove('hidden');
+}
+
+// Hide offline overlay
+function hideOffline() {
+  document.getElementById('offlineOverlay').classList.add('hidden');
+}
+
+// Update last updated timestamp
+function updateTimestamp() {
+  const now = new Date();
+  const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  document.getElementById('lastUpdated').textContent = `Updated: ${timeStr}`;
+  lastRefreshTime = now;
+}
+
+// Toggle auto refresh
+function toggleAutoRefresh() {
+  autoRefresh = !autoRefresh;
+  const btn = document.getElementById('autoRefreshToggle');
+  if (autoRefresh) {
+    btn.classList.add('active');
+    startAutoRefresh();
+  } else {
+    btn.classList.remove('active');
+    stopAutoRefresh();
+  }
+}
+
+// Start auto refresh
+function startAutoRefresh() {
+  if (refreshInterval) clearInterval(refreshInterval);
+  refreshInterval = setInterval(() => {
+    refreshAll();
+  }, POLL_INTERVAL);
+}
+
+// Stop auto refresh
+function stopAutoRefresh() {
+  if (refreshInterval) {
+    clearInterval(refreshInterval);
+    refreshInterval = null;
+  }
+}
+
+// Manual refresh
+async function manualRefresh() {
+  const btn = document.getElementById('refreshBtn');
+  btn.classList.add('spin');
+  await refreshAll();
+  setTimeout(() => btn.classList.remove('spin'), 1000);
+}
+
+// Refresh all data
+async function refreshAll() {
+  const [data] = await Promise.all([
+    fetchDashboardData(),
+    updateServices(),
+  ]);
+  renderDashboard(data);
+}
+
+// Run council
+async function runCouncil() {
+  try {
+    const response = await fetch('http://localhost:8800/councils/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ council_type: 'both' })
+    });
+    if (response.ok) {
+      alert('Council started');
+      setTimeout(refreshAll, 2000);
+    } else {
+      alert('Failed to start council');
+    }
+  } catch (err) {
+    alert('Error: ' + err.message);
+  }
+}
+
+// Initialize
+async function init() {
+  document.getElementById('autoRefreshToggle').classList.add('active');
+  await checkAPIHealth();
+  await refreshAll();
+  startAutoRefresh();
+}
+
+// Start on load
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}
 </script>
 
 </body>

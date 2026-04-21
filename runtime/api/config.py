@@ -38,6 +38,14 @@ class Settings(BaseSettings):
     openai_api_key: Optional[str] = None
     copilot_api_key: Optional[str] = None  # GitHub Copilot / separate OpenAI key for engineering role
 
+    # News APIs (for Intelligence Engine)
+    gnews_api_key: Optional[str] = None
+    newsapi_key: Optional[str] = None
+
+    # Intelligence Engine
+    intelligence_brief_interval: int = 14400  # 4 hours between full briefs
+    intelligence_collection_interval: int = 1800  # 30 min between signal collection sweeps
+
     # Social media APIs
     x_bearer_token: Optional[str] = None
     youtube_api_key: Optional[str] = None
@@ -70,6 +78,14 @@ class Settings(BaseSettings):
 
     # WAR Room integration
     aac_war_room_url: Optional[str] = None
+
+    # Autonomous scheduler
+    autonomous_enabled: bool = True
+    council_trigger_threshold: float = 75.0  # importance score to auto-spawn council
+    council_min_signals: int = 3  # minimum signals before council auto-spawn
+    strategic_review_interval: int = 14400  # 4 hours between scheduled reviews
+    aac_sync_interval: int = 900  # 15 minutes between pillar syncs
+    workspace_health_interval: int = 1800  # 30 minutes between workspace checks
 
     # Strike-Point pipeline auth
     strike_auth_token: str = ""
@@ -185,6 +201,14 @@ council_model: "claude-sonnet-4-6"
 
 # War Room
 aac_war_room_url: ""
+
+# Autonomous Scheduler
+autonomous_enabled: true
+council_trigger_threshold: 75.0
+council_min_signals: 3
+strategic_review_interval: 14400
+aac_sync_interval: 900
+workspace_health_interval: 1800
 """
         with open(config_file, "w") as f:
             f.write(template)

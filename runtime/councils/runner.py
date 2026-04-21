@@ -17,6 +17,7 @@ import argparse
 import asyncio
 import logging
 import logging.handlers
+import os
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -27,7 +28,7 @@ if TYPE_CHECKING:
     from .shared.models import CouncilReport
 
 # Setup logging before imports
-NCL_BASE = Path.home() / "Projects" / "NCL"
+NCL_BASE = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
 LOG_DIR = NCL_BASE / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 

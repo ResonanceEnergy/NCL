@@ -1,0 +1,1594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0a0e14">
+<title>NCL Workstation</title>
+<style>
+/* ==============================
+   CSS RESET & VARIABLES
+   ============================== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg-primary: #0a0e14;
+  --bg-secondary: #0d1117;
+  --bg-card: #111820;
+  --bg-card-hover: #151d27;
+  --bg-input: #0d1117;
+  --border: #1e2a3a;
+  --border-light: #253345;
+  --text-primary: #e6edf3;
+  --text-secondary: #8b949e;
+  --text-muted: #545d68;
+  --cyan: #00e5ff;
+  --cyan-dim: #007a8a;
+  --cyan-glow: rgba(0, 229, 255, 0.15);
+  --green: #00e676;
+  --green-dim: #007a3e;
+  --green-glow: rgba(0, 230, 118, 0.15);
+  --amber: #ffab00;
+  --amber-dim: #8a5e00;
+  --amber-glow: rgba(255, 171, 0, 0.15);
+  --red: #ff1744;
+  --red-dim: #8a0c24;
+  --red-glow: rgba(255, 23, 68, 0.15);
+  --purple: #b388ff;
+  --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'SF Mono', 'Fira Code', 'Consolas', 'Liberation Mono', monospace;
+  --radius: 8px;
+  --radius-sm: 5px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+}
+
+html {
+  font-size: 14px;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font-body);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.5;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow-x: hidden;
+  padding-top: var(--safe-top);
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+  padding-bottom: var(--safe-bottom);
+}
+
+/* ==============================
+   SCROLLBAR
+   ============================== */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-primary); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-light); }
+
+/* ==============================
+   STATUS BAR
+   ============================== */
+.status-bar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.status-bar .logo {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 1.15rem;
+  color: var(--cyan);
+  letter-spacing: 2px;
+  white-space: nowrap;
+  text-shadow: 0 0 20px var(--cyan-glow);
+}
+
+.status-bar .logo span {
+  color: var(--text-muted);
+  font-weight: 400;
+  font-size: 0.75rem;
+  letter-spacing: 0;
+  margin-left: 6px;
+}
+
+.status-indicators {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  flex: 1;
+}
+
+.indicator {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.dot.green { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.dot.amber { background: var(--amber); box-shadow: 0 0 6px var(--amber); }
+.dot.red { background: var(--red); box-shadow: 0 0 6px var(--red); }
+.dot.off { background: var(--text-muted); }
+.dot.pulse { animation: pulse 2s infinite; }
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.status-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.timestamp {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* ==============================
+   BUTTONS
+   ============================== */
+button {
+  font-family: var(--font-body);
+  cursor: pointer;
+  border: none;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  min-height: 44px;
+  min-width: 44px;
+  border-radius: var(--radius-sm);
+  font-size: 0.82rem;
+  font-weight: 600;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.btn-cyan {
+  background: rgba(0, 229, 255, 0.12);
+  color: var(--cyan);
+  border: 1px solid rgba(0, 229, 255, 0.25);
+}
+.btn-cyan:hover { background: rgba(0, 229, 255, 0.22); }
+.btn-cyan:active { transform: scale(0.97); }
+
+.btn-green {
+  background: rgba(0, 230, 118, 0.12);
+  color: var(--green);
+  border: 1px solid rgba(0, 230, 118, 0.25);
+}
+.btn-green:hover { background: rgba(0, 230, 118, 0.22); }
+
+.btn-red {
+  background: rgba(255, 23, 68, 0.12);
+  color: var(--red);
+  border: 1px solid rgba(255, 23, 68, 0.25);
+}
+.btn-red:hover { background: rgba(255, 23, 68, 0.22); }
+
+.btn-amber {
+  background: rgba(255, 171, 0, 0.12);
+  color: var(--amber);
+  border: 1px solid rgba(255, 171, 0, 0.25);
+}
+.btn-amber:hover { background: rgba(255, 171, 0, 0.22); }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+.btn-ghost:hover { background: var(--bg-card-hover); color: var(--text-primary); }
+
+.btn-sm {
+  min-height: 34px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+}
+
+.btn-icon {
+  padding: 6px;
+  min-width: 36px;
+  min-height: 36px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid transparent;
+  font-size: 1.1rem;
+}
+.btn-icon:hover { background: var(--bg-card-hover); color: var(--text-primary); }
+
+.emergency-btn {
+  background: var(--red);
+  color: #fff;
+  font-weight: 700;
+  padding: 8px 16px;
+  min-height: 44px;
+  border-radius: var(--radius-sm);
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  border: none;
+  box-shadow: 0 0 12px var(--red-glow);
+}
+.emergency-btn:hover { background: #e6002e; box-shadow: 0 0 20px rgba(255, 23, 68, 0.4); }
+.emergency-btn:active { transform: scale(0.96); }
+.emergency-btn.active {
+  background: var(--red-dim);
+  animation: pulse 1.5s infinite;
+}
+
+.toggle-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+.toggle {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  background: var(--border);
+  border-radius: 11px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.toggle.on { background: var(--cyan-dim); }
+.toggle::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  background: var(--text-primary);
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+.toggle.on::after { transform: translateX(16px); }
+
+/* ==============================
+   MAIN GRID
+   ============================== */
+.dashboard {
+  display: grid;
+  grid-template-columns: 1fr 420px;
+  grid-template-rows: auto auto auto;
+  gap: 12px;
+  padding: 12px;
+  max-width: 1800px;
+  margin: 0 auto;
+}
+
+/* ==============================
+   CARDS
+   ============================== */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  gap: 8px;
+}
+
+.card-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card-title .accent {
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.card-title .accent.cyan { background: var(--cyan); }
+.card-title .accent.green { background: var(--green); }
+.card-title .accent.amber { background: var(--amber); }
+.card-title .accent.red { background: var(--red); }
+.card-title .accent.purple { background: var(--purple); }
+
+.card-body {
+  padding: 14px 16px;
+}
+
+.card-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ==============================
+   INTELLIGENCE FEED
+   ============================== */
+.intel-section { grid-column: 1; grid-row: 1 / 3; }
+
+.brief-summary {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  margin-bottom: 14px;
+  font-size: 0.88rem;
+  line-height: 1.65;
+  color: var(--text-primary);
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.signals-list {
+  list-style: none;
+  margin-bottom: 14px;
+}
+
+.signal-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(30, 42, 58, 0.5);
+}
+.signal-item:last-child { border-bottom: none; }
+
+.signal-score {
+  font-family: var(--font-mono);
+  font-size: 0.88rem;
+  font-weight: 700;
+  min-width: 42px;
+  text-align: right;
+  flex-shrink: 0;
+}
+.score-high { color: var(--green); }
+.score-med { color: var(--amber); }
+.score-low { color: var(--text-muted); }
+
+.signal-text {
+  font-size: 0.84rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.signal-text strong { color: var(--text-primary); font-weight: 600; }
+
+.sector-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.sector-chip {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  text-align: center;
+}
+.sector-chip .label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+.sector-chip .value {
+  font-family: var(--font-mono);
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--cyan);
+}
+
+.heatmap-section { margin-top: 14px; }
+.heatmap-section h4 {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.heatmap-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.heatmap-tile {
+  padding: 5px 9px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.heatmap-tile.hot { background: rgba(0, 230, 118, 0.15); color: var(--green); border-color: rgba(0, 230, 118, 0.25); }
+.heatmap-tile.warm { background: rgba(255, 171, 0, 0.1); color: var(--amber); border-color: rgba(255, 171, 0, 0.2); }
+.heatmap-tile.cool { background: rgba(0, 229, 255, 0.08); color: var(--cyan-dim); border-color: rgba(0, 229, 255, 0.15); }
+
+/* ==============================
+   PUMP QUEUE
+   ============================== */
+.pump-section { grid-column: 2; grid-row: 1; }
+
+.pump-list { list-style: none; }
+
+.pump-item {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  margin-bottom: 8px;
+}
+.pump-item:last-child { margin-bottom: 0; }
+
+.pump-item .pump-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.pump-intent {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.urgency-badge {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.urgency-high { background: rgba(255, 23, 68, 0.15); color: var(--red); }
+.urgency-medium { background: rgba(255, 171, 0, 0.15); color: var(--amber); }
+.urgency-low { background: rgba(0, 229, 255, 0.1); color: var(--cyan-dim); }
+
+.pump-mandates {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+.pump-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.quick-pump {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.quick-pump input {
+  flex: 1;
+  min-height: 44px;
+  padding: 8px 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+}
+.quick-pump input::placeholder { color: var(--text-muted); }
+.quick-pump input:focus { border-color: var(--cyan); outline: none; box-shadow: 0 0 0 2px var(--cyan-glow); }
+
+/* ==============================
+   MANDATE TRACKER
+   ============================== */
+.mandate-section { grid-column: 2; grid-row: 2; }
+
+.mandate-list { list-style: none; }
+
+.mandate-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(30, 42, 58, 0.5);
+}
+.mandate-item:last-child { border-bottom: none; }
+
+.mandate-priority {
+  width: 4px;
+  height: 32px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.priority-p0 { background: var(--red); }
+.priority-p1 { background: var(--amber); }
+.priority-p2 { background: var(--cyan); }
+.priority-p3 { background: var(--text-muted); }
+
+.mandate-info { flex: 1; min-width: 0; }
+.mandate-title {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mandate-detail {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  display: flex;
+  gap: 10px;
+}
+
+.mandate-stats {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.stat-box {
+  flex: 1;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  text-align: center;
+}
+.stat-box .stat-val {
+  font-family: var(--font-mono);
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--cyan);
+}
+.stat-box .stat-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* ==============================
+   BIT RAGE FLEET
+   ============================== */
+.fleet-section { grid-column: 1 / -1; grid-row: 3; }
+
+.fleet-grid {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: stretch;
+}
+
+.fleet-stat {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 16px;
+  min-width: 120px;
+  flex: 1;
+}
+.fleet-stat .val {
+  font-family: var(--font-mono);
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+.fleet-stat .lbl {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.fleet-kpis {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+.kpi-tag {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  padding: 3px 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-secondary);
+}
+
+/* ==============================
+   ACTIVITY LOG
+   ============================== */
+.log-section { grid-column: 1 / -1; }
+
+.log-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  cursor: pointer;
+}
+.log-toggle:hover { background: var(--bg-card-hover); }
+.log-toggle .chevron { transition: transform 0.2s; font-size: 0.7rem; }
+.log-toggle.open .chevron { transform: rotate(180deg); }
+
+.log-panel {
+  display: none;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 var(--radius) var(--radius);
+  max-height: 320px;
+  overflow-y: auto;
+}
+.log-panel.open { display: block; }
+
+.log-entry {
+  display: flex;
+  gap: 10px;
+  padding: 8px 16px;
+  border-bottom: 1px solid rgba(30, 42, 58, 0.3);
+  font-size: 0.78rem;
+}
+.log-entry:last-child { border-bottom: none; }
+
+.log-time {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  flex-shrink: 0;
+  min-width: 70px;
+}
+.log-msg { color: var(--text-secondary); }
+
+.log-stats {
+  display: flex;
+  gap: 16px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  flex-wrap: wrap;
+}
+.log-stats strong { color: var(--text-secondary); }
+
+/* ==============================
+   SETTINGS MODAL
+   ============================== */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  z-index: 200;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.modal-overlay.open { display: flex; }
+
+.modal {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  width: 100%;
+  max-width: 440px;
+  padding: 24px;
+}
+.modal h2 {
+  font-size: 1rem;
+  font-weight: 700;
+  margin-bottom: 16px;
+  color: var(--text-primary);
+}
+.modal label {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.modal input {
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  margin-bottom: 14px;
+}
+.modal input:focus { border-color: var(--cyan); outline: none; }
+.modal .modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+/* ==============================
+   EMPTY / OFFLINE STATES
+   ============================== */
+.empty-state {
+  text-align: center;
+  padding: 24px 16px;
+  color: var(--text-muted);
+  font-size: 0.84rem;
+}
+.empty-state .icon { font-size: 1.8rem; margin-bottom: 8px; display: block; }
+
+.offline-badge {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--red);
+  background: var(--red-glow);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+/* ==============================
+   LOADING SHIMMER
+   ============================== */
+.shimmer {
+  background: linear-gradient(90deg, var(--bg-secondary) 25%, var(--bg-card-hover) 50%, var(--bg-secondary) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: var(--radius-sm);
+  height: 16px;
+  margin-bottom: 6px;
+}
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ==============================
+   NOTIFICATION TOAST
+   ============================== */
+.toast-container {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 300;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 8px;
+  padding-right: var(--safe-right);
+  padding-bottom: var(--safe-bottom);
+}
+.toast {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 16px;
+  font-size: 0.82rem;
+  color: var(--text-primary);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  animation: slideIn 0.25s ease;
+  max-width: 340px;
+}
+.toast.success { border-left: 3px solid var(--green); }
+.toast.error { border-left: 3px solid var(--red); }
+.toast.info { border-left: 3px solid var(--cyan); }
+@keyframes slideIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+/* ==============================
+   RESPONSIVE
+   ============================== */
+@media (max-width: 960px) {
+  .dashboard {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+  }
+  .intel-section { grid-column: 1; grid-row: auto; }
+  .pump-section { grid-column: 1; grid-row: auto; }
+  .mandate-section { grid-column: 1; grid-row: auto; }
+  .fleet-section { grid-column: 1; grid-row: auto; }
+  .log-section { grid-column: 1; }
+
+  .status-bar {
+    padding: 6px 10px;
+    gap: 8px;
+  }
+  .status-bar .logo { font-size: 1rem; }
+  .emergency-btn { font-size: 0.72rem; padding: 6px 10px; }
+}
+
+@media (max-width: 600px) {
+  html { font-size: 13px; }
+  .status-indicators { gap: 8px; }
+  .indicator .ind-label { display: none; }
+  .fleet-grid { flex-direction: column; }
+  .sector-grid { grid-template-columns: repeat(3, 1fr); }
+  .mandate-stats { flex-wrap: wrap; }
+  .stat-box { min-width: 80px; }
+}
+</style>
+</head>
+<body>
+
+<!-- STATUS BAR -->
+<div class="status-bar">
+  <div class="logo">NCL<span>WORKSTATION</span></div>
+  <div class="status-indicators">
+    <div class="indicator">
+      <div class="dot off pulse" id="dot-brain"></div>
+      <span class="ind-label">Brain</span>
+    </div>
+    <div class="indicator">
+      <div class="dot off" id="dot-fleet"></div>
+      <span class="ind-label">Fleet</span>
+    </div>
+    <div class="indicator">
+      <div class="dot off" id="dot-scheduler"></div>
+      <span class="ind-label">Scheduler</span>
+    </div>
+    <div class="timestamp" id="last-refresh">--:--:--</div>
+  </div>
+  <div class="status-actions">
+    <div class="toggle-wrap">
+      <span>Auto</span>
+      <div class="toggle on" id="toggle-auto" onclick="toggleAutoRefresh()"></div>
+    </div>
+    <button class="btn btn-cyan btn-sm" onclick="refreshAll()" title="Refresh now">&#x21bb;</button>
+    <button class="btn-icon" onclick="openSettings()" title="Settings">&#x2699;</button>
+    <button class="emergency-btn" id="emergency-btn" onclick="emergencyStop()">E-STOP</button>
+  </div>
+</div>
+
+<!-- MAIN DASHBOARD -->
+<div class="dashboard">
+
+  <!-- INTELLIGENCE FEED -->
+  <div class="card intel-section">
+    <div class="card-header">
+      <div class="card-title"><span class="accent cyan"></span>Intelligence Feed</div>
+      <div class="card-actions">
+        <button class="btn btn-cyan btn-sm" onclick="scanNow()">Scan Now</button>
+        <button class="btn btn-green btn-sm" onclick="generateBrief()">Generate Brief</button>
+      </div>
+    </div>
+    <div class="card-body">
+      <div id="intel-brief" class="brief-summary">
+        <div class="shimmer" style="width:90%"></div>
+        <div class="shimmer" style="width:70%"></div>
+        <div class="shimmer" style="width:80%"></div>
+      </div>
+
+      <h4 style="font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:8px;">Top Signals</h4>
+      <ul class="signals-list" id="signals-list">
+        <li class="signal-item"><div class="shimmer" style="width:100%;height:28px"></div></li>
+      </ul>
+
+      <h4 style="font-size:0.75rem;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:var(--text-muted);margin-bottom:8px;">Sectors</h4>
+      <div class="sector-grid" id="sector-grid"></div>
+
+      <div class="heatmap-section">
+        <h4>Reddit Ticker Heatmap</h4>
+        <div class="heatmap-grid" id="heatmap-grid">
+          <div class="shimmer" style="width:60px;height:24px;display:inline-block"></div>
+          <div class="shimmer" style="width:50px;height:24px;display:inline-block"></div>
+          <div class="shimmer" style="width:70px;height:24px;display:inline-block"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PUMP QUEUE -->
+  <div class="card pump-section">
+    <div class="card-header">
+      <div class="card-title"><span class="accent amber"></span>Pump Queue</div>
+      <span id="pump-count" style="font-family:var(--font-mono);font-size:0.78rem;color:var(--amber);">0</span>
+    </div>
+    <div class="card-body">
+      <ul class="pump-list" id="pump-list">
+        <li class="empty-state"><span class="icon">&#x26A1;</span>No pending pumps</li>
+      </ul>
+      <div class="quick-pump">
+        <input type="text" id="pump-input" placeholder="Quick pump text..." onkeydown="if(event.key==='Enter')submitPump()">
+        <button class="btn btn-amber btn-sm" onclick="submitPump()">Pump</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MANDATE TRACKER -->
+  <div class="card mandate-section">
+    <div class="card-header">
+      <div class="card-title"><span class="accent green"></span>Mandate Tracker</div>
+    </div>
+    <div class="card-body">
+      <div class="mandate-stats" id="mandate-stats">
+        <div class="stat-box"><div class="stat-val" id="stat-active">-</div><div class="stat-label">Active</div></div>
+        <div class="stat-box"><div class="stat-val" id="stat-completed">-</div><div class="stat-label">Done</div></div>
+        <div class="stat-box"><div class="stat-val" id="stat-total">-</div><div class="stat-label">Total</div></div>
+      </div>
+      <ul class="mandate-list" id="mandate-list">
+        <li class="empty-state"><span class="icon">&#x1F4CB;</span>Loading mandates...</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- BIT RAGE FLEET -->
+  <div class="card fleet-section">
+    <div class="card-header">
+      <div class="card-title"><span class="accent purple"></span>Bit Rage Fleet</div>
+      <div class="card-actions">
+        <button class="btn btn-cyan btn-sm" onclick="cSuiteMeeting()">C-Suite</button>
+        <button class="btn btn-green btn-sm" onclick="outreachPush()">Outreach Push</button>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="fleet-grid" id="fleet-grid">
+        <div class="fleet-stat"><div class="val" style="color:var(--cyan)" id="fleet-total">-</div><div class="lbl">Total Agents</div></div>
+        <div class="fleet-stat"><div class="val" style="color:var(--green)" id="fleet-active">-</div><div class="lbl">Active</div></div>
+        <div class="fleet-stat"><div class="val" style="color:var(--amber)" id="fleet-paused">-</div><div class="lbl">Paused</div></div>
+        <div class="fleet-stat"><div class="val" style="color:var(--text-secondary)" id="fleet-nerve">-</div><div class="lbl">NERVE Daemon</div></div>
+      </div>
+      <div class="fleet-kpis" id="fleet-kpis"></div>
+    </div>
+  </div>
+
+  <!-- ACTIVITY LOG -->
+  <div class="log-section">
+    <button class="log-toggle" id="log-toggle" onclick="toggleLog()">
+      <span>Activity Log</span>
+      <span class="chevron">&#x25BC;</span>
+    </button>
+    <div class="log-panel" id="log-panel">
+      <div class="log-stats" id="log-stats"></div>
+      <div id="log-entries"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- SETTINGS MODAL -->
+<div class="modal-overlay" id="settings-modal">
+  <div class="modal">
+    <h2>Settings</h2>
+    <label>Base URL</label>
+    <input type="text" id="setting-base" placeholder="http://localhost:8800">
+    <label>Auth Token</label>
+    <input type="text" id="setting-token" placeholder="Bearer token (if required)">
+    <label>Auto-Refresh Interval (seconds)</label>
+    <input type="number" id="setting-interval" placeholder="30" min="5" max="300">
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeSettings()">Cancel</button>
+      <button class="btn btn-cyan" onclick="saveSettings()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST CONTAINER -->
+<div class="toast-container" id="toast-container"></div>
+
+<script>
+/* ============================================================
+   NCL WORKSTATION — CORE RUNTIME
+   ============================================================ */
+
+// --- Configuration ---
+let BASE = window.location.origin;
+let AUTH_TOKEN = '';
+let REFRESH_INTERVAL = 30;
+let autoRefreshEnabled = true;
+let refreshTimer = null;
+
+// --- Helpers ---
+function headers() {
+  const h = { 'Content-Type': 'application/json' };
+  if (AUTH_TOKEN) h['Authorization'] = AUTH_TOKEN.startsWith('Bearer ') ? AUTH_TOKEN : 'Bearer ' + AUTH_TOKEN;
+  return h;
+}
+
+async function api(method, path, body) {
+  const url = BASE + path;
+  const opts = { method, headers: headers(), mode: 'cors' };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  const res = await fetch(url, opts);
+  if (!res.ok) throw new Error(res.status + ' ' + res.statusText);
+  const text = await res.text();
+  try { return JSON.parse(text); } catch { return text; }
+}
+
+function $(id) { return document.getElementById(id); }
+
+function toast(msg, type) {
+  type = type || 'info';
+  var c = $('toast-container');
+  var t = document.createElement('div');
+  t.className = 'toast ' + type;
+  t.textContent = msg;
+  c.appendChild(t);
+  setTimeout(function() { t.remove(); }, 4000);
+}
+
+function escHtml(s) {
+  if (!s) return '';
+  var d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function timeAgo(dateStr) {
+  if (!dateStr) return '';
+  var diff = (Date.now() - new Date(dateStr).getTime()) / 1000;
+  if (diff < 60) return Math.round(diff) + 's ago';
+  if (diff < 3600) return Math.round(diff / 60) + 'm ago';
+  if (diff < 86400) return Math.round(diff / 3600) + 'h ago';
+  return Math.round(diff / 86400) + 'd ago';
+}
+
+function setDot(id, status) {
+  var d = $(id);
+  d.className = 'dot';
+  if (status === 'green' || status === 'healthy' || status === 'active' || status === 'running' || status === true || status === 'ok') {
+    d.classList.add('green');
+  } else if (status === 'amber' || status === 'degraded' || status === 'paused') {
+    d.classList.add('amber');
+  } else if (status === 'red' || status === 'down' || status === 'error' || status === 'stopped' || status === false) {
+    d.classList.add('red');
+  } else {
+    d.classList.add('off', 'pulse');
+  }
+}
+
+function updateTimestamp() {
+  var now = new Date();
+  $('last-refresh').textContent = now.toLocaleTimeString('en-US', { hour12: false });
+}
+
+// --- Status Bar ---
+async function fetchHealth() {
+  try {
+    var data = await api('GET', '/health');
+    setDot('dot-brain', 'green');
+    // If health returns a token, grab it
+    if (data && data.token && !AUTH_TOKEN) {
+      AUTH_TOKEN = data.token;
+    }
+    return data;
+  } catch (e) {
+    setDot('dot-brain', 'red');
+    return null;
+  }
+}
+
+async function fetchFleetStatus() {
+  try {
+    var data = await api('GET', '/digital-labour/status');
+    setDot('dot-fleet', data && (data.status || data.state) ? (data.status || data.state) : 'green');
+
+    var agents = data.agents || data.fleet || {};
+    var total = agents.total || agents.count || (Array.isArray(data.agents) ? data.agents.length : 0) || 0;
+    var active = agents.active || 0;
+    var paused = agents.paused || agents.idle || 0;
+    var nerve = data.nerve || data.nerve_daemon || data.daemon || {};
+
+    $('fleet-total').textContent = total;
+    $('fleet-active').textContent = active;
+    $('fleet-paused').textContent = paused;
+    $('fleet-nerve').textContent = typeof nerve === 'string' ? nerve : (nerve.status || nerve.state || '-');
+
+    // KPIs
+    var kpis = data.kpis || data.recent_kpis || data.metrics || {};
+    var kpiContainer = $('fleet-kpis');
+    kpiContainer.innerHTML = '';
+    if (typeof kpis === 'object' && kpis !== null) {
+      Object.keys(kpis).forEach(function(k) {
+        var tag = document.createElement('span');
+        tag.className = 'kpi-tag';
+        tag.textContent = k + ': ' + kpis[k];
+        kpiContainer.appendChild(tag);
+      });
+    }
+    return data;
+  } catch (e) {
+    setDot('dot-fleet', 'off');
+    $('fleet-total').textContent = '-';
+    $('fleet-active').textContent = '-';
+    $('fleet-paused').textContent = '-';
+    $('fleet-nerve').textContent = 'offline';
+    return null;
+  }
+}
+
+async function fetchSchedulerStatus() {
+  try {
+    var data = await api('GET', '/autonomous/status');
+    setDot('dot-scheduler', data && (data.status || data.state) ? (data.status || data.state) : 'green');
+    return data;
+  } catch (e) {
+    // Might not exist; try fallback
+    try {
+      var d2 = await api('GET', '/scheduler/status');
+      setDot('dot-scheduler', d2 && (d2.status || d2.state) ? (d2.status || d2.state) : 'green');
+      return d2;
+    } catch (e2) {
+      setDot('dot-scheduler', 'off');
+      return null;
+    }
+  }
+}
+
+// --- Intelligence Feed ---
+async function fetchIntel() {
+  try {
+    var data = await api('GET', '/intelligence/latest');
+    var brief = $('intel-brief');
+
+    // Handle different response shapes
+    var summary = '';
+    if (typeof data === 'string') {
+      summary = data;
+    } else if (data.summary) {
+      summary = data.summary;
+    } else if (data.brief) {
+      summary = typeof data.brief === 'string' ? data.brief : (data.brief.summary || JSON.stringify(data.brief));
+    } else if (data.content) {
+      summary = data.content;
+    } else {
+      summary = JSON.stringify(data, null, 2);
+    }
+    brief.textContent = summary;
+
+    // Signals
+    var signals = data.signals || data.top_signals || [];
+    var sl = $('signals-list');
+    if (signals.length === 0) {
+      sl.innerHTML = '<li class="empty-state">No signals detected</li>';
+    } else {
+      sl.innerHTML = '';
+      signals.slice(0, 8).forEach(function(s) {
+        var score = s.confidence || s.score || s.strength || 0;
+        var scoreClass = score >= 0.7 ? 'score-high' : (score >= 0.4 ? 'score-med' : 'score-low');
+        var label = s.signal || s.title || s.text || s.name || '';
+        var detail = s.detail || s.description || s.sector || '';
+        var li = document.createElement('li');
+        li.className = 'signal-item';
+        li.innerHTML = '<div class="signal-score ' + scoreClass + '">' + (typeof score === 'number' ? (score * 100).toFixed(0) + '%' : score) + '</div>' +
+          '<div class="signal-text"><strong>' + escHtml(label) + '</strong>' + (detail ? '<br>' + escHtml(detail) : '') + '</div>';
+        sl.appendChild(li);
+      });
+    }
+
+    // Sectors
+    var sectors = data.sectors || data.sector_breakdown || data.sector_scores || {};
+    var sg = $('sector-grid');
+    sg.innerHTML = '';
+    if (typeof sectors === 'object' && sectors !== null) {
+      Object.keys(sectors).forEach(function(k) {
+        var chip = document.createElement('div');
+        chip.className = 'sector-chip';
+        var val = sectors[k];
+        var display = typeof val === 'number' ? val.toFixed(1) : val;
+        chip.innerHTML = '<div class="label">' + escHtml(k) + '</div><div class="value">' + escHtml(String(display)) + '</div>';
+        sg.appendChild(chip);
+      });
+    }
+  } catch (e) {
+    $('intel-brief').textContent = 'Intelligence feed offline. Connect to NCL backend.';
+    $('signals-list').innerHTML = '<li class="empty-state"><span class="offline-badge">OFFLINE</span></li>';
+  }
+}
+
+async function fetchRedditHeatmap() {
+  try {
+    var data = await api('GET', '/intelligence/reddit/tickers');
+    var tickers = Array.isArray(data) ? data : (data.tickers || data.data || []);
+    var hg = $('heatmap-grid');
+    hg.innerHTML = '';
+    if (tickers.length === 0) {
+      hg.innerHTML = '<span style="font-size:0.78rem;color:var(--text-muted)">No ticker data</span>';
+      return;
+    }
+    tickers.slice(0, 30).forEach(function(t) {
+      var name = t.ticker || t.symbol || t.name || t;
+      var count = t.count || t.mentions || t.score || 0;
+      var cls = count >= 10 ? 'hot' : (count >= 5 ? 'warm' : 'cool');
+      var tile = document.createElement('span');
+      tile.className = 'heatmap-tile ' + cls;
+      tile.textContent = (typeof name === 'string' ? name : String(name)) + (count ? ' ' + count : '');
+      tile.title = name + ': ' + count + ' mentions';
+      hg.appendChild(tile);
+    });
+  } catch (e) {
+    $('heatmap-grid').innerHTML = '<span style="font-size:0.78rem;color:var(--text-muted)">Heatmap offline</span>';
+  }
+}
+
+// --- Pump Queue ---
+async function fetchPumps() {
+  try {
+    var data = await api('GET', '/pump/pending');
+    var pumps = Array.isArray(data) ? data : (data.pending || data.pumps || data.items || []);
+    var pl = $('pump-list');
+    $('pump-count').textContent = pumps.length;
+
+    if (pumps.length === 0) {
+      pl.innerHTML = '<li class="empty-state"><span class="icon">&#x26A1;</span>No pending pumps</li>';
+      return;
+    }
+    pl.innerHTML = '';
+    pumps.forEach(function(p) {
+      var id = p.id || p.pump_id || '';
+      var intent = p.intent || p.text || p.title || p.message || 'Unnamed pump';
+      var urgency = p.urgency || p.priority || 'medium';
+      var mandates = p.mandates || p.proposed_mandates || [];
+      var mandateText = Array.isArray(mandates) ? mandates.join(', ') : String(mandates);
+      var urgencyClass = 'urgency-medium';
+      if (urgency === 'high' || urgency === 'critical' || urgency === 'p0') urgencyClass = 'urgency-high';
+      else if (urgency === 'low' || urgency === 'p2') urgencyClass = 'urgency-low';
+
+      var li = document.createElement('li');
+      li.className = 'pump-item';
+      li.innerHTML =
+        '<div class="pump-meta">' +
+          '<span class="pump-intent">' + escHtml(intent) + '</span>' +
+          '<span class="urgency-badge ' + urgencyClass + '">' + escHtml(urgency) + '</span>' +
+        '</div>' +
+        (mandateText ? '<div class="pump-mandates">Mandates: ' + escHtml(mandateText) + '</div>' : '') +
+        '<div class="pump-actions">' +
+          '<button class="btn btn-green btn-sm" onclick="approvePump(\'' + escHtml(id) + '\')">Approve</button>' +
+          '<button class="btn btn-red btn-sm" onclick="rejectPump(\'' + escHtml(id) + '\')">Reject</button>' +
+        '</div>';
+      pl.appendChild(li);
+    });
+  } catch (e) {
+    $('pump-list').innerHTML = '<li class="empty-state"><span class="offline-badge">OFFLINE</span> Pump queue unavailable</li>';
+    $('pump-count').textContent = '-';
+  }
+}
+
+async function approvePump(id) {
+  try {
+    await api('POST', '/pump/approve/' + id);
+    toast('Pump ' + id + ' approved', 'success');
+    fetchPumps();
+  } catch (e) { toast('Approve failed: ' + e.message, 'error'); }
+}
+
+async function rejectPump(id) {
+  try {
+    await api('POST', '/pump/reject/' + id);
+    toast('Pump ' + id + ' rejected', 'info');
+    fetchPumps();
+  } catch (e) { toast('Reject failed: ' + e.message, 'error'); }
+}
+
+async function submitPump() {
+  var input = $('pump-input');
+  var text = input.value.trim();
+  if (!text) return;
+  try {
+    await api('POST', '/pump', { text: text });
+    toast('Pump submitted', 'success');
+    input.value = '';
+    fetchPumps();
+  } catch (e) { toast('Pump failed: ' + e.message, 'error'); }
+}
+
+// --- Mandates ---
+async function fetchMandates() {
+  try {
+    var data = await api('GET', '/mandates?status=active');
+    var mandates = Array.isArray(data) ? data : (data.mandates || data.items || []);
+
+    $('stat-active').textContent = mandates.length;
+
+    var ml = $('mandate-list');
+    if (mandates.length === 0) {
+      ml.innerHTML = '<li class="empty-state">No active mandates</li>';
+    } else {
+      ml.innerHTML = '';
+      mandates.slice(0, 12).forEach(function(m) {
+        var title = m.title || m.name || m.id || 'Untitled';
+        var pillar = m.pillar || m.category || '';
+        var priority = m.priority || m.level || 'p2';
+        var created = m.created_at || m.created || m.date || '';
+        var pClass = 'priority-p2';
+        if (priority === 'p0' || priority === 'critical') pClass = 'priority-p0';
+        else if (priority === 'p1' || priority === 'high') pClass = 'priority-p1';
+        else if (priority === 'p3' || priority === 'low') pClass = 'priority-p3';
+
+        var li = document.createElement('li');
+        li.className = 'mandate-item';
+        li.innerHTML =
+          '<div class="mandate-priority ' + pClass + '"></div>' +
+          '<div class="mandate-info">' +
+            '<div class="mandate-title">' + escHtml(title) + '</div>' +
+            '<div class="mandate-detail">' +
+              (pillar ? '<span>' + escHtml(pillar) + '</span>' : '') +
+              '<span>' + escHtml(String(priority).toUpperCase()) + '</span>' +
+              (created ? '<span>' + timeAgo(created) + '</span>' : '') +
+            '</div>' +
+          '</div>';
+        ml.appendChild(li);
+      });
+    }
+  } catch (e) {
+    $('mandate-list').innerHTML = '<li class="empty-state"><span class="offline-badge">OFFLINE</span></li>';
+    $('stat-active').textContent = '-';
+  }
+}
+
+async function fetchDashboardStats() {
+  try {
+    var data = await api('GET', '/dashboard');
+    var completed = data.completed_mandates || data.mandates_completed || data.completed || 0;
+    var total = data.total_mandates || data.mandates_total || data.total || 0;
+    $('stat-completed').textContent = completed;
+    $('stat-total').textContent = total;
+
+    // Activity log entries
+    var events = data.recent_events || data.events || data.activity || data.log || [];
+    var logEntries = $('log-entries');
+    logEntries.innerHTML = '';
+    if (Array.isArray(events) && events.length > 0) {
+      events.slice(0, 50).forEach(function(ev) {
+        var time = ev.time || ev.timestamp || ev.created_at || ev.date || '';
+        var msg = ev.message || ev.event || ev.text || ev.description || (typeof ev === 'string' ? ev : JSON.stringify(ev));
+        var div = document.createElement('div');
+        div.className = 'log-entry';
+        div.innerHTML = '<span class="log-time">' + escHtml(time ? new Date(time).toLocaleTimeString('en-US', {hour12:false}) : '') + '</span>' +
+          '<span class="log-msg">' + escHtml(msg) + '</span>';
+        logEntries.appendChild(div);
+      });
+    } else {
+      logEntries.innerHTML = '<div class="empty-state">No recent activity</div>';
+    }
+
+    // Memory / council stats
+    var statsEl = $('log-stats');
+    var statsHtml = '';
+    if (data.memory) {
+      var mem = data.memory;
+      statsHtml += '<span>Memory: <strong>' + (mem.total || mem.count || '-') + '</strong> entries</span>';
+    }
+    if (data.council || data.council_sessions) {
+      statsHtml += '<span>Council: <strong>' + (data.council_sessions || data.council || '-') + '</strong> sessions</span>';
+    }
+    if (data.uptime) {
+      statsHtml += '<span>Uptime: <strong>' + data.uptime + '</strong></span>';
+    }
+    statsEl.innerHTML = statsHtml || '<span>Connected to NCL</span>';
+
+    return data;
+  } catch (e) {
+    $('stat-completed').textContent = '-';
+    $('stat-total').textContent = '-';
+    $('log-stats').innerHTML = '<span class="offline-badge">Dashboard endpoint offline</span>';
+    return null;
+  }
+}
+
+// --- Actions ---
+async function scanNow() {
+  try {
+    toast('Initiating scan...', 'info');
+    await api('POST', '/autonomous/scan-now');
+    toast('Scan completed', 'success');
+    setTimeout(fetchIntel, 2000);
+  } catch (e) { toast('Scan failed: ' + e.message, 'error'); }
+}
+
+async function generateBrief() {
+  try {
+    toast('Generating intel brief...', 'info');
+    var data = await api('POST', '/intelligence/brief');
+    toast('Brief generated', 'success');
+    fetchIntel();
+  } catch (e) { toast('Brief generation failed: ' + e.message, 'error'); }
+}
+
+async function emergencyStop() {
+  var btn = $('emergency-btn');
+  if (btn.classList.contains('active')) {
+    try {
+      await api('POST', '/governance/emergency-stop/deactivate');
+      btn.classList.remove('active');
+      btn.textContent = 'E-STOP';
+      toast('Emergency stop deactivated', 'success');
+    } catch (e) { toast('Deactivation failed: ' + e.message, 'error'); }
+  } else {
+    if (!confirm('ACTIVATE EMERGENCY STOP?\n\nThis will halt all autonomous operations.')) return;
+    try {
+      await api('POST', '/governance/emergency-stop/activate');
+      btn.classList.add('active');
+      btn.textContent = 'E-STOP ACTIVE';
+      toast('EMERGENCY STOP ACTIVATED', 'error');
+    } catch (e) { toast('E-Stop failed: ' + e.message, 'error'); }
+  }
+}
+
+async function cSuiteMeeting() {
+  try {
+    toast('Convening C-Suite meeting...', 'info');
+    await api('POST', '/digital-labour/csuite');
+    toast('C-Suite meeting completed', 'success');
+  } catch (e) { toast('C-Suite meeting failed: ' + e.message, 'error'); }
+}
+
+async function outreachPush() {
+  try {
+    toast('Pushing outreach...', 'info');
+    await api('POST', '/digital-labour/outreach/push');
+    toast('Outreach push completed', 'success');
+  } catch (e) { toast('Outreach push failed: ' + e.message, 'error'); }
+}
+
+// --- Log Toggle ---
+function toggleLog() {
+  var btn = $('log-toggle');
+  var panel = $('log-panel');
+  btn.classList.toggle('open');
+  panel.classList.toggle('open');
+}
+
+// --- Auto-Refresh ---
+function toggleAutoRefresh() {
+  autoRefreshEnabled = !autoRefreshEnabled;
+  var toggle = $('toggle-auto');
+  toggle.classList.toggle('on', autoRefreshEnabled);
+  if (autoRefreshEnabled) startAutoRefresh();
+  else stopAutoRefresh();
+}
+
+function startAutoRefresh() {
+  stopAutoRefresh();
+  refreshTimer = setInterval(refreshAll, REFRESH_INTERVAL * 1000);
+}
+
+function stopAutoRefresh() {
+  if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+}
+
+// --- Settings ---
+function openSettings() {
+  $('setting-base').value = BASE;
+  $('setting-token').value = AUTH_TOKEN;
+  $('setting-interval').value = REFRESH_INTERVAL;
+  $('settings-modal').classList.add('open');
+}
+
+function closeSettings() {
+  $('settings-modal').classList.remove('open');
+}
+
+function saveSettings() {
+  var newBase = $('setting-base').value.trim().replace(/\/$/, '');
+  var newToken = $('setting-token').value.trim();
+  var newInterval = parseInt($('setting-interval').value) || 30;
+  if (newInterval < 5) newInterval = 5;
+  if (newInterval > 300) newInterval = 300;
+
+  BASE = newBase || window.location.origin;
+  AUTH_TOKEN = newToken;
+  REFRESH_INTERVAL = newInterval;
+
+  // Persist to localStorage if available
+  try {
+    localStorage.setItem('ncl_base', BASE);
+    localStorage.setItem('ncl_token', AUTH_TOKEN);
+    localStorage.setItem('ncl_interval', String(REFRESH_INTERVAL));
+  } catch (e) { /* no-op */ }
+
+  closeSettings();
+  toast('Settings saved', 'success');
+  if (autoRefreshEnabled) startAutoRefresh();
+  refreshAll();
+}
+
+function loadSettings() {
+  try {
+    var savedBase = localStorage.getItem('ncl_base');
+    var savedToken = localStorage.getItem('ncl_token');
+    var savedInterval = localStorage.getItem('ncl_interval');
+    if (savedBase) BASE = savedBase;
+    if (savedToken) AUTH_TOKEN = savedToken;
+    if (savedInterval) REFRESH_INTERVAL = parseInt(savedInterval) || 30;
+  } catch (e) { /* no-op */ }
+}
+
+// Close modal on overlay click
+$('settings-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeSettings();
+});
+
+// --- Master Refresh ---
+async function refreshAll() {
+  updateTimestamp();
+  // Fire all fetches in parallel
+  await Promise.allSettled([
+    fetchHealth(),
+    fetchFleetStatus(),
+    fetchSchedulerStatus(),
+    fetchIntel(),
+    fetchRedditHeatmap(),
+    fetchPumps(),
+    fetchMandates(),
+    fetchDashboardStats()
+  ]);
+}
+
+// --- Boot ---
+(function init() {
+  loadSettings();
+  refreshAll();
+  if (autoRefreshEnabled) startAutoRefresh();
+})();
+</script>
+</body>
+</html>

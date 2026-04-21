@@ -30,7 +30,7 @@ from .models import (
 
 log = logging.getLogger("ncl.councils.war_room_bridge")
 
-NCL_BASE = Path.home() / "Projects" / "NCL"
+NCL_BASE = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
 REPORTS_DIR = NCL_BASE / "intelligence-scan" / "council-reports"
 MANDATE_INPUT_DIR = NCL_BASE / "mandate-generation" / "input"
 AAC_WAR_ROOM_DIR = Path.home() / "Projects" / "AAC-v2" / "war-room" / "intelligence"

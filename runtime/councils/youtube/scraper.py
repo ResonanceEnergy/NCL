@@ -48,7 +48,7 @@ STRIKE_POINT_KEYWORDS: list[str] = [
 ]
 
 # Where to store downloaded audio temporarily
-AUDIO_CACHE_DIR = Path.home() / "Projects" / "NCL" / ".cache" / "youtube-audio"
+AUDIO_CACHE_DIR = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL"))) / ".cache" / "youtube-audio"
 
 
 def get_channel_list() -> list[str]:

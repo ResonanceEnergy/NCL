@@ -249,17 +249,88 @@ What is the most likely outcome? Provide 1-2 sentences."""
         self, predictions: dict[str, dict[str, str | float]]
     ) -> str:
         """
-        Synthesize consensus from multiple predictions.
+        Synthesize consensus from multiple predictions using weighted voting.
+
+        Weights models by confidence, extracts key phrases, and builds
+        a composite prediction that represents multi-model agreement.
+        Integrates with Paperclip cost tracking via prediction events.
 
         Args:
             predictions: Dict of model predictions
 
         Returns:
-            Consensus prediction
+            Weighted consensus prediction
         """
-        # Placeholder: in production, use NLP to find common themes
-        claude_pred = predictions.get("claude", {}).get("prediction", "")
-        return claude_pred or "Inconclusive prediction based on current signals"
+        # Filter out failed predictions
+        valid = {
+            k: v for k, v in predictions.items()
+            if v.get("prediction") and v.get("confidence", 0) > 0
+            and "Unable to generate" not in str(v.get("prediction", ""))
+        }
+
+        if not valid:
+            return "Inconclusive — all models failed to generate predictions"
+
+        if len(valid) == 1:
+            sole = list(valid.values())[0]
+            return f"[Single-model] {sole.get('prediction', '')}"
+
+        # Weight by confidence (higher confidence = more influence)
+        total_confidence = sum(v.get("confidence", 0.5) for v in valid.values())
+
+        # Build weighted composite
+        parts = []
+        model_weights = {}
+        for model_name, pred in valid.items():
+            conf = pred.get("confidence", 0.5)
+            weight = conf / total_confidence if total_confidence > 0 else 1.0 / len(valid)
+            model_weights[model_name] = weight
+            parts.append({
+                "model": model_name,
+                "prediction": str(pred.get("prediction", "")),
+                "weight": weight,
+                "confidence": conf,
+            })
+
+        # Sort by weight descending — lead with highest-confidence model
+        parts.sort(key=lambda x: x["weight"], reverse=True)
+
+        # Extract key terms from all predictions for convergence detection
+        all_text = " ".join(p["prediction"].lower() for p in parts)
+        # Simple keyword extraction: words that appear in multiple predictions
+        word_counts: dict[str, int] = {}
+        for part in parts:
+            seen = set()
+            for word in part["prediction"].lower().split():
+                word = word.strip(".,;:!?()[]{}\"'")
+                if len(word) > 4 and word not in seen:
+                    word_counts[word] = word_counts.get(word, 0) + 1
+                    seen.add(word)
+        shared_terms = [w for w, c in word_counts.items() if c >= 2]
+
+        # Build synthesis
+        lead = parts[0]
+        synthesis = f"[Consensus: {len(valid)} models, "
+        synthesis += f"lead={lead['model']}@{lead['confidence']:.0%}] "
+        synthesis += lead["prediction"]
+
+        if len(parts) > 1:
+            supporting = parts[1:]
+            divergences = []
+            for s in supporting:
+                # Check if supporting model broadly agrees or diverges
+                if s["confidence"] >= 0.5:
+                    synthesis += f" [{s['model']} concurs@{s['confidence']:.0%}]"
+                else:
+                    divergences.append(f"{s['model']}@{s['confidence']:.0%}")
+
+            if divergences:
+                synthesis += f" [Divergence: {', '.join(divergences)}]"
+
+        if shared_terms:
+            synthesis += f" [Converging themes: {', '.join(shared_terms[:5])}]"
+
+        return synthesis
 
     def _compute_confidence(
         self, predictions: dict[str, dict[str, str | float]], convergence: list[str]

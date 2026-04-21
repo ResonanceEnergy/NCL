@@ -28,6 +28,7 @@ Fallback: Ollama local models (qwen3:8b, qwen3:32b) when APIs are unreachable.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -779,23 +780,56 @@ class CouncilEngine:
         synthesis_prompt = (
             f"{ROLE_SYSTEM_PROMPTS[CouncilRole.CHAIR]}\n\n"
             f"COUNCIL DEBATE TRANSCRIPT:\n{transcript}\n\n"
-            f"As CHAIR, produce the FINAL SYNTHESIS. You must:\n\n"
-            f"1. CONSENSUS: State the consensus position (what most members agree on)\n"
-            f"2. AGREEMENT_PERCENTAGE: Estimate what % of the council agrees (0-100)\n"
-            f"3. KEY_INSIGHTS: Top 3-5 strategic insights from cross-member analysis\n"
-            f"4. DISSENTS: Any unresolved disagreements and who holds them\n"
-            f"5. MANDATE_RECOMMENDATIONS: Specific mandates with:\n"
-            f"   - PILLAR: (NCC, BRS, or AAC)\n"
-            f"   - TITLE: mandate title\n"
-            f"   - OBJECTIVE: strategic objective\n"
-            f"   - PRIORITY: 1-10\n"
-            f"   - SUCCESS_CRITERIA: measurable criteria\n"
-            f"6. RISK_FLAGS: Critical risks that need NATRIX attention\n"
-            f"7. CONFIDENCE: Your confidence in this synthesis (0-100)\n\n"
+            f"As CHAIR, produce the FINAL SYNTHESIS as a JSON object with this exact structure:\n\n"
+            f'{{"consensus": "the consensus position",'
+            f' "agreement_pct": 75,'
+            f' "key_insights": ["insight 1", "insight 2", "insight 3"],'
+            f' "dissents": ["dissent 1"],'
+            f' "mandate_recommendations": ['
+            f'{{"pillar": "NCC", "title": "mandate title", "objective": "objective", "priority": 5, "success_criteria": ["criteria 1"]}}],'
+            f' "risk_flags": ["risk 1"],'
+            f' "confidence": 80}}\n\n'
+            f"Respond with ONLY the JSON object, no markdown fences. "
             f"Be decisive. NATRIX needs clear direction, not hedge-everything caution."
         )
 
-        return await self._call_claude(synthesis_prompt)
+        raw = await self._call_claude(synthesis_prompt)
+
+        # Try to parse JSON response; fall back to raw text if parsing fails
+        try:
+            # Strip markdown fences if present
+            cleaned = raw.strip()
+            if cleaned.startswith("```"):
+                cleaned = "\n".join(cleaned.split("\n")[1:])
+            if cleaned.endswith("```"):
+                cleaned = "\n".join(cleaned.split("\n")[:-1])
+            cleaned = cleaned.strip()
+            parsed = json.loads(cleaned)
+            # Reformat as structured text for downstream compatibility
+            structured = f"CONSENSUS: {parsed.get('consensus', '')}\n"
+            structured += f"AGREEMENT_PERCENTAGE: {parsed.get('agreement_pct', 0)}\n"
+            structured += f"CONFIDENCE: {parsed.get('confidence', 0)}\n\n"
+            structured += "KEY_INSIGHTS:\n"
+            for insight in parsed.get("key_insights", []):
+                structured += f"- {insight}\n"
+            structured += "\nDISSENTS:\n"
+            for d in parsed.get("dissents", []):
+                structured += f"- {d}\n"
+            structured += "\nMANDATE_RECOMMENDATIONS:\n"
+            for m in parsed.get("mandate_recommendations", []):
+                structured += f"- PILLAR: {m.get('pillar', '?')}\n"
+                structured += f"  TITLE: {m.get('title', '?')}\n"
+                structured += f"  OBJECTIVE: {m.get('objective', '?')}\n"
+                structured += f"  PRIORITY: {m.get('priority', 5)}\n"
+                structured += f"  SUCCESS_CRITERIA: {', '.join(m.get('success_criteria', []))}\n"
+            structured += "\nRISK_FLAGS:\n"
+            for r in parsed.get("risk_flags", []):
+                structured += f"- {r}\n"
+            return structured
+        except (json.JSONDecodeError, TypeError, KeyError):
+            # JSON parsing failed — return raw text for regex fallback extraction
+            log.warning("Council synthesis JSON parse failed, using raw text fallback")
+            return raw
 
     # -----------------------------------------------------------------------
     # Consensus Scoring Engine

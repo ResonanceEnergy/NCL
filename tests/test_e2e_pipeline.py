@@ -132,6 +132,7 @@ def test_send_pump():
         return None, None, None
 
 
+@pytest.mark.skip(reason="Requires running NCL server and ncl_file fixture")
 def test_file_landed(ncl_file: str):
     """Test 4: Verify the pump file exists in NCL input dir."""
     print(f"\n{CYAN}[Test 4] Verify File in NCL Input Dir{NC}")
