@@ -1,0 +1,15 @@
+{
+  "version": "1.0",
+  "created_at": "2026-04-15T09:14:46.870434Z",
+  "last_updated": "2026-04-15T09:14:46.870445Z",
+  "urls_processed": 0,
+  "total_insights_extracted": 0,
+  "core_rules": [],
+  "active_signals": [],
+  "monitored_trends": [],
+  "risk_thresholds": [],
+  "history": [],
+  "top_tickers": [],
+  "market_bias": "neutral",
+  "confidence_score": 5.0
+}
