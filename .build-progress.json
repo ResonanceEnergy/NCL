@@ -1,15 +1,17 @@
 {
   "phase1": "done",
   "phase2": "done",
-  "phase3": "pending",
-  "phase4": "pending",
-  "phase5": "pending",
+  "phase3": "done",
+  "phase4": "done",
+  "phase5": "done",
   "phase6": "pending",
   "phase7": "pending",
   "phase8": "pending",
   "phase9": "pending",
   "phase10": "pending",
-  "last_run": "2026-04-30T00:00:00",
-  "notes": "Phase 1+2 complete. routes.py imports cleanly (136 routes). MemoryStore.stats() verified.",
-  "blockers": []
+  "last_run": "2026-04-30T22:30:00",
+  "notes": "Phases 3-5 verified. Phase 3: Reddit OAuth reads REDDIT_CLIENT_ID env, NewsCollector got Google News RSS fallback, all 5 collectors return real data, intel endpoints + dashboard tab wired. Phase 4: CouncilEngine instantiates with all 5 API keys (Claude/Grok/Gemini/Perplexity/GPT/Copilot) + Ollama fallback at localhost:11434, /council/spawn endpoint + /councils/reports wired to dashboard Reports tab. Phase 5: MemoryStore reinforce/decay/consolidate verified with live test (50 -> 60 on access, 60 -> 35.92 over 10 days at 0.95 decay), stats() returns unit_count/avg_importance/last_consolidation, /memory/{stats,query,search,timeline} all registered.",
+  "blockers": [
+    "git commits failing — .git/index.lock owned but undeleteable on workspace mount; manual commit by NATRIX needed for phases 3-5 changes (collectors.py, engine.py, .build-progress.json)"
+  ]
 }

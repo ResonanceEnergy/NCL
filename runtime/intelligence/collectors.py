@@ -615,14 +615,22 @@ class NewsCollector:
 
     GNEWS_URL = "https://gnews.io/api/v4"
 
+    # RSS fallbacks — used when no API keys are configured
+    RSS_HEADLINES = {
+        "general": "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en",
+        "business": "https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=en-US&gl=US&ceid=US:en",
+        "technology": "https://news.google.com/rss/headlines/section/topic/TECHNOLOGY?hl=en-US&gl=US&ceid=US:en",
+        "world": "https://news.google.com/rss/headlines/section/topic/WORLD?hl=en-US&gl=US&ceid=US:en",
+    }
+
     def __init__(self, gnews_api_key: Optional[str] = None, newsapi_key: Optional[str] = None):
         self._gnews_key = gnews_api_key
         self._newsapi_key = newsapi_key
-        self._client = httpx.AsyncClient(timeout=30.0)
+        self._client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
         self._limiter = _RateLimiter(calls_per_minute=10)
 
     async def collect_top_headlines(self, category: str = "general", lang: str = "en") -> list[NewsSignal]:
-        """Fetch top headlines."""
+        """Fetch top headlines (GNews → NewsAPI → RSS fallback)."""
         signals = []
 
         # Try GNews first
@@ -632,6 +640,10 @@ class NewsCollector:
         # Try NewsAPI as fallback
         if not signals and self._newsapi_key:
             signals = await self._collect_newsapi(category, lang)
+
+        # RSS fallback (no API keys required)
+        if not signals:
+            signals = await self._collect_rss_headlines(category)
 
         return signals
 
@@ -666,6 +678,58 @@ class NewsCollector:
             except Exception as e:
                 log.warning(f"NewsAPI topic search for '{query}' failed: {e}")
 
+        # RSS fallback for topic search
+        if not signals:
+            signals = await self._collect_rss_topic(query)
+
+        return signals
+
+    async def _collect_rss_headlines(self, category: str) -> list[NewsSignal]:
+        """Parse Google News RSS — works without API keys."""
+        url = self.RSS_HEADLINES.get(category, self.RSS_HEADLINES["general"])
+        return await self._fetch_rss(url, category)
+
+    async def _collect_rss_topic(self, query: str) -> list[NewsSignal]:
+        """Search Google News RSS for a topic."""
+        from urllib.parse import quote_plus
+        url = f"https://news.google.com/rss/search?q={quote_plus(query)}&hl=en-US&gl=US&ceid=US:en"
+        return await self._fetch_rss(url, query)
+
+    async def _fetch_rss(self, url: str, topic: str) -> list[NewsSignal]:
+        """Minimal RSS parser — extracts <item> entries with title/link/source."""
+        try:
+            await self._limiter.acquire()
+            resp = await self._client.get(url)
+            resp.raise_for_status()
+            xml_text = resp.text
+        except Exception as e:
+            log.warning(f"RSS fetch failed ({url}): {e}")
+            return []
+
+        signals: list[NewsSignal] = []
+        # Lightweight regex-based extraction (no external dep)
+        import re
+        # Match <item>...</item> blocks
+        for item_match in list(re.finditer(r"<item>(.*?)</item>", xml_text, re.DOTALL))[:15]:
+            block = item_match.group(1)
+            title_match = re.search(r"<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</title>", block, re.DOTALL)
+            link_match = re.search(r"<link>(.*?)</link>", block, re.DOTALL)
+            source_match = re.search(r'<source[^>]*>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</source>', block, re.DOTALL)
+            desc_match = re.search(r"<description>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</description>", block, re.DOTALL)
+            if not title_match:
+                continue
+            title = re.sub(r"<[^>]+>", "", title_match.group(1)).strip()
+            link = link_match.group(1).strip() if link_match else ""
+            source_name = source_match.group(1).strip() if source_match else "Google News"
+            description = re.sub(r"<[^>]+>", "", desc_match.group(1)).strip() if desc_match else ""
+
+            article = {
+                "title": title,
+                "description": description[:500],
+                "source": {"name": source_name},
+                "url": link,
+            }
+            signals.append(self._article_to_signal(article, topic))
         return signals
 
     async def _collect_gnews(self, category: str, lang: str) -> list[NewsSignal]:
@@ -1120,13 +1184,21 @@ class RedditCollector:
     # Tier 3 rotation tracker
     _tier3_offset: int = 0
 
-    def __init__(self, subreddits: list[str] | None = None, tier: str = "all"):
+    def __init__(
+        self,
+        subreddits: list[str] | None = None,
+        tier: str = "all",
+        client_id: str | None = None,
+        client_secret: str | None = None,
+        user_agent: str | None = None,
+    ):
         """
         Initialize Reddit collector.
 
         Args:
             subreddits: Override list (ignores tiers). None = use tiered system.
             tier: Which tiers to scan: "all", "t1", "t2", "t1t2", or "full" (all 55+)
+            client_id/client_secret/user_agent: explicit OAuth creds (override env)
         """
         import os as _os
         if subreddits:
@@ -1137,12 +1209,24 @@ class RedditCollector:
             self._tier = tier
             self.subreddits = self._build_scan_list()
 
-        # Reddit OAuth credentials (Phase 2 fix: unauthenticated JSON returns 403)
-        self._client_id = _os.environ.get("NCL_REDDIT_CLIENT_ID", "").strip()
-        self._client_secret = _os.environ.get("NCL_REDDIT_CLIENT_SECRET", "").strip()
-        self._user_agent = _os.environ.get(
-            "NCL_REDDIT_USER_AGENT",
-            "NCL-Brain-Intelligence/1.0 (by /u/ncl-intel-bot)",
+        # Reddit OAuth credentials (Phase 2 fix: unauthenticated JSON returns 403).
+        # Check explicit args first, then NCL_-prefixed env, then plain REDDIT_ env
+        # (matches what's in repo-level .env).
+        self._client_id = (
+            client_id
+            or _os.environ.get("NCL_REDDIT_CLIENT_ID", "")
+            or _os.environ.get("REDDIT_CLIENT_ID", "")
+        ).strip()
+        self._client_secret = (
+            client_secret
+            or _os.environ.get("NCL_REDDIT_CLIENT_SECRET", "")
+            or _os.environ.get("REDDIT_CLIENT_SECRET", "")
+        ).strip()
+        self._user_agent = (
+            user_agent
+            or _os.environ.get("NCL_REDDIT_USER_AGENT")
+            or _os.environ.get("REDDIT_USER_AGENT")
+            or "NCL-Brain-Intelligence/1.0 (by /u/ncl-intel-bot)"
         )
         self._oauth_token: str | None = None
         self._oauth_expires_at: float = 0.0

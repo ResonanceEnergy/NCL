@@ -218,7 +218,10 @@ class IntelligenceEngine:
             newsapi_key=getattr(config, "newsapi_key", None) if config else None,
         )
         self._crypto = CryptoMarketCollector()
-        self._reddit = RedditCollector()  # Uses full tiered system: T1+T2+T3 rotating
+        self._reddit = RedditCollector(
+            client_id=getattr(config, "reddit_client_id", None) if config else None,
+            client_secret=getattr(config, "reddit_client_secret", None) if config else None,
+        )  # Uses full tiered system: T1+T2+T3 rotating
 
         # Analysis
         self._correlator = SignalCorrelator()
