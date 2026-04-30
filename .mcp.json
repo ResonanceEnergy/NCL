@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "ncl-brain": {
+      "command": "python3",
+      "args": ["/Users/natrix/Projects/NCL/runtime/mcp_bridge/server.py"],
+      "env": {
+        "NCL_BRAIN_URL": "http://localhost:8800",
+        "STRIKE_AUTH_TOKEN": "${STRIKE_AUTH_TOKEN}"
+      }
+    }
+  }
+}
