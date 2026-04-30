@@ -4,14 +4,15 @@
   "phase3": "done",
   "phase4": "done",
   "phase5": "done",
-  "phase6": "pending",
-  "phase7": "pending",
-  "phase8": "pending",
-  "phase9": "pending",
-  "phase10": "pending",
-  "last_run": "2026-04-30T22:30:00",
-  "notes": "Phases 3-5 verified. Phase 3: Reddit OAuth reads REDDIT_CLIENT_ID env, NewsCollector got Google News RSS fallback, all 5 collectors return real data, intel endpoints + dashboard tab wired. Phase 4: CouncilEngine instantiates with all 5 API keys (Claude/Grok/Gemini/Perplexity/GPT/Copilot) + Ollama fallback at localhost:11434, /council/spawn endpoint + /councils/reports wired to dashboard Reports tab. Phase 5: MemoryStore reinforce/decay/consolidate verified with live test (50 -> 60 on access, 60 -> 35.92 over 10 days at 0.95 decay), stats() returns unit_count/avg_importance/last_consolidation, /memory/{stats,query,search,timeline} all registered.",
+  "phase6": "done",
+  "phase7": "done",
+  "phase8": "done",
+  "phase9": "done",
+  "phase10": "done",
+  "last_run": "2026-04-30T23:30:00",
+  "notes": "ALL PHASES COMPLETE. Phase 6 (pump): /pump, /pump/pending, /pump/review/{id}, /pump/approve/{id}, /pump/reject/{id} all registered, brain.receive_pump_prompt + approve_and_dispatch + reject_pump verified end-to-end with auto_flow=False, _pending_dispatches dict + helper methods (_build_council_prompt, _extract_mandates_from_council, _dispatch_to_ncc) functional, dashboard Actions tab pump input wired (submitPump, pumpResponseApprove, pumpResponseReject, loadPending). Phase 7 (awarebot+predictor): scanner method signatures correct (scan_x/scan_youtube take query+max_results, scan_reddit takes subreddit+max_results), graceful no-cred returns [], scheduler InsightSignal field refs fixed (s.importance -> s.importance_score, s.source -> s.source_platform, memory_store.store -> memory_store.create_unit), FuturePredictor instantiates with Claude+Ollama ensemble, /awarebot/scan + /prediction endpoints registered. Phase 8 (UNI): ResearchCortex pipeline with planner/gatherer/synthesizer functional, /uni/research, /uni/results, /uni/results/{id}, /uni/stats endpoints registered, ResearchDepth enum (quick/standard/deep/exhaustive), 6 SourceTypes (web/academic/news/social/internal/market_data). Phase 9 (governance/LDE/remaining): PolicyKernel/ActionRouter/EmergencyStop, LivingDoctrineEngine + module-level agent fns (extract_insights/update_doctrine/analyze_against_sandbox), GoldenTaskRunner + 50 golden tasks, ReviewQueueManager, SearchIndexer, TelemetryCollector, DeploymentManager + ServiceMonitor (4 services) all import-clean. Phase 10 (dashboard+launchd): plists updated /Users/natrix/Projects/NCL -> /Users/natrix/dev/NCL (both ncl-brain and ncl-watcher), command-center.html has all 4 tabs (Overview/Intel/Reports/Actions) wired with live data loaders. Final: 136 routes registered, app imports clean.",
   "blockers": [
-    "git commits failing — .git/index.lock owned but undeleteable on workspace mount; manual commit by NATRIX needed for phases 3-5 changes (collectors.py, engine.py, .build-progress.json)"
+    "git commits failing — .git/index.lock exists with no write permission on workspace mount, manual cleanup + commits by NATRIX needed for changes from phases 3-10 (collectors.py, engine.py, scheduler.py, plists, .build-progress.json)",
+    "launchctl unload/load cannot run from sandbox — NATRIX must execute: sudo launchctl unload ~/Library/LaunchAgents/com.resonanceenergy.ncl-brain.plist; cp /Users/natrix/dev/NCL/com.resonanceenergy.ncl-brain.plist ~/Library/LaunchAgents/; sudo launchctl load ~/Library/LaunchAgents/com.resonanceenergy.ncl-brain.plist (and same for ncl-watcher)"
   ]
 }

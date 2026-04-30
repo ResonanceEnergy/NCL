@@ -240,16 +240,16 @@ class AutonomousScheduler:
 
                 # Process signals
                 if all_signals:
-                    high_signals = [s for s in all_signals if s.importance >= 50.0]
-                    critical_signals = [s for s in all_signals if s.importance >= self.council_trigger_threshold]
+                    high_signals = [s for s in all_signals if s.importance_score >= 50.0]
+                    critical_signals = [s for s in all_signals if s.importance_score >= self.council_trigger_threshold]
 
                     # Add to signal buffer for prediction
                     async with self._signal_lock:
                         for sig in all_signals:
                             self._signal_buffer.append({
-                                "source": sig.source,
+                                "source": sig.source_platform,
                                 "content": sig.content[:500],
-                                "importance": sig.importance,
+                                "importance": sig.importance_score,
                                 "tags": sig.tags,
                                 "timestamp": datetime.now(timezone.utc).isoformat(),
                             })
@@ -257,14 +257,12 @@ class AutonomousScheduler:
                     # Store high-importance signals in memory
                     for sig in high_signals:
                         try:
-                            await self.brain.memory_store.store({
-                                "type": "intelligence_signal",
-                                "source": sig.source,
-                                "content": sig.content[:1000],
-                                "importance": sig.importance,
-                                "tags": sig.tags,
-                                "autonomous": True,
-                            })
+                            await self.brain.memory_store.create_unit(
+                                content=sig.content[:1000],
+                                source=f"awarebot:{sig.source_platform}",
+                                importance=sig.importance_score,
+                                tags=list(sig.tags) + ["intelligence_signal", "autonomous"],
+                            )
                         except Exception:
                             pass
 
@@ -276,9 +274,9 @@ class AutonomousScheduler:
                         "high_signals": len(high_signals),
                         "critical_signals": len(critical_signals),
                         "platforms": {
-                            "x": len([s for s in all_signals if s.source == "x"]),
-                            "youtube": len([s for s in all_signals if s.source == "youtube"]),
-                            "reddit": len([s for s in all_signals if s.source == "reddit"]),
+                            "x": len([s for s in all_signals if s.source_platform == "x"]),
+                            "youtube": len([s for s in all_signals if s.source_platform == "youtube"]),
+                            "reddit": len([s for s in all_signals if s.source_platform == "reddit"]),
                         },
                     })
 
