@@ -1016,6 +1016,7 @@ class RedditCollector:
     """
 
     BASE_URL = "https://www.reddit.com"
+    OAUTH_URL = "https://oauth.reddit.com"
 
     # ── Tiered subreddit network ──────────────────────────────────
     # TIER 1: Scanned every cycle (hot + top + rising) — core alpha sources
@@ -1127,6 +1128,7 @@ class RedditCollector:
             subreddits: Override list (ignores tiers). None = use tiered system.
             tier: Which tiers to scan: "all", "t1", "t2", "t1t2", or "full" (all 55+)
         """
+        import os as _os
         if subreddits:
             self.subreddits = subreddits
             self._use_tiers = False
@@ -1134,14 +1136,58 @@ class RedditCollector:
             self._use_tiers = True
             self._tier = tier
             self.subreddits = self._build_scan_list()
+
+        # Reddit OAuth credentials (Phase 2 fix: unauthenticated JSON returns 403)
+        self._client_id = _os.environ.get("NCL_REDDIT_CLIENT_ID", "").strip()
+        self._client_secret = _os.environ.get("NCL_REDDIT_CLIENT_SECRET", "").strip()
+        self._user_agent = _os.environ.get(
+            "NCL_REDDIT_USER_AGENT",
+            "NCL-Brain-Intelligence/1.0 (by /u/ncl-intel-bot)",
+        )
+        self._oauth_token: str | None = None
+        self._oauth_expires_at: float = 0.0
+        self._token_lock = asyncio.Lock()
+        self._authed = bool(self._client_id and self._client_secret)
+
         self._client = httpx.AsyncClient(
             timeout=30.0,
-            headers={
-                "User-Agent": "NCL-Brain-Intelligence/1.0 (by /u/ncl-intel-bot)",
-            },
+            headers={"User-Agent": self._user_agent},
             follow_redirects=True,
         )
         self._limiter = _RateLimiter(calls_per_minute=25)
+
+    async def _get_oauth_token(self) -> str | None:
+        """Fetch (and cache) a Reddit OAuth bearer token via client_credentials."""
+        if not self._authed:
+            return None
+        now = time.monotonic()
+        async with self._token_lock:
+            if self._oauth_token and now < self._oauth_expires_at - 30:
+                return self._oauth_token
+            try:
+                resp = await self._client.post(
+                    "https://www.reddit.com/api/v1/access_token",
+                    auth=(self._client_id, self._client_secret),
+                    data={"grant_type": "client_credentials"},
+                    headers={"User-Agent": self._user_agent},
+                )
+                resp.raise_for_status()
+                payload = resp.json()
+                self._oauth_token = payload.get("access_token")
+                ttl = float(payload.get("expires_in", 3600))
+                self._oauth_expires_at = now + ttl
+                return self._oauth_token
+            except Exception as e:
+                log.warning(f"Reddit OAuth token fetch failed: {e}")
+                self._oauth_token = None
+                return None
+
+    async def _auth_headers(self) -> dict:
+        """Headers to use for Reddit API requests, with OAuth bearer when available."""
+        token = await self._get_oauth_token()
+        if token:
+            return {"Authorization": f"Bearer {token}", "User-Agent": self._user_agent}
+        return {"User-Agent": self._user_agent}
 
     def _build_scan_list(self) -> list[str]:
         """Build subreddit list based on tier config."""
@@ -1256,14 +1302,21 @@ class RedditCollector:
         """Fetch a subreddit listing (hot/top/rising/new) and convert to signals."""
         signals: list[SocialSignal] = []
 
-        url = f"{self.BASE_URL}/r/{subreddit}/{sort}.json"
+        # Phase 2 fix: prefer authenticated oauth.reddit.com when creds available
+        # (unauthenticated www.reddit.com JSON returns 403). OAuth host wants
+        # the path WITHOUT a .json suffix; the legacy host wants it WITH.
+        if self._authed:
+            url = f"{self.OAUTH_URL}/r/{subreddit}/{sort}"
+        else:
+            url = f"{self.BASE_URL}/r/{subreddit}/{sort}.json"
         query = {"limit": limit, "raw_json": 1}
         if params:
             query.update(params)
+        headers = await self._auth_headers()
 
         try:
             data = await _fetch_json(
-                self._client, url, params=query, limiter=self._limiter
+                self._client, url, params=query, headers=headers, limiter=self._limiter
             )
         except Exception as e:
             log.warning(f"Reddit r/{subreddit}/{sort} fetch failed: {e}")

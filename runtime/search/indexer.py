@@ -29,6 +29,27 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+
+def _json_safe(obj: Any) -> Any:
+    """JSON serialization fallback for sets, datetimes, Path, etc."""
+    if isinstance(obj, set):
+        return list(obj)
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if isinstance(obj, (Path,)):
+        return str(obj)
+    if hasattr(obj, "isoformat"):
+        try:
+            return obj.isoformat()
+        except Exception:
+            pass
+    if hasattr(obj, "model_dump"):
+        try:
+            return obj.model_dump()
+        except Exception:
+            pass
+    return str(obj)
+
 import aiofiles
 from pydantic import ValidationError
 
@@ -196,7 +217,7 @@ class SearchIndexer:
                 "df": dict(self._df),
             }
             async with aiofiles.open(self._cache_file, "w") as f:
-                await f.write(json.dumps(cache))
+                await f.write(json.dumps(cache, default=_json_safe))
             log.info(f"Search index cache saved: {self._doc_count} docs, {len(self._inverted)} tokens")
         except Exception as e:
             log.warning(f"Failed to save search index cache: {e}")

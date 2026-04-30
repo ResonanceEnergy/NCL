@@ -21,9 +21,30 @@ import logging
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 log = logging.getLogger("ncl.autonomous")
+
+
+def _json_safe(obj: Any) -> Any:
+    """Fallback for json.dumps(default=...). Handles sets, datetimes, Pydantic, Path."""
+    if isinstance(obj, set):
+        return list(obj)
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    if isinstance(obj, Path):
+        return str(obj)
+    if hasattr(obj, "isoformat"):
+        try:
+            return obj.isoformat()
+        except Exception:
+            pass
+    if hasattr(obj, "model_dump"):
+        try:
+            return obj.model_dump()
+        except Exception:
+            pass
+    return str(obj)
 
 
 class AutonomousScheduler:
@@ -178,12 +199,14 @@ class AutonomousScheduler:
                 # Run scans for each platform
                 all_signals = []
 
-                # X (Twitter) scan
+                # X (Twitter) scan — scanner.scan_x takes a single query, fan out
                 try:
-                    x_signals = await self.brain.scanner.scan_x(
-                        queries=self._get_watch_queries("x"),
-                        max_results=25,
-                    )
+                    x_signals: list = []
+                    for q in self._get_watch_queries("x"):
+                        try:
+                            x_signals.extend(await self.brain.scanner.scan_x(q, max_results=25))
+                        except Exception as ie:
+                            log.warning(f"[SCANNER] X query '{q}' failed: {ie}")
                     all_signals.extend(x_signals)
                     log.info(f"[SCANNER] X: {len(x_signals)} signals")
                 except Exception as e:
@@ -191,21 +214,25 @@ class AutonomousScheduler:
 
                 # YouTube scan
                 try:
-                    yt_signals = await self.brain.scanner.scan_youtube(
-                        queries=self._get_watch_queries("youtube"),
-                        max_results=10,
-                    )
+                    yt_signals: list = []
+                    for q in self._get_watch_queries("youtube"):
+                        try:
+                            yt_signals.extend(await self.brain.scanner.scan_youtube(q, max_results=10))
+                        except Exception as ie:
+                            log.warning(f"[SCANNER] YouTube query '{q}' failed: {ie}")
                     all_signals.extend(yt_signals)
                     log.info(f"[SCANNER] YouTube: {len(yt_signals)} signals")
                 except Exception as e:
                     log.warning(f"[SCANNER] YouTube scan failed: {e}")
 
-                # Reddit scan
+                # Reddit scan — scanner.scan_reddit takes a subreddit name
                 try:
-                    reddit_signals = await self.brain.scanner.scan_reddit(
-                        queries=self._get_watch_queries("reddit"),
-                        max_results=15,
-                    )
+                    reddit_signals: list = []
+                    for sub in self._get_watch_queries("reddit"):
+                        try:
+                            reddit_signals.extend(await self.brain.scanner.scan_reddit(sub, max_results=15))
+                        except Exception as ie:
+                            log.warning(f"[SCANNER] Reddit r/{sub} failed: {ie}")
                     all_signals.extend(reddit_signals)
                     log.info(f"[SCANNER] Reddit: {len(reddit_signals)} signals")
                 except Exception as e:
@@ -819,7 +846,7 @@ class AutonomousScheduler:
         try:
             import aiofiles
             async with aiofiles.open(flags_file, "a") as f:
-                await f.write(json.dumps(flag) + "\n")
+                await f.write(json.dumps(flag, default=_json_safe) + "\n")
         except Exception as e:
             log.warning(f"Failed to write council flag: {e}")
 
@@ -856,7 +883,7 @@ class AutonomousScheduler:
         try:
             import aiofiles
             async with aiofiles.open(events_file, "a") as f:
-                await f.write(json.dumps(event) + "\n")
+                await f.write(json.dumps(event, default=_json_safe) + "\n")
         except Exception as e:
             log.warning(f"Failed to log autonomous event: {e}")
 

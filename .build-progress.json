@@ -1,6 +1,6 @@
 {
   "phase1": "done",
-  "phase2": "pending",
+  "phase2": "done",
   "phase3": "pending",
   "phase4": "pending",
   "phase5": "pending",
@@ -10,6 +10,6 @@
   "phase9": "pending",
   "phase10": "pending",
   "last_run": "2026-04-30T00:00:00",
-  "notes": "Phase 1 complete — BRL/DIGITAL-LABOUR cleanly removed. workstation.html (orphan) deleted. routes.py imports OK in sandbox.",
+  "notes": "Phase 1+2 complete. routes.py imports cleanly (136 routes). MemoryStore.stats() verified.",
   "blockers": []
 }

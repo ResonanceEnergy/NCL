@@ -2896,16 +2896,16 @@ async def autonomous_scan_now() -> dict:
     try:
         signals = []
         for platform in ["x", "youtube", "reddit"]:
-            try:
-                method = getattr(brain.scanner, f"scan_{platform}", None)
-                if method:
-                    result = await method(
-                        queries=_autonomous._get_watch_queries(platform) if _autonomous else [],
-                        max_results=10,
-                    )
+            method = getattr(brain.scanner, f"scan_{platform}", None)
+            if not method:
+                continue
+            queries = _autonomous._get_watch_queries(platform) if _autonomous else []
+            for q in queries:
+                try:
+                    result = await method(q, max_results=10)
                     signals.extend(result)
-            except Exception as e:
-                signals.append({"platform": platform, "error": str(e)})
+                except Exception as e:
+                    signals.append({"platform": platform, "query": q, "error": str(e)})
         return {"status": "complete", "signals": len(signals)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -251,12 +251,71 @@ class MemoryStore:
                 f"(pruned={pruned}, merged={merged})"
             )
 
+        # Stamp last consolidation timestamp for stats()
+        try:
+            self._last_consolidation = datetime.now(timezone.utc)
+        except Exception:
+            pass
+
         return {
             "total_before": len(units),
             "total_after": len(surviving),
             "pruned": pruned,
             "merged": merged,
             "clusters": len(clusters),
+        }
+
+    async def stats(self) -> dict:
+        """
+        Return memory store statistics: unit count, average importance,
+        last consolidation time, file size.
+
+        Used by /memory/stats endpoint and dashboard Overview tab.
+        """
+        units: list[MemUnit] = []
+        try:
+            units = await self._load_all_units()
+        except Exception as e:
+            log.warning(f"stats(): failed to load units: {e}")
+
+        unit_count = len(units)
+        if unit_count > 0:
+            try:
+                avg_importance = sum(u.importance for u in units) / unit_count
+            except Exception:
+                avg_importance = 0.0
+            try:
+                avg_reinforcements = sum(u.reinforcement_count for u in units) / unit_count
+            except Exception:
+                avg_reinforcements = 0.0
+            try:
+                latest_access = max(u.last_accessed for u in units).isoformat()
+            except Exception:
+                latest_access = None
+        else:
+            avg_importance = 0.0
+            avg_reinforcements = 0.0
+            latest_access = None
+
+        last_consolidation = getattr(self, "_last_consolidation", None)
+        if isinstance(last_consolidation, datetime):
+            last_consolidation = last_consolidation.isoformat()
+
+        file_size = 0
+        try:
+            if self.memory_file.exists():
+                file_size = self.memory_file.stat().st_size
+        except Exception:
+            pass
+
+        return {
+            "unit_count": unit_count,
+            "avg_importance": round(avg_importance, 2),
+            "avg_reinforcements": round(avg_reinforcements, 2),
+            "last_consolidation": last_consolidation,
+            "last_access": latest_access,
+            "memory_file_bytes": file_size,
+            "max_total_units": MAX_TOTAL_UNITS,
         }
 
     def _apply_decay(self, unit: MemUnit) -> float:
