@@ -1270,18 +1270,19 @@ async function submitPump(autoFlow = false) {
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     _lastPumpId = result.pump_id || result.prompt_id || null;
 
-    if (autoFlow && result.council_output) {
+    if (autoFlow && (result.council || result.mandates)) {
       // Council mode — show full council response
+      const hasMandates = !!(result.mandates && result.mandates.length);
       showPumpResponse({
         status: 'complete',
         icon: '🏛',
-        title: 'Council Report Ready',
-        statusText: `Completed in ${elapsed}s | Pump ID: ${_lastPumpId || 'N/A'}`,
+        title: hasMandates ? 'Council Report — Approval Required' : 'Council Report Ready',
+        statusText: `Completed in ${elapsed}s | Pump ID: ${_lastPumpId || 'N/A'}${hasMandates ? ' | ' + result.mandates.length + ' mandate(s) proposed' : ''}`,
         body: formatCouncilOutput(result),
-        showActions: !!(result.proposed_mandates && result.proposed_mandates.length),
+        showActions: hasMandates,
         pumpId: _lastPumpId,
       });
-      toast('Council report ready — review below', 'success');
+      toast(hasMandates ? 'Council ready — review and approve below' : 'Council report ready', 'success');
     } else if (autoFlow && result.status === 'council_session_started') {
       // Council started but response is async — poll for it
       showPumpResponse({
@@ -1361,24 +1362,69 @@ function showPumpResponse({ status, icon, title, statusText, body, showActions, 
 
 function formatCouncilOutput(result) {
   let output = '';
-  if (result.council_output) {
-    output += result.council_output;
+
+  // Header — pump intent
+  if (result.intent) {
+    output += `🎯 INTENT\n${result.intent}\n`;
+    if (result.urgency) output += `   urgency: ${result.urgency}\n`;
+    output += '\n';
   }
-  if (result.summary) {
-    output += '\n\n📋 SUMMARY:\n' + result.summary;
+
+  // Council output (nested under result.council)
+  const c = result.council || {};
+  if (c.consensus) {
+    output += `🤝 CONSENSUS\n${c.consensus}\n\n`;
   }
-  if (result.proposed_mandates && result.proposed_mandates.length) {
-    output += '\n\n📋 PROPOSED MANDATES (' + result.proposed_mandates.length + '):\n';
-    result.proposed_mandates.forEach((m, i) => {
-      output += `\n${i+1}. ${m.title || m.objective || 'Mandate ' + (i+1)}`;
-      if (m.pillar) output += ` [${m.pillar}]`;
-      if (m.priority) output += ` P${m.priority}`;
+  if (c.recommendations && c.recommendations.length) {
+    output += `📌 RECOMMENDATIONS (${c.recommendations.length})\n`;
+    c.recommendations.forEach((r, i) => {
+      output += `  ${i+1}. ${r}\n`;
     });
+    output += '\n';
   }
-  if (result.consensus) {
-    output += '\n\n🤝 CONSENSUS:\n' + result.consensus;
+  if (c.dissents && c.dissents.length) {
+    output += `⚠️  DISSENTS (${c.dissents.length})\n`;
+    c.dissents.forEach((d, i) => {
+      output += `  ${i+1}. ${d}\n`;
+    });
+    output += '\n';
   }
-  return output || JSON.stringify(result, null, 2);
+  if (c.error) {
+    output += `❌ COUNCIL ERROR\n${c.error}\n\n`;
+  }
+
+  // Proposed mandates (top-level result.mandates)
+  if (result.mandates && result.mandates.length) {
+    output += `📋 PROPOSED MANDATES (${result.mandates.length})\n`;
+    result.mandates.forEach((m, i) => {
+      if (m.error) {
+        output += `\n${i+1}. ❌ ERROR: ${m.error} (${m.title || ''})\n`;
+        return;
+      }
+      output += `\n${i+1}. ${m.title || 'Mandate ' + (i+1)}`;
+      if (m.pillar) output += `  [${String(m.pillar).toUpperCase()}]`;
+      if (m.priority != null) output += `  P${m.priority}`;
+      output += '\n';
+      if (m.objective) output += `   objective: ${m.objective}\n`;
+      if (m.success_criteria && m.success_criteria.length) {
+        output += `   success criteria:\n`;
+        m.success_criteria.forEach(sc => {
+          output += `     • ${sc}\n`;
+        });
+      }
+    });
+    output += '\n';
+  }
+
+  // Status footer
+  if (result.status) {
+    output += `── STATUS: ${result.status} ──\n`;
+  }
+  if (result.message) {
+    output += result.message + '\n';
+  }
+
+  return output.trim() || JSON.stringify(result, null, 2);
 }
 
 function formatPumpResult(result, originalPrompt) {
