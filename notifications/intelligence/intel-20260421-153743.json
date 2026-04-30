@@ -1,0 +1,50 @@
+{
+  "id": "intel-20260421-153743",
+  "brief_id": "b450ee55-00df-4b75-b420-e59b8ebf645d",
+  "brief_type": "DAILY",
+  "message": "**Executive Summary:**  \nThe most critical development is the **bearish political sector (77% confidence)**, highlighted by Polymarket\u2019s 2.7% probability of a U.S.-Iran diplomatic meeting by April 202\n\n\u25bc US x Iran diplomatic meeting by April 21, 2026? \u2014 Polymarket: US x Iran diplomatic meeting by April 21, 2026? \n\u25bc Will Elon Musk post 200-219 tweets from April 14 t \u2014 Polymarket: Will Elon Musk post 200-219 tweets from April 14\n\u2193 ETH $2,302.42 (-0.4%) \u2014 ETH: $2,302.42 | 24h: -0.4% | 7d: -3.8% | 30d: +10.7% | Vol:\n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11110805.605476964, 'direction':\n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-04-21T15:37:43.434216+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "b450ee55-00df-4b75-b420-e59b8ebf645d",
+        "signal_ids": [
+          "b9b11c9b-a1da-411c-a0fc-1df593bd6e26",
+          "82d497b4-e3fc-4f64-a0d1-d0aabeda6ce6",
+          "1f211e40-e708-4ab4-adb2-a9f09eefd5c7",
+          "d2ea93fe-6369-4756-86c7-2940ac4ad954",
+          "3661252a-5aa1-40cb-b872-6138ade92266"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/b450ee55-00df-4b75-b420-e59b8ebf645d",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "**Executive Summary:**  \nThe most critical development is the **bearish political sector (77% confidence)**, highlighted by Polymarket\u2019s 2.7% probability of a U.S.-Iran diplomatic meeting by April 2026, signaling heightened geopolitical risk. **Key market movements** include LINK",
+    "total_signals": 79,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 10,
+      "polymarket": 50,
+      "crypto": 19
+    }
+  }
+}

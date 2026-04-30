@@ -1,0 +1,50 @@
+{
+  "id": "intel-20260421-032842",
+  "brief_id": "3a0c12d0-7b12-4f33-b774-de4b4ef33419",
+  "brief_type": "DAILY",
+  "message": "**Executive Summary:**  \nThe most critical development is the **96.4% probability on Polymarket that the Iran-Israel/US conflict will end by April 7**, signaling potential de-escalation but risking vo\n\n\u25b2 Hawks vs. Knicks \u2014 Polymarket: Hawks vs. Knicks \u2014 YES=100.0%, NO=0.0%, 24h vol=\n\u25b2 Dota 2: Aurora vs PARIVISION (BO3) - PGL Wallachia \u2014 Polymarket: Dota 2: Aurora vs PARIVISION (BO3) - PGL Wallach\n\u25bc Raptors vs. Cavaliers \u2014 Polymarket: Raptors vs. Cavaliers \u2014 YES=0.0%, NO=100.0%, 24h\n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11109746.546662968, 'direction':\n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-04-21T03:28:42.783224+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "3a0c12d0-7b12-4f33-b774-de4b4ef33419",
+        "signal_ids": [
+          "3f57016e-2dcd-40b9-82a0-bc08bc00d04c",
+          "d3525da3-aca2-425d-87b3-6a9c7be7181b",
+          "66148746-eced-4b4a-b665-a6e6573e9be6",
+          "3bc41255-e9ff-43eb-96a0-b549c41e6a2f",
+          "2f94e459-241a-40f3-b9d7-5d4aaa2dc448"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/3a0c12d0-7b12-4f33-b774-de4b4ef33419",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "**Executive Summary:**  \nThe most critical development is the **96.4% probability on Polymarket that the Iran-Israel/US conflict will end by April 7**, signaling potential de-escalation but risking volatility if expectations fail. **Key market movements** show crypto assets broad",
+    "total_signals": 79,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 10,
+      "polymarket": 50,
+      "crypto": 19
+    }
+  }
+}

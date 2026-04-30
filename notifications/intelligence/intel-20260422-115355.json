@@ -1,0 +1,51 @@
+{
+  "id": "intel-20260422-115355",
+  "brief_id": "5562aa3f-92c2-47b4-b9df-53bea4b8ae41",
+  "brief_type": "DAILY",
+  "message": "**Executive Summary:**  \nThe most critical development is the **crypto sector expansion** ($ETH +3.2%, $SOL +2.8%, $BTC +2.4%), driven by renewed institutional interest and retail \"deep dive\" (bullish\n\n\u25bc US x Iran diplomatic meeting by April 22, 2026? \u2014 Polymarket: US x Iran diplomatic meeting by April 22, 2026? \n\u25bc LoL: Hanwha Life Esports vs Nongshim Red Force - G \u2014 Polymarket: LoL: Hanwha Life Esports vs Nongshim Red Force -\n\u25bc Rockets vs. Lakers \u2014 Polymarket: Rockets vs. Lakers \u2014 YES=0.0%, NO=100.0%, 24h vo\n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11116312.138523962, 'direction':\n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-04-22T11:53:55.804286+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "5562aa3f-92c2-47b4-b9df-53bea4b8ae41",
+        "signal_ids": [
+          "b9fe9f1f-36c9-47f0-ab67-7fba9f26f43d",
+          "be86fbdb-9af8-441a-bbec-6431e75ed807",
+          "596c0435-acd1-4415-ab73-3b9ee9686de2",
+          "850adeec-6553-4cd4-b3ab-0906e9b7602d",
+          "ab0ab42d-667a-49c9-ab93-42494b2b00dc"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/5562aa3f-92c2-47b4-b9df-53bea4b8ae41",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "**Executive Summary:**  \nThe most critical development is the **crypto sector expansion** ($ETH +3.2%, $SOL +2.8%, $BTC +2.4%), driven by renewed institutional interest and retail \"deep dive\" (bullish, 57% confidence) and \"ticker\" (bullish, 45% confidence) signals, suggesting sho",
+    "total_signals": 608,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 10,
+      "polymarket": 50,
+      "crypto": 19,
+      "reddit": 529
+    }
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "id": "intel-20260425-003901",
+  "brief_id": "3e60b4b9-9362-4909-aac0-2c4462c6dab7",
+  "brief_type": "DAILY",
+  "message": "The retail_general sector shows neutral signals across 339 data points (confidence: 43%). Largest move: BTC at $77,369.00 (-1.4%). Top prediction market: \"Will Jesus Christ return before GTA VI?\" at 4\n\n\u25bc Will Real Madrid CF win on 2026-04-24? \u2014 Polymarket: Will Real Madrid CF win on 2026-04-24? \u2014 YES=0.1\n\u25bc Will the price of Bitcoin be above $78,000 on Apri \u2014 Polymarket: Will the price of Bitcoin be above $78,000 on Ap\n\u25bc Dota 2: PARIVISION vs Aurora (BO3) - PGL Wallachia \u2014 Polymarket: Dota 2: PARIVISION vs Aurora (BO3) - PGL Wallach\n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11130780.184184965, 'direction':\n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-04-25T00:39:01.975162+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "3e60b4b9-9362-4909-aac0-2c4462c6dab7",
+        "signal_ids": [
+          "d3868de8-e1a0-42ca-ac2f-5661503bc094",
+          "78b18d3a-423e-4d5d-8430-22d948051e9f",
+          "b2ca5a0c-0e66-4b25-a9b5-304f36386d3a",
+          "074dcf08-60e6-483d-a0d8-87933a539ce4",
+          "cd8484a1-1975-41fe-b0ee-c2d33241e0da"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/3e60b4b9-9362-4909-aac0-2c4462c6dab7",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "The retail_general sector shows neutral signals across 339 data points (confidence: 43%). Largest move: BTC at $77,369.00 (-1.4%). Top prediction market: \"Will Jesus Christ return before GTA VI?\" at 48% probability.",
+    "total_signals": 607,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 10,
+      "polymarket": 50,
+      "crypto": 19,
+      "reddit": 528
+    }
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "id": "intel-20260426-211504",
+  "brief_id": "bd5a7756-4130-4ca9-b32d-1521e3d3e841",
+  "brief_type": "DAILY",
+  "message": "The retail_general sector shows neutral signals across 337 data points (confidence: 42%). Largest move: ETH at $2,366.39 (+2.2%). Top prediction market: \"Will Jesus Christ return before GTA VI?\" at 48\n\n\u25bc Cavaliers vs. Raptors \u2014 Polymarket: Cavaliers vs. Raptors \u2014 YES=0.0%, NO=100.0%, 24h\n\u25b2 Sabres vs. Bruins \u2014 Polymarket: Sabres vs. Bruins \u2014 YES=100.0%, NO=0.0%, 24h vol\n\u25bc Will Olympique de Marseille win on 2026-04-26? \u2014 Polymarket: Will Olympique de Marseille win on 2026-04-26? \u2014\n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11136063.24296496, 'direction': \n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-04-26T21:15:04.386153+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "bd5a7756-4130-4ca9-b32d-1521e3d3e841",
+        "signal_ids": [
+          "6f34e86b-cea7-4b8b-b5f4-7a6e7f21e94c",
+          "ca6f1c18-fc31-4b88-8836-b415f761c115",
+          "57987250-e691-454f-9362-2661f57198b8",
+          "258682d8-dafe-41d3-a620-51438fb15e0f",
+          "710541f1-17a1-4f77-aa25-9491859d32f8"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/bd5a7756-4130-4ca9-b32d-1521e3d3e841",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "The retail_general sector shows neutral signals across 337 data points (confidence: 42%). Largest move: ETH at $2,366.39 (+2.2%). Top prediction market: \"Will Jesus Christ return before GTA VI?\" at 48% probability.",
+    "total_signals": 605,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 10,
+      "polymarket": 50,
+      "crypto": 19,
+      "reddit": 526
+    }
+  }
+}

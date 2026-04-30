@@ -1,0 +1,51 @@
+{
+  "id": "intel-20260422-034652",
+  "brief_id": "3cd7ab9f-4eb4-4bfc-8142-1b96fb6a4875",
+  "brief_type": "DAILY",
+  "message": "**Executive Summary:**  \nThe most critical development is the **bearish political sentiment** (-75% confidence, 13 signals), compounded by **near-zero probability of US-Iran diplomatic progress** by 2\n\n\u25b2 Trail Blazers vs. Spurs \u2014 Polymarket: Trail Blazers vs. Spurs \u2014 YES=100.0%, NO=0.0%, 2\n\u25bc US x Iran diplomatic meeting by April 22, 2026? \u2014 Polymarket: US x Iran diplomatic meeting by April 22, 2026? \n\u25bc US x Iran permanent peace deal by April 22, 2026? \u2014 Polymarket: US x Iran permanent peace deal by April 22, 2026\n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11114363.898534963, 'direction':\n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-04-22T03:46:52.955563+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "3cd7ab9f-4eb4-4bfc-8142-1b96fb6a4875",
+        "signal_ids": [
+          "8bc1d7ce-6b16-49a4-8018-1d1e158ea226",
+          "89952393-a0fa-4122-84d3-a7897109ee49",
+          "7e64ac99-a4cb-46a8-a9a9-1b9a97ba47fb",
+          "3dccd0a5-b001-4aeb-a4d5-e6ae62fc7b1c",
+          "7ed96c44-ff8c-4cc2-89ff-1e72be6e37c2"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/3cd7ab9f-4eb4-4bfc-8142-1b96fb6a4875",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "**Executive Summary:**  \nThe most critical development is the **bearish political sentiment** (-75% confidence, 13 signals), compounded by **near-zero probability of US-Iran diplomatic progress** by 2026 (NO=98.6% for meetings, 99.6% for peace deals), signaling heightened geopoli",
+    "total_signals": 606,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 10,
+      "polymarket": 50,
+      "crypto": 19,
+      "reddit": 527
+    }
+  }
+}

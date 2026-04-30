@@ -13,9 +13,6 @@ Runs continuous loops for:
 6. MWP Workspace Health — Monitors pipeline stage health
 
 All intervals are configurable via ncl.yaml or environment variables.
-
-7. Digital Labour Pipeline — Semi-autonomous mandate dispatch to DL agent fleet
-   (Paperclip governance + Van Clief MWP stage processing)
 """
 
 import asyncio
@@ -25,8 +22,6 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
-
-from .dl_pipeline import DLPipeline
 
 log = logging.getLogger("ncl.autonomous")
 
@@ -88,46 +83,6 @@ class AutonomousScheduler:
         # Minimum signals needed before auto-spawning a council
         self.council_min_signals = 3
 
-        # BIT RAGE LABOUR Pipeline (Paperclip + MWP governed)
-        self.dl_pipeline: Optional[DLPipeline] = None
-        self._init_dl_pipeline()
-
-    def _init_dl_pipeline(self) -> None:
-        """Initialize the Digital Labour Pipeline with Paperclip governance."""
-        try:
-            from ..digital_labour_bridge import dl_bridge
-            paperclip = getattr(self.brain, "paperclip", None)
-
-            # Build notify function from brain's ntfy push
-            async def notify_fn(title, body, priority=3):
-                try:
-                    import os
-                    topic = os.getenv("NTFY_TOPIC", "")
-                    server = os.getenv("NTFY_SERVER", "https://ntfy.sh")
-                    if topic:
-                        req = urllib.request.Request(
-                            f"{server}/{topic}",
-                            data=body.encode(),
-                            headers={
-                                "Title": title,
-                                "Priority": str(priority),
-                                "Tags": "robot",
-                            },
-                        )
-                        urllib.request.urlopen(req, timeout=5)
-                except Exception:
-                    pass  # Non-critical
-
-            self.dl_pipeline = DLPipeline(
-                paperclip=paperclip,
-                dl_bridge=dl_bridge,
-                notify_fn=notify_fn,
-            )
-            log.info("BIT RAGE LABOUR pipeline initialized (Paperclip + MWP)")
-        except Exception as e:
-            log.warning("DL Pipeline init failed (non-fatal): %s", e)
-            self.dl_pipeline = None
-
     async def start(self) -> None:
         """Start all autonomous background loops."""
         if self._running:
@@ -170,13 +125,6 @@ class AutonomousScheduler:
                 asyncio.create_task(self._intel_brief_loop(), name="ncl-intel-brief")
             )
 
-        # Digital Labour Pipeline (Paperclip + MWP governed)
-        if self.dl_pipeline:
-            asyncio.create_task(self.dl_pipeline.start())
-            log.info("  BIT RAGE LABOUR: ACTIVE (semi-autonomous, Paperclip-governed)")
-        else:
-            log.info("  BIT RAGE LABOUR: INACTIVE (bridge not available)")
-
         await self._log_autonomous_event("scheduler_started", {
             "loops": [t.get_name() for t in self._tasks],
             "config": {
@@ -192,9 +140,6 @@ class AutonomousScheduler:
     async def stop(self) -> None:
         """Gracefully stop all background loops."""
         self._running = False
-        # Stop DL pipeline
-        if self.dl_pipeline:
-            await self.dl_pipeline.stop()
         for task in self._tasks:
             task.cancel()
         if self._tasks:
@@ -211,8 +156,6 @@ class AutonomousScheduler:
             "active_tasks": [t.get_name() for t in self._tasks if not t.done()],
             "signal_buffer_size": len(self._signal_buffer),
         }
-        if self.dl_pipeline:
-            stats["dl_pipeline"] = self.dl_pipeline.get_status()
         return stats
 
     # ─── LOOP 1: Intelligence Scanner ──────────────────────────

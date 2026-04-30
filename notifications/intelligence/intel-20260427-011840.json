@@ -1,0 +1,51 @@
+{
+  "id": "intel-20260427-011840",
+  "brief_id": "6422e81a-fd23-4af2-a002-6524a212c38c",
+  "brief_type": "DAILY",
+  "message": "**EXECUTIVE SUMMARY**  \n\nThe most critical development is the **expansion in crypto markets** (10 signals, 92% confidence), with ETH (+3.1%), BTC (+2.1%), and AVAX (+2.0%) leading gains, signaling ren\n\n\u25b2 Celtics vs. 76ers \u2014 Polymarket: Celtics vs. 76ers \u2014 YES=99.2%, NO=0.8%, 24h vol=\n\u25b2 Spurs vs. Trail Blazers \u2014 Polymarket: Spurs vs. Trail Blazers \u2014 YES=100.0%, NO=0.0%, 2\n\u25bc LoL: Weibo Gaming vs Bilibili Gaming - Game 2 Winn \u2014 Polymarket: LoL: Weibo Gaming vs Bilibili Gaming - Game 2 Wi\n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11136121.74142296, 'direction': \n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-04-27T01:18:40.857730+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "6422e81a-fd23-4af2-a002-6524a212c38c",
+        "signal_ids": [
+          "001eb38c-12fd-4a14-9f93-e6e2c22b5ac1",
+          "fbde92cb-ec70-43ee-b686-b7935dbc15a5",
+          "d50b269c-ef4e-478b-a85f-2c002c61d6b0",
+          "3107b5c9-fdd3-40ff-beb9-867eb415e316",
+          "b9c36471-823c-4f82-9717-71b2bd9ae7aa"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/6422e81a-fd23-4af2-a002-6524a212c38c",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "**EXECUTIVE SUMMARY**  \n\nThe most critical development is the **expansion in crypto markets** (10 signals, 92% confidence), with ETH (+3.1%), BTC (+2.1%), and AVAX (+2.0%) leading gains, signaling renewed institutional or retail capital inflows. **Retail discretionary (dd)** show",
+    "total_signals": 508,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 10,
+      "polymarket": 50,
+      "crypto": 19,
+      "reddit": 429
+    }
+  }
+}

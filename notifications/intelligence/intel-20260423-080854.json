@@ -1,0 +1,50 @@
+{
+  "id": "intel-20260423-080854",
+  "brief_id": "3c19b130-4591-42ac-a17e-22143f017038",
+  "brief_type": "DAILY",
+  "message": "**Executive Summary:**  \nThe most critical development is the **bearish political climate (78% confidence, 12 signals)**, underscored by Polymarket\u2019s 0% probability of a U.S.-Iran ceasefire extension \n\n\u25bc US x Iran ceasefire extended by April 21, 2026? \u2014 Polymarket: US x Iran ceasefire extended by April 21, 2026? \n\u25b2 Dota 2: South America Rejects vs MOUZ (BO3) - PGL  \u2014 Polymarket: Dota 2: South America Rejects vs MOUZ (BO3) - PG\n\u25b2 LoL: Hanwha Life Esports vs Nongshim Red Force (BO \u2014 Polymarket: LoL: Hanwha Life Esports vs Nongshim Red Force (\n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11118399.304710964, 'direction':\n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-04-23T08:08:54.971942+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "3c19b130-4591-42ac-a17e-22143f017038",
+        "signal_ids": [
+          "b6c2abee-1fad-4ac6-acdc-bad50eb0c5ad",
+          "e74ac937-428b-4021-8cff-39de3fcefe70",
+          "0a76e062-0f70-4869-a19b-d1bcc41b78b0",
+          "d1665bee-8fa0-44c5-b17e-2f45c9e94524",
+          "f68f87b2-3a48-4b07-bd47-78c45da22846"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/3c19b130-4591-42ac-a17e-22143f017038",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "**Executive Summary:**  \nThe most critical development is the **bearish political climate (78% confidence, 12 signals)**, underscored by Polymarket\u2019s 0% probability of a U.S.-Iran ceasefire extension by April 2026, signaling heightened geopolitical risk. Key market movements show",
+    "total_signals": 79,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 10,
+      "polymarket": 50,
+      "crypto": 19
+    }
+  }
+}

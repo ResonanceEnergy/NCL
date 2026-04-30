@@ -1,0 +1,51 @@
+{
+  "id": "intel-20260424-203555",
+  "brief_id": "dec38cf4-2cf7-40d8-80cb-1dc509e04348",
+  "brief_type": "DAILY",
+  "message": "**Executive Summary:**  \nThe most critical development is the **bullish surge in retail due diligence (retail_dd)** with 36 signals (57% confidence), coupled with **AMD gaining $7.7M in retail-driven \n\n\u25bc Dota 2: PARIVISION vs Aurora (BO3) - PGL Wallachia \u2014 Polymarket: Dota 2: PARIVISION vs Aurora (BO3) - PGL Wallach\n\u25bc Dota 2: Team Liquid vs BetBoom Team (BO3) - PGL Wa \u2014 Polymarket: Dota 2: Team Liquid vs BetBoom Team (BO3) - PGL \n\u25bc Will the price of Bitcoin be above $78,000 on Apri \u2014 Polymarket: Will the price of Bitcoin be above $78,000 on Ap\n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11130361.680881962, 'direction':\n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-04-24T20:35:55.205549+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "dec38cf4-2cf7-40d8-80cb-1dc509e04348",
+        "signal_ids": [
+          "56eaa68e-7ae7-4339-954c-c77e2529e089",
+          "18e496eb-1e76-4d1d-b2b3-fac9e2e592cc",
+          "9793b524-662e-48dd-a567-c4246efb41b4",
+          "fc809a8e-b160-498f-888a-f22664faa900",
+          "ca555d03-ee0a-4e69-a555-dea82a6faa6a"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/dec38cf4-2cf7-40d8-80cb-1dc509e04348",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "**Executive Summary:**  \nThe most critical development is the **bullish surge in retail due diligence (retail_dd)** with 36 signals (57% confidence), coupled with **AMD gaining $7.7M in retail-driven momentum** on Reddit (r/wallstreetbets, 6,255 score), signaling potential retail",
+    "total_signals": 608,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 10,
+      "polymarket": 50,
+      "crypto": 19,
+      "reddit": 529
+    }
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "id": "intel-20260424-163256",
+  "brief_id": "b1cc50c9-5c3e-4b94-b740-417a5778129f",
+  "brief_type": "DAILY",
+  "message": "The retail_general sector shows neutral signals across 343 data points (confidence: 42%). Largest move: DOGE at $0.10 (+1.0%). Top prediction market: \"Will Jesus Christ return before GTA VI?\" at 48% p\n\n\u25bc Will the price of Bitcoin be above $78,000 on Apri \u2014 Polymarket: Will the price of Bitcoin be above $78,000 on Ap\n\u25b2 Dota 2: PARIVISION vs Aurora - Game 1 Winner \u2014 Polymarket: Dota 2: PARIVISION vs Aurora - Game 1 Winner \u2014 Y\n\u25b2 LoL: JD Gaming vs Invictus Gaming - Game 2 Winner \u2014 Polymarket: LoL: JD Gaming vs Invictus Gaming - Game 2 Winne\n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11128526.026086962, 'direction':\n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-04-24T16:32:56.587547+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "b1cc50c9-5c3e-4b94-b740-417a5778129f",
+        "signal_ids": [
+          "4f601152-9568-47a2-8ff0-cc6dbfd109b6",
+          "b0108502-04db-46f5-9345-eeae33539d1f",
+          "b1faffb5-1aaf-4992-8d3a-7248d45352d9",
+          "ba89b2d9-c780-4081-a374-b5c3390c0f29",
+          "c58adb70-c80c-4605-93ea-9063490e7bcd"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/b1cc50c9-5c3e-4b94-b740-417a5778129f",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "The retail_general sector shows neutral signals across 343 data points (confidence: 42%). Largest move: DOGE at $0.10 (+1.0%). Top prediction market: \"Will Jesus Christ return before GTA VI?\" at 48% probability.",
+    "total_signals": 614,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 10,
+      "polymarket": 50,
+      "crypto": 19,
+      "reddit": 535
+    }
+  }
+}

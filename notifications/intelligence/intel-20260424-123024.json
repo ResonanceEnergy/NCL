@@ -1,0 +1,50 @@
+{
+  "id": "intel-20260424-123024",
+  "brief_id": "c0de2b96-188f-41fb-b111-7cf8d8420e27",
+  "brief_type": "DAILY",
+  "message": "**Executive Summary:**  \nThe most critical development is the **emergence of crypto_trending (60% confidence)** amid mixed sector signals, suggesting speculative interest in niche crypto assets like A\n\n\u25bc LoL: BNK FEARX vs KT Rolster (BO3) - LCK Rounds 1- \u2014 Polymarket: LoL: BNK FEARX vs KT Rolster (BO3) - LCK Rounds \n\u25cf Will Elon Musk post 180-199 tweets from April 17 t \u2014 Polymarket: Will Elon Musk post 180-199 tweets from April 17\n\u25bc US x Iran ceasefire extended by April 22, 2026? \u2014 Polymarket: US x Iran ceasefire extended by April 22, 2026? \n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11127003.884156965, 'direction':\n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-04-24T12:30:24.862247+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "c0de2b96-188f-41fb-b111-7cf8d8420e27",
+        "signal_ids": [
+          "a19c0c46-9a26-4e08-833b-d05853bf70f6",
+          "2daa5ead-2ac7-4636-a823-930a49a55d9e",
+          "c6300ba3-a1f0-4b5d-b783-2c60f994d89c",
+          "e18e43d8-e411-4e9a-b327-0393d35d50e1",
+          "334feec2-1594-4ca9-914b-d77d631a751e"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/c0de2b96-188f-41fb-b111-7cf8d8420e27",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "**Executive Summary:**  \nThe most critical development is the **emergence of crypto_trending (60% confidence)** amid mixed sector signals, suggesting speculative interest in niche crypto assets like AVAX (+1.4%) and XRP (+1.4%), which outperformed BTC\u2019s modest 0.7% gain. Key mark",
+    "total_signals": 79,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 10,
+      "polymarket": 50,
+      "crypto": 19
+    }
+  }
+}

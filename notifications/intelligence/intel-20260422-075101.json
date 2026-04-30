@@ -1,0 +1,50 @@
+{
+  "id": "intel-20260422-075101",
+  "brief_id": "891dd789-4ebc-45c9-a89d-9137eb55ff9f",
+  "brief_type": "DAILY",
+  "message": "The politics sector shows bearish signals across 13 data points (confidence: 77%). Largest move: ETH at $2,392.71 (+3.1%). Top prediction market: \"Will Jesus Christ return before GTA VI?\" at 48% proba\n\n\u25bc US x Iran diplomatic meeting by April 22, 2026? \u2014 Polymarket: US x Iran diplomatic meeting by April 22, 2026? \n\u25bc Rockets vs. Lakers \u2014 Polymarket: Rockets vs. Lakers \u2014 YES=0.0%, NO=100.0%, 24h vo\n\u25bc Strait of Hormuz traffic returns to normal by end  \u2014 Polymarket: Strait of Hormuz traffic returns to normal by en\n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11115304.095454963, 'direction':\n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-04-22T07:51:01.747886+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "891dd789-4ebc-45c9-a89d-9137eb55ff9f",
+        "signal_ids": [
+          "db222481-ccd6-4879-bee4-427e174bfdab",
+          "2de396b7-7a8b-4882-9312-6688620d75e2",
+          "2e6c0de7-6e91-4eff-afea-a58fe93383c3",
+          "f96b5c52-fdf3-45e6-8c73-da0992bd961d",
+          "e5ae98ec-ac8a-4481-9e04-3a273690a629"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/891dd789-4ebc-45c9-a89d-9137eb55ff9f",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "The politics sector shows bearish signals across 13 data points (confidence: 77%). Largest move: ETH at $2,392.71 (+3.1%). Top prediction market: \"Will Jesus Christ return before GTA VI?\" at 48% probability.",
+    "total_signals": 79,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 10,
+      "polymarket": 50,
+      "crypto": 19
+    }
+  }
+}

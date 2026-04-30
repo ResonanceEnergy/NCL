@@ -1,0 +1,51 @@
+{
+  "id": "intel-20260428-094419",
+  "brief_id": "61c96936-a81d-42af-a718-99d66c084eec",
+  "brief_type": "DAILY",
+  "message": "**Executive Summary:**  \n1. **Key Development:** The *politics* sector remains\u6781\u5ea6 bearish (conf=83%) with 13 signals, highlighting escalating geopolitical risks, notably the 99.9% Polymarket probabilit\n\n\u25b2 Israel x Hezbollah Ceasefire extended by April 26, \u2014 Polymarket: Israel x Hezbollah Ceasefire extended by April 2\n\u2193 XRP $1.39 (-1.9%) \u2014 XRP: $1.39 | 24h: -1.9% | 7d: -3.5% | 30d: +4.2% | Vol: $1,7\n\u2191 DOGE $0.10 (+1.1%) \u2014 DOGE: $0.10 | 24h: +1.1% | 7d: +4.3% | 30d: +9.1% | Vol: $1,\n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11142528.15122396, 'direction': \n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-04-28T09:44:19.525432+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "61c96936-a81d-42af-a718-99d66c084eec",
+        "signal_ids": [
+          "55864cd1-30b4-4c70-a94c-405a7ae1d67a",
+          "627e94be-3e66-472f-adae-beb70e00933b",
+          "a5ae6511-2e2a-4076-aa30-ec54e5eef690",
+          "e8cec7e9-d9aa-4017-8d16-3f95a1d17ded",
+          "f8c0ad50-c567-472b-b1b1-86fa4a5467fc"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/61c96936-a81d-42af-a718-99d66c084eec",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "**Executive Summary:**  \n1. **Key Development:** The *politics* sector remains\u6781\u5ea6 bearish (conf=83%) with 13 signals, highlighting escalating geopolitical risks, notably the 99.9% Polymarket probability of an Israel-Hezbollah ceasefire extension by April 26, 2026, which could dest",
+    "total_signals": 601,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 10,
+      "polymarket": 50,
+      "crypto": 19,
+      "reddit": 522
+    }
+  }
+}

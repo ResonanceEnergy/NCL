@@ -1,0 +1,51 @@
+{
+  "id": "intel-20260427-132727",
+  "brief_id": "80de30dd-67e4-43de-929a-358f8e37151b",
+  "brief_type": "DAILY",
+  "message": "**Executive Summary:**  \nThe most critical development is the **divergence in retail investor sentiment**, with **retail_dd** (bullish, 58% confidence) and **retail_ticker** (bullish, 45% confidence) \n\n\u25b2 LoL: DN SOOPers Challengers vs Gen.G Global Academ \u2014 Polymarket: LoL: DN SOOPers Challengers vs Gen.G Global Acad\n\u25bc Lakers vs. Rockets \u2014 Polymarket: Lakers vs. Rockets \u2014 YES=0.1%, NO=100.0%, 24h vo\n\u25b2 $350 \u2192 $52k God bless AMD \u2014 r/wallstreetbets [Gain] | Score: 10,840 | Comments: 639 | Ra\n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11139117.007601958, 'direction':\n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-04-27T13:27:27.437312+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "80de30dd-67e4-43de-929a-358f8e37151b",
+        "signal_ids": [
+          "ace98d98-b99d-4395-812f-4c953c4833de",
+          "79a94283-1359-496e-963a-0679596b592f",
+          "40ec5f7c-d557-46a1-a2bd-52dd405a3da2",
+          "312f4be0-a6a4-4017-8799-8f2cd870e7ac",
+          "3e33227c-9155-48e5-a415-ab0f14f68eb1"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/80de30dd-67e4-43de-929a-358f8e37151b",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "**Executive Summary:**  \nThe most critical development is the **divergence in retail investor sentiment**, with **retail_dd** (bullish, 58% confidence) and **retail_ticker** (bullish, 45% confidence) signaling potential short-term opportunities in deep-value stocks and ticker-dri",
+    "total_signals": 602,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 10,
+      "polymarket": 50,
+      "crypto": 19,
+      "reddit": 523
+    }
+  }
+}

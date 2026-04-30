@@ -1,0 +1,51 @@
+{
+  "id": "intel-20260428-215325",
+  "brief_id": "2453f5c6-14f1-4d04-a2f0-a27e44501daf",
+  "brief_type": "DAILY",
+  "message": "**Executive Summary:**  \nThe most critical development is the **bullish shift in retail discretionary (retail_dd, +57% confidence) and ticker-driven retail (retail_ticker, +42% confidence)** activity,\n\n\u25b2 Will Paris Saint-Germain FC win on 2026-04-28? \u2014 Polymarket: Will Paris Saint-Germain FC win on 2026-04-28? \u2014\n\u25bc Madrid Open: Aryna Sabalenka vs Hailey Baptiste \u2014 Polymarket: Madrid Open: Aryna Sabalenka vs Hailey Baptiste \n\u25b2 Paris Saint-Germain FC vs. FC Bayern M\u00fcnchen: O/U  \u2014 Polymarket: Paris Saint-Germain FC vs. FC Bayern M\u00fcnchen: O/\n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11144992.13560496, 'direction': \n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-04-28T21:53:25.705451+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "2453f5c6-14f1-4d04-a2f0-a27e44501daf",
+        "signal_ids": [
+          "35b69453-d01b-42d5-ab2a-7a7c79ff3585",
+          "dfaa21b5-80f1-4e1e-8651-c385ac0f08f0",
+          "d79fd18e-b588-4c31-8c5b-88b095327530",
+          "39fc57a7-05c6-464e-a04d-d9b4a6cc8600",
+          "02ef6e82-f85b-4a84-93fa-bc494470a1cd"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/2453f5c6-14f1-4d04-a2f0-a27e44501daf",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "**Executive Summary:**  \nThe most critical development is the **bullish shift in retail discretionary (retail_dd, +57% confidence) and ticker-driven retail (retail_ticker, +42% confidence)** activity, signaling growing retail appetite for speculative assets despite broader market",
+    "total_signals": 606,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 10,
+      "polymarket": 50,
+      "crypto": 19,
+      "reddit": 527
+    }
+  }
+}

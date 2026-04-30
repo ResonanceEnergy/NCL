@@ -1,0 +1,50 @@
+{
+  "id": "intel-20260421-024953",
+  "brief_id": "6aaf0368-4e77-4e4e-a6ad-bf36cbafa45e",
+  "brief_type": "DAILY",
+  "message": "**Executive Summary:**  \nThe most critical development is the **neutral but mixed crypto sector** (95% confidence), with 8 of 10 coins rising 1.1\u20131.9% (e.g., AVAX +1.9%, BTC +1.6%), driven by stable r\n\n\u25b2 Hawks vs. Knicks \u2014 Polymarket: Hawks vs. Knicks \u2014 YES=89.5%, NO=10.5%, 24h vol=\n\u25bc Raptors vs. Cavaliers \u2014 Polymarket: Raptors vs. Cavaliers \u2014 YES=0.0%, NO=100.0%, 24h\n\u25b2 Dota 2: Aurora vs PARIVISION (BO3) - PGL Wallachia \u2014 Polymarket: Dota 2: Aurora vs PARIVISION (BO3) - PGL Wallach\n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11109731.546662968, 'direction':\n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-04-21T02:49:53.633849+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "6aaf0368-4e77-4e4e-a6ad-bf36cbafa45e",
+        "signal_ids": [
+          "4be51678-e2b9-4339-a153-04aa1a32660d",
+          "757521b6-5627-4083-bd79-9b59a54ccc54",
+          "d7a0e227-048e-4fab-b47e-c97d39faaf54",
+          "08c67408-391c-4167-b670-8c8d07f8a009",
+          "1d7f8203-014c-40cd-887a-9cc6c7a410d6"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/6aaf0368-4e77-4e4e-a6ad-bf36cbafa45e",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "**Executive Summary:**  \nThe most critical development is the **neutral but mixed crypto sector** (95% confidence), with 8 of 10 coins rising 1.1\u20131.9% (e.g., AVAX +1.9%, BTC +1.6%), driven by stable regulatory signals (neutral, 82% confidence) and emerging trends (60% confidence)",
+    "total_signals": 79,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 10,
+      "polymarket": 50,
+      "crypto": 19
+    }
+  }
+}

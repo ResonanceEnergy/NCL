@@ -1,0 +1,51 @@
+{
+  "id": "intel-20260423-201816",
+  "brief_id": "833667ca-e833-46cf-bafb-6f6a56800ae7",
+  "brief_type": "DAILY",
+  "message": "**Executive Summary:**  \nThe most critical development is the **politics sector's bearish shift (10 signals, 90% confidence)**, correlating with crypto's contraction (-1.1% BTC, -3.2% ETH), signaling \n\n\u25b2 Dota 2: Team Liquid vs Team Falcons - Game 1 Winne \u2014 Polymarket: Dota 2: Team Liquid vs Team Falcons - Game 1 Win\n\u25b2 LoL: Ninjas in Pyjamas vs Bilibili Gaming - Game 1 \u2014 Polymarket: LoL: Ninjas in Pyjamas vs Bilibili Gaming - Game\n\u25b2 Dota 2: BetBoom Team vs Team Spirit - Game 1 Winne \u2014 Polymarket: Dota 2: BetBoom Team vs Team Spirit - Game 1 Win\n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11123558.599345963, 'direction':\n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-04-23T20:18:16.567045+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "833667ca-e833-46cf-bafb-6f6a56800ae7",
+        "signal_ids": [
+          "4231d6f5-7268-4cba-933e-010ad6f37658",
+          "f9c70d4b-9e46-4314-b2fa-18feeeaa8200",
+          "d8c8a488-9ace-41a5-93e2-a592f1920f51",
+          "25379536-537e-4ae4-8318-f6c06d3dcdd1",
+          "13959538-1d77-4748-9d59-d80763b50895"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/833667ca-e833-46cf-bafb-6f6a56800ae7",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "**Executive Summary:**  \nThe most critical development is the **politics sector's bearish shift (10 signals, 90% confidence)**, correlating with crypto's contraction (-1.1% BTC, -3.2% ETH), signaling regulatory or geopolitical risks ahead. Key market movements to monitor include ",
+    "total_signals": 93,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 10,
+      "polymarket": 50,
+      "crypto": 19,
+      "reddit": 14
+    }
+  }
+}

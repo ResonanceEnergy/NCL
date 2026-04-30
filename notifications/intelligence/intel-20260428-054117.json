@@ -1,0 +1,51 @@
+{
+  "id": "intel-20260428-054117",
+  "brief_id": "f24b37df-f81c-4e05-a30b-db3c67ec3a9d",
+  "brief_type": "DAILY",
+  "message": "**Executive Summary:**  \nThe most critical development is the **bearish political sector signal (12 signals, 83% confidence)**, reflecting heightened geopolitical risk, underscored by Polymarket\u2019s 99.\n\n\u25b2 Israel x Hezbollah Ceasefire extended by April 26, \u2014 Polymarket: Israel x Hezbollah Ceasefire extended by April 2\n\u25bc Pistons vs. Magic \u2014 Polymarket: Pistons vs. Magic \u2014 YES=0.0%, NO=100.0%, 24h vol\n\u25bc Timberwolves vs. Nuggets \u2014 Polymarket: Timberwolves vs. Nuggets \u2014 YES=0.1%, NO=100.0%, \n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11142276.281997958, 'direction':\n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-04-28T05:41:17.250150+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "f24b37df-f81c-4e05-a30b-db3c67ec3a9d",
+        "signal_ids": [
+          "f809e225-d7f7-4a30-ae66-ef543f3a7991",
+          "782d41fd-33a7-48bb-833f-4b0c69389f94",
+          "858690a8-bb8c-40e0-bb75-57b6239887ae",
+          "8632b96f-9b80-40fb-9b65-994b99be0692",
+          "9c00ee67-ca9b-4618-b8e6-9b3391a73cc2"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/f24b37df-f81c-4e05-a30b-db3c67ec3a9d",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "**Executive Summary:**  \nThe most critical development is the **bearish political sector signal (12 signals, 83% confidence)**, reflecting heightened geopolitical risk, underscored by Polymarket\u2019s 99.9% probability of an Israel-Hezbollah ceasefire extension by April 2026\u2014a potent",
+    "total_signals": 524,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 10,
+      "polymarket": 50,
+      "crypto": 19,
+      "reddit": 445
+    }
+  }
+}

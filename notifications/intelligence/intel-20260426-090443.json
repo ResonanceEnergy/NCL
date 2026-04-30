@@ -1,0 +1,51 @@
+{
+  "id": "intel-20260426-090443",
+  "brief_id": "51f72148-6b68-4bec-b11b-df96db84ac7f",
+  "brief_type": "DAILY",
+  "message": "**Executive Summary:**  \nThe most critical development is the **bullish retail deep-dive (dd) sentiment** (45 signals, 58% confidence), driven by a highly upvoted r/wallstreetbets post ($350 \u2192 $52k \"G\n\n\u25bc US x Iran diplomatic meeting by April 30, 2026? \u2014 Polymarket: US x Iran diplomatic meeting by April 30, 2026? \n\u25b2 LoL: Dplus KIA vs DN SOOPers - Game 2 Winner \u2014 Polymarket: LoL: Dplus KIA vs DN SOOPers - Game 2 Winner \u2014 Y\n\u25bc LoL: Fnatic vs Natus Vincere (BO3) - LEC Regular S \u2014 Polymarket: LoL: Fnatic vs Natus Vincere (BO3) - LEC Regular\n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11133260.108038962, 'direction':\n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-04-26T09:04:43.278065+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "51f72148-6b68-4bec-b11b-df96db84ac7f",
+        "signal_ids": [
+          "dc896e2f-de78-4bd2-81d6-467d5ac8f5af",
+          "413021dc-2fb8-4d99-9020-d48700d4b9e9",
+          "1939fddd-b3f3-4543-aa58-6793ead35437",
+          "bbcdf7eb-4d8f-49cd-9ca5-212ef380c45c",
+          "7a717d10-2646-47c8-8e52-17022ac1c501"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/51f72148-6b68-4bec-b11b-df96db84ac7f",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "**Executive Summary:**  \nThe most critical development is the **bullish retail deep-dive (dd) sentiment** (45 signals, 58% confidence), driven by a highly upvoted r/wallstreetbets post ($350 \u2192 $52k \"God bless AMD\" signal, 97% upvote ratio, 599 comments), suggesting speculative re",
+    "total_signals": 604,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 10,
+      "polymarket": 50,
+      "crypto": 19,
+      "reddit": 525
+    }
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "id": "intel-20260429-140703",
+  "brief_id": "42d9e79d-1dd3-42ed-8c0f-d6f1651913f5",
+  "brief_type": "DAILY",
+  "message": "**Executive Summary:**  \nThe most critical development is the **contraction in crypto sentiment** (12 signals, 88% confidence), despite DOGE surging 7.9% ($0.11) and BTC/ETH gaining 0.7-1.0%, signalin\n\n\u25bc LoL: KT Rolster vs Hanwha Life Esports (BO3) - LCK \u2014 Polymarket: LoL: KT Rolster vs Hanwha Life Esports (BO3) - L\n\u25bc LoL: Nongshim Red Force vs T1 (BO3) - LCK Rounds 1 \u2014 Polymarket: LoL: Nongshim Red Force vs T1 (BO3) - LCK Rounds\n\u25bc LoL: Ninjas in Pyjamas vs JD Gaming - Game 1 Winne \u2014 Polymarket: LoL: Ninjas in Pyjamas vs JD Gaming - Game 1 Win\n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11151345.73090296, 'direction': \n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-04-29T14:07:03.271297+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "42d9e79d-1dd3-42ed-8c0f-d6f1651913f5",
+        "signal_ids": [
+          "bce389d6-3cf2-4ec9-8cb4-e8f45c033b6f",
+          "147a175c-dfa3-4aa6-a6ce-cedfef2bb693",
+          "abba4c8b-2013-4648-9d25-0ab98fcf281d",
+          "46a99bd2-c6f9-4bd4-ae1e-6618f83e53de",
+          "d598038c-e010-4c4a-83eb-679bd6e44b8a"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/42d9e79d-1dd3-42ed-8c0f-d6f1651913f5",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "**Executive Summary:**  \nThe most critical development is the **contraction in crypto sentiment** (12 signals, 88% confidence), despite DOGE surging 7.9% ($0.11) and BTC/ETH gaining 0.7-1.0%, signaling potential short-term volatility amid mixed fundamentals. Key market movements ",
+    "total_signals": 614,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 10,
+      "polymarket": 50,
+      "crypto": 19,
+      "reddit": 535
+    }
+  }
+}

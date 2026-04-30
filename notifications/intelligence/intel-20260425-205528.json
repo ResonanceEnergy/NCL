@@ -1,0 +1,51 @@
+{
+  "id": "intel-20260425-205528",
+  "brief_id": "171d82dd-a6a0-49cc-9b95-e0b01a32c6ea",
+  "brief_type": "DAILY",
+  "message": "**Executive Summary:**  \nThe most critical development is the divergence in retail sentiment, with **retail_dd** (bullish, 41 signals, 57% confidence) and **retail_gain** (bullish, 21 signals, 65% con\n\n\u25bc Pistons vs. Magic \u2014 Polymarket: Pistons vs. Magic \u2014 YES=0.1%, NO=100.0%, 24h vol\n\u25b2 LoL: Weibo Gaming vs Anyone's Legend - Game 2 Winn \u2014 Polymarket: LoL: Weibo Gaming vs Anyone's Legend - Game 2 Wi\n\u25bc Indian Premier League: Rajasthan Royals vs Sunrise \u2014 Polymarket: Indian Premier League: Rajasthan Royals vs Sunri\n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11132378.185699966, 'direction':\n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-04-25T20:55:28.905992+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "171d82dd-a6a0-49cc-9b95-e0b01a32c6ea",
+        "signal_ids": [
+          "044fc4c2-a4df-4e8b-aeeb-ced74fb3df43",
+          "63aa9fc4-1731-44e9-8a76-e3b60439c686",
+          "2446eea7-a17f-45d9-85d0-6037491d1437",
+          "1da64661-32b0-4d00-ab01-4c62181d2679",
+          "a06015ad-c7bc-4197-89dd-cce17e2086d9"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/171d82dd-a6a0-49cc-9b95-e0b01a32c6ea",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "**Executive Summary:**  \nThe most critical development is the divergence in retail sentiment, with **retail_dd** (bullish, 41 signals, 57% confidence) and **retail_gain** (bullish, 21 signals, 65% confidence) showing actionable optimism amid broader market declines, suggesting se",
+    "total_signals": 610,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 10,
+      "polymarket": 50,
+      "crypto": 19,
+      "reddit": 531
+    }
+  }
+}

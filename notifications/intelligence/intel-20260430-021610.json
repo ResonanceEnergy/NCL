@@ -1,0 +1,51 @@
+{
+  "id": "intel-20260430-021610",
+  "brief_id": "dbc9e5f6-b7ef-449e-be2b-c74b70ce7086",
+  "brief_type": "DAILY",
+  "message": "**Executive Summary:**  \nThe most critical development is the **bullish shift in retail deep-dive (dd) and ticker signals**, with 46 dd signals (58% confidence) and 33 ticker signals (46% confidence),\n\n\u25bc Counter-Strike: FURIA vs GamerLegion (BO3) - BLAST \u2014 Polymarket: Counter-Strike: FURIA vs GamerLegion (BO3) - BLA\n\u25bc Magic vs. Pistons \u2014 Polymarket: Magic vs. Pistons \u2014 YES=0.1%, NO=100.0%, 24h vol\n\u25bc Raptors vs. Cavaliers \u2014 Polymarket: Raptors vs. Cavaliers \u2014 YES=0.5%, NO=99.5%, 24h \n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11153560.21742196, 'direction': \n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-04-30T02:16:10.127913+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "dbc9e5f6-b7ef-449e-be2b-c74b70ce7086",
+        "signal_ids": [
+          "d8bc760b-d74e-4f81-8798-f6449463124b",
+          "5b0b2462-98f3-4a79-82a0-cfe5a0c14c9e",
+          "449c39e1-6c99-423a-826a-b068cf140494",
+          "875f7c5a-eea2-40cd-b0e1-5e57f48f0af3",
+          "5d020ca0-6d60-4bdb-9a4e-b4f68daf6c92"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/dbc9e5f6-b7ef-449e-be2b-c74b70ce7086",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "**Executive Summary:**  \nThe most critical development is the **bullish shift in retail deep-dive (dd) and ticker signals**, with 46 dd signals (58% confidence) and 33 ticker signals (46% confidence), suggesting retail investors are prioritizing fundamental analysis and targeted ",
+    "total_signals": 612,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 10,
+      "polymarket": 50,
+      "crypto": 19,
+      "reddit": 533
+    }
+  }
+}

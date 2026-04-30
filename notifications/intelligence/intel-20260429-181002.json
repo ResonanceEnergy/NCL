@@ -1,0 +1,51 @@
+{
+  "id": "intel-20260429-181002",
+  "brief_id": "e61f8220-2d48-4c3b-9f41-c5d54f7bb8ed",
+  "brief_type": "DAILY",
+  "message": "**Executive Summary:**  \nThe most critical development is the **crypto sector contraction** (12 signals, 90% confidence), with Bitcoin (BTC) trading below $76K (-0.4%) and all major altcoins declining\n\n\u25bc Indian Premier League: Mumbai Indians vs Sunrisers \u2014 Polymarket: Indian Premier League: Mumbai Indians vs Sunrise\n\u25bc LoL: Ninjas in Pyjamas vs JD Gaming - Game 1 Winne \u2014 Polymarket: LoL: Ninjas in Pyjamas vs JD Gaming - Game 1 Win\n\u25bc Over $40M committed to the Printr public sale? \u2014 Polymarket: Over $40M committed to the Printr public sale? \u2014\n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11152103.35764996, 'direction': \n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-04-29T18:10:02.777237+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "e61f8220-2d48-4c3b-9f41-c5d54f7bb8ed",
+        "signal_ids": [
+          "5d9dd1fa-c000-4763-9ec7-4fcff224e940",
+          "dcac87c2-92dc-4569-acac-a4c893b1f139",
+          "3a60e137-20f1-4866-ac92-95a3b8036b04",
+          "1aac94a0-9def-4f78-b3d2-56fc6e548df0",
+          "2fc294bf-9c1e-487a-aca5-5054a765665a"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/e61f8220-2d48-4c3b-9f41-c5d54f7bb8ed",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "**Executive Summary:**  \nThe most critical development is the **crypto sector contraction** (12 signals, 90% confidence), with Bitcoin (BTC) trading below $76K (-0.4%) and all major altcoins declining 0.8\u20131.3%, signaling near-term bearish momentum. Key market movements to monitor",
+    "total_signals": 615,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 10,
+      "polymarket": 50,
+      "crypto": 19,
+      "reddit": 536
+    }
+  }
+}

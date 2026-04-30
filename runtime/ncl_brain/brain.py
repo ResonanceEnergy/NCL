@@ -649,7 +649,7 @@ class NCLBrain:
         if not mandates:
             # Determine target pillar from intent keywords
             target = PillarType.NCC  # Default to NCC
-            if any(w in text_lower for w in ["revenue", "ship", "product", "earn", "digital-labour", "freelance"]):
+            if any(w in text_lower for w in ["revenue", "ship", "product", "earn", "freelance"]):
                 target = PillarType.BRS
             elif any(w in text_lower for w in ["invest", "capital", "trade", "war room", "portfolio"]):
                 target = PillarType.AAC

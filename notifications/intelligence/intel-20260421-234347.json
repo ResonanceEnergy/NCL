@@ -1,0 +1,51 @@
+{
+  "id": "intel-20260421-234347",
+  "brief_id": "6e4edd8e-005b-465b-a651-ee8d33eb652f",
+  "brief_type": "DAILY",
+  "message": "**Executive Summary:**  \nThe most critical development is the **bullish shift in retail-driven crypto sentiment (retail_dd: 41 signals, 57% confidence)**, contrasting with neutral broader retail secto\n\n\u25b2 Will Brighton & Hove Albion FC win on 2026-04-21? \u2014 Polymarket: Will Brighton & Hove Albion FC win on 2026-04-21\n\u25b2 Will FC Internazionale Milano win on 2026-04-21? \u2014 Polymarket: Will FC Internazionale Milano win on 2026-04-21?\n\u25bc US x Iran diplomatic meeting by April 22, 2026? \u2014 Polymarket: US x Iran diplomatic meeting by April 22, 2026? \n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11113755.058537962, 'direction':\n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-04-21T23:43:47.054583+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "6e4edd8e-005b-465b-a651-ee8d33eb652f",
+        "signal_ids": [
+          "d7886b0a-fbd0-490a-9912-cc06f735e1dd",
+          "ad2982ac-3c8f-49a5-ae58-28d5451f783c",
+          "77c28061-346f-47e3-9a6e-f3a5d7dc6c24",
+          "6852d555-1f99-4a24-8894-b3bf6d60229c",
+          "ef1d6049-18b9-4e16-80cf-729b795edc3c"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/6e4edd8e-005b-465b-a651-ee8d33eb652f",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "**Executive Summary:**  \nThe most critical development is the **bullish shift in retail-driven crypto sentiment (retail_dd: 41 signals, 57% confidence)**, contrasting with neutral broader retail sectors, signaling potential speculative inflows into digital assets. **Key market mo",
+    "total_signals": 611,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 10,
+      "polymarket": 50,
+      "crypto": 19,
+      "reddit": 532
+    }
+  }
+}

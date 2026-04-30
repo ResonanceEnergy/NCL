@@ -1,0 +1,51 @@
+{
+  "id": "intel-20260426-050139",
+  "brief_id": "55b35dea-66d9-472c-a203-bf3584ac40d6",
+  "brief_type": "DAILY",
+  "message": "**Executive Summary:**  \n1. **Key Development:** Retail-driven bullish momentum is concentrated in deep-value (retail_dd, +57% confidence) and ticker-specific trades (retail_ticker, +44% confidence), \n\n\u25bc Nuggets vs. Timberwolves \u2014 Polymarket: Nuggets vs. Timberwolves \u2014 YES=0.1%, NO=100.0%, \n\u25bc US x Iran diplomatic meeting by April 30, 2026? \u2014 Polymarket: US x Iran diplomatic meeting by April 30, 2026? \n\u25bc LoL: Fnatic vs Natus Vincere (BO3) - LEC Regular S \u2014 Polymarket: LoL: Fnatic vs Natus Vincere (BO3) - LEC Regular\n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11133050.824963963, 'direction':\n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-04-26T05:01:39.370253+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "55b35dea-66d9-472c-a203-bf3584ac40d6",
+        "signal_ids": [
+          "f581c5bf-1891-465d-8935-9d069bae3314",
+          "bd9b07b4-16f5-4d7a-888d-c061594a24ac",
+          "8a391dea-0cdc-4d55-b02c-ebe377206429",
+          "f9b58968-8a5c-4568-999e-9af6d002ba56",
+          "1cd76bc5-ca73-464b-b0e6-ca869ced07ad"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/55b35dea-66d9-472c-a203-bf3584ac40d6",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "**Executive Summary:**  \n1. **Key Development:** Retail-driven bullish momentum is concentrated in deep-value (retail_dd, +57% confidence) and ticker-specific trades (retail_ticker, +44% confidence), with retail_gain showing strong conviction (+64% confidence for 16 signals). Thi",
+    "total_signals": 607,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 10,
+      "polymarket": 50,
+      "crypto": 19,
+      "reddit": 528
+    }
+  }
+}

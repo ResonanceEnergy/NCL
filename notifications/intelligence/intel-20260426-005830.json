@@ -1,0 +1,50 @@
+{
+  "id": "intel-20260426-005830",
+  "brief_id": "d5c58a3c-ddd2-4b70-9569-45565466c6d8",
+  "brief_type": "DAILY",
+  "message": "The crypto sector shows neutral signals across 10 data points (confidence: 92%). Largest move: XRP at $1.42 (-0.8%). Top prediction market: \"Will Jesus Christ return before GTA VI?\" at 48% probability\n\n\u25b2 Thunder vs. Suns \u2014 Polymarket: Thunder vs. Suns \u2014 YES=100.0%, NO=0.0%, 24h vol=\n\u25b2 Knicks vs. Hawks \u2014 Polymarket: Knicks vs. Hawks \u2014 YES=100.0%, NO=0.0%, 24h vol=\n\u25bc US x Iran diplomatic meeting by April 30, 2026? \u2014 Polymarket: US x Iran diplomatic meeting by April 30, 2026? \n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11132746.525696967, 'direction':\n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-04-26T00:58:30.407138+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "d5c58a3c-ddd2-4b70-9569-45565466c6d8",
+        "signal_ids": [
+          "7f6d9744-864f-4cae-b049-c53cbcc05de2",
+          "d9fa6e35-f147-4e25-b05c-d3641c5d1a53",
+          "c8acb189-a87d-4c99-bf57-db7aeaf5ed6d",
+          "ce6c2bb2-cb0e-4866-9251-5b23d92b2089",
+          "bf0d3028-be48-488f-95d3-ab423f29c320"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/d5c58a3c-ddd2-4b70-9569-45565466c6d8",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "The crypto sector shows neutral signals across 10 data points (confidence: 92%). Largest move: XRP at $1.42 (-0.8%). Top prediction market: \"Will Jesus Christ return before GTA VI?\" at 48% probability.",
+    "total_signals": 79,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 10,
+      "polymarket": 50,
+      "crypto": 19
+    }
+  }
+}
