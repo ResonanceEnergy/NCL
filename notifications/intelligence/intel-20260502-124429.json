@@ -1,0 +1,52 @@
+{
+  "id": "intel-20260502-124429",
+  "brief_id": "1e92bb0e-9706-49cc-aaaf-7e857a2098a3",
+  "brief_type": "DAILY",
+  "message": "The retail_general sector shows neutral signals across 344 data points (confidence: 43%). Largest move: LINK at $9.08 (-1.4%). Top prediction market: \"Will Jesus Christ return before GTA VI?\" at 48% p\n\n\u2193 Google Trends: crypto regulation \u2014 crypto regulation interest down 100% over period. Current=0,\n\u2193 Google Trends: algorithmic trading \u2014 algorithmic trading interest down 100% over period. Current=\n\u2193 Google Trends: indie game development \u2014 indie game development interest down 100% over period. Curre\n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11192633.773038957, 'direction':\n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-05-02T12:44:29.921660+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "1e92bb0e-9706-49cc-aaaf-7e857a2098a3",
+        "signal_ids": [
+          "03f594bf-d28a-48b2-a56e-cf7c65035a54",
+          "699fc137-3eea-4bea-8761-19f9b2adfddd",
+          "59604d24-7eb3-403a-b994-a9d7605c42f3",
+          "2495cde9-ea5d-459d-aab9-5a5129cbbcec",
+          "509934a3-817f-4398-b1b9-6d2db659be72"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/1e92bb0e-9706-49cc-aaaf-7e857a2098a3",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "The retail_general sector shows neutral signals across 344 data points (confidence: 43%). Largest move: LINK at $9.08 (-1.4%). Top prediction market: \"Will Jesus Christ return before GTA VI?\" at 48% probability.",
+    "total_signals": 673,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 15,
+      "polymarket": 50,
+      "news": 60,
+      "crypto": 19,
+      "reddit": 529
+    }
+  }
+}

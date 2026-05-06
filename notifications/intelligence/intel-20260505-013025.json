@@ -1,0 +1,52 @@
+{
+  "id": "intel-20260505-013025",
+  "brief_id": "860a71f1-a4d4-4922-9196-9fa460a7adce",
+  "brief_type": "DAILY",
+  "message": "**Executive Summary:**  \nThe most critical development is **GameStop\u2019s $56B offer to acquire eBay**, highlighted by a high-impact Reddit post (score: 1,560, 95% upvote ratio), signaling potential reta\n\n\u25b2 Boston Red Sox vs. Detroit Tigers \u2014 Polymarket: Boston Red Sox vs. Detroit Tigers \u2014 YES=100.0%, \n\u25bc 76ers vs. Knicks \u2014 Polymarket: 76ers vs. Knicks \u2014 YES=3.5%, NO=96.5%, 24h vol=$\n\u25b2 Flyers vs. Hurricanes \u2014 Polymarket: Flyers vs. Hurricanes \u2014 YES=71.5%, NO=28.5%, 24h\n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11203943.056934943, 'direction':\n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-05-05T01:30:25.950916+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "860a71f1-a4d4-4922-9196-9fa460a7adce",
+        "signal_ids": [
+          "fb70f3be-62f5-46fc-ac84-71817673d593",
+          "d5365d83-b8ff-4b6a-9e35-2cb04d3e8926",
+          "f0510e0e-a48b-4a53-8065-356fe95912ac",
+          "e8b5cda6-2bfc-4a58-8c17-75b7942f2781",
+          "625c5405-2e20-4d65-a7d9-1fae6757d7aa"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/860a71f1-a4d4-4922-9196-9fa460a7adce",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "**Executive Summary:**  \nThe most critical development is **GameStop\u2019s $56B offer to acquire eBay**, highlighted by a high-impact Reddit post (score: 1,560, 95% upvote ratio), signaling potential retail sector disruption and speculative trader interest. Key market movements inclu",
+    "total_signals": 671,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 10,
+      "polymarket": 50,
+      "news": 60,
+      "crypto": 19,
+      "reddit": 532
+    }
+  }
+}

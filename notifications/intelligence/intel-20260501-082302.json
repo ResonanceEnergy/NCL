@@ -1,0 +1,52 @@
+{
+  "id": "intel-20260501-082302",
+  "brief_id": "b9c883ad-e5ad-4a65-bca7-89e34b36b04e",
+  "brief_type": "DAILY",
+  "message": "**Executive Summary:**  \nThe most critical development is the **bullish shift in retail dark pool data (retail_dd)**, with 43 signals and 58% confidence, suggesting institutional accumulation amid ret\n\n\u25bc Oilers vs. Ducks \u2014 Polymarket: Oilers vs. Ducks \u2014 YES=0.0%, NO=100.0%, 24h vol=\n\u25bc Nuggets vs. Timberwolves \u2014 Polymarket: Nuggets vs. Timberwolves \u2014 YES=0.0%, NO=100.0%, \n\u25bc Celtics vs. 76ers \u2014 Polymarket: Celtics vs. 76ers \u2014 YES=0.0%, NO=100.0%, 24h vol\n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11166288.152316956, 'direction':\n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-05-01T08:23:02.114869+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "b9c883ad-e5ad-4a65-bca7-89e34b36b04e",
+        "signal_ids": [
+          "34ca3f3d-affa-4a8f-867c-76db08d12f01",
+          "1359bd09-2e4d-41c4-b427-99ed47be6801",
+          "f9512496-050c-423a-aab6-529201e4a6f6",
+          "0c40e3be-d4eb-406e-9519-4426a5ec9129",
+          "4360c19d-e3a6-4a56-b7e5-d5f78ccf0256"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/b9c883ad-e5ad-4a65-bca7-89e34b36b04e",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "**Executive Summary:**  \nThe most critical development is the **bullish shift in retail dark pool data (retail_dd)**, with 43 signals and 58% confidence, suggesting institutional accumulation amid retail-neutral sentiment across broader markets. **Key crypto movements** include B",
+    "total_signals": 673,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 10,
+      "polymarket": 50,
+      "news": 60,
+      "crypto": 19,
+      "reddit": 534
+    }
+  }
+}

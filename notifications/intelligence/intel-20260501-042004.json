@@ -1,0 +1,52 @@
+{
+  "id": "intel-20260501-042004",
+  "brief_id": "b3ed87c2-0f50-4735-8a3e-c94bd16b21c6",
+  "brief_type": "DAILY",
+  "message": "**Executive Summary:**  \nThe most critical development is the **bullish shift in retail deep-dive (retail_dd) signals (42 signals, 57% confidence)**, suggesting growing retail investor focus on fundam\n\n\u2191 Google Trends: AI automation \u2014 AI automation interest up 86% over period. Current=26, avg=2\n\u2193 Google Trends: crypto regulation \u2014 crypto regulation interest down 100% over period. Current=0,\n\u2193 Google Trends: prediction markets \u2014 prediction markets interest down 100% over period. Current=0\n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11165971.303092955, 'direction':\n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-05-01T04:20:04.208163+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "b3ed87c2-0f50-4735-8a3e-c94bd16b21c6",
+        "signal_ids": [
+          "1f6c8ea1-daf8-4b8c-9e98-3b41c2df456f",
+          "e182421c-f451-449f-ad4c-a0355b55a166",
+          "e2a077c6-c43c-4703-899e-0476c7bf7432",
+          "23214d25-8e7a-4e5c-9493-4dde46e3d712",
+          "95886698-f1eb-431e-ab86-f6d4d26bb072"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/b3ed87c2-0f50-4735-8a3e-c94bd16b21c6",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "**Executive Summary:**  \nThe most critical development is the **bullish shift in retail deep-dive (retail_dd) signals (42 signals, 57% confidence)**, suggesting growing retail investor focus on fundamental analysis despite neutral broader retail sentiment. Key market movements in",
+    "total_signals": 676,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 15,
+      "polymarket": 50,
+      "news": 60,
+      "crypto": 19,
+      "reddit": 532
+    }
+  }
+}

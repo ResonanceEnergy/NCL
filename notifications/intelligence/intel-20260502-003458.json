@@ -1,0 +1,52 @@
+{
+  "id": "intel-20260502-003458",
+  "brief_id": "2118e66c-972a-4f94-9ce7-925abf42136a",
+  "brief_type": "DAILY",
+  "message": "**Executive Summary:**  \nThe most critical development is the **sharp 100% surge in AI automation interest on Google Trends**, signaling accelerating adoption despite neutral retail sentiment (confide\n\n\u2191 Google Trends: AI automation \u2014 AI automation interest up 100% over period. Current=20, avg=\n\u2193 Google Trends: crypto regulation \u2014 crypto regulation interest down 100% over period. Current=0,\n\u2191 Google Trends: prediction markets \u2014 prediction markets interest up 75% over period. Current=7, a\n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11188826.352245955, 'direction':\n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-05-02T00:34:58.659835+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "2118e66c-972a-4f94-9ce7-925abf42136a",
+        "signal_ids": [
+          "32008465-70ba-4154-a5c6-77455cb1c9bb",
+          "599efd01-2068-40e8-bb6a-8fae92b354dd",
+          "154a18b5-0ffc-46aa-9eb6-f053cced68fa",
+          "72ee3a98-436e-4520-92a4-943e57addc70",
+          "0eee9507-881c-4113-9eca-d42382f61f14"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/2118e66c-972a-4f94-9ce7-925abf42136a",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "**Executive Summary:**  \nThe most critical development is the **sharp 100% surge in AI automation interest on Google Trends**, signaling accelerating adoption despite neutral retail sentiment (confidence 43-59%), with **retail-driven bullishness in deep dives (retail_dd: 57% conf",
+    "total_signals": 672,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 15,
+      "polymarket": 50,
+      "news": 60,
+      "crypto": 19,
+      "reddit": 528
+    }
+  }
+}

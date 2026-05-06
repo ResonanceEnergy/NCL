@@ -1,13 +1,16 @@
 """Main NCL brain service."""
 
+import asyncio
 import json
 import logging
+import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
 import aiofiles
+import httpx
 
 log = logging.getLogger("ncl.brain")
 
@@ -16,13 +19,54 @@ from .models import (
     Mandate,
     MandateStatus,
     CouncilSession,
+    CouncilMember,
     FeedbackReport,
     PillarType,
+    InsightSignal,
 )
 from .council import CouncilEngine
 from ..memory import MemoryStore
 from ..awarebot import Scanner, FuturePredictor
 from ..paperclip_adapter import PaperclipClient
+
+
+# Keys/values redacted from log payloads and persisted events.
+_REDACT_KEYS = {
+    "api_key",
+    "apikey",
+    "bearer",
+    "token",
+    "access_token",
+    "secret",
+    "password",
+    "claude_api_key",
+    "anthropic_api_key",
+    "openai_api_key",
+    "xai_api_key",
+    "google_api_key",
+    "perplexity_api_key",
+    "copilot_api_key",
+    "x_bearer_token",
+    "youtube_api_key",
+    "reddit_client_secret",
+    "strike_auth_token",
+    "authorization",
+}
+
+
+def _redact(payload):
+    """Recursively redact sensitive keys from a dict/list payload."""
+    if isinstance(payload, dict):
+        out = {}
+        for k, v in payload.items():
+            if isinstance(k, str) and k.lower() in _REDACT_KEYS:
+                out[k] = "***REDACTED***"
+            else:
+                out[k] = _redact(v)
+        return out
+    if isinstance(payload, list):
+        return [_redact(item) for item in payload]
+    return payload
 
 
 class NCLBrain:
@@ -50,6 +94,8 @@ class NCLBrain:
         ollama_host: str = "localhost:11434",
         paperclip_host: str = "localhost",
         paperclip_port: int = 8765,
+        policy_kernel: Optional[object] = None,
+        emergency_stop: Optional[object] = None,
     ) -> None:
         """
         Initialize NCL brain.
@@ -117,11 +163,20 @@ class NCLBrain:
 
         # In-memory state
         self.mandates: dict[str, Mandate] = {}
+        self._mandates_lock = asyncio.Lock()
         self.council_sessions: dict[str, CouncilSession] = {}
         self._pending_dispatches: dict[str, dict] = {}  # pump_id → pending approval data
 
+        # Governance hooks (optional — graceful degradation when None)
+        self.policy_kernel = policy_kernel
+        self.emergency_stop = emergency_stop
+
+        # Process start time (for real uptime reporting in health_check)
+        self._started_at: Optional[datetime] = None
+
     async def init(self) -> None:
         """Initialize brain on startup."""
+        self._started_at = datetime.now(timezone.utc)
         # Load existing state
         await self._load_state()
 
@@ -364,50 +419,110 @@ class NCLBrain:
             return {"error": f"No pending dispatch found for pump {pump_id}"}
 
         mandates_to_dispatch = []
+        blocked_by_policy: list[str] = []
 
-        for m in pending["mandates"]:
-            if "error" in m:
-                continue
+        async with self._mandates_lock:
+            for m in pending["mandates"]:
+                if "error" in m:
+                    continue
 
-            mandate_id = m.get("mandate_id", "")
+                mandate_id = m.get("mandate_id", "")
 
-            # If specific IDs given, skip ones not approved
-            if approved_mandate_ids and mandate_id not in approved_mandate_ids:
-                log.info(f"[approve] Mandate {mandate_id} not in approved list, skipping")
-                continue
+                # If specific IDs given, skip ones not approved
+                if approved_mandate_ids and mandate_id not in approved_mandate_ids:
+                    log.info(f"[approve] Mandate {mandate_id} not in approved list, skipping")
+                    continue
 
-            # Apply modifications if any
-            mandate = self.mandates.get(mandate_id)
-            if mandate:
-                if modifications and mandate_id in modifications:
-                    mods = modifications[mandate_id]
-                    if "priority" in mods:
-                        mandate.priority = mods["priority"]
-                    if "objective" in mods:
-                        mandate.objective = mods["objective"]
-                    if "title" in mods:
-                        mandate.title = mods["title"]
-                    if "success_criteria" in mods:
-                        mandate.success_criteria = mods["success_criteria"]
-                    log.info(f"[approve] Applied modifications to mandate {mandate_id}")
+                # Apply modifications if any
+                mandate = self.mandates.get(mandate_id)
+                if mandate:
+                    if modifications and mandate_id in modifications:
+                        mods = modifications[mandate_id]
+                        if "priority" in mods:
+                            mandate.priority = mods["priority"]
+                        if "objective" in mods:
+                            mandate.objective = mods["objective"]
+                        if "title" in mods:
+                            mandate.title = mods["title"]
+                        if "success_criteria" in mods:
+                            mandate.success_criteria = mods["success_criteria"]
+                        log.info(f"[approve] Applied modifications to mandate {mandate_id}")
 
-                # Promote from PENDING_APPROVAL → ACTIVE
-                mandate.status = MandateStatus.ACTIVE
-                mandate.updated_at = datetime.now(timezone.utc)
+                    # Governance gate — ask the policy kernel before promoting to ACTIVE.
+                    if self.policy_kernel is not None:
+                        try:
+                            allowed = await self._policy_allows_dispatch(mandate)
+                        except Exception as exc:
+                            log.warning(
+                                f"[approve] Policy kernel check raised for {mandate_id}: {exc}"
+                            )
+                            allowed = True  # Fail-open on kernel errors
+                        if not allowed:
+                            log.warning(
+                                f"[approve] PolicyKernel BLOCKED dispatch for mandate {mandate_id}"
+                            )
+                            try:
+                                mandate.transition_to(
+                                    MandateStatus.CANCELLED,
+                                    reason="Blocked by policy kernel",
+                                )
+                            except ValueError:
+                                mandate.updated_at = datetime.now(timezone.utc)
+                            blocked_by_policy.append(mandate_id)
+                            continue
 
-                mandates_to_dispatch.append({
-                    "mandate_id": mandate.mandate_id,
-                    "pillar": mandate.pillar.value,
-                    "title": mandate.title,
-                    "priority": mandate.priority,
-                })
+                    # Promote from PENDING_APPROVAL → ACTIVE
+                    try:
+                        mandate.transition_to(
+                            MandateStatus.ACTIVE,
+                            reason=f"NATRIX approved pump {pump_id}",
+                        )
+                    except ValueError as e:
+                        log.warning(
+                            f"[approve] Invalid mandate transition for {mandate_id}: {e}"
+                        )
+                        mandate.updated_at = datetime.now(timezone.utc)
 
-        await self._persist_mandates()
+                    mandates_to_dispatch.append({
+                        "mandate_id": mandate.mandate_id,
+                        "pillar": mandate.pillar.value,
+                        "title": mandate.title,
+                        "priority": mandate.priority,
+                    })
+
+            await self._persist_mandates_unlocked()
 
         if not mandates_to_dispatch:
-            return {"status": "no_mandates", "pump_id": pump_id}
+            return {
+                "status": "no_mandates",
+                "pump_id": pump_id,
+                "blocked_by_policy": blocked_by_policy,
+            }
 
-        # NOW dispatch to NCC — only after NATRIX approval
+        # Emergency-stop gate — refuse dispatch if engaged
+        if await self._emergency_stop_engaged():
+            log.warning(
+                f"[approve] Emergency stop engaged — refusing dispatch for pump {pump_id}"
+            )
+            async with self._mandates_lock:
+                for entry in mandates_to_dispatch:
+                    blocked = self.mandates.get(entry["mandate_id"])
+                    if blocked:
+                        try:
+                            blocked.transition_to(
+                                MandateStatus.CANCELLED,
+                                reason="Emergency stop engaged",
+                            )
+                        except ValueError:
+                            blocked.updated_at = datetime.now(timezone.utc)
+                await self._persist_mandates_unlocked()
+            return {
+                "status": "emergency_stop_active",
+                "pump_id": pump_id,
+                "mandates_blocked": [m["mandate_id"] for m in mandates_to_dispatch],
+            }
+
+        # NOW dispatch to NCC — only after NATRIX approval and policy clearance
         dispatch_result = await self._dispatch_to_ncc(mandates_to_dispatch)
 
         # Clean up pending
@@ -442,14 +557,23 @@ class NCLBrain:
             return {"error": f"No pending dispatch found for pump {pump_id}"}
 
         # Mark all pending mandates as CANCELLED
-        for m in pending["mandates"]:
-            mandate_id = m.get("mandate_id", "")
-            mandate = self.mandates.get(mandate_id)
-            if mandate:
-                mandate.status = MandateStatus.CANCELLED
-                mandate.updated_at = datetime.now(timezone.utc)
+        async with self._mandates_lock:
+            for m in pending["mandates"]:
+                mandate_id = m.get("mandate_id", "")
+                mandate = self.mandates.get(mandate_id)
+                if mandate:
+                    try:
+                        mandate.transition_to(
+                            MandateStatus.CANCELLED,
+                            reason=f"NATRIX rejected pump {pump_id}: {reason}",
+                        )
+                    except ValueError as e:
+                        log.warning(
+                            f"[reject] Invalid mandate transition for {mandate_id}: {e}"
+                        )
+                        mandate.updated_at = datetime.now(timezone.utc)
 
-        await self._persist_mandates()
+            await self._persist_mandates_unlocked()
         del self._pending_dispatches[pump_id]
 
         await self._log_event(
@@ -828,8 +952,24 @@ class NCLBrain:
             source_pump_id=source_pump_id,
         )
 
-        self.mandates[mandate.mandate_id] = mandate
-        await self._persist_mandates()
+        # Governance gate — direct programmatic mandate creation also goes
+        # through the policy kernel (graceful degradation when unset).
+        if status == MandateStatus.ACTIVE and self.policy_kernel is not None:
+            try:
+                allowed = await self._policy_allows_dispatch(mandate)
+            except Exception as exc:
+                log.warning(f"[create_mandate] Policy kernel check raised: {exc}")
+                allowed = True
+            if not allowed:
+                log.warning(
+                    f"[create_mandate] PolicyKernel BLOCKED mandate {mandate.mandate_id}; "
+                    "marking CANCELLED instead of ACTIVE"
+                )
+                mandate.status = MandateStatus.CANCELLED
+
+        async with self._mandates_lock:
+            self.mandates[mandate.mandate_id] = mandate
+            await self._persist_mandates_unlocked()
 
         # Create issue in Paperclip
         try:
@@ -899,9 +1039,18 @@ class NCLBrain:
         if not mandate:
             return
 
-        mandate.status = MandateStatus.COMPLETED
-        mandate.updated_at = datetime.now(timezone.utc)
-        await self._persist_mandates()
+        async with self._mandates_lock:
+            try:
+                mandate.transition_to(
+                    MandateStatus.COMPLETED,
+                    reason=notes or "Mandate completed",
+                )
+            except ValueError as e:
+                log.warning(
+                    f"[complete] Invalid mandate transition for {mandate_id}: {e}"
+                )
+                mandate.updated_at = datetime.now(timezone.utc)
+            await self._persist_mandates_unlocked()
 
         await self._log_event(
             "mandate_completed",
@@ -1192,7 +1341,35 @@ class NCLBrain:
                         self.mandates[mandate.mandate_id] = mandate
 
     async def _persist_mandates(self) -> None:
-        """Persist mandates to disk."""
-        async with aiofiles.open(self.mandates_file, "w") as f:
-            mandates_data = [m.model_dump() for m in self.mandates.values()]
-            await f.write(json.dumps(mandates_data, default=str, indent=2))
+        """
+        Persist mandates to disk (atomic write).
+
+        Acquires _mandates_lock if not already held by the caller. Callers that
+        already hold the lock should call _persist_mandates_unlocked() directly.
+        """
+        if self._mandates_lock.locked():
+            # Caller already holds the lock — just write
+            await self._persist_mandates_unlocked()
+        else:
+            async with self._mandates_lock:
+                await self._persist_mandates_unlocked()
+
+    async def _persist_mandates_unlocked(self) -> None:
+        """Internal — assumes _mandates_lock is already held by caller."""
+        # Snapshot to avoid concurrent-mutation iteration errors
+        snapshot = [m.model_dump() for m in list(self.mandates.values())]
+        tmp_path = self.mandates_file.with_suffix(self.mandates_file.suffix + ".tmp")
+        payload = json.dumps(snapshot, default=str, indent=2)
+        await asyncio.to_thread(self._atomic_write_json, tmp_path, self.mandates_file, payload)
+
+    @staticmethod
+    def _atomic_write_json(tmp_path: Path, target: Path, payload: str) -> None:
+        with open(tmp_path, "w") as f:
+            f.write(payload)
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except OSError:
+                # fsync may fail on some filesystems; don't crash persistence
+                pass
+        os.replace(tmp_path, target)

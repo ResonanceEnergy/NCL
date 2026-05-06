@@ -371,7 +371,7 @@ class CouncilEngine:
             )
             session.consensus_score = ConsensusScore(
                 agreement_pct=0.0,
-                confidence=0.0,
+                confidence_weighted=0.0,
                 threshold_met=False,
                 reason="Quorum not met"
             )
@@ -436,7 +436,7 @@ class CouncilEngine:
             )
             session.consensus_score = ConsensusScore(
                 agreement_pct=0.0,
-                confidence=0.0,
+                confidence_weighted=0.0,
                 threshold_met=False,
                 reason="Quorum not met at Round 2"
             )

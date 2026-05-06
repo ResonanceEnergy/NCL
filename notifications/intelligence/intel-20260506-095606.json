@@ -1,0 +1,52 @@
+{
+  "id": "intel-20260506-095606",
+  "brief_id": "33a79e3a-8386-4a65-955c-bc0120ecb848",
+  "brief_type": "DAILY",
+  "message": "**EXECUTIVE SUMMARY:**  \nThe most critical development is the **coordinated bullish momentum in retail-driven crypto assets**, with SOL (+5.5%), ADA (+6.0%), and LINK (+5.5%) leading 24h gains, suppor\n\n\u2191 SOL $89.08 (+5.5%) \u2014 SOL: $89.08 | 24h: +5.5% | 7d: +5.2% | 30d: +8.9% | Vol: $4,\n\u2191 ADA $0.27 (+6.0%) \u2014 ADA: $0.27 | 24h: +6.0% | 7d: +9.2% | 30d: +6.6% | Vol: $576\n\u2191 LINK $10.12 (+5.5%) \u2014 LINK: $10.12 | 24h: +5.5% | 7d: +8.7% | 30d: +13.0% | Vol: $\n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11208735.718948936, 'direction':\n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-05-06T09:56:06.127908+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "33a79e3a-8386-4a65-955c-bc0120ecb848",
+        "signal_ids": [
+          "c374ddb9-8f35-4e57-adf9-256069add9f6",
+          "2d9a7c73-1be6-4ae2-9560-5d045d0c60cd",
+          "dc57cb56-3e4e-497d-8b6c-480d15b16902",
+          "f66f1055-89a9-4aba-ad46-556e5e2eff7a",
+          "6e6d8a87-19a1-4304-84ea-f6344f171bda"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/33a79e3a-8386-4a65-955c-bc0120ecb848",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "**EXECUTIVE SUMMARY:**  \nThe most critical development is the **coordinated bullish momentum in retail-driven crypto assets**, with SOL (+5.5%), ADA (+6.0%), and LINK (+5.5%) leading 24h gains, supported by retail_dd (bullish, 58% conf) and retail_ticker (bullish, 46% conf) signa",
+    "total_signals": 674,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 10,
+      "polymarket": 50,
+      "news": 60,
+      "crypto": 19,
+      "reddit": 535
+    }
+  }
+}

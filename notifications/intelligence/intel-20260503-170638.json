@@ -1,0 +1,51 @@
+{
+  "id": "intel-20260503-170638",
+  "brief_id": "c2991fc3-2bff-4b45-97d4-3830c1abd17f",
+  "brief_type": "DAILY",
+  "message": "**EXECUTIVE SUMMARY**  \nThe most critical development is **bearish political sentiment** (14 signals, 82% confidence), likely amplifying risk-off behavior across markets. **Key market movements** incl\n\n\u25b2 Will Manchester United FC win on 2026-05-03? \u2014 Polymarket: Will Manchester United FC win on 2026-05-03? \u2014 Y\n\u25bc Will AC Milan win on 2026-05-03? \u2014 Polymarket: Will AC Milan win on 2026-05-03? \u2014 YES=0.1%, NO=\n\u25bc Will Lille OSC win on 2026-05-03? \u2014 Polymarket: Will Lille OSC win on 2026-05-03? \u2014 YES=0.1%, NO\n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11199015.404461956, 'direction':\n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-05-03T17:06:38.116029+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "c2991fc3-2bff-4b45-97d4-3830c1abd17f",
+        "signal_ids": [
+          "f6139f82-16d0-49e3-8b88-aae9ad954b12",
+          "5a30e297-c7c0-48f1-8310-4614389ff516",
+          "4f0a049c-79e4-48c2-b480-5636984f172f",
+          "dd531003-3bd4-4c5b-b97a-084de8773be4",
+          "ab33c865-27ed-4c62-bfa4-8f76db1f5f8d"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/c2991fc3-2bff-4b45-97d4-3830c1abd17f",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "**EXECUTIVE SUMMARY**  \nThe most critical development is **bearish political sentiment** (14 signals, 82% confidence), likely amplifying risk-off behavior across markets. **Key market movements** include ETH (+0.7% to $2,324.41) and BTC (+0.2% to $78,579.00) outperforming altcoin",
+    "total_signals": 139,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 10,
+      "polymarket": 50,
+      "news": 60,
+      "crypto": 19
+    }
+  }
+}

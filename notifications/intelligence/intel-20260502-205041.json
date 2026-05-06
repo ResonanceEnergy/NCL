@@ -1,0 +1,52 @@
+{
+  "id": "intel-20260502-205041",
+  "brief_id": "267a6d18-41c3-4b73-b5b8-14cf2352b203",
+  "brief_type": "DAILY",
+  "message": "The retail_general sector shows neutral signals across 345 data points (confidence: 43%). Largest move: AVAX at $9.18 (+0.9%). Top prediction market: \"Will Jesus Christ return before GTA VI?\" at 48% p\n\n\u2193 Google Trends: crypto regulation \u2014 crypto regulation interest down 100% over period. Current=0,\n\u2193 Google Trends: algorithmic trading \u2014 algorithmic trading interest down 100% over period. Current=\n\u2193 Google Trends: indie game development \u2014 indie game development interest down 100% over period. Curre\n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11193959.494558956, 'direction':\n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-05-02T20:50:41.829528+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "267a6d18-41c3-4b73-b5b8-14cf2352b203",
+        "signal_ids": [
+          "230fcd1d-1991-4ec2-b52e-1a2b3399321d",
+          "304d6134-403e-4d66-9f9a-4142a63eac39",
+          "fb643c23-3477-46a7-a060-410438a96a0d",
+          "18dd7064-f500-4e30-9be0-a83d493b86da",
+          "c145b784-c789-46bb-9d48-bb53e0ce610d"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/267a6d18-41c3-4b73-b5b8-14cf2352b203",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "The retail_general sector shows neutral signals across 345 data points (confidence: 43%). Largest move: AVAX at $9.18 (+0.9%). Top prediction market: \"Will Jesus Christ return before GTA VI?\" at 48% probability.",
+    "total_signals": 676,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 15,
+      "polymarket": 50,
+      "news": 60,
+      "crypto": 19,
+      "reddit": 532
+    }
+  }
+}

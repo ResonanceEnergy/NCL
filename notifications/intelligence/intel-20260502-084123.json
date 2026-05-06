@@ -1,0 +1,52 @@
+{
+  "id": "intel-20260502-084123",
+  "brief_id": "a488a6ff-ed7f-4c91-b8f7-15c780a6cd28",
+  "brief_type": "DAILY",
+  "message": "**Executive Summary:**  \nThe most critical development is the **bearish political sector (-19 signals, 77% confidence)**, reflecting heightened geopolitical risk, with prediction markets pricing a 56%\n\n\u2193 Google Trends: crypto regulation \u2014 crypto regulation interest down 100% over period. Current=0,\n\u2191 Google Trends: prediction markets \u2014 prediction markets interest up 83% over period. Current=11, \n\u2193 Google Trends: algorithmic trading \u2014 algorithmic trading interest down 100% over period. Current=\n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11189267.042279959, 'direction':\n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-05-02T08:41:23.293561+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "a488a6ff-ed7f-4c91-b8f7-15c780a6cd28",
+        "signal_ids": [
+          "0c88a02a-d69c-489d-9316-e5258160d340",
+          "2848c5af-db3a-41f2-81ae-5cc54d706aa0",
+          "819d9867-723f-495a-b5d8-ab007f1053e6",
+          "69f81cec-d5de-480c-a0ff-ecfa1fb84814",
+          "bf9f69ed-ff5f-40c2-acf1-f231f459c482"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/a488a6ff-ed7f-4c91-b8f7-15c780a6cd28",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "**Executive Summary:**  \nThe most critical development is the **bearish political sector (-19 signals, 77% confidence)**, reflecting heightened geopolitical risk, with prediction markets pricing a 56% chance of a Russia-Ukraine ceasefire and 52% odds of Trump\u2019s presidential exit ",
+    "total_signals": 671,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 15,
+      "polymarket": 50,
+      "news": 60,
+      "crypto": 19,
+      "reddit": 527
+    }
+  }
+}

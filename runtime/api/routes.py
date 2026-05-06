@@ -1000,18 +1000,20 @@ async def get_dashboard_data() -> dict:
 
     # Try to get recent memory units
     try:
-        recent_memory = await brain.memory_store.query(days_back=1, limit=5)
-        if isinstance(recent_memory, dict) and "results" in recent_memory:
-            memory_stats["recent_units"] = [
-                {
-                    "content": unit.get("content", "")[:200],
-                    "importance": unit.get("importance", 0),
-                    "created_at": unit.get("created_at", ""),
-                }
-                for unit in recent_memory["results"][:5]
-            ]
-    except Exception:
-        pass
+        recent_units = await brain.memory_store.search_units(days_back=1)
+        memory_stats["recent_units"] = [
+            {
+                "content": (u.content if hasattr(u, "content") else u.get("content", ""))[:200],
+                "importance": u.importance if hasattr(u, "importance") else u.get("importance", 0),
+                "created_at": (
+                    u.created_at.isoformat() if hasattr(u, "created_at") and u.created_at
+                    else u.get("created_at", "") if isinstance(u, dict) else ""
+                ),
+            }
+            for u in (recent_units or [])[:5]
+        ]
+    except Exception as e:
+        logging.getLogger("ncl.api").warning("memory recent-units fetch failed: %s", e)
 
     # ── Mandates ───────────────────────────────────────────────────────────
     mandates_data = [
@@ -3177,12 +3179,12 @@ async def escalate_intelligence_to_strike_point(
     if brain:
         try:
             pump = PumpPrompt(
-                pump_id=pump_id,
+                prompt_id=pump_id,
                 source="intelligence-engine",
                 intent=pump_intent,
                 urgency="high",
             )
-            result = await brain.process_pump(pump)
+            result = await brain.receive_pump_prompt(pump)
             mandates_generated = len(result.get("mandates", [])) if isinstance(result, dict) else 0
         except Exception as e:
             logging.getLogger("ncl.api").warning(f"Pump submission failed: {e}")
@@ -3287,14 +3289,14 @@ async def escalate_single_signal(
     if brain:
         try:
             pump = PumpPrompt(
-                pump_id=pump_id,
+                prompt_id=pump_id,
                 source="intelligence-engine",
                 intent=pump_intent,
                 urgency="high",
             )
-            await brain.process_pump(pump)
-        except Exception:
-            pass
+            await brain.receive_pump_prompt(pump)
+        except Exception as e:
+            logging.getLogger("ncl.api").warning("intelligence escalation failed: %s", e)
 
     from ..strike_point_orchestrator import notify_natrix
     background_tasks.add_task(

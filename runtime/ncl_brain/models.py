@@ -361,6 +361,7 @@ class ConsensusScore(BaseModel):
     unanimous: bool = False
     threshold_met: bool = False  # ≥70% agreement = consensus
     dissent_strength: float = 0.0  # 0-100, how strong minority view is
+    reason: Optional[str] = None  # Explanation for quorum/consensus state
 
 
 class CouncilSession(BaseModel):

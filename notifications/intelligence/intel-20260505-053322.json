@@ -1,0 +1,52 @@
+{
+  "id": "intel-20260505-053322",
+  "brief_id": "9f3df4e9-696e-45db-afc4-4287fb8a9799",
+  "brief_type": "DAILY",
+  "message": "**Executive Summary:**  \nThe most critical development is the **29% surge in global interest in prediction markets** (Google Trends), despite crypto regulation and algorithmic trading seeing **100% de\n\n\u2193 Google Trends: crypto regulation \u2014 crypto regulation interest down 100% over period. Current=0,\n\u2193 Google Trends: algorithmic trading \u2014 algorithmic trading interest down 100% over period. Current=\n\u2193 Google Trends: indie game development \u2014 indie game development interest down 100% over period. Curre\n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11204213.056930944, 'direction':\n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-05-05T05:33:22.884540+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "9f3df4e9-696e-45db-afc4-4287fb8a9799",
+        "signal_ids": [
+          "b2edb691-f6bc-4fb2-8eff-d985066f37d4",
+          "c27d8a7f-ea30-4869-867f-9390699da88c",
+          "7c4a5f5b-f81a-4d38-9f36-16a40ae38291",
+          "5669b211-db59-485c-8283-0d707466c49e",
+          "a8e2ddb8-d1ab-4d6b-8bc0-6535dce4a4e6"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/9f3df4e9-696e-45db-afc4-4287fb8a9799",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "**Executive Summary:**  \nThe most critical development is the **29% surge in global interest in prediction markets** (Google Trends), despite crypto regulation and algorithmic trading seeing **100% declines** in search interest, signaling a potential shift in retail investor focu",
+    "total_signals": 685,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 15,
+      "polymarket": 50,
+      "news": 60,
+      "crypto": 19,
+      "reddit": 541
+    }
+  }
+}

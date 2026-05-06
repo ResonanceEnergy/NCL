@@ -1,0 +1,52 @@
+{
+  "id": "intel-20260503-210944",
+  "brief_id": "2c4f659f-f049-4615-ab2f-321b3feae9c8",
+  "brief_type": "DAILY",
+  "message": "The retail_general sector shows neutral signals across 354 data points (confidence: 44%). Largest move: ETH at $2,327.44 (+0.7%). Top prediction market: \"Will Jesus Christ return before GTA VI?\" at 48\n\n\u2193 Google Trends: AI automation \u2014 AI automation interest down 100% over period. Current=0, avg\n\u2193 Google Trends: crypto regulation \u2014 crypto regulation interest down 100% over period. Current=0,\n\u2193 Google Trends: prediction markets \u2014 prediction markets interest down 100% over period. Current=0\n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11200187.848536955, 'direction':\n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-05-03T21:09:44.392731+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "2c4f659f-f049-4615-ab2f-321b3feae9c8",
+        "signal_ids": [
+          "6e4948dc-03fe-4c4d-bc05-ce21a6aecd70",
+          "a3f2dbe6-9dfe-4ade-a767-cedcc77d31b4",
+          "4c671158-930c-4e9a-a961-bb4d5dfcdcd7",
+          "1a2be77c-7f0a-4e77-8e41-5616fbf17b58",
+          "4d0a4e6c-3674-4f88-b65d-af55f0df352b"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/2c4f659f-f049-4615-ab2f-321b3feae9c8",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "The retail_general sector shows neutral signals across 354 data points (confidence: 44%). Largest move: ETH at $2,327.44 (+0.7%). Top prediction market: \"Will Jesus Christ return before GTA VI?\" at 48% probability.",
+    "total_signals": 684,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 15,
+      "polymarket": 50,
+      "news": 60,
+      "crypto": 19,
+      "reddit": 540
+    }
+  }
+}

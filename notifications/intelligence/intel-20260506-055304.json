@@ -1,0 +1,52 @@
+{
+  "id": "intel-20260506-055304",
+  "brief_id": "7372b6f1-d6f3-4acf-83f1-d12dc5a40067",
+  "brief_type": "DAILY",
+  "message": "**EXECUTIVE SUMMARY**  \nThe most critical development is the **bearish political sector (-16 signals, 85% confidence)**, signaling heightened geopolitical risk, likely tied to Iran airspace speculatio\n\n\u25bc Iran closes its airspace by May 8? \u2014 Polymarket: Iran closes its airspace by May 8? \u2014 YES=6.5%, N\n\u2605 Looking more and more possible by the day \u2014 r/Superstonk [\ud83e\udd14 Speculation / Opinion] | Score: 241 | Commen\n\u25bc SIT DOWN AND WATCH THE PAYNE INTERVIEW ASAP! He sh \u2014 r/Superstonk [\ud83e\udd14 Speculation / Opinion] | Score: 1,889 | Comm\n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11208267.928182937, 'direction':\n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-05-06T05:53:04.515944+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "7372b6f1-d6f3-4acf-83f1-d12dc5a40067",
+        "signal_ids": [
+          "eec8f3f3-e3a5-4317-ba4d-bd8fd0c5562b",
+          "b68b8490-0e0b-4c9b-832c-9eb158520a4b",
+          "bc4e6c51-6864-4c06-99d5-7ab268460b4e",
+          "1ffa7d31-66ff-4750-9361-38917cf74357",
+          "8aaa9f11-cae8-4b28-8eac-2a4f5349fecd"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/7372b6f1-d6f3-4acf-83f1-d12dc5a40067",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "**EXECUTIVE SUMMARY**  \nThe most critical development is the **bearish political sector (-16 signals, 85% confidence)**, signaling heightened geopolitical risk, likely tied to Iran airspace speculation (Polymarket: 93.5% NO) and Russia-Ukraine ceasefire doubts (56% prediction). *",
+    "total_signals": 669,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 10,
+      "polymarket": 50,
+      "news": 60,
+      "crypto": 19,
+      "reddit": 530
+    }
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "id": "intel-20260504-011250",
+  "brief_id": "4d40ebb0-a2f7-44a6-b1eb-cb2300e66615",
+  "brief_type": "DAILY",
+  "message": "The retail_general sector shows neutral signals across 335 data points (confidence: 43%). Largest move: DOGE at $0.11 (+1.2%). Top prediction market: \"Will Jesus Christ return before GTA VI?\" at 48% p\n\n\u2191 Google Trends: AI automation \u2014 AI automation interest up 54% over period. Current=20, avg=3\n\u2193 Google Trends: crypto regulation \u2014 crypto regulation interest down 100% over period. Current=0,\n\u2193 Google Trends: prediction markets \u2014 prediction markets interest down 100% over period. Current=0\n\n\ud83d\udd2e {'question': 'Will Jesus Christ return before GTA VI?', 'probability': 0.485, 'volume': 11200309.221607955, 'direction':\n\n\ud83d\udcca http://localhost:8800/app",
+  "created_at": "2026-05-04T01:12:50.002415+00:00",
+  "acknowledged": false,
+  "actions": [
+    {
+      "id": "view_report",
+      "label": "View Full Report",
+      "type": "url",
+      "url": "http://localhost:8800/app"
+    },
+    {
+      "id": "escalate_to_strike_point",
+      "label": "Send to STRIKE-POINT",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/escalate",
+      "method": "POST",
+      "body": {
+        "brief_id": "4d40ebb0-a2f7-44a6-b1eb-cb2300e66615",
+        "signal_ids": [
+          "14ed0499-90ef-4b1a-921d-c0773bd7866e",
+          "a79c0fc7-fcef-4624-9f5d-6d5669d98c1c",
+          "001bb052-5a63-4c4a-b433-f6fc0ae7f80b",
+          "59690a32-fd84-4516-9cc5-81e54df01836",
+          "6d550d01-7cc7-4b2c-a0c5-58942876f369"
+        ]
+      }
+    },
+    {
+      "id": "acknowledge",
+      "label": "Acknowledge",
+      "type": "api_call",
+      "endpoint": "http://localhost:8800/intelligence/ack/4d40ebb0-a2f7-44a6-b1eb-cb2300e66615",
+      "method": "POST"
+    }
+  ],
+  "brief_summary": {
+    "executive_summary": "The retail_general sector shows neutral signals across 335 data points (confidence: 43%). Largest move: DOGE at $0.11 (+1.2%). Top prediction market: \"Will Jesus Christ return before GTA VI?\" at 48% probability.",
+    "total_signals": 674,
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 15,
+      "polymarket": 50,
+      "news": 60,
+      "crypto": 19,
+      "reddit": 530
+    }
+  }
+}
