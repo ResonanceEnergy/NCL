@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from runtime.telemetry.schema import (
+from .schema import (
     TelemetryRecord,
     RedactionRule,
 )

@@ -28,6 +28,9 @@ from .council import CouncilEngine
 from ..memory import MemoryStore
 from ..awarebot import Scanner, FuturePredictor
 from ..paperclip_adapter import PaperclipClient
+from ..swarm.orchestrator import SwarmOrchestrator
+from ..swarm.llm_router import LLMRouter
+from ..swarm.blackboard import Blackboard
 
 
 # Keys/values redacted from log payloads and persisted events.
@@ -170,6 +173,25 @@ class NCLBrain:
         # Governance hooks (optional — graceful degradation when None)
         self.policy_kernel = policy_kernel
         self.emergency_stop = emergency_stop
+
+        # Agent Swarm — multi-LLM task execution engine
+        _swarm_config = {
+            "anthropic_api_key": claude_api_key,
+            "xai_api_key": xai_api_key or "",
+            "google_api_key": google_api_key or "",
+            "openai_api_key": openai_api_key or "",
+            "perplexity_api_key": perplexity_api_key or "",
+            "ollama_host": ollama_host,
+        }
+        self._swarm_llm_router = LLMRouter(config=_swarm_config)
+        self._swarm_blackboard = Blackboard(persist_path=self.data_dir / "swarm" / "blackboard.json")
+        self.swarm = SwarmOrchestrator(
+            config=_swarm_config,
+            llm_router=self._swarm_llm_router,
+            blackboard=self._swarm_blackboard,
+            policy_kernel=policy_kernel,
+            emergency_stop=emergency_stop,
+        )
 
         # Process start time (for real uptime reporting in health_check)
         self._started_at: Optional[datetime] = None
@@ -965,7 +987,14 @@ class NCLBrain:
                     f"[create_mandate] PolicyKernel BLOCKED mandate {mandate.mandate_id}; "
                     "marking CANCELLED instead of ACTIVE"
                 )
-                mandate.status = MandateStatus.CANCELLED
+                try:
+                    mandate.transition_to(
+                        MandateStatus.CANCELLED,
+                        reason="PolicyKernel blocked dispatch at creation",
+                    )
+                except ValueError:
+                    # Direct fallback if transition not permitted from current state
+                    mandate.status = MandateStatus.CANCELLED
 
         async with self._mandates_lock:
             self.mandates[mandate.mandate_id] = mandate
@@ -1026,6 +1055,61 @@ class NCLBrain:
             result = [m for m in result if m.status == status]
 
         return result
+
+    # -------------------------------------------------------------------
+    # Governance Integration — Policy Kernel + Emergency Stop
+    # -------------------------------------------------------------------
+
+    async def _policy_allows_dispatch(self, mandate: Mandate) -> bool:
+        """
+        Check if the PolicyKernel allows dispatching this mandate.
+
+        Uses the governance Action model to evaluate Execute-tier dispatch.
+        Returns True if allowed, False if blocked.
+        Gracefully returns True if policy_kernel is None (fail-open).
+        """
+        if self.policy_kernel is None:
+            return True
+
+        try:
+            from ..governance.models import Action, ActionTier
+            action = Action(
+                name=f"dispatch_mandate:{mandate.mandate_id}",
+                tier=ActionTier.EXECUTE,
+                source_agent="NCL:brain",
+                target=mandate.pillar.value if hasattr(mandate.pillar, "value") else str(mandate.pillar),
+                description=f"Dispatch mandate: {mandate.title}",
+                payload={
+                    "mandate_id": mandate.mandate_id,
+                    "pump_id": mandate.source_pump_id or "",
+                    "title": mandate.title,
+                    "priority": mandate.priority,
+                    "objective": mandate.objective[:200],
+                },
+            )
+            allowed, reason = self.policy_kernel.execute_if_allowed(action)
+            if not allowed:
+                log.warning(f"[governance] PolicyKernel blocked mandate {mandate.mandate_id}: {reason}")
+            return allowed
+        except Exception as e:
+            log.warning(f"[governance] Policy check error: {e}")
+            return True  # Fail-open on errors
+
+    async def _emergency_stop_engaged(self) -> bool:
+        """
+        Check if the emergency stop kill switch is active.
+
+        Returns True if emergency stop is active (all dispatches should halt).
+        Returns False if emergency stop is not initialized or not active.
+        """
+        if self.emergency_stop is None:
+            return False
+
+        try:
+            return self.emergency_stop.is_active
+        except Exception as e:
+            log.warning(f"[governance] Emergency stop check error: {e}")
+            return False  # Fail-open on errors
 
     async def complete_mandate(self, mandate_id: str, notes: Optional[str] = None) -> None:
         """
@@ -1229,6 +1313,93 @@ class NCLBrain:
             "warnings": prediction_output.warnings,
         }
 
+    async def dispatch_research(self, query: str, depth: str = "standard", priority: int = 5) -> dict:
+        """
+        Dispatch a research task to UNI Research Cortex.
+
+        Bridges brain → cortex so pump prompts and councils can trigger
+        deep research without going through routes.py.
+
+        Args:
+            query: Research question
+            depth: Research depth (quick, standard, deep, exhaustive)
+            priority: Priority 1-10
+
+        Returns:
+            Research task status dict
+        """
+        if not hasattr(self, "research_cortex") or self.research_cortex is None:
+            return {"error": "Research Cortex not initialized"}
+
+        try:
+            result = await self.research_cortex.research(
+                query=query, depth=depth, priority=priority
+            )
+            # Store research completion in memory
+            await self.memory_store.create_unit(
+                content=f"Research completed: {query}",
+                source="uni:cortex",
+                importance=60.0,
+                tags=["research", "uni", depth],
+            )
+            await self._log_event(
+                "research_dispatched",
+                f"UNI research: {query[:80]}",
+                {"depth": depth, "priority": priority},
+            )
+            return {"status": "completed", "query": query, "result": result}
+        except Exception as e:
+            log.error(f"Research dispatch failed: {e}")
+            return {"error": str(e), "query": query}
+
+    async def submit_swarm_task(
+        self,
+        title: str,
+        objective: str,
+        priority: int = 5,
+        budget_cents: int = 5000,
+        tags: Optional[list[str]] = None,
+    ) -> dict:
+        """
+        Submit a task to the agent swarm for autonomous multi-LLM execution.
+
+        Args:
+            title: Short human-readable task title.
+            objective: Full description of what to accomplish.
+            priority: 1 (lowest) to 10 (highest).
+            budget_cents: Maximum spend allowed for this task.
+            tags: Optional classification tags.
+
+        Returns:
+            Dict with task_id, title, status, and priority.
+        """
+        task = await self.swarm.submit_task(
+            title=title,
+            objective=objective,
+            priority=priority,
+            budget_cents=budget_cents,
+            tags=tags or [],
+        )
+
+        await self._log_event(
+            "swarm_task_submitted",
+            f"Swarm task submitted: {title}",
+            {
+                "task_id": task.task_id,
+                "priority": priority,
+                "budget_cents": budget_cents,
+                "tags": tags or [],
+            },
+        )
+
+        return {
+            "task_id": task.task_id,
+            "title": task.title,
+            "status": task.status.value if hasattr(task.status, "value") else str(task.status),
+            "priority": task.priority,
+            "budget_cents": task.budget_cents,
+        }
+
     async def health_check(self) -> dict:
         """
         Health check endpoint — enriched for MATRIX MONITOR.
@@ -1256,6 +1427,7 @@ class NCLBrain:
 
     async def shutdown(self) -> None:
         """Shutdown brain on exit."""
+        await self.swarm.shutdown()
         await self.council_engine.close()
         await self.scanner.close()
         await self.predictor.close()
@@ -1316,7 +1488,7 @@ class NCLBrain:
         async with aiofiles.open(self.events_file, "a") as f:
             await f.write(ncl_event.to_ndjson() + "\n")
 
-        # Log to Paperclip
+        # Log to Paperclip (best-effort; do not raise into caller)
         try:
             await self.paperclip.log_activity(
                 activity_type=event_type,
@@ -1324,8 +1496,11 @@ class NCLBrain:
                 agent_name="NCL",
                 metadata=metadata,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            # Avoid log spam when Paperclip is offline; rate-limited via _paperclip_connected
+            if getattr(self, "_paperclip_connected", False):
+                log.warning(f"[paperclip] log_activity failed: {exc}")
+                self._paperclip_connected = False
 
         return ncl_event.event_id
 

@@ -3,7 +3,7 @@
 Simple exports for schema, collector, and lint utilities.
 """
 
-from runtime.telemetry.schema import (
+from .schema import (
     TelemetryLevel,
     TelemetryCategory,
     TelemetryRecord,
@@ -11,7 +11,7 @@ from runtime.telemetry.schema import (
     WorkflowTelemetry,
     RedactionRule,
 )
-from runtime.telemetry.collector import TelemetryCollector
+from .collector import TelemetryCollector
 
 __all__ = [
     "TelemetryLevel",

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Optional
 from statistics import mean, quantiles
 
-from runtime.telemetry.schema import (
+from .schema import (
     TelemetryLevel,
     TelemetryRecord,
     TelemetryConfig,

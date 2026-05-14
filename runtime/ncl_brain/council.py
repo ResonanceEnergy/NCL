@@ -352,7 +352,7 @@ class CouncilEngine:
         # ===================================================================
         unavailable_count = sum(
             1 for resp in r1.responses.values()
-            if "unavailable" in resp.lower() or "[" in resp and "]" in resp and "unavailable" in resp.lower()
+            if resp.startswith("[") and "unavailable" in resp.lower().split("]", 1)[0]
         )
         functioning_count = len(session.members) - unavailable_count
 
@@ -417,7 +417,7 @@ class CouncilEngine:
         # ===================================================================
         unavailable_count = sum(
             1 for resp in r2.responses.values()
-            if "unavailable" in resp.lower() or "[" in resp and "]" in resp and "unavailable" in resp.lower()
+            if resp.startswith("[") and "unavailable" in resp.lower().split("]", 1)[0]
         )
         functioning_count = len(debaters) - unavailable_count
 

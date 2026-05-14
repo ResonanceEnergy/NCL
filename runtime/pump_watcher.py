@@ -40,11 +40,6 @@ FAILED_DIR = NCL_BASE / "mandate-generation" / "failed"
 NCL_BRAIN_URL = os.getenv("NCL_BRAIN_URL", "http://localhost:8800")
 RELAY_URL = os.getenv("RELAY_URL", "https://localhost:8787")
 STRIKE_AUTH_TOKEN = os.getenv("STRIKE_AUTH_TOKEN", "")
-if not STRIKE_AUTH_TOKEN:
-    log.warning(
-        "STRIKE_AUTH_TOKEN not set — pump forwarding to brain will fail auth. "
-        "Set it in .env or export it before starting the watcher."
-    )
 POLL_INTERVAL = int(os.getenv("PUMP_WATCHER_INTERVAL", "5"))  # seconds
 
 # MWP Execution Pipeline directories
@@ -70,6 +65,12 @@ logging.basicConfig(
     ],
 )
 log = logging.getLogger("ncl.pump-watcher")
+
+if not STRIKE_AUTH_TOKEN:
+    log.warning(
+        "STRIKE_AUTH_TOKEN not set — pump forwarding to brain will fail auth. "
+        "Set it in .env or export it before starting the watcher."
+    )
 
 # Track processed files to avoid re-processing
 _processed_files: set[str] = set()

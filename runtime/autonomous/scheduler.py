@@ -23,6 +23,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from ..ncl_brain.models import InsightSignal
+
 log = logging.getLogger("ncl.autonomous")
 
 
@@ -321,34 +323,69 @@ class AutonomousScheduler:
 
                 log.info(f"[PREDICTOR] Processing {len(signals)} signals...")
 
-                # Run FuturePredictor ensemble
+                # Convert raw signal dicts to InsightSignal objects for FuturePredictor
+                import uuid as _uuid
+                insight_signals = []
+                for sig in signals:
+                    try:
+                        importance = sig.get("importance", 50.0)
+                        insight_signals.append(InsightSignal(
+                            signal_id=str(_uuid.uuid4()),
+                            content=sig.get("content", ""),
+                            source_platform=sig.get("source", "unknown"),
+                            importance_score=min(100.0, max(0.0, importance)),
+                            relevance=min(1.0, importance / 100.0),
+                            novelty=0.5,
+                            actionability=0.5,
+                            source_authority=0.5,
+                            time_sensitivity=0.5,
+                            tags=sig.get("tags", []),
+                        ))
+                    except Exception:
+                        continue  # Skip malformed signals
+
+                if not insight_signals:
+                    log.debug("[PREDICTOR] No valid InsightSignals after conversion")
+                    await asyncio.sleep(self.config.prediction_interval)
+                    continue
+
+                # Determine prediction topic from most common tags
+                all_tags = [t for sig in insight_signals for t in sig.tags]
+                topic = max(set(all_tags), key=all_tags.count) if all_tags else "general_intelligence"
+
+                # Run FuturePredictor ensemble with real signals
                 try:
-                    prediction = await self.brain.predictor.predict(signals)
+                    prediction = await self.brain.predictor.predict(
+                        signals=insight_signals, topic=topic
+                    )
 
                     if prediction:
-                        # Store prediction in memory
-                        await self.brain.memory_store.store({
-                            "type": "autonomous_prediction",
-                            "prediction": prediction.get("synthesis", ""),
-                            "confidence": prediction.get("confidence", 0),
-                            "convergence": prediction.get("convergence_detected", False),
-                            "models_used": prediction.get("models_used", []),
-                            "signal_count": len(signals),
-                            "importance": min(100, prediction.get("confidence", 0) * 100),
-                            "tags": ["prediction", "autonomous", "ensemble"],
-                            "timestamp": datetime.now(timezone.utc).isoformat(),
-                        })
+                        # Store prediction in memory using correct method
+                        await self.brain.memory_store.create_unit(
+                            content=(
+                                f"Autonomous prediction on '{topic}': "
+                                f"{prediction.consensus_prediction or 'inconclusive'}"
+                            ),
+                            source="autonomous:predictor",
+                            importance=min(100.0, prediction.confidence * 100),
+                            tags=["prediction", "autonomous", "ensemble", topic],
+                        )
 
                         log.info(f"[PREDICTOR] Prediction complete — "
-                                 f"confidence={prediction.get('confidence', 0):.2f}, "
-                                 f"convergence={prediction.get('convergence_detected', False)}")
+                                 f"confidence={prediction.confidence:.2f}, "
+                                 f"convergence={len(prediction.convergence_signals) > 0}")
 
                         # If high-confidence convergence, flag for council consideration
-                        if prediction.get("convergence_detected") and prediction.get("confidence", 0) >= 0.8:
+                        if prediction.convergence_signals and prediction.confidence >= 0.8:
                             await self._flag_for_council(
                                 trigger="high_confidence_prediction",
-                                data=prediction,
-                                importance=prediction.get("confidence", 0) * 100,
+                                data={
+                                    "topic": topic,
+                                    "consensus": prediction.consensus_prediction,
+                                    "confidence": prediction.confidence,
+                                    "convergence": prediction.convergence_signals,
+                                },
+                                importance=prediction.confidence * 100,
                             )
 
                 except Exception as e:

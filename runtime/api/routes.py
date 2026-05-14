@@ -140,6 +140,11 @@ async def lifespan(app: FastAPI):
     await _policy_kernel.init()
     _action_router = ActionRouter(policy_kernel=_policy_kernel)
 
+    # Wire governance into brain (closes the architectural gap where
+    # brain.policy_kernel and brain.emergency_stop stayed None)
+    brain.policy_kernel = _policy_kernel
+    brain.emergency_stop = _emergency_stop
+
     # Sprint 2 — Evaluation
     global _eval_runner
     _eval_runner = GoldenTaskRunner(data_dir=config.data_dir)
@@ -163,6 +168,9 @@ async def lifespan(app: FastAPI):
         xai_api_key=config.xai_api_key,
         ollama_host=config.ollama_host,
     )
+
+    # Wire Research Cortex into brain for integrated research dispatch
+    brain.research_cortex = _research_cortex
 
     # Pipeline Hardening — Memory Dashboard Bridge
     from ..memory.dashboard_bridge import MemoryDashboardBridge
@@ -735,6 +743,53 @@ async def complete_mandate(mandate_id: str, notes: str | None = None) -> dict:
 
     await brain.complete_mandate(mandate_id, notes)
     return {"mandate_id": mandate_id, "status": "completed"}
+
+
+@app.post("/mandates/purge")
+async def purge_mandates(
+    status: str = Query(..., description="Status to purge (e.g. 'pending_approval')"),
+    older_than_hours: int = Query(24, ge=0, description="Only purge entries older than N hours"),
+    confirm: bool = Query(False, description="Must be true to actually delete"),
+) -> dict:
+    """
+    Purge stale mandates from in-memory store and persisted state.
+
+    Used to recover from accumulation bugs (e.g. orphaned pending_approval
+    mandates from pumps that never reached the approval gate). Requires
+    explicit confirm=true to actually mutate state.
+    """
+    if not brain:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+
+    try:
+        target = MandateStatus(status)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Unknown status: {status}")
+
+    cutoff = datetime.now(timezone.utc).timestamp() - (older_than_hours * 3600)
+
+    async with brain._mandates_lock:
+        candidates = [
+            mid for mid, m in brain.mandates.items()
+            if m.status == target and m.created_at.timestamp() < cutoff
+        ]
+        if not confirm:
+            return {
+                "would_purge": len(candidates),
+                "total_in_memory": len(brain.mandates),
+                "status_filter": status,
+                "older_than_hours": older_than_hours,
+                "confirm_required": True,
+            }
+        for mid in candidates:
+            brain.mandates.pop(mid, None)
+        await brain._persist_mandates_unlocked()
+
+    return {
+        "purged": len(candidates),
+        "remaining": len(brain.mandates),
+        "status_filter": status,
+    }
 
 
 # Memory endpoints
@@ -3651,6 +3706,149 @@ self.addEventListener('notificationclick', e => {
 });
 """
     return HTMLResponse(content=sw_code, media_type="application/javascript")
+
+
+# ===========================================================================
+# Agent Swarm — Multi-LLM Task Execution
+# ===========================================================================
+
+
+@app.post("/swarm/tasks")
+async def create_swarm_task(
+    title: str = Query(...),
+    objective: str = Query(...),
+    priority: int = Query(default=5, ge=1, le=10),
+    budget_cents: int = Query(default=5000),
+    tags: str = Query(default=""),
+) -> dict:
+    """Submit a task to the agent swarm for autonomous execution."""
+    if not brain or not brain.swarm:
+        raise HTTPException(status_code=503, detail="Swarm not initialized")
+
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
+    result = await brain.submit_swarm_task(
+        title=title,
+        objective=objective,
+        priority=priority,
+        budget_cents=budget_cents,
+        tags=tag_list,
+    )
+    return result
+
+
+@app.get("/swarm/tasks")
+async def list_swarm_tasks(
+    status: str = Query(default=""),
+    limit: int = Query(default=50, le=200),
+) -> dict:
+    """List swarm tasks with optional status filter."""
+    if not brain or not brain.swarm:
+        raise HTTPException(status_code=503, detail="Swarm not initialized")
+
+    from ..swarm.models import TaskStatus
+
+    status_filter = None
+    if status:
+        try:
+            status_filter = TaskStatus(status)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid status '{status}'. Valid: {[s.value for s in TaskStatus]}",
+            )
+
+    tasks = brain.swarm.list_tasks(status_filter=status_filter, limit=limit)
+    return {
+        "count": len(tasks),
+        "tasks": [
+            {
+                "task_id": t.task_id,
+                "title": t.title,
+                "status": t.status.value,
+                "priority": t.priority,
+                "budget_cents": t.budget_cents,
+                "tags": t.tags,
+                "created_at": t.created_at.isoformat() if t.created_at else None,
+                "completed_at": t.completed_at.isoformat() if t.completed_at else None,
+            }
+            for t in tasks
+        ],
+    }
+
+
+@app.get("/swarm/tasks/{task_id}")
+async def get_swarm_task(task_id: str) -> dict:
+    """Get details of a specific swarm task."""
+    if not brain or not brain.swarm:
+        raise HTTPException(status_code=503, detail="Swarm not initialized")
+
+    task = brain.swarm.get_task(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail=f"Task '{task_id}' not found")
+
+    return {
+        "task_id": task.task_id,
+        "title": task.title,
+        "objective": task.objective,
+        "status": task.status.value,
+        "priority": task.priority,
+        "budget_cents": task.budget_cents,
+        "assigned_agent": task.assigned_agent,
+        "subtasks": task.subtasks,
+        "results": task.results,
+        "tags": task.tags,
+        "metadata": task.metadata,
+        "created_at": task.created_at.isoformat() if task.created_at else None,
+        "started_at": task.started_at.isoformat() if task.started_at else None,
+        "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+    }
+
+
+@app.post("/swarm/tasks/{task_id}/cancel")
+async def cancel_swarm_task(task_id: str) -> dict:
+    """Cancel a running swarm task."""
+    if not brain or not brain.swarm:
+        raise HTTPException(status_code=503, detail="Swarm not initialized")
+
+    success = await brain.swarm.cancel_task(task_id)
+    if not success:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Task '{task_id}' not found or already terminal",
+        )
+
+    return {"status": "cancelled", "task_id": task_id}
+
+
+@app.get("/swarm/stats")
+async def get_swarm_stats() -> dict:
+    """Get aggregate swarm orchestrator statistics."""
+    if not brain or not brain.swarm:
+        raise HTTPException(status_code=503, detail="Swarm not initialized")
+
+    return brain.swarm.get_stats()
+
+
+@app.get("/swarm/agents")
+async def list_swarm_agents() -> dict:
+    """List available swarm agent types."""
+    if not brain or not brain.swarm:
+        raise HTTPException(status_code=503, detail="Swarm not initialized")
+
+    from ..swarm.agents import list_agent_types, get_registry
+
+    registry = get_registry()
+    return {
+        "agent_types": list_agent_types(),
+        "agents": [
+            {
+                "type": agent_type,
+                "class": cls.__name__,
+                "doc": (cls.__doc__ or "").strip().split("\n")[0],
+            }
+            for agent_type, cls in registry.items()
+        ],
+    }
 
 
 def main() -> None:

@@ -141,6 +141,10 @@ mandate-generation/failed/
 *.ndjson
 *.jsonl
 
+# Generated notifications (intelligence briefs, alerts)
+notifications/intelligence/
+notifications/*.json
+
 # Docker
 .docker/
 docker-compose.override.yml
@@ -148,3 +152,6 @@ docker-compose.override.yml
 # Local Ollama
 /models/
 ~/.ollama/
+
+# Swarm state (runtime artifact)
+runtime/swarm/
