@@ -138,6 +138,7 @@ class AutonomousScheduler:
             asyncio.create_task(self._aac_sync_loop(), name="ncl-aac-sync"),
             asyncio.create_task(self._workspace_health_loop(), name="ncl-workspace"),
             asyncio.create_task(self._mandate_purge_loop(), name="ncl-mandate-purge"),
+            asyncio.create_task(self._feedback_synthesis_loop(), name="ncl-feedback-synth"),
         ]
 
         # Intelligence Engine loops (only if engine is provided)
@@ -778,6 +779,46 @@ class AutonomousScheduler:
 
             # Run every 6 hours
             await asyncio.sleep(6 * 3600)
+
+    # ─── LOOP 8: Feedback Synthesis ───────────────────────────
+
+    async def _feedback_synthesis_loop(self) -> None:
+        """
+        Consume pillar feedback reports → produce synthesis notes.
+
+        Reads from feedback-synthesis/{ncc,brs,aac}-reports/, validates each
+        report against FeedbackReport schema, moves processed → .consumed/,
+        invalid → .quarantine/, and writes interpreted SynthesisNote into
+        feedback-synthesis/synthesis/ for downstream council/mandate review.
+        """
+        await asyncio.sleep(120)  # warmup delay
+
+        from ..feedback.scanner import FeedbackScanner
+
+        # Resolve feedback-synthesis dir relative to NCL workspace root
+        # (data_dir is typically <repo>/data, so go one up)
+        base = self.brain.data_dir.parent / "feedback-synthesis"
+        if not base.exists():
+            log.warning(
+                f"[FEEDBACK] base dir missing: {base} — loop will idle"
+            )
+        scanner = FeedbackScanner(base_dir=base)
+
+        while self._running:
+            try:
+                if base.exists():
+                    note = scanner.scan_once()
+                    if note:
+                        log.info(
+                            f"[FEEDBACK] {note.reports_consumed} reports → {note.synthesis_id}"
+                        )
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.error(f"[FEEDBACK] loop error: {e}", exc_info=True)
+
+            # Every 5 minutes
+            await asyncio.sleep(300)
     # ─── Intelligence Engine Loops ────────────────────────────
 
     async def _intel_collection_loop(self) -> None:

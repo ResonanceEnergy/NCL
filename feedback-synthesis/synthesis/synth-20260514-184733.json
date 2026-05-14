@@ -1,0 +1,18 @@
+{
+  "synthesis_id": "synth-20260514-184733",
+  "generated_at": "2026-05-14T18:47:33.454994Z",
+  "window_start": "2026-05-14T18:47:33.452470Z",
+  "window_end": "2026-05-14T18:47:33.454994Z",
+  "reports_consumed": 1,
+  "by_pillar": {
+    "NCC": 1
+  },
+  "by_outcome": {
+    "success": 1
+  },
+  "open_blockers": [],
+  "suggested_adjustments": [],
+  "raw_report_ids": [
+    "ncc-20260514-203015"
+  ]
+}

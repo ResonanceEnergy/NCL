@@ -20,3 +20,4 @@
 - BRS revenue signal once DIGITAL-LABOUR generates leads
 - AAC capital performance once War Room is operational
 - Test synthesis pipeline: 3 pillar reports → integrated interpretation → mandate adjustment
+- 20260514-184733 | 1 reports ({'NCC': 1}) outcomes={'success': 1} blockers=0 → synth-20260514-184733.json

@@ -202,8 +202,12 @@ class NCLBrain:
         # Load existing state
         await self._load_state()
 
-        # Register with Paperclip
+        # Register with Paperclip (skip entirely if explicitly disabled)
         self._paperclip_connected = False
+        if os.getenv("PAPERCLIP_HOST", "localhost") == "":
+            log.info("Paperclip disabled (PAPERCLIP_HOST=\"\") \u2014 skipping registration")
+            await self._log_event("startup", "NCL brain initialized, Paperclip disabled by config")
+            return
         try:
             company_id = await self.paperclip.register_company()
             await self.paperclip.register_agent("NCL", "Think, Research, Plan, Decide", "brain")

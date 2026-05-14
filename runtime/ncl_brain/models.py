@@ -257,9 +257,9 @@ class CouncilStatus(str, Enum):
 class PumpPrompt(BaseModel):
     """Pump prompt received from iPhone via Grok."""
 
-    prompt_id: str = Field(..., description="Unique pump prompt ID")
-    source: str = Field(..., description="Source (e.g., 'grok-iphone')")
-    intent: str = Field(..., description="Primary intent of the prompt")
+    prompt_id: str = Field(..., min_length=1, description="Unique pump prompt ID")
+    source: str = Field(..., min_length=1, description="Source (e.g., 'grok-iphone')")
+    intent: str = Field(..., min_length=1, description="Primary intent of the prompt")
     context: dict[str, Any] = Field(
         default_factory=dict, description="Rich context data from Grok"
     )
@@ -275,8 +275,8 @@ class Mandate(BaseModel):
     mandate_id: str = Field(..., description="Unique mandate ID")
     pillar: PillarType = Field(..., description="Target pillar (NCC, BRS, AAC)")
     priority: int = Field(..., ge=1, le=10, description="Priority 1-10")
-    title: str = Field(..., description="Mandate title")
-    objective: str = Field(..., description="Strategic objective")
+    title: str = Field(..., min_length=1, description="Mandate title")
+    objective: str = Field(..., min_length=1, description="Strategic objective")
     success_criteria: list[str] = Field(
         default_factory=list, description="Criteria for completion"
     )

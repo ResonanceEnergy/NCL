@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "report_id": "ncc-20260514-203015",
+  "pillar": "NCC",
+  "report_type": "execution",
+  "mandate_id": null,
+  "timestamp": "2026-05-14T20:30:15Z",
+  "summary": "Smoke test report from feedback synthesis bring-up.",
+  "outcome": "success",
+  "metrics": {"duration_seconds": 1, "cost_cents": 0},
+  "blockers": [],
+  "next_action_request": null
+}
