@@ -4,12 +4,54 @@ import asyncio
 import json
 import os
 import secrets
+import sys
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
 import logging
+import logging.config
+
+# ---------------------------------------------------------------------------
+# Early logging configuration.
+#
+# When this module is the launchd entrypoint (`python -m runtime.api.routes`),
+# uvicorn only configures its own `uvicorn.*` loggers. Everything else inherits
+# the Python default root level (WARNING), so every `log.info(...)` emitted by
+# `ncl.autonomous`, `ncl.council`, `ncl.intelligence`, etc. is silently
+# dropped — including the scheduler startup banner and per-loop tick logs.
+#
+# Configure stderr logging here, BEFORE any FastAPI / scheduler code runs, so
+# that lifespan-startup logs and background-task logs both reach the launchd
+# stderr file (`logs/ncl-brain-stderr.log`). Honor NCL_LOG_LEVEL for overrides.
+# ---------------------------------------------------------------------------
+_NCL_LOG_LEVEL = os.environ.get("NCL_LOG_LEVEL", "INFO").upper()
+logging.config.dictConfig({
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "ncl": {
+            "format": "%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+        },
+    },
+    "handlers": {
+        "stderr": {
+            "class": "logging.StreamHandler",
+            "stream": "ext://sys.stderr",
+            "formatter": "ncl",
+            "level": _NCL_LOG_LEVEL,
+        },
+    },
+    "root": {
+        "handlers": ["stderr"],
+        "level": _NCL_LOG_LEVEL,
+    },
+})
+# Uvicorn will (re)configure its own `uvicorn.*` loggers with its own
+# handlers + formatters when uvicorn.run() executes. Its loggers default to
+# propagate=False, so they won't double-emit through our root handler.
+
 import aiofiles
 import urllib.request
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Header, Query, Body

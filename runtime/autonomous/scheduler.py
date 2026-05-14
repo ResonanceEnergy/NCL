@@ -150,6 +150,20 @@ class AutonomousScheduler:
                 asyncio.create_task(self._intel_brief_loop(), name="ncl-intel-brief")
             )
 
+        # Attach a done-callback to every task so a silent crash (unobserved
+        # task exception) gets logged instead of disappearing.
+        def _task_done(task: asyncio.Task) -> None:
+            if task.cancelled():
+                return
+            exc = task.exception()
+            if exc is not None:
+                log.error(
+                    f"[SCHEDULER] task '{task.get_name()}' DIED: "
+                    f"{type(exc).__name__}: {exc!r}",
+                    exc_info=exc,
+                )
+        for t in self._tasks:
+            t.add_done_callback(_task_done)
         await self._log_autonomous_event("scheduler_started", {
             "loops": [t.get_name() for t in self._tasks],
             "config": {
@@ -791,54 +805,82 @@ class AutonomousScheduler:
         invalid → .quarantine/, and writes interpreted SynthesisNote into
         feedback-synthesis/synthesis/ for downstream council/mandate review.
         """
-        await asyncio.sleep(120)  # warmup delay
+        # Loud entry log so we can prove the task was scheduled even if a later
+        # step throws. (Previous silent-failure mode: import-after-warmup raised
+        # under launchd's process environment and the task died with no trace.)
+        log.info("[FEEDBACK] loop task spawned, warming up 15s...")
+        try:
+            await asyncio.sleep(15)  # short warmup so brain finishes other init
+        except asyncio.CancelledError:
+            raise
 
-        from ..feedback.scanner import FeedbackScanner
-        import os
+        # All imports + path resolution wrapped so any failure logs visibly
+        # instead of dying as an unobserved task exception.
+        try:
+            import os
+            from ..feedback.scanner import FeedbackScanner
 
-        # Resolve feedback-synthesis dir. Order:
-        #   1. NCL_FEEDBACK_DIR env override
-        #   2. <data_dir>.parent/feedback-synthesis (legacy convention)
-        #   3. <cwd>/feedback-synthesis (launchd WorkingDirectory = repo root)
-        env_override = os.environ.get("NCL_FEEDBACK_DIR")
-        candidates = []
-        if env_override:
-            candidates.append(Path(env_override).expanduser())
-        # cwd is the launchd WorkingDirectory (NCL repo root) — preferred
-        candidates.append(Path.cwd() / "feedback-synthesis")
-        candidates.append(self.brain.data_dir.parent / "feedback-synthesis")
+            env_override = os.environ.get("NCL_FEEDBACK_DIR")
+            candidates: list[Path] = []
+            if env_override:
+                candidates.append(Path(env_override).expanduser())
+            # cwd is the launchd WorkingDirectory (NCL repo root) — preferred
+            candidates.append(Path.cwd() / "feedback-synthesis")
+            candidates.append(self.brain.data_dir.parent / "feedback-synthesis")
 
-        def _is_real_feedback_root(p: Path) -> bool:
-            return p.exists() and any(
-                (p / sub).exists() for sub in ("aac-reports", "brs-reports", "ncc-reports")
+            def _is_real_feedback_root(p: Path) -> bool:
+                return p.exists() and any(
+                    (p / sub).exists()
+                    for sub in ("aac-reports", "brs-reports", "ncc-reports")
+                )
+
+            base = next((c for c in candidates if _is_real_feedback_root(c)), None)
+            if base is None:
+                log.warning(
+                    f"[FEEDBACK] no valid feedback-synthesis dir "
+                    f"(tried: {[str(c) for c in candidates]}) — loop will idle"
+                )
+                base = candidates[0]
+            else:
+                log.info(f"[FEEDBACK] watching {base} (cwd={Path.cwd()})")
+
+            scanner = FeedbackScanner(base_dir=base)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            log.exception(
+                f"[FEEDBACK] init failed; loop dying: {type(e).__name__}: {e!r}"
             )
+            return
 
-        base = next((c for c in candidates if _is_real_feedback_root(c)), None)
-        if base is None:
-            log.warning(
-                f"[FEEDBACK] no valid feedback-synthesis dir (tried: {[str(c) for c in candidates]}) — loop will idle"
-            )
-            base = candidates[0]  # idle on something
-        else:
-            log.info(f"[FEEDBACK] watching {base}")
-        scanner = FeedbackScanner(base_dir=base)
-
+        log.info("[FEEDBACK] loop entering scan cycle (interval=300s)")
+        ticks = 0
         while self._running:
+            ticks += 1
             try:
                 if base.exists():
                     note = scanner.scan_once()
                     if note:
                         log.info(
-                            f"[FEEDBACK] {note.reports_consumed} reports → {note.synthesis_id}"
+                            f"[FEEDBACK] tick {ticks}: {note.reports_consumed} "
+                            f"reports → {note.synthesis_id}"
                         )
                         await self._apply_synthesis_to_mandates(note)
+                    elif ticks % 12 == 1:  # once per hour, prove we're alive
+                        log.info(f"[FEEDBACK] tick {ticks}: no new reports")
+                else:
+                    log.warning(f"[FEEDBACK] base dir vanished: {base}")
             except asyncio.CancelledError:
                 raise
             except Exception as e:
-                log.error(f"[FEEDBACK] loop error: {e}", exc_info=True)
+                log.exception(
+                    f"[FEEDBACK] tick {ticks} error: {type(e).__name__}: {e!r}"
+                )
 
-            # Every 5 minutes
-            await asyncio.sleep(300)
+            try:
+                await asyncio.sleep(300)
+            except asyncio.CancelledError:
+                raise
 
     async def _apply_synthesis_to_mandates(self, note) -> None:
         """
