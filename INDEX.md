@@ -147,7 +147,7 @@ Pydantic-settings configuration:
 ### 9. FastAPI Application
 **File**: `runtime/api/routes.py` (456 lines, 12K)
 
-RESTful API on port 8787:
+RESTful API on port 8800:
 
 **Health & Admin**
 - `GET /health` - Service health check
@@ -204,7 +204,7 @@ Multi-stage Docker build:
 - Installs Python packages
 - Creates data directories
 - Health check via curl
-- Exposes port 8787
+- Exposes port 8800
 - Entrypoint: uvicorn
 
 ### 12. Package Initialization (6 files)
@@ -318,13 +318,13 @@ export NCL_PAPERCLIP_PORT="8765"
 
 ### 3. Run
 ```bash
-uvicorn runtime.api.routes:app --host 0.0.0.0 --port 8787
+uvicorn runtime.api.routes:app --host 0.0.0.0 --port 8800
 ```
 
 ### 4. Test
 ```bash
-curl http://localhost:8787/health
-curl -X POST http://localhost:8787/pump \
+curl http://localhost:8800/health
+curl -X POST http://localhost:8800/pump \
   -H "Content-Type: application/json" \
   -d '{"prompt_id":"pump-001","source":"grok-iphone","intent":"Analyze market","context":{},"urgency":"high"}'
 ```

@@ -1,0 +1,26 @@
+{
+  "synthesis_id": "synth-20260514-212551",
+  "generated_at": "2026-05-14T21:25:51.950717Z",
+  "window_start": "2026-05-14T21:25:51.949615Z",
+  "window_end": "2026-05-14T21:25:51.950717Z",
+  "reports_consumed": 1,
+  "by_pillar": {
+    "BRS": 1
+  },
+  "by_outcome": {
+    "partial": 1
+  },
+  "open_blockers": [
+    {
+      "pillar": "BRS",
+      "blocker": "Stripe webhook signature failures blocking 12% of revenue events",
+      "mandate_id": ""
+    }
+  ],
+  "suggested_adjustments": [
+    "Audit and rotate Stripe webhook signing secret"
+  ],
+  "raw_report_ids": [
+    "brs-1778793951"
+  ]
+}

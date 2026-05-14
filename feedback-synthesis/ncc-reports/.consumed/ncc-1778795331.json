@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "report_id": "ncc-1778795331",
+  "pillar": "NCC",
+  "report_type": "execution",
+  "mandate_id": null,
+  "timestamp": "2026-05-14T21:48:51Z",
+  "summary": "Doctrine repo CI broke after pyproject migration; merges paused.",
+  "outcome": "blocked",
+  "metrics": {"failed_runs": 4},
+  "blockers": ["GitHub Actions runner cannot resolve nartix-shared dependency"],
+  "next_action_request": "Publish nartix-shared to private index or vendor it"
+}

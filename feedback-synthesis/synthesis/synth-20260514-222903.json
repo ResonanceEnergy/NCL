@@ -1,0 +1,26 @@
+{
+  "synthesis_id": "synth-20260514-222903",
+  "generated_at": "2026-05-14T22:29:03.263674Z",
+  "window_start": "2026-05-14T22:29:03.261793Z",
+  "window_end": "2026-05-14T22:29:03.263674Z",
+  "reports_consumed": 1,
+  "by_pillar": {
+    "AAC": 1
+  },
+  "by_outcome": {
+    "blocked": 1
+  },
+  "open_blockers": [
+    {
+      "pillar": "AAC",
+      "blocker": "Polygon API rate-limit persists despite key rotation",
+      "mandate_id": ""
+    }
+  ],
+  "suggested_adjustments": [
+    "Upgrade Polygon plan to Developer tier"
+  ],
+  "raw_report_ids": [
+    "aac-1778797681"
+  ]
+}

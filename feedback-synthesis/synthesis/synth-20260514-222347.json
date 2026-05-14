@@ -1,0 +1,26 @@
+{
+  "synthesis_id": "synth-20260514-222347",
+  "generated_at": "2026-05-14T22:23:47.179039Z",
+  "window_start": "2026-05-14T22:23:47.178399Z",
+  "window_end": "2026-05-14T22:23:47.179039Z",
+  "reports_consumed": 1,
+  "by_pillar": {
+    "NCC": 1
+  },
+  "by_outcome": {
+    "blocked": 1
+  },
+  "open_blockers": [
+    {
+      "pillar": "NCC",
+      "blocker": "Pump-watcher cannot reach NCC server on port 8765",
+      "mandate_id": ""
+    }
+  ],
+  "suggested_adjustments": [
+    "Restart NCC server and verify port 8765 listener"
+  ],
+  "raw_report_ids": [
+    "ncc-1778796695"
+  ]
+}

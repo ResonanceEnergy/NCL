@@ -253,7 +253,7 @@ In `~/NCL/data/`:
    - PaperclipClient (ready to connect)
 4. Register with Paperclip (company + agents)
 5. Load existing mandates from disk
-6. FastAPI lifespan yields → app ready at 0.0.0.0:8787
+6. FastAPI lifespan yields → app ready at 0.0.0.0:8800
 
 ## Request Flow Example: Pump → Council → Mandate
 
@@ -298,7 +298,7 @@ All use `NCL_` prefix:
 - `NCL_OLLAMA_HOST` → ollama_host (default: localhost:11434)
 - `NCL_PAPERCLIP_HOST` → paperclip_host
 - `NCL_PAPERCLIP_PORT` → paperclip_port
-- `NCL_PORT` → port (default: 8787)
+- `NCL_PORT` → port (default: 8800)
 - `NCL_DEBUG` → debug (true/false)
 
 ## Testing

@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "report_id": "brs-1778793951",
+  "pillar": "BRS",
+  "report_type": "revenue",
+  "mandate_id": null,
+  "timestamp": "2026-05-14T21:25:51Z",
+  "summary": "Stripe webhook signature verification intermittently failing on /webhooks/stripe.",
+  "outcome": "partial",
+  "metrics": {"failures": 12, "successes": 88},
+  "blockers": ["Stripe webhook signature failures blocking 12% of revenue events"],
+  "next_action_request": "Audit and rotate Stripe webhook signing secret"
+}

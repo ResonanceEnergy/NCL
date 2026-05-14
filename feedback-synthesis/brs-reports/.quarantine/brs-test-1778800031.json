@@ -1,0 +1,10 @@
+{
+  "report_id": "brs-test-1778800031",
+  "pillar": "BRS",
+  "timestamp": "2026-05-14T17:05:00Z",
+  "report_type": "incident",
+  "summary": "Test feedback for visibility verification",
+  "metrics": {"failed_charges_pct": 0.18, "checkout_p99_ms": 4200},
+  "anomalies": [{"description": "Logging visibility test", "severity": "low"}],
+  "recommendations": ["verify [FEEDBACK] tick logs"]
+}

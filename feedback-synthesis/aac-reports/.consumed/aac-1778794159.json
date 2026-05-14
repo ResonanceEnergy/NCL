@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "report_id": "aac-1778794159",
+  "pillar": "AAC",
+  "report_type": "capital",
+  "mandate_id": null,
+  "timestamp": "2026-05-14T21:29:19Z",
+  "summary": "War Room dashboard cannot connect to Polygon API; capital deployment paused.",
+  "outcome": "blocked",
+  "metrics": {"deployment_pending_usd": 5000},
+  "blockers": ["Polygon API key invalid or rate-limited"],
+  "next_action_request": "Provision new Polygon API key with higher tier"
+}

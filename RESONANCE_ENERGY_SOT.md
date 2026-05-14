@@ -15,7 +15,7 @@ NATRIX operates multiple projects under the **Resonance Energy** umbrella. Each 
 
 | Project | Repo | What It Is | Where It Runs |
 |---------|------|------------|---------------|
-| **NCL** | `ResonanceEnergy/NCL` | NATRIX's second brain. Strategic thinking, intelligence, memory, decision-making. The top of the hierarchy. | Mac Mini M4 Pro (localhost:8787) |
+| **NCL** | `ResonanceEnergy/NCL` | NATRIX's second brain. Strategic thinking, intelligence, memory, decision-making. The top of the hierarchy. | Mac Mini M4 Pro (localhost:8800) |
 | **Bit Rage Labour (BRL)** | `ResonanceEnergy/DIGITAL-LABOUR` | Autonomous AI labor platform. 46 agents that complete real tasks for real companies and get paid. | Railway (bitrage-labour-api-production.up.railway.app) |
 | **AAC** | `ResonanceEnergy/AAC` | Accelerated Arbitrage Corp. AI-powered algorithmic trading platform. | TBD |
 | **Other Projects** | Various repos | Crimson Compass, DubForge, Man Up Man Down, AdventureHeroAuto, Archive of Echoes, Resonance Energy Media | Various |
@@ -88,7 +88,7 @@ The doctrine files in `00_COMMAND/` govern Bit Rage operations specifically. NCL
 ## Repo Boundaries — What Goes Where
 
 ### NCL Repo (`ResonanceEnergy/NCL`)
-- Brain service (FastAPI on :8787)
+- Brain service (FastAPI on :8800)
 - Council engine (multi-AI debate)
 - Memory system (episodic → semantic)
 - Intelligence scanning (Awarebot-FPC: X, YouTube, Reddit scrapers)
@@ -124,7 +124,7 @@ The doctrine files in `00_COMMAND/` govern Bit Rage operations specifically. NCL
 NCL communicates with Bit Rage via Bit Rage's existing REST API:
 
 ```
-NCL (Mac Mini :8787)
+NCL (Mac Mini :8800)
   │
   │  HTTP calls to Railway API
   │
@@ -143,7 +143,7 @@ Bit Rage (Railway)
   │
   │  HTTP calls to NCL API
   │
-  └── POST :8787/feedback    → Report execution results, KPIs, issues
+  └── POST :8800/feedback    → Report execution results, KPIs, issues
 ```
 
 This is a clean API boundary. No shared code. No embedded modules.

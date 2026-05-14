@@ -1,0 +1,26 @@
+{
+  "synthesis_id": "synth-20260514-225612",
+  "generated_at": "2026-05-14T22:56:12.525207Z",
+  "window_start": "2026-05-14T22:56:12.523957Z",
+  "window_end": "2026-05-14T22:56:12.525207Z",
+  "reports_consumed": 1,
+  "by_pillar": {
+    "BRS": 1
+  },
+  "by_outcome": {
+    "partial": 1
+  },
+  "open_blockers": [
+    {
+      "pillar": "BRS",
+      "blocker": "Safari iOS Stripe checkout returns 503 intermittently",
+      "mandate_id": ""
+    }
+  ],
+  "suggested_adjustments": [
+    "File ticket with Stripe and add iOS-Safari fallback path"
+  ],
+  "raw_report_ids": [
+    "brs-1778799364"
+  ]
+}

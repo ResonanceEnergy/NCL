@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "report_id": "ncc-1778796695",
+  "pillar": "NCC",
+  "report_type": "execution",
+  "mandate_id": null,
+  "timestamp": "2026-05-14T22:11:35Z",
+  "summary": "Mandate dispatch failure on M-9012.",
+  "outcome": "blocked",
+  "metrics": {"failed": 1},
+  "blockers": ["Pump-watcher cannot reach NCC server on port 8765"],
+  "next_action_request": "Restart NCC server and verify port 8765 listener"
+}

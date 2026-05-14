@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "report_id": "aac-1778797681",
+  "pillar": "AAC",
+  "report_type": "capital",
+  "mandate_id": null,
+  "timestamp": "2026-05-14T22:28:01Z",
+  "summary": "War Room Polygon API still unreachable post-rotation.",
+  "outcome": "blocked",
+  "metrics": {"deployment_pending_usd": 5000},
+  "blockers": ["Polygon API rate-limit persists despite key rotation"],
+  "next_action_request": "Upgrade Polygon plan to Developer tier"
+}

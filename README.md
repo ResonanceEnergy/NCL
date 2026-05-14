@@ -24,7 +24,7 @@ NCL is the top of the hierarchy. It:
 ```
 NATRIX (iPhone → Grok)
     ↓ pump_prompt
-NCL Brain (FastAPI on 0.0.0.0:8787)
+NCL Brain (FastAPI on 0.0.0.0:8800)
     ├─ Council Engine (Claude as chair + Grok/Gemini/Perplexity/GPT)
     ├─ Memory Store (three-phase lifecycle, decay/reinforcement)
     ├─ Awarebot Scanner (X, YouTube, Reddit signals)
@@ -72,7 +72,7 @@ Or via Docker:
 
 ```bash
 docker build -t ncl-brain .
-docker run -p 8787:8787 \
+docker run -p 8800:8800 \
   -e NCL_ANTHROPIC_API_KEY=sk-... \
   -e NCL_XAI_API_KEY=xai-... \
   ncl-brain
@@ -90,7 +90,7 @@ Example `ncl.yaml`:
 
 ```yaml
 service_name: ncl-brain
-port: 8787
+port: 8800
 debug: false
 
 anthropic_api_key: sk-ant-...
@@ -156,7 +156,7 @@ prediction_interval: 1800
 ### Create Pump Prompt
 
 ```bash
-curl -X POST http://localhost:8787/pump \
+curl -X POST http://localhost:8800/pump \
   -H "Content-Type: application/json" \
   -d '{
     "prompt_id": "pump-001",
@@ -170,7 +170,7 @@ curl -X POST http://localhost:8787/pump \
 ### Spawn Council Session
 
 ```bash
-curl -X POST http://localhost:8787/council/spawn \
+curl -X POST http://localhost:8800/council/spawn \
   -H "Content-Type: application/json" \
   -d '{
     "topic": "Geopolitical impact on BRS revenue",
@@ -181,7 +181,7 @@ curl -X POST http://localhost:8787/council/spawn \
 ### Create Mandate
 
 ```bash
-curl -X POST http://localhost:8787/mandates \
+curl -X POST http://localhost:8800/mandates \
   -H "Content-Type: application/json" \
   -d '{
     "pillar": "ncc",
@@ -200,13 +200,13 @@ curl -X POST http://localhost:8787/mandates \
 ### Query Memory
 
 ```bash
-curl "http://localhost:8787/memory/query?tags=geopolitical&tags=risk&importance_threshold=60"
+curl "http://localhost:8800/memory/query?tags=geopolitical&tags=risk&importance_threshold=60"
 ```
 
 ### Run Awarebot Scan
 
 ```bash
-curl -X POST http://localhost:8787/awarebot/scan \
+curl -X POST http://localhost:8800/awarebot/scan \
   -H "Content-Type: application/json" \
   -d '{
     "queries": [
@@ -220,7 +220,7 @@ curl -X POST http://localhost:8787/awarebot/scan \
 ### Run Prediction
 
 ```bash
-curl -X POST http://localhost:8787/prediction \
+curl -X POST http://localhost:8800/prediction \
   -H "Content-Type: application/json" \
   -d '{"topic": "Asia market adoption of AI automation"}'
 ```
@@ -319,7 +319,7 @@ cat > ~/Library/LaunchAgents/com.resonance-energy.ncl.plist << 'EOF'
       <string>--host</string>
       <string>0.0.0.0</string>
       <string>--port</string>
-      <string>8787</string>
+      <string>8800</string>
     </array>
     <key>WorkingDirectory</key>
     <string>/Users/natrix/Projects/NCL</string>
@@ -343,7 +343,7 @@ docker build -t resonance-energy/ncl-brain .
 docker run -d \
   --name ncl-brain \
   --restart always \
-  -p 8787:8787 \
+  -p 8800:8800 \
   -v ~/NCL/data:/app/data \
   -v ~/NCL/config:/app/config \
   -e NCL_ANTHROPIC_API_KEY=sk-... \
@@ -356,13 +356,13 @@ Monitor service health:
 
 ```bash
 # Health check
-curl http://localhost:8787/health | jq
+curl http://localhost:8800/health | jq
 
 # Watch events
 tail -f ~/NCL/data/events.ndjson | jq
 
 # Monitor mandates
-curl http://localhost:8787/mandates | jq
+curl http://localhost:8800/mandates | jq
 ```
 
 ## Architecture Docs

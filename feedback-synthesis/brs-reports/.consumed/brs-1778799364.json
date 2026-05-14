@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "report_id": "brs-1778799364",
+  "pillar": "BRS",
+  "report_type": "revenue",
+  "mandate_id": null,
+  "timestamp": "2026-05-14T22:56:04Z",
+  "summary": "DIGITAL-LABOUR Stripe checkout 5xx on iOS Safari only.",
+  "outcome": "partial",
+  "metrics": {"failures_per_hour": 7},
+  "blockers": ["Safari iOS Stripe checkout returns 503 intermittently"],
+  "next_action_request": "File ticket with Stripe and add iOS-Safari fallback path"
+}

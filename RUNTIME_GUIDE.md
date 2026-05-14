@@ -7,7 +7,7 @@ This is the production-grade Python 3.12+ runtime for **NCL (NUREALCORTEXLINK)**
 ## Architecture
 
 ```
-iPhone (NATRIX + Grok) → PumpPrompt → NCL Brain (Port 8787)
+iPhone (NATRIX + Grok) → PumpPrompt → NCL Brain (Port 8800)
                                         ├── Council Engine (Multi-AI debate)
                                         ├── Memory Store (3-phase lifecycle)
                                         ├── Awarebot (Scanner + Predictor)
@@ -133,7 +133,7 @@ FastAPI application with endpoints:
 
 ```yaml
 # Service
-port: 8787
+port: 8800
 debug: false
 
 # API Keys
@@ -282,7 +282,7 @@ export NCL_PAPERCLIP_PORT="8765"
 # Run
 python -m runtime.api.routes
 # or
-uvicorn runtime.api.routes:app --host 0.0.0.0 --port 8787
+uvicorn runtime.api.routes:app --host 0.0.0.0 --port 8800
 ```
 
 ## Docker
@@ -292,7 +292,7 @@ uvicorn runtime.api.routes:app --host 0.0.0.0 --port 8787
 docker build -t ncl-brain .
 
 # Run
-docker run -p 8787:8787 \
+docker run -p 8800:8800 \
   -e NCL_ANTHROPIC_API_KEY="..." \
   -e NCL_OLLAMA_HOST="host.docker.internal:11434" \
   -v ~/.ncl/data:/app/data \
@@ -326,7 +326,7 @@ ruff check runtime
 │   ├── api/
 │   │   ├── __init__.py
 │   │   ├── config.py              # Configuration (pydantic-settings)
-│   │   └── routes.py              # FastAPI app (port 8787)
+│   │   └── routes.py              # FastAPI app (port 8800)
 │   ├── ncl_brain/
 │   │   ├── __init__.py
 │   │   ├── brain.py               # Core brain service
@@ -350,7 +350,7 @@ ruff check runtime
 
 ### 1. Pump Prompt Arrives
 ```bash
-curl -X POST http://localhost:8787/pump \
+curl -X POST http://localhost:8800/pump \
   -H "Content-Type: application/json" \
   -d '{
     "prompt_id": "pump-001",
@@ -363,7 +363,7 @@ curl -X POST http://localhost:8787/pump \
 
 ### 2. Council Spawns & Debates
 ```bash
-curl -X POST http://localhost:8787/council/spawn \
+curl -X POST http://localhost:8800/council/spawn \
   -H "Content-Type: application/json" \
   -d '{
     "topic": "Crypto market outlook",
@@ -380,7 +380,7 @@ Claude synthesizes to consensus + recommendations
 
 ### 3. Mandate Issued
 ```bash
-curl -X POST http://localhost:8787/mandates \
+curl -X POST http://localhost:8800/mandates \
   -H "Content-Type: application/json" \
   -d '{
     "pillar": "aac",
@@ -399,7 +399,7 @@ Mandate → Paperclip issue → AAC execution
 
 ### 4. Awarebot Scans & Predicts
 ```bash
-curl -X POST http://localhost:8787/awarebot/scan \
+curl -X POST http://localhost:8800/awarebot/scan \
   -H "Content-Type: application/json" \
   -d '{"queries": ["Bitcoin", "Federal Reserve", "crypto regulation"]}'
 ```
@@ -409,7 +409,7 @@ Scanner pulls from X, YouTube, Reddit. Predictor ensemble forecasts outcomes.
 All council outputs, signals, mandates stored with importance scoring.
 Search example:
 ```bash
-curl "http://localhost:8787/memory/query?tags=council&tags=bitcoin&importance_threshold=60"
+curl "http://localhost:8800/memory/query?tags=council&tags=bitcoin&importance_threshold=60"
 ```
 
 ## Performance
@@ -424,7 +424,7 @@ curl "http://localhost:8787/memory/query?tags=council&tags=bitcoin&importance_th
 
 Health check:
 ```bash
-curl http://localhost:8787/health
+curl http://localhost:8800/health
 ```
 
 Response:
