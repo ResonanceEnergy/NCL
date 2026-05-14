@@ -1408,21 +1408,61 @@ class NCLBrain:
             Health status dict with all data MATRIX MONITOR needs
         """
         active_mandates = [m for m in self.mandates.values() if m.status in (MandateStatus.ACTIVE, MandateStatus.IN_PROGRESS)]
+        pending_approval = [m for m in self.mandates.values() if m.status == MandateStatus.PENDING_APPROVAL]
         memory_stats = await self.memory_store.get_stats() if hasattr(self.memory_store, "get_stats") else {}
 
+        # Degraded-state thresholds. The May 2026 corruption hit 22,388
+        # mandates before discovery; flagging at 1000 / 50 catches similar
+        # leaks within a few hours instead of months.
+        warnings: list[str] = []
+        total = len(self.mandates)
+        if total > 1000:
+            warnings.append(f"mandates_total={total} exceeds 1000 \u2014 possible state leak")
+        if len(pending_approval) > 50:
+            warnings.append(
+                f"pending_approval={len(pending_approval)} exceeds 50 \u2014 approval queue blocked"
+            )
+        status = "degraded" if warnings else "healthy"
+
+        # Best-effort ntfy alarm (rate-limited via internal flag so we don't spam)
+        if warnings and not getattr(self, "_health_alarm_sent", False):
+            self._health_alarm_sent = True
+            try:
+                topic = os.getenv("NTFY_TOPIC")
+                ntfy_server = os.getenv("NTFY_SERVER", "https://ntfy.sh")
+                if topic:
+                    import httpx as _httpx
+                    async with _httpx.AsyncClient(timeout=5.0) as _client:
+                        await _client.post(
+                            f"{ntfy_server}/{topic}",
+                            content="; ".join(warnings).encode(),
+                            headers={
+                                "Title": "NCL Brain DEGRADED",
+                                "Priority": "high",
+                                "Tags": "warning,ncl",
+                            },
+                        )
+            except Exception as exc:
+                log.warning(f"ntfy degraded-alarm send failed: {exc!r}")
+        elif not warnings and getattr(self, "_health_alarm_sent", False):
+            # Auto-reset so the next degradation re-alarms
+            self._health_alarm_sent = False
+
         return {
-            "status": "healthy",
+            "status": status,
             "service": "ncl-brain",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "uptime_pct": 100.0,
             # MATRIX MONITOR fields
             "active_mandates": len(active_mandates),
-            "mandates_total": len(self.mandates),
+            "mandates_total": total,
+            "pending_approval": len(pending_approval),
             "council_sessions": len(self.council_sessions),
             "memory_units": memory_stats.get("total_units", 0),
             "key_metric": len(active_mandates),
             "key_metric_label": "active_mandates",
             "paperclip_connected": getattr(self, "_paperclip_connected", False),
+            "warnings": warnings,
         }
 
     async def shutdown(self) -> None:

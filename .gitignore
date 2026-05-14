@@ -155,3 +155,6 @@ docker-compose.override.yml
 
 # Swarm state (runtime artifact)
 runtime/swarm/
+
+# Quarantined pumps (manual triage; not part of pipeline)
+mandate-generation/quarantine/

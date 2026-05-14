@@ -176,18 +176,31 @@ async def forward_pump_to_brain(pump_file: Path) -> bool:
             )
 
             if resp.status_code == 200:
-                # Mark as brain-acked in the envelope
-                envelope["_brain_ack"] = {
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "brain_response": resp.json(),
-                }
-                with open(pump_file, "w") as f:
-                    json.dump(envelope, f, indent=2)
+                # Brain accepted the pump and created a mandate. We MUST mark
+                # the file as acked or the next watcher tick will re-pump it
+                # and produce a duplicate mandate. If the ack-write fails we
+                # still return True so the caller moves the file out of input/.
+                try:
+                    envelope["_brain_ack"] = {
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "brain_response": resp.json(),
+                    }
+                    with open(pump_file, "w") as f:
+                        json.dump(envelope, f, indent=2, default=str)
+                except Exception as write_exc:
+                    log.error(
+                        f"FORWARDED {pump_file.name} but ack-write failed: "
+                        f"{type(write_exc).__name__}: {write_exc!r} — file will"
+                        f" still be moved out of input/ to prevent duplicates"
+                    )
 
                 log.info(f"FORWARDED {pump_file.name} → NCL Brain (200 OK)")
                 return True
             else:
-                log.warning(f"Brain rejected {pump_file.name}: {resp.status_code}")
+                log.warning(
+                    f"Brain rejected {pump_file.name}: {resp.status_code} "
+                    f"body={resp.text[:200]!r}"
+                )
                 return False
 
     except httpx.ConnectError:
@@ -197,7 +210,9 @@ async def forward_pump_to_brain(pump_file: Path) -> bool:
         log.error(f"Invalid JSON in {pump_file.name}")
         return False
     except Exception as e:
-        log.error(f"Error processing {pump_file.name}: {e}")
+        log.error(
+            f"Error processing {pump_file.name}: {type(e).__name__}: {e!r}"
+        )
         return False
 
 

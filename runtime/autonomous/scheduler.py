@@ -137,6 +137,7 @@ class AutonomousScheduler:
             asyncio.create_task(self._memory_consolidation_loop(), name="ncl-memory"),
             asyncio.create_task(self._aac_sync_loop(), name="ncl-aac-sync"),
             asyncio.create_task(self._workspace_health_loop(), name="ncl-workspace"),
+            asyncio.create_task(self._mandate_purge_loop(), name="ncl-mandate-purge"),
         ]
 
         # Intelligence Engine loops (only if engine is provided)
@@ -714,7 +715,69 @@ class AutonomousScheduler:
 
             # Check every 30 minutes
             await asyncio.sleep(1800)
+    # ─── LOOP 7: Mandate State Hygiene ───────────────────────────
 
+    async def _mandate_purge_loop(self) -> None:
+        """
+        Periodically purge stale mandates to prevent state explosion.
+
+        Background: in May 2026 a watcher bug let pending_approval mandates
+        accumulate to 22,388 entries before discovery. This loop ensures any
+        future leak self-heals within hours instead of months.
+
+        Targets:
+          - cancelled / completed older than 30 days  → hard delete
+          - pending_approval older than 7 days        → hard delete (orphans)
+        """
+        # Defer first run so we don't compete with startup
+        await asyncio.sleep(600)
+
+        from ..ncl_brain.models import MandateStatus
+        from datetime import datetime as _dt, timezone as _tz
+
+        purge_specs = [
+            (MandateStatus.CANCELLED, 30 * 24),
+            (MandateStatus.COMPLETED, 30 * 24),
+            (MandateStatus.PENDING_APPROVAL, 7 * 24),
+        ]
+
+        while self._running:
+            try:
+                purged_total = 0
+                async with self.brain._mandates_lock:
+                    now_ts = _dt.now(_tz.utc).timestamp()
+                    for status, max_age_h in purge_specs:
+                        cutoff = now_ts - (max_age_h * 3600)
+                        victims = [
+                            mid for mid, m in self.brain.mandates.items()
+                            if m.status == status and m.created_at.timestamp() < cutoff
+                        ]
+                        for mid in victims:
+                            self.brain.mandates.pop(mid, None)
+                        if victims:
+                            log.info(
+                                f"[PURGE] Removed {len(victims)} {status.value} mandates "
+                                f"older than {max_age_h}h"
+                            )
+                            purged_total += len(victims)
+                    if purged_total > 0:
+                        await self.brain._persist_mandates_unlocked()
+
+                # Health alarm: if total mandates exploded, log loud
+                total = len(self.brain.mandates)
+                if total > 1000:
+                    log.error(
+                        f"[PURGE] Mandate count high: {total} — possible state"
+                        f" leak. Inspect mandates.json."
+                    )
+
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.error(f"[PURGE] loop error: {e}", exc_info=True)
+
+            # Run every 6 hours
+            await asyncio.sleep(6 * 3600)
     # ─── Intelligence Engine Loops ────────────────────────────
 
     async def _intel_collection_loop(self) -> None:
