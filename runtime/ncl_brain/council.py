@@ -546,11 +546,11 @@ class CouncilEngine:
         try:
             return await self._get_member_response(member, prompt)
         except Exception as e:
-            log.warning(f"[council:{session_id}] {member.value} API failed: {e}, trying Ollama")
+            log.warning(f"[council:{session_id}] {member.value} API failed: {type(e).__name__}: {e!r}, trying Ollama")
             try:
                 return await self._get_ollama_response(member, prompt)
             except Exception as e2:
-                log.error(f"[council:{session_id}] {member.value} Ollama also failed: {e2}")
+                log.error(f"[council:{session_id}] {member.value} Ollama also failed: {type(e2).__name__}: {e2!r}")
                 return f"[{member.value} unavailable — both API and Ollama failed]"
 
     async def _get_member_response(self, member: CouncilMember, prompt: str) -> str:
@@ -740,20 +740,28 @@ class CouncilEngine:
         return choices[0].get("message", {}).get("content", "")
 
     async def _get_ollama_response(self, member: CouncilMember, prompt: str) -> str:
-        """Fallback to local Ollama model."""
+        """Fallback to local Ollama model.
+
+        Uses qwen3:8b for all members — faster (3-5s) than qwen3:32b under
+        parallel load. Ollama serializes calls per model, so heavier weights
+        cause cascading timeouts when 4+ members fan out simultaneously.
+        """
         model_map = {
-            CouncilMember.CLAUDE: "qwen3:32b",
-            CouncilMember.GROK: "qwen3:32b",
-            CouncilMember.GEMINI: "qwen3:32b",
+            CouncilMember.CLAUDE: "qwen3:8b",
+            CouncilMember.GROK: "qwen3:8b",
+            CouncilMember.GEMINI: "qwen3:8b",
             CouncilMember.PERPLEXITY: "qwen3:8b",
             CouncilMember.GPT: "qwen3:8b",
             CouncilMember.COPILOT: "deepseek-coder-v2:16b",
         }
         model = model_map.get(member, "qwen3:8b")
 
+        # Per-call timeout override — first cold load can take ~30s,
+        # then queued parallel calls add up. 240s gives headroom.
         resp = await self.http_client.post(
             f"http://{self.ollama_host}/api/generate",
             json={"model": model, "prompt": prompt, "stream": False},
+            timeout=240.0,
         )
         resp.raise_for_status()
         return resp.json().get("response", "")
@@ -793,7 +801,14 @@ class CouncilEngine:
             f"Be decisive. NATRIX needs clear direction, not hedge-everything caution."
         )
 
-        raw = await self._call_claude(synthesis_prompt)
+        try:
+            raw = await self._call_claude(synthesis_prompt)
+        except Exception as e:
+            log.warning(
+                f"[council:{session.session_id}] chair synthesis API failed: "
+                f"{type(e).__name__}: {e!r}, falling back to Ollama"
+            )
+            raw = await self._get_ollama_response(CouncilMember.CLAUDE, synthesis_prompt)
 
         # Try to parse JSON response; fall back to raw text if parsing fails
         try:

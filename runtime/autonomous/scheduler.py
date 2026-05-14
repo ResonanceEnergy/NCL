@@ -794,14 +794,33 @@ class AutonomousScheduler:
         await asyncio.sleep(120)  # warmup delay
 
         from ..feedback.scanner import FeedbackScanner
+        import os
 
-        # Resolve feedback-synthesis dir relative to NCL workspace root
-        # (data_dir is typically <repo>/data, so go one up)
-        base = self.brain.data_dir.parent / "feedback-synthesis"
-        if not base.exists():
-            log.warning(
-                f"[FEEDBACK] base dir missing: {base} — loop will idle"
+        # Resolve feedback-synthesis dir. Order:
+        #   1. NCL_FEEDBACK_DIR env override
+        #   2. <data_dir>.parent/feedback-synthesis (legacy convention)
+        #   3. <cwd>/feedback-synthesis (launchd WorkingDirectory = repo root)
+        env_override = os.environ.get("NCL_FEEDBACK_DIR")
+        candidates = []
+        if env_override:
+            candidates.append(Path(env_override).expanduser())
+        # cwd is the launchd WorkingDirectory (NCL repo root) — preferred
+        candidates.append(Path.cwd() / "feedback-synthesis")
+        candidates.append(self.brain.data_dir.parent / "feedback-synthesis")
+
+        def _is_real_feedback_root(p: Path) -> bool:
+            return p.exists() and any(
+                (p / sub).exists() for sub in ("aac-reports", "brs-reports", "ncc-reports")
             )
+
+        base = next((c for c in candidates if _is_real_feedback_root(c)), None)
+        if base is None:
+            log.warning(
+                f"[FEEDBACK] no valid feedback-synthesis dir (tried: {[str(c) for c in candidates]}) — loop will idle"
+            )
+            base = candidates[0]  # idle on something
+        else:
+            log.info(f"[FEEDBACK] watching {base}")
         scanner = FeedbackScanner(base_dir=base)
 
         while self._running:
@@ -812,6 +831,7 @@ class AutonomousScheduler:
                         log.info(
                             f"[FEEDBACK] {note.reports_consumed} reports → {note.synthesis_id}"
                         )
+                        await self._apply_synthesis_to_mandates(note)
             except asyncio.CancelledError:
                 raise
             except Exception as e:
@@ -819,6 +839,91 @@ class AutonomousScheduler:
 
             # Every 5 minutes
             await asyncio.sleep(300)
+
+    async def _apply_synthesis_to_mandates(self, note) -> None:
+        """
+        Convert a SynthesisNote into PENDING_APPROVAL mandate proposals.
+
+        Authority chain: feedback is interpreted → drafted as mandate proposals
+        → NATRIX must approve before dispatch. We do NOT create ACTIVE mandates
+        from feedback automatically — that would let downstream pillars steer
+        their own next directives, violating the chain of command.
+
+        Heuristics:
+          - Each open blocker → one proposal targeting the reporting pillar
+            with priority 7 (high). Title prefix: "RESOLVE: ".
+          - Each suggested_adjustment → one proposal at priority 5.
+        """
+        from ..ncl_brain.models import PillarType, MandateStatus
+
+        # Map pillar string → enum
+        pillar_lookup = {p.name: p for p in PillarType}
+
+        proposals: list[tuple[PillarType, int, str, str]] = []
+
+        for blocker in note.open_blockers:
+            pillar_str = blocker.get("pillar", "")
+            pillar = pillar_lookup.get(pillar_str)
+            if not pillar:
+                continue
+            blk = blocker.get("blocker", "").strip()
+            if not blk:
+                continue
+            mid = blocker.get("mandate_id", "") or "unattributed"
+            proposals.append((
+                pillar,
+                7,
+                f"RESOLVE: {blk[:80]}",
+                f"Blocker reported by {pillar_str} (source mandate: {mid}). "
+                f"Synthesis note {note.synthesis_id}. Resolve and report back.",
+            ))
+
+        for adj in note.suggested_adjustments:
+            adj_clean = (adj or "").strip()
+            if not adj_clean:
+                continue
+            # Default to NCC for adjustments without explicit pillar tagging;
+            # NCC owns execution and can re-route if needed.
+            proposals.append((
+                PillarType.NCC,
+                5,
+                f"FEEDBACK: {adj_clean[:80]}",
+                f"Pillar-suggested adjustment from synthesis {note.synthesis_id}: "
+                f"{adj_clean}",
+            ))
+
+        if not proposals:
+            return
+
+        created = 0
+        for pillar, priority, title, objective in proposals:
+            try:
+                m = await self.brain.create_mandate(
+                    pillar=pillar,
+                    priority=priority,
+                    title=title,
+                    objective=objective,
+                    success_criteria=[
+                        f"Source synthesis: {note.synthesis_id}",
+                        "NATRIX review and approval required",
+                    ],
+                    status=MandateStatus.PENDING_APPROVAL,
+                )
+                created += 1
+                log.info(
+                    f"[FEEDBACK] proposal created: {m.mandate_id} → {pillar.value} "
+                    f"P{priority}: {title}"
+                )
+            except Exception as e:
+                log.error(
+                    f"[FEEDBACK] failed to create proposal for {pillar.value}: "
+                    f"{type(e).__name__}: {e!r}"
+                )
+
+        log.info(
+            f"[FEEDBACK] synthesis {note.synthesis_id} → {created}/{len(proposals)} "
+            f"PENDING_APPROVAL mandates queued"
+        )
     # ─── Intelligence Engine Loops ────────────────────────────
 
     async def _intel_collection_loop(self) -> None:

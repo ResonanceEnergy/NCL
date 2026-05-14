@@ -21,3 +21,7 @@
 - AAC capital performance once War Room is operational
 - Test synthesis pipeline: 3 pillar reports → integrated interpretation → mandate adjustment
 - 20260514-184733 | 1 reports ({'NCC': 1}) outcomes={'success': 1} blockers=0 → synth-20260514-184733.json
+- 20260514-212551 | 1 reports ({'BRS': 1}) outcomes={'partial': 1} blockers=1 → synth-20260514-212551.json
+- 20260514-220231 | 2 reports ({'NCC': 1, 'AAC': 1}) outcomes={'blocked': 2} blockers=2 → synth-20260514-220231.json
+- 20260514-222347 | 1 reports ({'NCC': 1}) outcomes={'blocked': 1} blockers=1 → synth-20260514-222347.json
+- 20260514-222903 | 1 reports ({'AAC': 1}) outcomes={'blocked': 1} blockers=1 → synth-20260514-222903.json

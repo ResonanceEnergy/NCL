@@ -892,6 +892,61 @@ async def receive_synthesis(synthesis: dict) -> dict:
     }
 
 
+@app.post("/feedback/scan-now")
+async def feedback_scan_now() -> dict:
+    """
+    Manually trigger one feedback scan + apply cycle. For ops/debug.
+
+    Runs FeedbackScanner.scan_once() then immediately calls
+    AutonomousScheduler._apply_synthesis_to_mandates against the live brain,
+    bypassing the 5-minute loop interval.
+    """
+    if not brain or not _autonomous:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+
+    import os
+    from pathlib import Path
+    from ..feedback.scanner import FeedbackScanner
+
+    env_override = os.environ.get("NCL_FEEDBACK_DIR")
+    candidates = []
+    if env_override:
+        candidates.append(Path(env_override).expanduser())
+    candidates.append(Path.cwd() / "feedback-synthesis")
+    candidates.append(brain.data_dir.parent / "feedback-synthesis")
+
+    def _is_real(p: Path) -> bool:
+        return p.exists() and any(
+            (p / sub).exists() for sub in ("aac-reports", "brs-reports", "ncc-reports")
+        )
+
+    base = next((c for c in candidates if _is_real(c)), None)
+    if base is None:
+        raise HTTPException(
+            status_code=500,
+            detail=f"No valid feedback-synthesis dir found (tried: {[str(c) for c in candidates]})",
+        )
+
+    scanner = FeedbackScanner(base_dir=base)
+    note = scanner.scan_once()
+    if note is None:
+        return {"status": "no_reports", "base_dir": str(base)}
+
+    mandates_before = len(brain.mandates)
+    await _autonomous._apply_synthesis_to_mandates(note)
+    mandates_after = len(brain.mandates)
+
+    return {
+        "status": "applied",
+        "base_dir": str(base),
+        "synthesis_id": note.synthesis_id,
+        "reports_consumed": note.reports_consumed,
+        "blockers": len(note.open_blockers),
+        "suggestions": len(note.suggested_adjustments),
+        "mandates_created": mandates_after - mandates_before,
+    }
+
+
 # Awarebot endpoints
 @app.post("/awarebot/scan")
 async def run_awarebot_scan(queries: list[str]) -> dict:
