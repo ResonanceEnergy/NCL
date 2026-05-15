@@ -274,6 +274,24 @@ class CouncilEngine:
         self._paperclip = paperclip_client  # Injected from brain.py
         self._session_costs: dict[str, int] = {}  # session_id → total cents
 
+        # Log council member API key availability at init
+        _key_status = {
+            "Claude": bool(claude_api_key),
+            "Grok (xAI)": bool(xai_api_key),
+            "Gemini (Google)": bool(google_api_key),
+            "Perplexity": bool(perplexity_api_key),
+            "GPT (OpenAI)": bool(openai_api_key),
+            "Copilot": bool(self.copilot_api_key),
+        }
+        _active = [k for k, v in _key_status.items() if v]
+        _missing = [k for k, v in _key_status.items() if not v]
+        log.info(f"Council API keys: {len(_active)}/6 configured — active: {_active}")
+        if _missing:
+            log.warning(
+                f"Council members without API keys (will fallback to Ollama): {_missing}. "
+                f"Set keys in .env to enable paid API access."
+            )
+
     async def spawn_session(
         self, topic: str, prompt: str, members: Optional[list[CouncilMember]] = None
     ) -> CouncilSession:

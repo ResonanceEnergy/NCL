@@ -831,6 +831,32 @@ async def complete_mandate(mandate_id: str, notes: str | None = None) -> dict:
     return {"mandate_id": mandate_id, "status": "completed"}
 
 
+@app.post("/mandates/{mandate_id}/cancel")
+async def cancel_mandate(mandate_id: str, reason: str = "Cancelled by NATRIX") -> dict:
+    """
+    Cancel a mandate (valid from DRAFT or PENDING_APPROVAL).
+
+    Used to dismiss stale or obsolete pending_approval mandates without
+    going through the pump approval flow. Requires mandate to be in a
+    cancellable state.
+    """
+    if not brain:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+
+    mandate = brain.mandates.get(mandate_id)
+    if not mandate:
+        raise HTTPException(status_code=404, detail=f"Mandate not found: {mandate_id}")
+
+    async with brain._mandates_lock:
+        try:
+            mandate.transition_to(MandateStatus.CANCELLED, reason=reason)
+        except ValueError as e:
+            raise HTTPException(status_code=409, detail=f"Invalid transition: {e}")
+        await brain._persist_mandates_unlocked()
+
+    return {"mandate_id": mandate_id, "status": "cancelled", "reason": reason}
+
+
 @app.post("/mandates/purge")
 async def purge_mandates(
     status: str = Query(..., description="Status to purge (e.g. 'pending_approval')"),
