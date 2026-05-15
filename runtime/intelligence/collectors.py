@@ -1377,6 +1377,492 @@ class UnusualWhalesCollector:
             log.warning(f"UW flow-alerts failed: {e}")
         return signals
 
+    async def collect_dark_pool(self, min_premium: float = 1_000_000) -> list[MarketSignal]:
+        """
+        Recent dark-pool prints, filtered by premium threshold.
+
+        Large off-exchange prints often indicate institutional accumulation
+        or distribution invisible on lit markets.
+        """
+        signals: list[MarketSignal] = []
+        if not self.enabled:
+            return signals
+        try:
+            data = await _fetch_json(
+                self._client,
+                f"{self.BASE_URL}/darkpool/recent",
+                params={"limit": 200},
+                headers=self._headers,
+                limiter=self._limiter,
+            )
+            rows = (data or {}).get("data") if isinstance(data, dict) else None
+            if not rows:
+                return signals
+            # Aggregate by ticker for cleaner signal
+            by_ticker: dict[str, dict] = {}
+            for trade in rows:
+                if trade.get("canceled"):
+                    continue
+                ticker = trade.get("ticker", "")
+                premium = float(trade.get("premium", 0) or 0)
+                if not ticker or premium < min_premium:
+                    continue
+                size = float(trade.get("size", 0) or 0)
+                price = float(trade.get("price", 0) or 0)
+                ask = float(trade.get("nbbo_ask", price) or price)
+                bid = float(trade.get("nbbo_bid", price) or price)
+                # Above-ask = aggressive buy; below-bid = aggressive sell
+                if ask > 0 and price >= ask:
+                    side_bias = 1
+                elif bid > 0 and price <= bid:
+                    side_bias = -1
+                else:
+                    side_bias = 0
+                slot = by_ticker.setdefault(ticker, {
+                    "total_prem": 0.0, "total_size": 0.0,
+                    "max_print": 0.0, "side_score": 0, "n_prints": 0,
+                })
+                slot["total_prem"] += premium
+                slot["total_size"] += size
+                slot["max_print"] = max(slot["max_print"], premium)
+                slot["side_score"] += side_bias
+                slot["n_prints"] += 1
+
+            for ticker, agg in by_ticker.items():
+                if agg["side_score"] > 0:
+                    direction = SignalDirection.BULLISH
+                elif agg["side_score"] < 0:
+                    direction = SignalDirection.BEARISH
+                else:
+                    direction = SignalDirection.NEUTRAL
+                conf = min(0.95, 0.5 + (agg["total_prem"] / 50_000_000) * 0.4)
+                signals.append(MarketSignal(
+                    source=SourceType.OPTIONS_FLOW,
+                    category="dark_pool",
+                    title=f"{ticker} dark pool: ${agg['total_prem']:,.0f} across {agg['n_prints']} prints",
+                    content=(
+                        f"{ticker} — total ${agg['total_prem']:,.0f} | "
+                        f"max single ${agg['max_print']:,.0f} | "
+                        f"size {agg['total_size']:,.0f} | side_score {agg['side_score']}"
+                    ),
+                    symbol=ticker,
+                    value=agg["total_prem"],
+                    volume=agg["total_size"],
+                    direction=direction,
+                    confidence=conf,
+                    tags=["dark_pool", ticker.lower(), "institutional"],
+                    metadata={
+                        "max_print": agg["max_print"],
+                        "n_prints": agg["n_prints"],
+                        "side_score": agg["side_score"],
+                    },
+                ))
+        except Exception as e:
+            log.warning(f"UW dark-pool failed: {e}")
+        return signals
+
+    async def collect_greek_exposure(self, tickers: list[str]) -> list[MarketSignal]:
+        """
+        Net dealer greek exposure (delta/gamma/charm/vanna) per ticker.
+
+        Gamma flip signal: when sum(call_gamma, put_gamma) crosses zero,
+        dealer hedging behavior inverts → vol regime shift.
+        """
+        signals: list[MarketSignal] = []
+        if not self.enabled:
+            return signals
+        for ticker in tickers:
+            try:
+                data = await _fetch_json(
+                    self._client,
+                    f"{self.BASE_URL}/stock/{ticker}/greek-exposure",
+                    headers=self._headers,
+                    limiter=self._limiter,
+                )
+                rows = (data or {}).get("data") if isinstance(data, dict) else None
+                if not rows:
+                    continue
+                latest = rows[-1] if isinstance(rows, list) else rows
+                call_delta = float(latest.get("call_delta", 0) or 0)
+                put_delta = float(latest.get("put_delta", 0) or 0)
+                call_gamma = float(latest.get("call_gamma", 0) or 0)
+                put_gamma = float(latest.get("put_gamma", 0) or 0)
+                net_delta = call_delta + put_delta
+                net_gamma = call_gamma + put_gamma
+
+                if net_gamma > 0:
+                    # Long gamma → dealers stabilize, low realized vol
+                    direction = SignalDirection.NEUTRAL
+                    regime = "long_gamma_stable"
+                else:
+                    # Short gamma → dealers amplify, high realized vol
+                    direction = SignalDirection.EXPANDING
+                    regime = "short_gamma_volatile"
+
+                signals.append(MarketSignal(
+                    source=SourceType.OPTIONS_FLOW,
+                    category="greek_exposure",
+                    title=f"{ticker} net gamma {net_gamma:+,.0f} ({regime})",
+                    content=(
+                        f"{ticker} — net delta {net_delta:+,.0f} | "
+                        f"net gamma {net_gamma:+,.0f} | regime {regime}"
+                    ),
+                    symbol=ticker,
+                    value=net_gamma,
+                    direction=direction,
+                    confidence=0.75,
+                    tags=["greek_exposure", ticker.lower(), regime],
+                    metadata={
+                        "call_delta": call_delta,
+                        "put_delta": put_delta,
+                        "call_gamma": call_gamma,
+                        "put_gamma": put_gamma,
+                        "net_delta": net_delta,
+                        "net_gamma": net_gamma,
+                        "regime": regime,
+                        "date": latest.get("date"),
+                    },
+                ))
+            except Exception as e:
+                log.warning(f"UW greek-exposure {ticker} failed: {e}")
+        return signals
+
+    async def collect_max_pain(self, tickers: list[str]) -> list[MarketSignal]:
+        """Max pain strikes per ticker — magnetism into expiry."""
+        signals: list[MarketSignal] = []
+        if not self.enabled:
+            return signals
+        for ticker in tickers:
+            try:
+                data = await _fetch_json(
+                    self._client,
+                    f"{self.BASE_URL}/stock/{ticker}/max-pain",
+                    headers=self._headers,
+                    limiter=self._limiter,
+                )
+                rows = (data or {}).get("data") if isinstance(data, dict) else None
+                if not rows:
+                    continue
+                latest = rows[-1] if isinstance(rows, list) else rows
+                close = float(latest.get("close", 0) or 0)
+                max_pain = float(latest.get("max_pain", 0) or 0)
+                if close == 0 or max_pain == 0:
+                    continue
+                pin_distance_pct = (max_pain - close) / close * 100
+                # Direction = where price would need to go to hit max pain
+                if pin_distance_pct > 1:
+                    direction = SignalDirection.BEARISH  # pin lower
+                elif pin_distance_pct < -1:
+                    direction = SignalDirection.BULLISH  # pin higher
+                else:
+                    direction = SignalDirection.NEUTRAL
+                signals.append(MarketSignal(
+                    source=SourceType.OPTIONS_FLOW,
+                    category="max_pain",
+                    title=f"{ticker} max pain ${max_pain:,.2f} ({pin_distance_pct:+.2f}% from spot)",
+                    content=(
+                        f"{ticker} — spot ${close:,.2f} | max pain ${max_pain:,.2f} | "
+                        f"expiry {latest.get('expiry','?')}"
+                    ),
+                    symbol=ticker,
+                    current_price=close,
+                    value=max_pain,
+                    change_pct=pin_distance_pct,
+                    direction=direction,
+                    confidence=0.65,
+                    tags=["max_pain", ticker.lower()],
+                    metadata={
+                        "expiry": latest.get("expiry"),
+                        "next_upper_strike": latest.get("next_upper_strike"),
+                        "next_lower_strike": latest.get("next_lower_strike"),
+                    },
+                ))
+            except Exception as e:
+                log.warning(f"UW max-pain {ticker} failed: {e}")
+        return signals
+
+    async def collect_sector_etfs(self) -> list[MarketSignal]:
+        """Sector ETF flow snapshot (XLK, XLF, XLE, etc + SPY)."""
+        signals: list[MarketSignal] = []
+        if not self.enabled:
+            return signals
+        try:
+            data = await _fetch_json(
+                self._client,
+                f"{self.BASE_URL}/market/sector-etfs",
+                headers=self._headers,
+                limiter=self._limiter,
+            )
+            rows = (data or {}).get("data") if isinstance(data, dict) else None
+            if not rows:
+                return signals
+            for row in rows:
+                ticker = row.get("ticker", "")
+                if not ticker:
+                    continue
+                last = float(row.get("last", 0) or 0)
+                open_ = float(row.get("open", 0) or 0)
+                call_prem = float(row.get("call_premium", 0) or 0)
+                put_prem = float(row.get("put_premium", 0) or 0)
+                call_vol = float(row.get("call_volume", 0) or 0)
+                put_vol = float(row.get("put_volume", 0) or 0)
+                day_change_pct = ((last - open_) / open_ * 100) if open_ > 0 else 0
+                pcr = (put_vol / call_vol) if call_vol > 0 else 0
+                net_prem = call_prem - put_prem
+
+                if day_change_pct > 0.5 and net_prem > 0:
+                    direction = SignalDirection.BULLISH
+                elif day_change_pct < -0.5 and net_prem < 0:
+                    direction = SignalDirection.BEARISH
+                elif net_prem > 0:
+                    direction = SignalDirection.EXPANDING
+                elif net_prem < 0:
+                    direction = SignalDirection.CONTRACTING
+                else:
+                    direction = SignalDirection.NEUTRAL
+
+                signals.append(MarketSignal(
+                    source=SourceType.OPTIONS_FLOW,
+                    category="sector_rotation",
+                    title=f"{ticker} {day_change_pct:+.2f}% | net opt prem ${net_prem:+,.0f}",
+                    content=(
+                        f"{ticker} ({row.get('full_name','')}) — last ${last:,.2f} | "
+                        f"P/C ratio {pcr:.2f} | call prem ${call_prem:,.0f} | put prem ${put_prem:,.0f}"
+                    ),
+                    symbol=ticker,
+                    current_price=last,
+                    value=net_prem,
+                    change_pct=day_change_pct,
+                    volume=call_vol + put_vol,
+                    direction=direction,
+                    confidence=0.85,
+                    tags=["sector_etf", ticker.lower(), "rotation"],
+                    metadata={
+                        "call_premium": call_prem,
+                        "put_premium": put_prem,
+                        "call_volume": call_vol,
+                        "put_volume": put_vol,
+                        "put_call_ratio": pcr,
+                        "in_out_flow": row.get("in_out_flow"),
+                        "marketcap": row.get("marketcap"),
+                    },
+                ))
+        except Exception as e:
+            log.warning(f"UW sector-etfs failed: {e}")
+        return signals
+
+    async def collect_total_options_volume(self) -> list[MarketSignal]:
+        """Market-wide call/put volume + premium → fear/greed regime gauge."""
+        signals: list[MarketSignal] = []
+        if not self.enabled:
+            return signals
+        try:
+            data = await _fetch_json(
+                self._client,
+                f"{self.BASE_URL}/market/total-options-volume",
+                headers=self._headers,
+                limiter=self._limiter,
+            )
+            rows = (data or {}).get("data") if isinstance(data, dict) else None
+            if not rows:
+                return signals
+            latest = rows[-1] if isinstance(rows, list) else rows
+            call_vol = float(latest.get("call_volume", 0) or 0)
+            put_vol = float(latest.get("put_volume", 0) or 0)
+            call_prem = float(latest.get("call_premium", 0) or 0)
+            put_prem = float(latest.get("put_premium", 0) or 0)
+            if call_vol + put_vol == 0:
+                return signals
+            pcr_volume = put_vol / call_vol if call_vol > 0 else 0
+            put_prem_pct = put_prem / (call_prem + put_prem) if (call_prem + put_prem) > 0 else 0
+            # Classic put/call > 1.0 = fear; < 0.7 = complacency
+            if pcr_volume > 1.0 or put_prem_pct > 0.45:
+                direction = SignalDirection.BEARISH
+                regime = "fear"
+            elif pcr_volume < 0.7 and put_prem_pct < 0.30:
+                direction = SignalDirection.BULLISH
+                regime = "greed"
+            else:
+                direction = SignalDirection.NEUTRAL
+                regime = "balanced"
+            signals.append(MarketSignal(
+                source=SourceType.OPTIONS_FLOW,
+                category="market_regime",
+                title=f"Market regime: {regime} (P/C vol {pcr_volume:.2f}, put prem {put_prem_pct:.0%})",
+                content=(
+                    f"Total call vol {call_vol:,.0f} | put vol {put_vol:,.0f} | "
+                    f"call prem ${call_prem:,.0f} | put prem ${put_prem:,.0f}"
+                ),
+                symbol="MARKET",
+                value=pcr_volume,
+                direction=direction,
+                confidence=0.85,
+                tags=["market_regime", regime, "options_flow"],
+                metadata={
+                    "call_volume": call_vol,
+                    "put_volume": put_vol,
+                    "call_premium": call_prem,
+                    "put_premium": put_prem,
+                    "put_call_ratio_volume": pcr_volume,
+                    "put_premium_pct": put_prem_pct,
+                    "regime": regime,
+                    "date": latest.get("date"),
+                },
+            ))
+        except Exception as e:
+            log.warning(f"UW total-options-volume failed: {e}")
+        return signals
+
+    async def collect_congress_trades(self, limit: int = 50) -> list[IntelSignal]:
+        """Recent US Congress member trades — political insider signal."""
+        signals: list[IntelSignal] = []
+        if not self.enabled:
+            return signals
+        try:
+            data = await _fetch_json(
+                self._client,
+                f"{self.BASE_URL}/congress/recent-trades",
+                params={"limit": limit},
+                headers=self._headers,
+                limiter=self._limiter,
+            )
+            rows = (data or {}).get("data") if isinstance(data, dict) else None
+            if not rows:
+                return signals
+            for trade in rows[:limit]:
+                ticker = trade.get("ticker", "")
+                if not ticker:
+                    continue
+                txn = (trade.get("txn_type") or "").lower()
+                amounts = trade.get("amounts") or ""
+                # Parse upper bound from "$100,001 - $250,000"
+                try:
+                    amt_high = float(amounts.split("-")[-1].replace("$", "").replace(",", "").strip())
+                except Exception:
+                    amt_high = 0
+                if "buy" in txn or "purchase" in txn:
+                    direction = SignalDirection.BULLISH
+                elif "sell" in txn:
+                    direction = SignalDirection.BEARISH
+                else:
+                    direction = SignalDirection.NEUTRAL
+                conf = min(0.85, 0.4 + (amt_high / 1_000_000) * 0.3)
+                signals.append(IntelSignal(
+                    source=SourceType.MARKET_DATA,
+                    category="congress_trade",
+                    title=f"{trade.get('name','?')} {txn} {ticker} ({amounts})",
+                    content=(
+                        f"{trade.get('name','?')} ({trade.get('member_type','?')}) "
+                        f"{txn} {ticker} on {trade.get('transaction_date','?')} | "
+                        f"issuer={trade.get('issuer','?')} | filed {trade.get('filed_at_date','?')}"
+                    ),
+                    value=amt_high,
+                    direction=direction,
+                    confidence=conf,
+                    tags=["congress_trade", ticker.lower(), txn, trade.get('member_type', 'unknown')],
+                    metadata={
+                        "ticker": ticker,
+                        "politician": trade.get("name"),
+                        "politician_id": trade.get("politician_id"),
+                        "issuer": trade.get("issuer"),
+                        "txn_type": trade.get("txn_type"),
+                        "amounts": amounts,
+                        "transaction_date": trade.get("transaction_date"),
+                        "filed_at_date": trade.get("filed_at_date"),
+                        "member_type": trade.get("member_type"),
+                    },
+                ))
+        except Exception as e:
+            log.warning(f"UW congress-trades failed: {e}")
+        return signals
+
+    async def collect_insider_clusters(self, limit: int = 100, min_cluster: int = 3) -> list[IntelSignal]:
+        """
+        Form-4 insider transactions; emit cluster signals when ≥ min_cluster
+        distinct insiders transact same ticker recently (very strong signal).
+        """
+        signals: list[IntelSignal] = []
+        if not self.enabled:
+            return signals
+        try:
+            data = await _fetch_json(
+                self._client,
+                f"{self.BASE_URL}/insider/transactions",
+                params={"limit": limit},
+                headers=self._headers,
+                limiter=self._limiter,
+            )
+            rows = (data or {}).get("data") if isinstance(data, dict) else None
+            if not rows:
+                return signals
+            # Cluster by ticker, count distinct owners, sum value
+            clusters: dict[str, dict] = {}
+            for txn in rows:
+                ticker = txn.get("ticker", "")
+                code = (txn.get("transaction_code") or "").upper()
+                # P = open-market purchase (strongest), S = sale, A/M = grant/option (noise)
+                if not ticker or code not in {"P", "S"}:
+                    continue
+                slot = clusters.setdefault(ticker, {
+                    "owners": set(), "buys": 0, "sells": 0,
+                    "value": 0.0, "officers": 0, "directors": 0,
+                    "sample": txn,
+                })
+                slot["owners"].add(txn.get("owner_name", ""))
+                amount = float(txn.get("amount", 0) or 0)
+                price = float(txn.get("price", 0) or 0) or float(txn.get("stock_price", 0) or 0)
+                slot["value"] += amount * price
+                if code == "P":
+                    slot["buys"] += 1
+                else:
+                    slot["sells"] += 1
+                if txn.get("is_officer"):
+                    slot["officers"] += 1
+                if txn.get("is_director"):
+                    slot["directors"] += 1
+
+            for ticker, agg in clusters.items():
+                n_owners = len(agg["owners"])
+                if n_owners < min_cluster:
+                    continue
+                net = agg["buys"] - agg["sells"]
+                if net > 0:
+                    direction = SignalDirection.BULLISH
+                elif net < 0:
+                    direction = SignalDirection.BEARISH
+                else:
+                    direction = SignalDirection.NEUTRAL
+                conf = min(0.95, 0.55 + n_owners * 0.05 + (agg["officers"] + agg["directors"]) * 0.02)
+                signals.append(IntelSignal(
+                    source=SourceType.MARKET_DATA,
+                    category="insider_cluster",
+                    title=f"{ticker} insider cluster: {n_owners} insiders, net {net:+d} (${agg['value']:,.0f})",
+                    content=(
+                        f"{ticker} — {n_owners} distinct insiders | "
+                        f"buys {agg['buys']} / sells {agg['sells']} | "
+                        f"officers {agg['officers']} | directors {agg['directors']} | "
+                        f"value ${agg['value']:,.0f}"
+                    ),
+                    value=agg["value"],
+                    direction=direction,
+                    confidence=conf,
+                    tags=["insider_cluster", ticker.lower(), "form4"],
+                    metadata={
+                        "ticker": ticker,
+                        "n_owners": n_owners,
+                        "buys": agg["buys"],
+                        "sells": agg["sells"],
+                        "officers": agg["officers"],
+                        "directors": agg["directors"],
+                        "value": agg["value"],
+                        "sector": agg["sample"].get("sector"),
+                        "marketcap": agg["sample"].get("marketcap"),
+                    },
+                ))
+        except Exception as e:
+            log.warning(f"UW insider-clusters failed: {e}")
+        return signals
+
     async def close(self) -> None:
         if not self._client.is_closed:
             await self._client.aclose()

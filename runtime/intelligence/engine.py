@@ -531,6 +531,8 @@ class IntelligenceEngine:
         signals: list[IntelSignal] = []
         if not self._unusual_whales.enabled:
             return signals
+        # Index/macro tickers we always pull greeks/max-pain for
+        macro_tickers = ["SPY", "QQQ", "IWM"]
         try:
             tide = await self._unusual_whales.collect_market_tide()
             signals.extend(tide)
@@ -541,6 +543,41 @@ class IntelligenceEngine:
             signals.extend(flow)
         except Exception as e:
             log.warning(f"UW flow-alerts failed: {e}")
+        try:
+            dp = await self._unusual_whales.collect_dark_pool(min_premium=1_000_000)
+            signals.extend(dp)
+        except Exception as e:
+            log.warning(f"UW dark-pool failed: {e}")
+        try:
+            greeks = await self._unusual_whales.collect_greek_exposure(macro_tickers)
+            signals.extend(greeks)
+        except Exception as e:
+            log.warning(f"UW greek-exposure failed: {e}")
+        try:
+            mp = await self._unusual_whales.collect_max_pain(macro_tickers)
+            signals.extend(mp)
+        except Exception as e:
+            log.warning(f"UW max-pain failed: {e}")
+        try:
+            sect = await self._unusual_whales.collect_sector_etfs()
+            signals.extend(sect)
+        except Exception as e:
+            log.warning(f"UW sector-etfs failed: {e}")
+        try:
+            tot = await self._unusual_whales.collect_total_options_volume()
+            signals.extend(tot)
+        except Exception as e:
+            log.warning(f"UW total-options-volume failed: {e}")
+        try:
+            cong = await self._unusual_whales.collect_congress_trades(limit=50)
+            signals.extend(cong)
+        except Exception as e:
+            log.warning(f"UW congress-trades failed: {e}")
+        try:
+            ins = await self._unusual_whales.collect_insider_clusters(limit=200, min_cluster=3)
+            signals.extend(ins)
+        except Exception as e:
+            log.warning(f"UW insider-clusters failed: {e}")
         return signals
 
     async def _collect_reddit(self) -> list[IntelSignal]:
