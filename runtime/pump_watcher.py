@@ -167,7 +167,7 @@ async def forward_pump_to_brain(pump_file: Path) -> bool:
         if STRIKE_AUTH_TOKEN:
             headers["Authorization"] = f"Bearer {STRIKE_AUTH_TOKEN}"
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=180.0) as client:
             resp = await client.post(
                 f"{NCL_BRAIN_URL}/pump",
                 json=brain_payload,

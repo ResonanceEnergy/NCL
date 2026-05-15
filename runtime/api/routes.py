@@ -399,7 +399,35 @@ async def receive_pump_prompt(
         except Exception as e:
             raise HTTPException(status_code=422, detail=f"Invalid PumpPrompt: {e}")
 
-    result = await brain.receive_pump_prompt(prompt, auto_flow=auto_flow)
+    if auto_flow:
+        # Council pipeline can run for several minutes (multi-LLM rebuttal rounds
+        # falling back to local Ollama). Detach so callers (e.g. pump_watcher)
+        # don't block past their HTTP timeout. Errors are logged via the
+        # task-done callback installed in the autonomous scheduler pattern.
+        async def _run_auto_flow() -> None:
+            try:
+                await brain.receive_pump_prompt(prompt, auto_flow=True)
+            except Exception:
+                log.exception(
+                    f"[/pump] background auto_flow failed for {prompt.prompt_id}"
+                )
+
+        task = asyncio.create_task(_run_auto_flow())
+        task.add_done_callback(
+            lambda t: log.error(
+                f"[/pump] auto_flow task for {prompt.prompt_id} died: {t.exception()!r}"
+            )
+            if t.exception() else None
+        )
+        return {
+            "pump_id": prompt.prompt_id,
+            "intent": prompt.intent,
+            "urgency": prompt.urgency,
+            "mode": "background",
+            "status": "accepted",
+        }
+
+    result = await brain.receive_pump_prompt(prompt, auto_flow=False)
     return result
 
 
