@@ -193,6 +193,9 @@ class NCLBrain:
             emergency_stop=emergency_stop,
         )
 
+        # Research cortex (injected by routes.py at startup to avoid circular imports)
+        self.research_cortex = None
+
         # Process start time (for real uptime reporting in health_check)
         self._started_at: Optional[datetime] = None
 
@@ -1332,7 +1335,7 @@ class NCLBrain:
         Returns:
             Research task status dict
         """
-        if not hasattr(self, "research_cortex") or self.research_cortex is None:
+        if self.research_cortex is None:
             return {"error": "Research Cortex not initialized"}
 
         try:

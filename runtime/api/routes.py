@@ -54,10 +54,21 @@ logging.config.dictConfig({
 
 import aiofiles
 import urllib.request
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Header, Query, Body
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Header, Query, Body, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
+
+# Rate limiting
+try:
+    from slowapi import Limiter, _rate_limit_exceeded_handler
+    from slowapi.util import get_remote_address
+    from slowapi.errors import RateLimitExceeded
+    _limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
+    _has_slowapi = True
+except ImportError:
+    _limiter = None
+    _has_slowapi = False
 
 from .config import load_config, create_config_file
 from ..ncl_brain.brain import NCLBrain
@@ -264,6 +275,11 @@ app = FastAPI(
     description="NCL Brain - Think, Research, Plan, Decide",
     lifespan=lifespan,
 )
+
+# Rate limiting middleware
+if _has_slowapi and _limiter:
+    app.state.limiter = _limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS middleware
 allowed_origins = os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:8000").split(",")
@@ -2927,6 +2943,34 @@ async def search_memory(body: dict) -> dict:
     return {"results": results, "count": len(results)}
 
 
+@app.post("/memory/semantic")
+async def semantic_search_memory(body: dict) -> dict:
+    """Semantic similarity search over memory units using vector embeddings."""
+    if not brain:
+        raise HTTPException(status_code=503, detail="Brain not initialized")
+    query = body.get("query", "")
+    if not query:
+        raise HTTPException(status_code=400, detail="query is required")
+    results = await brain.memory_store.semantic_search(
+        query=query,
+        n_results=body.get("n_results", 10),
+        importance_threshold=body.get("importance_threshold", 0.0),
+    )
+    return {
+        "results": [r.model_dump(mode="json") for r in results],
+        "count": len(results),
+        "query": query,
+    }
+
+
+@app.post("/memory/reindex")
+async def reindex_memory() -> dict:
+    """Rebuild the vector search index from all stored memory units."""
+    if not brain:
+        raise HTTPException(status_code=503, detail="Brain not initialized")
+    return await brain.memory_store.reindex_all()
+
+
 @app.get("/memory/dashboard")
 async def memory_dashboard() -> HTMLResponse:
     """Serve the Memory Dashboard."""
@@ -3976,6 +4020,18 @@ async def list_swarm_agents() -> dict:
     }
 
 
+# ── API Versioning ─────────────────────────────────────────────────────────
+# Mount current app under /v1 prefix while keeping root routes for backwards
+# compatibility. Clients can migrate to /v1/... at their own pace.
+versioned_app = FastAPI(
+    title=f"{config.service_name} (versioned)",
+    version=config.service_version,
+    description="NCL Brain API — versioned gateway",
+)
+versioned_app.mount("/v1", app)  # All routes available under /v1/...
+versioned_app.mount("/", app)    # Backwards compat: root routes still work
+
+
 def main() -> None:
     """Main entry point."""
     import uvicorn
@@ -3993,7 +4049,7 @@ def main() -> None:
     signal.signal(signal.SIGINT, _shutdown)
 
     uvicorn.run(
-        app,
+        versioned_app,
         host=config.host,
         port=config.port,
         log_level="info" if not config.debug else "debug",

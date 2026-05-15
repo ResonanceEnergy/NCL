@@ -153,8 +153,9 @@ docker-compose.override.yml
 /models/
 ~/.ollama/
 
-# Swarm state (runtime artifact)
-runtime/swarm/
+# Swarm source is tracked; only ignore runtime state files
+runtime/swarm/__pycache__/
+runtime/swarm/agents/__pycache__/
 
 # Quarantined pumps (manual triage; not part of pipeline)
 mandate-generation/quarantine/

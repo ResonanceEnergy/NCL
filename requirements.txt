@@ -44,6 +44,13 @@ faster-whisper>=1.0.0
 # lancedb>=0.4.0              # Uncomment for LanceDB fallback
 # sentence-transformers>=2.2.2 # Uncomment for embeddings
 
+# ── Rate Limiting ──────────────────────────────────────────────────────────
+slowapi>=0.1.9
+
+# ── Vector Search ──────────────────────────────────────────────────────────
+chromadb>=0.4.0
+sentence-transformers>=2.2.2
+
 # ── Logging & Resilience ───────────────────────────────────────────────────
 python-json-logger>=2.0.7
 tenacity>=8.2.0

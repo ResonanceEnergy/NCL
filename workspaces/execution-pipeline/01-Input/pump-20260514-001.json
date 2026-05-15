@@ -1,0 +1,22 @@
+{
+  "pump_id": "PUMP-20260514-001",
+  "relay_id": "RLY-20260514175947-F884BBE",
+  "received_at": "2026-05-14T23:59:47.187238+00:00",
+  "source": "first-strike-ios",
+  "pipeline": "STRIKE-POINT",
+  "mandate_ref": "MANDATE-2026-008",
+  "prompt": {
+    "id": "BG-TEST-1778803187",
+    "raw_intent": "background mode test",
+    "formatted_prompt": "Quick test of background pump processing.",
+    "target_pillar": "NCL",
+    "priority": "P3",
+    "timestamp": "2026-05-14T23:59:47Z",
+    "metadata": {
+      "source": "copilot-bg-test",
+      "app_version": "copilot-1.0",
+      "grok_formatted": false,
+      "session_id": "bg-1778803187"
+    }
+  }
+}

@@ -76,6 +76,10 @@ class MemoryStore:
         await self._ensure_capacity()
 
         await self._persist_unit(unit)
+
+        # Index in vector DB for semantic search
+        await self.index_unit(unit)
+
         return unit
 
     async def get_unit(self, unit_id: str) -> Optional[MemUnit]:
@@ -463,6 +467,116 @@ class MemoryStore:
             "avg_importance": avg_importance,
         }
 
+    # ── Vector Search (ChromaDB) ─────────────────────────────────────────────
+    # Adds semantic similarity search alongside existing tag-based search.
+    # Falls back to keyword matching if chromadb is not installed.
+
+    def _init_vector_db(self) -> bool:
+        """Lazily initialize ChromaDB collection. Returns True on success."""
+        if hasattr(self, "_chroma_collection"):
+            return self._chroma_collection is not None
+        try:
+            import chromadb
+            self._chroma_client = chromadb.PersistentClient(
+                path=str(self.data_dir / "chromadb")
+            )
+            self._chroma_collection = self._chroma_client.get_or_create_collection(
+                name="ncl_memory",
+                metadata={"hnsw:space": "cosine"},
+            )
+            log.info(f"ChromaDB initialized at {self.data_dir / 'chromadb'}")
+            return True
+        except ImportError:
+            log.info("chromadb not installed — using keyword fallback for semantic search")
+            self._chroma_collection = None
+            return False
+        except Exception as e:
+            log.warning(f"ChromaDB init failed: {e} — using keyword fallback")
+            self._chroma_collection = None
+            return False
+
+    async def index_unit(self, unit: MemUnit) -> None:
+        """Add a memory unit to the vector index for semantic search."""
+        if not self._init_vector_db():
+            return
+        try:
+            self._chroma_collection.upsert(
+                ids=[unit.unit_id],
+                documents=[unit.content],
+                metadatas=[{
+                    "source": unit.source,
+                    "importance": unit.importance,
+                    "tags": ",".join(unit.tags),
+                    "created_at": unit.created_at.isoformat(),
+                }],
+            )
+        except Exception as e:
+            log.warning(f"Failed to index unit {unit.unit_id}: {e}")
+
+    async def semantic_search(
+        self,
+        query: str,
+        n_results: int = 10,
+        importance_threshold: float = 0.0,
+    ) -> list[MemUnit]:
+        """
+        Search memory by semantic similarity using ChromaDB embeddings.
+
+        Falls back to keyword matching if ChromaDB is unavailable.
+
+        Args:
+            query: Natural language search query
+            n_results: Max results to return
+            importance_threshold: Minimum importance score
+
+        Returns:
+            List of matching MemUnits sorted by relevance
+        """
+        if self._init_vector_db():
+            try:
+                results = self._chroma_collection.query(
+                    query_texts=[query],
+                    n_results=n_results * 2,  # Over-fetch, then filter
+                )
+                if results and results["ids"] and results["ids"][0]:
+                    unit_ids = results["ids"][0]
+                    units = []
+                    for uid in unit_ids:
+                        unit = await self._load_unit(uid)
+                        if unit and unit.importance >= importance_threshold:
+                            units.append(unit)
+                        if len(units) >= n_results:
+                            break
+                    return units
+            except Exception as e:
+                log.warning(f"ChromaDB search failed, using keyword fallback: {e}")
+
+        # Keyword fallback — split query into words and match against content
+        query_words = set(query.lower().split())
+        units = await self._load_all_units()
+        scored = []
+        for unit in units:
+            if unit.importance < importance_threshold:
+                continue
+            content_words = set(unit.content.lower().split())
+            overlap = len(query_words & content_words)
+            if overlap > 0:
+                scored.append((overlap, unit))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [unit for _, unit in scored[:n_results]]
+
+    async def reindex_all(self) -> dict:
+        """Rebuild the entire vector index from JSONL store."""
+        if not self._init_vector_db():
+            return {"status": "chromadb_unavailable", "indexed": 0}
+        units = await self._load_all_units()
+        indexed = 0
+        for unit in units:
+            await self.index_unit(unit)
+            indexed += 1
+        return {"status": "ok", "indexed": indexed}
+
     async def close(self) -> None:
-        """Cleanup (no-op for file-based store, placeholder for future DB)."""
+        """Cleanup resources."""
+        # ChromaDB PersistentClient auto-persists; no explicit close needed
         pass
