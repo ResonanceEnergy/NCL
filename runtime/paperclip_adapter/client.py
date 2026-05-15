@@ -1,9 +1,8 @@
 """
-NCL Paperclip adapter client.
+NCL Paperclip adapter client — Direct HTTP implementation.
 
-Wraps the universal PaperclipClient from nartix-shared and provides
-NCL-specific convenience methods for mandate registration, cost tracking,
-and activity logging.
+Talks directly to the Paperclip API via httpx. No external nartix_shared
+dependency required.
 
 Built against REAL Paperclip API endpoints:
   - POST   /api/companies                       → Create company
@@ -14,6 +13,9 @@ Built against REAL Paperclip API endpoints:
   - POST   /api/companies/:id/approvals         → Request approval
   - GET    /api/companies/:id/activity          → Audit log
   - GET    /api/companies/:id/budgets/overview  → Budget overview
+  - GET    /api/companies/:id/agents            → List agents
+  - GET    /api/companies/:id/issues            → List issues
+  - GET    /health                              → Health check
 """
 
 import asyncio
@@ -22,12 +24,13 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Callable, Coroutine, Optional, TypeVar
 
+import httpx
+
 log = logging.getLogger("ncl.paperclip_adapter")
 
 _T = TypeVar("_T")
-_DEFAULT_TIMEOUT = 10.0      # seconds — applied when universal client is unavailable
-_RETRY_ATTEMPTS = 3          # total attempts
-_RETRY_BASE_DELAY = 1.0      # seconds — doubles on each retry
+_RETRY_ATTEMPTS = 3
+_RETRY_BASE_DELAY = 1.0
 
 
 async def _with_retry(
@@ -37,22 +40,26 @@ async def _with_retry(
     base_delay: float = _RETRY_BASE_DELAY,
     label: str = "operation",
 ) -> _T:
-    """
-    Call ``coro_fn()`` up to ``attempts`` times with exponential backoff.
-
-    Raises the last exception if all attempts are exhausted.
-    """
+    """Call ``coro_fn()`` up to ``attempts`` times with exponential backoff."""
     last_exc: Exception = RuntimeError("no attempts made")
     for attempt in range(1, attempts + 1):
         try:
             return await coro_fn()
+        except httpx.HTTPStatusError as exc:
+            last_exc = exc
+            # Don't retry client errors (4xx)
+            if 400 <= exc.response.status_code < 500:
+                raise
+            if attempt == attempts:
+                break
+            delay = base_delay * (2 ** (attempt - 1))
+            log.warning(
+                "%s failed (attempt %d/%d): %s — retrying in %.1fs",
+                label, attempt, attempts, exc, delay,
+            )
+            await asyncio.sleep(delay)
         except Exception as exc:
             last_exc = exc
-            # Do not retry client errors (4xx) — they won't succeed on retry
-            if hasattr(exc, "response") and exc.response is not None:
-                status = getattr(exc.response, "status_code", None)
-                if status is not None and 400 <= status < 500:
-                    raise
             if attempt == attempts:
                 break
             delay = base_delay * (2 ** (attempt - 1))
@@ -66,11 +73,9 @@ async def _with_retry(
 
 class PaperclipClient:
     """
-    NCL-specific Paperclip client with mandate lifecycle and cost tracking.
+    NCL Paperclip client using direct HTTP calls via httpx.
 
-    This client wraps the universal PaperclipClient from nartix-shared
-    and adds NCL-specific business logic for mandate registration,
-    activity logging, and cost reporting.
+    No dependency on nartix_shared — talks straight to the Paperclip REST API.
     """
 
     def __init__(
@@ -81,86 +86,77 @@ class PaperclipClient:
         session_token: Optional[str] = None,
         timeout: float = 15.0,
     ) -> None:
-        """
-        Initialize NCL Paperclip client.
-
-        Args:
-            base_url: Paperclip server URL (e.g., http://localhost:3100)
-                     Defaults to PAPERCLIP_URL env var or http://localhost:3100
-            company_id: Company UUID (loaded from cache or created on first use)
-                       Defaults to PAPERCLIP_COMPANY_ID env var
-            agent_api_key: Agent API key in format "publicKey:secretKey"
-                          Defaults to PAPERCLIP_AGENT_KEY env var
-            session_token: Board session token for admin operations
-                          Defaults to PAPERCLIP_SESSION_TOKEN env var
-            timeout: HTTP timeout in seconds (default: 15)
-        """
-        # Import the universal client here to avoid hard dependency
-        try:
-            from nartix_shared.paperclip.client import PaperclipClient as UniversalClient
-            self._universal_client_class = UniversalClient
-        except ImportError:
-            log.warning(
-                "Could not import universal PaperclipClient from nartix-shared. "
-                "Will use local implementation."
-            )
-            self._universal_client_class = None
-
-        self.base_url = base_url or os.getenv("PAPERCLIP_URL", "http://localhost:3100")
+        self.base_url = (base_url or os.getenv("PAPERCLIP_URL", "http://localhost:3100")).rstrip("/")
         self.company_id = company_id or os.getenv("PAPERCLIP_COMPANY_ID", "")
         self.agent_api_key = agent_api_key or os.getenv("PAPERCLIP_AGENT_KEY", "")
         self.session_token = session_token or os.getenv("PAPERCLIP_SESSION_TOKEN", "")
         self.timeout = timeout
 
-        # Initialize the wrapped universal client
-        if self._universal_client_class:
-            self._client = self._universal_client_class(
-                base_url=self.base_url,
-                company_id=self.company_id,
-                agent_api_key=self.agent_api_key,
-                session_token=self.session_token,
-                timeout=timeout,
-            )
-        else:
-            self._client = None
+        # Build default headers
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        if self.agent_api_key:
+            headers["Authorization"] = f"Bearer {self.agent_api_key}"
+        if self.session_token:
+            headers["X-Session-Token"] = self.session_token
 
-        # Cache for NCL-specific registrations
+        self._http = httpx.AsyncClient(
+            base_url=self.base_url,
+            headers=headers,
+            timeout=httpx.Timeout(timeout),
+        )
+
+        # Cache for registrations
         self.agent_ids: dict[str, str] = {}
         self.issue_ids: dict[str, str] = {}  # mandate_id -> issue_id
 
-        log.info(f"NCL Paperclip adapter initialized (url: {self.base_url})")
+        log.info(f"NCL Paperclip adapter initialized (url: {self.base_url}, company: {self.company_id})")
+
+    # ── Internal helpers ─────────────────────────────────────────────────
+
+    def _company_url(self, path: str = "") -> str:
+        """Build URL under /api/companies/:id/..."""
+        if not self.company_id:
+            raise RuntimeError("Company not registered. Call register_company() first or set PAPERCLIP_COMPANY_ID.")
+        return f"/api/companies/{self.company_id}{path}"
+
+    async def _get(self, path: str, params: Optional[dict] = None) -> Any:
+        resp = await self._http.get(path, params=params)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def _post(self, path: str, json: Optional[dict] = None) -> Any:
+        resp = await self._http.post(path, json=json or {})
+        resp.raise_for_status()
+        return resp.json()
+
+    async def _patch(self, path: str, json: Optional[dict] = None) -> Any:
+        resp = await self._http.patch(path, json=json or {})
+        resp.raise_for_status()
+        return resp.json()
+
+    # ── Company ──────────────────────────────────────────────────────────
 
     async def register_company(
         self, name: str = "NCL Brain", description: str = "", budget_monthly_cents: int = 100000
     ) -> str:
+        """Register NCL as a company in Paperclip. Returns company ID.
+
+        If PAPERCLIP_COMPANY_ID is already set (agent-key auth flow), skip
+        the POST /api/companies call (which is admin-only and 403s for
+        agent keys). The brain doesn't need to create a company — it just
+        needs to know its ID.
         """
-        Register NCL as a company in Paperclip.
-
-        Args:
-            name: Company name (default: "NCL Brain")
-            description: Company description
-            budget_monthly_cents: Monthly budget in cents (default: $1000)
-
-        Returns:
-            Company ID (stored in self.company_id for future operations)
-
-        Raises:
-            RuntimeError: If Paperclip is unavailable or API fails
-        """
-        if not self._client:
-            raise RuntimeError(
-                "Universal Paperclip client not available. "
-                "Ensure nartix-shared is installed."
-            )
-
+        if self.company_id:
+            log.info(f"Using pre-configured company_id: {self.company_id}")
+            return self.company_id
         try:
             result = await _with_retry(
-                lambda: self._client.create_company(
-                    name=name,
-                    description=description or "NCL - Think, Research, Plan, Decide",
-                    issue_prefix="NCL",
-                    budget_monthly_cents=budget_monthly_cents,
-                ),
+                lambda: self._post("/api/companies", json={
+                    "name": name,
+                    "description": description or "NCL - Think, Research, Plan, Decide",
+                    "issuePrefix": "NCL",
+                    "budgetMonthlyCents": budget_monthly_cents,
+                }),
                 label="register_company",
             )
             self.company_id = result.get("id", self.company_id)
@@ -170,43 +166,29 @@ class PaperclipClient:
             log.error(f"Failed to register company: {e}")
             raise RuntimeError(f"Company registration failed: {e}") from e
 
+    # ── Agents ───────────────────────────────────────────────────────────
+
     async def register_agent(
-        self, name: str, description: str, role: str = "general"
+        self, name: str, description: str = "", role: str = "general"
     ) -> str:
+        """Register a sub-division as an agent. Returns agent ID.
+
+        Idempotent: if an agent with this name already exists in the
+        company, return its ID instead of failing.
         """
-        Register a sub-division as an agent in Paperclip.
-
-        Args:
-            name: Agent name (e.g., "UNI Research", "Awarebot-FPC")
-            description: Agent description
-            role: Agent role ("general", "specialist", "ceo")
-
-        Returns:
-            Agent ID (cached in self.agent_ids[name])
-
-        Raises:
-            RuntimeError: If company not registered or API fails
-        """
-        if not self.company_id:
-            raise RuntimeError("Company not registered. Call register_company() first.")
-
-        if not self._client:
-            raise RuntimeError("Universal Paperclip client not available.")
-
         try:
-            # Map NCL-specific roles to Paperclip roles
             paperclip_role = self._map_role(role)
-
             result = await _with_retry(
-                lambda: self._client.create_agent(
-                    name=name,
-                    role=paperclip_role,
-                    adapter_type="claude_local",
-                    adapter_config={
+                lambda: self._post(self._company_url("/agents"), json={
+                    "name": name,
+                    "role": paperclip_role,
+                    "adapterType": "claude_local",
+                    "adapterConfig": {
                         "name": name,
                         "model": "claude-opus-4-6",
+                        "description": description,
                     },
-                ),
+                }),
                 label=f"register_agent:{name}",
             )
             agent_id = result.get("id", "")
@@ -215,8 +197,40 @@ class PaperclipClient:
                 log.info(f"Registered agent '{name}' (id: {agent_id})")
             return agent_id
         except Exception as e:
-            log.error(f"Failed to register agent '{name}': {e}")
-            raise RuntimeError(f"Agent registration failed for '{name}': {e}") from e
+            # Try to look up an existing agent by name (idempotent path)
+            try:
+                existing = await self.list_agents()
+                for a in existing:
+                    if a.get("name") == name:
+                        agent_id = a.get("id", "")
+                        self.agent_ids[name] = agent_id
+                        log.info(f"Agent '{name}' already exists (id: {agent_id}) — reusing")
+                        return agent_id
+            except Exception:
+                pass
+            # Agent-key auth can't create new agents (admin-only). Don't
+            # fail brain startup — log and return empty id so init proceeds.
+            log.warning(
+                f"Could not register agent '{name}' ({e}); continuing without it. "
+                "Create the agent in Paperclip UI if needed."
+            )
+            return ""
+
+    async def list_agents(self, status: Optional[str] = None) -> list[dict]:
+        """List all agents in the company."""
+        try:
+            params = {}
+            if status:
+                params["status"] = status
+            result = await self._get(self._company_url("/agents"), params=params or None)
+            agents = result if isinstance(result, list) else result.get("data", result.get("agents", []))
+            log.info(f"Retrieved {len(agents)} agents")
+            return agents
+        except Exception as e:
+            log.error(f"Failed to list agents: {e}")
+            raise RuntimeError(f"Agent listing failed: {e}") from e
+
+    # ── Mandates (Issues) ────────────────────────────────────────────────
 
     async def create_mandate_as_issue(
         self,
@@ -229,39 +243,8 @@ class PaperclipClient:
         success_criteria: Optional[list[str]] = None,
         deadline: Optional[str] = None,
     ) -> str:
-        """
-        Create a NARTIX mandate as a Paperclip issue.
-
-        Maps mandate fields to issue fields:
-          mandate_id → description
-          pillar → label
-          priority → priority
-          success_criteria → description bullets
-
-        Args:
-            mandate_id: NCL mandate ID (e.g., "MANDATE-001")
-            pillar: Target pillar (NCC, BRS, AAC)
-            title: Mandate title
-            objective: Strategic objective
-            priority: Priority level ("low", "medium", "high", "critical")
-            assigned_agent_id: Agent UUID to assign
-            success_criteria: List of success criteria
-            deadline: Optional deadline (ISO 8601 format)
-
-        Returns:
-            Issue ID (cached in self.issue_ids[mandate_id])
-
-        Raises:
-            RuntimeError: If company not registered or API fails
-        """
-        if not self.company_id:
-            raise RuntimeError("Company not registered. Call register_company() first.")
-
-        if not self._client:
-            raise RuntimeError("Universal Paperclip client not available.")
-
+        """Create a NARTIX mandate as a Paperclip issue. Returns issue ID."""
         try:
-            # Build description with mandate metadata
             description_parts = [
                 f"**Mandate ID**: {mandate_id}",
                 f"**Pillar**: {pillar}",
@@ -274,16 +257,17 @@ class PaperclipClient:
             if deadline:
                 description_parts.append(f"\n**Deadline**: {deadline}")
 
+            body: dict[str, Any] = {
+                "title": title,
+                "description": "\n".join(description_parts),
+                "priority": priority,
+                "labels": [pillar],
+            }
+            if assigned_agent_id:
+                body["assignedAgentId"] = assigned_agent_id
+
             result = await _with_retry(
-                lambda: self._client.create_mandate_as_issue(
-                    mandate_id=mandate_id,
-                    pillar=pillar,
-                    title=title,
-                    objective=objective,
-                    priority=priority,
-                    assigned_agent_id=assigned_agent_id,
-                    success_criteria=success_criteria,
-                ),
+                lambda: self._post(self._company_url("/issues"), json=body),
                 label=f"create_mandate_as_issue:{mandate_id}",
             )
             issue_id = result.get("id", "")
@@ -298,40 +282,43 @@ class PaperclipClient:
     async def update_mandate_status(
         self, mandate_id: str, status: str, notes: Optional[str] = None
     ) -> None:
-        """
-        Update mandate issue status.
-
-        Args:
-            mandate_id: Mandate ID (must have been created via create_mandate_as_issue)
-            status: New status ("open", "in_progress", "closed")
-            notes: Optional completion notes
-
-        Raises:
-            RuntimeError: If mandate not found or API fails
-        """
+        """Update mandate issue status."""
         issue_id = self.issue_ids.get(mandate_id)
         if not issue_id:
             raise RuntimeError(
                 f"Mandate '{mandate_id}' not found. "
                 f"Create it first via create_mandate_as_issue()."
             )
-
-        if not self._client:
-            raise RuntimeError("Universal Paperclip client not available.")
-
         try:
+            body: dict[str, Any] = {"status": status}
+            if notes and status == "closed":
+                body["description"] = f"Completed: {notes}"
             await _with_retry(
-                lambda: self._client.update_issue(
-                    issue_id=issue_id,
-                    status=status,
-                    description=f"Completed: {notes}" if notes and status == "closed" else None,
-                ),
+                lambda: self._patch(self._company_url(f"/issues/{issue_id}"), json=body),
                 label=f"update_mandate_status:{mandate_id}",
             )
             log.info(f"Updated mandate '{mandate_id}' to status '{status}'")
         except Exception as e:
             log.error(f"Failed to update mandate '{mandate_id}' status: {e}")
             raise RuntimeError(f"Mandate status update failed for '{mandate_id}': {e}") from e
+
+    async def list_issues(
+        self, status: Optional[str] = None, limit: int = 50
+    ) -> list[dict]:
+        """List all issues (mandates) in the company."""
+        try:
+            params: dict[str, Any] = {"limit": limit}
+            if status:
+                params["status"] = status
+            result = await self._get(self._company_url("/issues"), params=params)
+            issues = result if isinstance(result, list) else result.get("data", result.get("issues", []))
+            log.info(f"Retrieved {len(issues)} issues (status: {status or 'any'})")
+            return issues
+        except Exception as e:
+            log.error(f"Failed to list issues: {e}")
+            raise RuntimeError(f"Issue listing failed: {e}") from e
+
+    # ── Cost tracking ────────────────────────────────────────────────────
 
     async def report_cost(
         self,
@@ -340,46 +327,27 @@ class PaperclipClient:
         cost_cents: int,
         metadata: Optional[dict[str, Any]] = None,
     ) -> str:
-        """
-        Report an API cost event for an agent.
-
-        Args:
-            agent_name: Agent name (must have been registered via register_agent)
-            model: Model name (e.g., "claude-sonnet-4-6", "grok-3")
-            cost_cents: Cost in cents
-            metadata: Optional metadata
-
-        Returns:
-            Cost event ID
-
-        Raises:
-            RuntimeError: If agent not found or API fails
-        """
+        """Report an API cost event. Returns cost event ID."""
         agent_id = self.agent_ids.get(agent_name)
         if not agent_id:
             raise RuntimeError(
                 f"Agent '{agent_name}' not found. Register it first via register_agent()."
             )
-
-        if not self._client:
-            raise RuntimeError("Universal Paperclip client not available.")
-
         try:
-            result = await self._client.report_cost(
-                agent_id=agent_id,
-                model=model,
-                cost_cents=cost_cents,
-                metadata=metadata,
-            )
+            result = await self._post(self._company_url("/cost-events"), json={
+                "agentId": agent_id,
+                "model": model,
+                "costCents": cost_cents,
+                "metadata": metadata or {},
+            })
             cost_id = result.get("id", "")
-            log.info(
-                f"Reported cost for '{agent_name}' on {model}: {cost_cents} cents "
-                f"(event: {cost_id})"
-            )
+            log.info(f"Reported cost for '{agent_name}' on {model}: {cost_cents} cents (event: {cost_id})")
             return cost_id
         except Exception as e:
             log.error(f"Failed to report cost for '{agent_name}': {e}")
             raise RuntimeError(f"Cost reporting failed for '{agent_name}': {e}") from e
+
+    # ── Activity log ─────────────────────────────────────────────────────
 
     async def log_activity(
         self,
@@ -388,168 +356,61 @@ class PaperclipClient:
         agent_name: Optional[str] = None,
         details: Optional[dict[str, Any]] = None,
     ) -> None:
-        """
-        Log an activity for audit trail.
-
-        This is a convenience method that leverages Paperclip's auto-logging
-        of issue and agent operations. For custom events, we create cost events
-        with 0 cost as markers.
-
-        Args:
-            action: Action performed (e.g., "mandate_created", "council_spawned")
-            entity_type: Entity type (e.g., "mandate", "council", "feedback")
-            agent_name: Agent that performed the action
-            details: Additional metadata
-
-        Raises:
-            RuntimeError: If agent not found (if agent_name provided)
-        """
-        if not self._client:
-            raise RuntimeError("Universal Paperclip client not available.")
-
-        agent_id = None
+        """Log an activity for audit trail (uses 0-cost event as marker)."""
+        agent_id = ""
         if agent_name:
-            agent_id = self.agent_ids.get(agent_name)
+            agent_id = self.agent_ids.get(agent_name, "")
             if not agent_id:
-                raise RuntimeError(
-                    f"Agent '{agent_name}' not found. Register it first via register_agent()."
-                )
+                log.warning(f"Agent '{agent_name}' not in cache, logging without agent_id")
 
         try:
-            # Use cost event with 0 cost as audit marker
-            await self._client.report_cost(
-                agent_id=agent_id or "",
-                model="audit",
-                cost_cents=0,
-                metadata={
+            await self._post(self._company_url("/cost-events"), json={
+                "agentId": agent_id,
+                "model": "audit",
+                "costCents": 0,
+                "metadata": {
                     "action": action,
                     "entity_type": entity_type,
                     "details": details or {},
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 },
-            )
-            log.info(
-                f"Logged activity: [{action}] {entity_type} "
-                f"by agent:{agent_name or 'system'}"
-            )
+            })
+            log.info(f"Logged activity: [{action}] {entity_type} by agent:{agent_name or 'system'}")
         except Exception as e:
             log.error(f"Failed to log activity [{action}]: {e}")
             raise RuntimeError(f"Activity logging failed: {e}") from e
 
-    async def get_budget_overview(self) -> dict:
-        """
-        Get budget status for the company.
-
-        Returns:
-            Dict with company and per-agent budget breakdown
-
-        Raises:
-            RuntimeError: If company not registered or API fails
-        """
-        if not self.company_id:
-            raise RuntimeError("Company not registered. Call register_company() first.")
-
-        if not self._client:
-            raise RuntimeError("Universal Paperclip client not available.")
-
+    async def get_activity_log(
+        self, agent_name: Optional[str] = None, limit: int = 50
+    ) -> list[dict]:
+        """Retrieve activity log."""
         try:
-            result = await self._client.get_budget_overview()
+            params: dict[str, Any] = {"limit": limit}
+            if agent_name:
+                agent_id = self.agent_ids.get(agent_name)
+                if agent_id:
+                    params["agentId"] = agent_id
+            result = await self._get(self._company_url("/activity"), params=params)
+            activities = result if isinstance(result, list) else result.get("data", result.get("activities", []))
+            log.info(f"Retrieved {len(activities)} activity entries")
+            return activities
+        except Exception as e:
+            log.error(f"Failed to get activity log: {e}")
+            raise RuntimeError(f"Activity log retrieval failed: {e}") from e
+
+    # ── Budget ───────────────────────────────────────────────────────────
+
+    async def get_budget_overview(self) -> dict:
+        """Get budget status for the company."""
+        try:
+            result = await self._get(self._company_url("/budgets/overview"))
             log.info(f"Retrieved budget overview for company {self.company_id}")
             return result
         except Exception as e:
             log.error(f"Failed to get budget overview: {e}")
             raise RuntimeError(f"Budget overview retrieval failed: {e}") from e
 
-    async def list_agents(self, status: Optional[str] = None) -> list[dict]:
-        """
-        List all agents in the company.
-
-        Args:
-            status: Optional status filter ("active", "inactive", etc.)
-
-        Returns:
-            List of agent dicts
-
-        Raises:
-            RuntimeError: If company not registered or API fails
-        """
-        if not self.company_id:
-            raise RuntimeError("Company not registered. Call register_company() first.")
-
-        if not self._client:
-            raise RuntimeError("Universal Paperclip client not available.")
-
-        try:
-            agents = await self._client.list_agents(status=status)
-            log.info(f"Retrieved {len(agents)} agents")
-            return agents
-        except Exception as e:
-            log.error(f"Failed to list agents: {e}")
-            raise RuntimeError(f"Agent listing failed: {e}") from e
-
-    async def list_issues(
-        self, status: Optional[str] = None, limit: int = 50
-    ) -> list[dict]:
-        """
-        List all issues (mandates) in the company.
-
-        Args:
-            status: Optional status filter ("open", "in_progress", "closed")
-            limit: Max results (default: 50)
-
-        Returns:
-            List of issue dicts
-
-        Raises:
-            RuntimeError: If company not registered or API fails
-        """
-        if not self.company_id:
-            raise RuntimeError("Company not registered. Call register_company() first.")
-
-        if not self._client:
-            raise RuntimeError("Universal Paperclip client not available.")
-
-        try:
-            issues = await self._client.list_issues(status=status, limit=limit)
-            log.info(f"Retrieved {len(issues)} issues (status: {status or 'any'})")
-            return issues
-        except Exception as e:
-            log.error(f"Failed to list issues: {e}")
-            raise RuntimeError(f"Issue listing failed: {e}") from e
-
-    async def get_activity_log(
-        self, agent_name: Optional[str] = None, limit: int = 50
-    ) -> list[dict]:
-        """
-        Retrieve activity log (audit trail).
-
-        Args:
-            agent_name: Filter by agent (optional)
-            limit: Max results (default: 50)
-
-        Returns:
-            List of activity dicts
-
-        Raises:
-            RuntimeError: If company not registered or API fails
-        """
-        if not self.company_id:
-            raise RuntimeError("Company not registered. Call register_company() first.")
-
-        if not self._client:
-            raise RuntimeError("Universal Paperclip client not available.")
-
-        agent_id = None
-        if agent_name:
-            agent_id = self.agent_ids.get(agent_name)
-
-        try:
-            activities = await self._client.get_activity_log(agent_id=agent_id, limit=limit)
-            log.info(f"Retrieved {len(activities)} activity entries")
-            return activities
-        except Exception as e:
-            log.error(f"Failed to get activity log: {e}")
-            raise RuntimeError(f"Activity log retrieval failed: {e}") from e
+    # ── Approvals ────────────────────────────────────────────────────────
 
     async def request_mandate_approval(
         self,
@@ -557,94 +418,81 @@ class PaperclipClient:
         approval_type: str = "mandate_execution",
         notes: Optional[str] = None,
     ) -> str:
-        """
-        Request board approval for a mandate.
-
-        Args:
-            mandate_id: Mandate ID
-            approval_type: Type of approval (default: "mandate_execution")
-            notes: Optional notes for the approval request
-
-        Returns:
-            Approval request ID
-
-        Raises:
-            RuntimeError: If mandate not found or API fails
-        """
+        """Request board approval for a mandate. Returns approval ID."""
         issue_id = self.issue_ids.get(mandate_id)
         if not issue_id:
             raise RuntimeError(
                 f"Mandate '{mandate_id}' not found. "
                 f"Create it first via create_mandate_as_issue()."
             )
-
-        if not self._client:
-            raise RuntimeError("Universal Paperclip client not available.")
-
         try:
-            result = await self._client.request_approval(
-                approval_type=approval_type,
-                payload={
+            result = await self._post(self._company_url("/approvals"), json={
+                "approvalType": approval_type,
+                "payload": {
                     "mandate_id": mandate_id,
                     "notes": notes or "",
                 },
-                requested_by_agent_id="",  # Will use authenticated agent
-                issue_ids=[issue_id],
-            )
+                "issueIds": [issue_id],
+            })
             approval_id = result.get("id", "")
-            log.info(
-                f"Requested approval for mandate '{mandate_id}' "
-                f"(approval: {approval_id})"
-            )
+            log.info(f"Requested approval for mandate '{mandate_id}' (approval: {approval_id})")
             return approval_id
         except Exception as e:
             log.error(f"Failed to request approval for mandate '{mandate_id}': {e}")
-            raise RuntimeError(
-                f"Approval request failed for mandate '{mandate_id}': {e}"
-            ) from e
+            raise RuntimeError(f"Approval request failed for mandate '{mandate_id}': {e}") from e
+
+    # ── Health ───────────────────────────────────────────────────────────
 
     async def health_check(self) -> bool:
-        """
-        Check if Paperclip server is reachable and healthy.
-
-        Returns:
-            True if healthy, False otherwise
-        """
-        if not self._client:
-            log.warning("Universal client not available, health check skipped")
-            return False
-
+        """Check if Paperclip server is reachable and healthy."""
         try:
-            is_healthy = await self._client.health_check()
-            status = "OK" if is_healthy else "UNHEALTHY"
+            resp = await self._http.get("/health")
+            is_healthy = resp.status_code == 200
+            status = "OK" if is_healthy else f"UNHEALTHY ({resp.status_code})"
             log.info(f"Paperclip health check: {status}")
             return is_healthy
         except Exception as e:
             log.error(f"Health check failed: {e}")
             return False
 
+    # ── Lifecycle ────────────────────────────────────────────────────────
+
     async def close(self) -> None:
         """Close HTTP client and cleanup."""
-        if self._client:
-            await self._client.close()
-            log.info("NCL Paperclip client closed")
+        await self._http.aclose()
+        log.info("NCL Paperclip client closed")
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        await self.close()
+
+    # ── Helpers ──────────────────────────────────────────────────────────
 
     @staticmethod
     def _map_role(role: str) -> str:
-        """
-        Map NCL-specific roles to Paperclip roles.
+        """Map NCL-specific roles to Paperclip roles.
 
-        Args:
-            role: NCL role string
-
-        Returns:
-            Paperclip role string
+        Valid Paperclip roles: ceo, cto, cmo, cfo, engineer, designer,
+        pm, qa, devops, researcher, general
         """
         role_map = {
-            "research": "specialist",
-            "intelligence": "specialist",
+            "research": "researcher",
+            "intelligence": "researcher",
             "strategy": "general",
             "memory": "general",
-            "executor": "general",
+            "executor": "engineer",
+            "council_moderator": "ceo",
+            "investigate_factcheck": "researcher",
+            "youtube_news_trends": "researcher",
+            "mobile_intelligence": "pm",
+            "execution_support": "engineer",
+            "fast_reasoning": "general",
+            "scenario_analysis": "researcher",
+            "revenue_operations": "cmo",
+            "youtube_intelligence": "researcher",
+            "x_intelligence": "researcher",
+            "intelligence_scanning": "researcher",
         }
-        return role_map.get(role, role)
+        return role_map.get(role, "general")

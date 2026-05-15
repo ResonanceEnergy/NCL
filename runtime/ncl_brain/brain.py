@@ -20,7 +20,7 @@ import httpx
 # ---------------------------------------------------------------------------
 
 _REQUIRED_ENV_VARS = [
-    "CLAUDE_API_KEY",
+    "ANTHROPIC_API_KEY",
 ]
 
 _OPTIONAL_BUT_WARNED_ENV_VARS = [
@@ -30,7 +30,21 @@ _OPTIONAL_BUT_WARNED_ENV_VARS = [
 
 
 def _validate_config() -> None:
-    """Validate required environment variables exist at import time."""
+    """Validate required environment variables exist at import time.
+
+    Loads .env file first since pydantic_settings only populates the Settings
+    object, not os.environ, and the restart script doesn't source .env either.
+    """
+    # Load .env into os.environ if not already set (lightweight, no dependencies)
+    env_path = Path(__file__).resolve().parents[2] / ".env"
+    if env_path.exists():
+        with open(env_path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, _, val = line.partition("=")
+                    os.environ.setdefault(key.strip(), val.strip())
+
     missing = [v for v in _REQUIRED_ENV_VARS if not os.getenv(v)]
     if missing:
         raise RuntimeError(
@@ -1707,16 +1721,18 @@ class NCLBrain:
         # Log to Paperclip (best-effort; do not raise into caller)
         try:
             await self.paperclip.log_activity(
-                activity_type=event_type,
-                description=description,
+                action=event_type,
+                entity_type=description,
                 agent_name="NCL",
-                metadata=metadata,
+                details=metadata,
             )
         except Exception as exc:
             # Avoid log spam when Paperclip is offline; rate-limited via _paperclip_connected
             if getattr(self, "_paperclip_connected", False):
                 log.warning(f"[paperclip] log_activity failed: {exc}")
-                self._paperclip_connected = False
+                # Don't flip _paperclip_connected to False here — log_activity
+                # uses the cost-events endpoint, which can 400 due to schema
+                # mismatches independent of the underlying TCP connectivity.
 
         return ncl_event.event_id
 
