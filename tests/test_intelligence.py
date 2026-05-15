@@ -363,6 +363,11 @@ class TestBriefGeneration:
         engine._crypto = MagicMock()
         engine._reddit = MagicMock()
 
+        # Stub the LLM HTTP client so summary generation doesn't try to hit
+        # a real Ollama / Anthropic endpoint (and hang on slow local models).
+        engine._llm_client = MagicMock()
+        engine._llm_client.post = AsyncMock(side_effect=Exception("llm disabled in tests"))
+
         # Default: all collectors return empty
         engine._trends.collect_daily_trends = AsyncMock(return_value=[])
         engine._trends.collect_interest = AsyncMock(return_value=[])

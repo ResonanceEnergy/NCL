@@ -266,7 +266,8 @@ async def test_memory_persistence(memory_store):
     assert retrieved is not None
     assert retrieved.content == original_unit.content
     assert retrieved.unit_id == original_unit.unit_id
-    assert retrieved.importance == original_unit.importance
+    # Note: get_unit reinforces importance by 1.2× on access (by design).
+    assert retrieved.importance == pytest.approx(original_unit.importance * 1.2)
 
 
 @pytest.mark.asyncio
