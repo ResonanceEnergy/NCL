@@ -70,7 +70,7 @@ except ImportError:
     _limiter = None
     _has_slowapi = False
 
-from .config import load_config, create_config_file
+from .config import load_config, create_config_file, validate_config
 from ..ncl_brain.brain import NCLBrain
 from ..ncl_brain.models import (
     PumpPrompt,
@@ -135,14 +135,17 @@ _autonomous: AutonomousScheduler | None = None
 from ..intelligence.engine import IntelligenceEngine
 _intelligence: IntelligenceEngine | None = None
 
+# Module-level logger — used throughout this file as `log`
+log = logging.getLogger(__name__)
+
 # Strike point authentication token — load from config (.env) FIRST, then env var, then auto-gen
 STRIKE_TOKEN = config.strike_auth_token or os.getenv("STRIKE_AUTH_TOKEN", "")
 if not STRIKE_TOKEN:
     # Auto-generate and log so NATRIX can copy it into the iOS Shortcut
     STRIKE_TOKEN = secrets.token_urlsafe(32)
-    import logging
+    _masked = f"...{STRIKE_TOKEN[-4:]}"
     logging.getLogger("ncl.strike").warning(
-        f"No STRIKE_AUTH_TOKEN set. Auto-generated: {STRIKE_TOKEN} — "
+        f"No STRIKE_AUTH_TOKEN set. Auto-generated token ending in {_masked} — "
         f"Set this in .env and in the iOS Shortcut."
     )
 
@@ -152,7 +155,8 @@ async def lifespan(app: FastAPI):
     """FastAPI lifespan context manager for startup/shutdown."""
     global brain
 
-    # Startup
+    # Startup — validate required config before initialising anything
+    validate_config(config)
     create_config_file(config.config_dir)
     brain = NCLBrain(
         data_dir=config.data_dir,
@@ -282,7 +286,18 @@ if _has_slowapi and _limiter:
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS middleware
-allowed_origins = os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:8000").split(",")
+_allowed_origins_env = os.getenv("ALLOWED_ORIGINS", os.getenv("CORS_ALLOWED_ORIGINS", ""))
+if _allowed_origins_env:
+    allowed_origins = [o.strip() for o in _allowed_origins_env.split(",") if o.strip()]
+else:
+    allowed_origins = [
+        "http://localhost:3000",
+        "http://localhost:8000",
+        "http://localhost:8800",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:8000",
+        "http://127.0.0.1:8800",
+    ]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
@@ -290,6 +305,32 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ---------------------------------------------------------------------------
+# Simple in-memory rate limiter — fallback when slowapi is not installed.
+# Limits sensitive endpoints to 30 req/minute per IP.
+# ---------------------------------------------------------------------------
+import time as _time
+from collections import defaultdict
+
+_rate_limit_store: dict[str, list[float]] = defaultdict(list)
+_RATE_LIMIT_WINDOW = 60  # seconds
+_RATE_LIMIT_MAX = 30     # requests per window
+
+
+def _check_rate_limit(request: Request, limit: int = _RATE_LIMIT_MAX) -> None:
+    """Raise HTTP 429 if the calling IP exceeds `limit` requests per minute."""
+    client_ip = request.client.host if request.client else "unknown"
+    now = _time.monotonic()
+    bucket = _rate_limit_store[client_ip]
+    # Prune timestamps outside the window
+    _rate_limit_store[client_ip] = [t for t in bucket if now - t < _RATE_LIMIT_WINDOW]
+    if len(_rate_limit_store[client_ip]) >= limit:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded: max {limit} requests per {_RATE_LIMIT_WINDOW}s",
+        )
+    _rate_limit_store[client_ip].append(now)
 
 
 # Health check
@@ -326,7 +367,8 @@ async def services_status() -> dict:
             req = urllib.request.Request(url, method="GET")
             with urllib.request.urlopen(req, timeout=3) as resp:
                 return {**svc, "online": resp.status < 400}
-        except Exception:
+        except Exception as e:
+            log.debug("Service health check failed for %s: %s", svc["name"], e)
             return {**svc, "online": False}
 
     async def _check(svc: dict) -> dict:
@@ -347,7 +389,8 @@ async def network_info():
         s.connect(("8.8.8.8", 80))
         lan_ip = s.getsockname()[0]
         s.close()
-    except Exception:
+    except Exception as e:
+        log.debug("Could not determine LAN IP, falling back to localhost: %s", e)
         lan_ip = "localhost"
     return {
         "lan_ip": lan_ip,
@@ -370,6 +413,7 @@ def _verify_strike_token(authorization: str = Header(default="")):
 # Pump Prompt endpoint — THE SOLE STRIKE POINT INTO NCL
 @app.post("/pump")
 async def receive_pump_prompt(
+    request: Request,
     body: dict = Body(...),
     auto_flow: bool = Query(default=True, description="Run council→mandate pipeline (stops before NCC dispatch)"),
     authorization: str = Header(default=""),
@@ -395,9 +439,14 @@ async def receive_pump_prompt(
     or /pump/reject/{pump_id} to discard.
     """
     _verify_strike_token(authorization)
+    _check_rate_limit(request)
 
     if not brain:
         raise HTTPException(status_code=503, detail="Service not initialized")
+
+    # Validate body has at least a prompt or intent
+    if not body.get("prompt") and not body.get("intent"):
+        raise HTTPException(status_code=400, detail="Missing required field: 'prompt' or 'intent'")
 
     # Accept simple { "prompt": "text" } from dashboard and convert to PumpPrompt
     if "prompt" in body and "prompt_id" not in body:
@@ -612,7 +661,11 @@ async def reject_pump(
 # Council endpoints
 @app.post("/council/spawn")
 async def spawn_council_session(
-    topic: str, prompt: str, members: list[str] | None = None
+    request: Request,
+    topic: str,
+    prompt: str,
+    members: list[str] | None = None,
+    authorization: str = Header(default=""),
 ) -> dict:
     """
     Spawn a new council debate session.
@@ -625,6 +678,8 @@ async def spawn_council_session(
     Returns:
         Dict with session details
     """
+    _verify_strike_token(authorization)
+    _check_rate_limit(request)
     if not brain:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
@@ -639,7 +694,10 @@ async def spawn_council_session(
 
 
 @app.get("/council/session/{session_id}")
-async def get_council_session(session_id: str) -> dict:
+async def get_council_session(
+    session_id: str,
+    authorization: str = Header(default=""),
+) -> dict:
     """
     Get council session details.
 
@@ -649,6 +707,7 @@ async def get_council_session(session_id: str) -> dict:
     Returns:
         Session details
     """
+    _verify_strike_token(authorization)
     if not brain:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
@@ -679,6 +738,7 @@ async def create_mandate(
     success_criteria: list[str],
     deadline: str | None = None,
     source_pump_id: str | None = None,
+    authorization: str = Header(default=""),
 ) -> dict:
     """
     Create a new mandate.
@@ -695,6 +755,7 @@ async def create_mandate(
     Returns:
         Created mandate dict
     """
+    _verify_strike_token(authorization)
     if not brain:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
@@ -734,7 +795,11 @@ async def create_mandate(
 
 
 @app.get("/mandates")
-async def list_mandates(pillar: str | None = None, status: str | None = None) -> dict:
+async def list_mandates(
+    pillar: str | None = None,
+    status: str | None = None,
+    authorization: str = Header(default=""),
+) -> dict:
     """
     List mandates with optional filters.
 
@@ -745,6 +810,7 @@ async def list_mandates(pillar: str | None = None, status: str | None = None) ->
     Returns:
         Dict with mandates list
     """
+    _verify_strike_token(authorization)
     if not brain:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
@@ -781,7 +847,10 @@ async def list_mandates(pillar: str | None = None, status: str | None = None) ->
 
 
 @app.get("/mandates/{mandate_id}")
-async def get_mandate(mandate_id: str) -> dict:
+async def get_mandate(
+    mandate_id: str,
+    authorization: str = Header(default=""),
+) -> dict:
     """
     Get mandate details.
 
@@ -791,6 +860,7 @@ async def get_mandate(mandate_id: str) -> dict:
     Returns:
         Mandate details
     """
+    _verify_strike_token(authorization)
     if not brain:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
@@ -813,7 +883,11 @@ async def get_mandate(mandate_id: str) -> dict:
 
 
 @app.post("/mandates/{mandate_id}/complete")
-async def complete_mandate(mandate_id: str, notes: str | None = None) -> dict:
+async def complete_mandate(
+    mandate_id: str,
+    notes: str | None = None,
+    authorization: str = Header(default=""),
+) -> dict:
     """
     Mark mandate as completed.
 
@@ -824,6 +898,7 @@ async def complete_mandate(mandate_id: str, notes: str | None = None) -> dict:
     Returns:
         Status dict
     """
+    _verify_strike_token(authorization)
     if not brain:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
@@ -832,7 +907,11 @@ async def complete_mandate(mandate_id: str, notes: str | None = None) -> dict:
 
 
 @app.post("/mandates/{mandate_id}/approve")
-async def approve_mandate(mandate_id: str, reason: str = "Approved by NATRIX") -> dict:
+async def approve_mandate(
+    mandate_id: str,
+    reason: str = "Approved by NATRIX",
+    authorization: str = Header(default=""),
+) -> dict:
     """
     Approve a pending_approval mandate, transitioning it to ACTIVE.
 
@@ -840,6 +919,7 @@ async def approve_mandate(mandate_id: str, reason: str = "Approved by NATRIX") -
     approval flow (useful for backfilling approvals on orphaned mandates
     or bulk-approving a triaged set).
     """
+    _verify_strike_token(authorization)
     if not brain:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
@@ -858,7 +938,11 @@ async def approve_mandate(mandate_id: str, reason: str = "Approved by NATRIX") -
 
 
 @app.post("/mandates/{mandate_id}/cancel")
-async def cancel_mandate(mandate_id: str, reason: str = "Cancelled by NATRIX") -> dict:
+async def cancel_mandate(
+    mandate_id: str,
+    reason: str = "Cancelled by NATRIX",
+    authorization: str = Header(default=""),
+) -> dict:
     """
     Cancel a mandate (valid from DRAFT or PENDING_APPROVAL).
 
@@ -866,6 +950,7 @@ async def cancel_mandate(mandate_id: str, reason: str = "Cancelled by NATRIX") -
     going through the pump approval flow. Requires mandate to be in a
     cancellable state.
     """
+    _verify_strike_token(authorization)
     if not brain:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
@@ -888,6 +973,7 @@ async def purge_mandates(
     status: str = Query(..., description="Status to purge (e.g. 'pending_approval')"),
     older_than_hours: int = Query(24, ge=0, description="Only purge entries older than N hours"),
     confirm: bool = Query(False, description="Must be true to actually delete"),
+    authorization: str = Header(default=""),
 ) -> dict:
     """
     Purge stale mandates from in-memory store and persisted state.
@@ -896,6 +982,7 @@ async def purge_mandates(
     mandates from pumps that never reached the approval gate). Requires
     explicit confirm=true to actually mutate state.
     """
+    _verify_strike_token(authorization)
     if not brain:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
@@ -936,6 +1023,7 @@ async def query_memory(
     tags: list[str] | None = None,
     importance_threshold: float = 0.0,
     days_back: int | None = None,
+    authorization: str = Header(default=""),
 ) -> dict:
     """
     Query memory system.
@@ -948,6 +1036,7 @@ async def query_memory(
     Returns:
         Query results
     """
+    _verify_strike_token(authorization)
     if not brain:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
@@ -960,7 +1049,10 @@ async def query_memory(
 
 # Feedback endpoint
 @app.post("/feedback")
-async def receive_feedback(feedback: FeedbackReport) -> dict:
+async def receive_feedback(
+    feedback: FeedbackReport,
+    authorization: str = Header(default=""),
+) -> dict:
     """
     Receive feedback report from downstream pillar.
 
@@ -970,6 +1062,7 @@ async def receive_feedback(feedback: FeedbackReport) -> dict:
     Returns:
         Dict with report_id
     """
+    _verify_strike_token(authorization)
     if not brain:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
@@ -983,7 +1076,10 @@ async def receive_feedback(feedback: FeedbackReport) -> dict:
 
 # Feedback synthesis endpoint (receives from feedback-loop server)
 @app.post("/feedback/synthesis")
-async def receive_synthesis(synthesis: dict) -> dict:
+async def receive_synthesis(
+    synthesis: dict,
+    authorization: str = Header(default=""),
+) -> dict:
     """
     Receive Claude-validated synthesis from feedback loop server.
 
@@ -996,6 +1092,11 @@ async def receive_synthesis(synthesis: dict) -> dict:
     Returns:
         Acceptance status
     """
+    _verify_strike_token(authorization)
+    if not synthesis.get("synthesis_id"):
+        raise HTTPException(status_code=400, detail="Missing required field: synthesis_id")
+    if not synthesis.get("narrative"):
+        raise HTTPException(status_code=400, detail="Missing required field: narrative")
     if not brain:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
@@ -1031,7 +1132,7 @@ async def receive_synthesis(synthesis: dict) -> dict:
 
 
 @app.post("/feedback/scan-now")
-async def feedback_scan_now() -> dict:
+async def feedback_scan_now(authorization: str = Header(default="")) -> dict:
     """
     Manually trigger one feedback scan + apply cycle. For ops/debug.
 
@@ -1039,6 +1140,7 @@ async def feedback_scan_now() -> dict:
     AutonomousScheduler._apply_synthesis_to_mandates against the live brain,
     bypassing the 5-minute loop interval.
     """
+    _verify_strike_token(authorization)
     if not brain or not _autonomous:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
@@ -1087,7 +1189,10 @@ async def feedback_scan_now() -> dict:
 
 # Awarebot endpoints
 @app.post("/awarebot/scan")
-async def run_awarebot_scan(queries: list[str]) -> dict:
+async def run_awarebot_scan(
+    queries: list[str],
+    authorization: str = Header(default=""),
+) -> dict:
     """
     Run Awarebot intelligence scan.
 
@@ -1097,6 +1202,9 @@ async def run_awarebot_scan(queries: list[str]) -> dict:
     Returns:
         Scan results
     """
+    _verify_strike_token(authorization)
+    if not queries:
+        raise HTTPException(status_code=400, detail="Missing required field: queries (must be non-empty list)")
     if not brain:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
@@ -1105,7 +1213,10 @@ async def run_awarebot_scan(queries: list[str]) -> dict:
 
 # Prediction endpoint
 @app.post("/prediction")
-async def run_prediction(topic: str) -> dict:
+async def run_prediction(
+    topic: str,
+    authorization: str = Header(default=""),
+) -> dict:
     """
     Run Future Predictor ensemble forecast.
 
@@ -1115,6 +1226,7 @@ async def run_prediction(topic: str) -> dict:
     Returns:
         Prediction results
     """
+    _verify_strike_token(authorization)
     if not brain:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
@@ -1136,15 +1248,20 @@ async def orchestrator_dispatch(mandate_id: str, authorization: str = Header(def
 
 
 @app.get("/orchestrator/status")
-async def orchestrator_status() -> dict:
+async def orchestrator_status(authorization: str = Header(default="")) -> dict:
     """Get full pipeline status from Strike Point Orchestrator."""
+    _verify_strike_token(authorization)
     from ..strike_point_orchestrator import get_pipeline_status
     return get_pipeline_status()
 
 
 @app.post("/orchestrator/feedback/{pump_id}")
-async def orchestrator_feedback(pump_id: str) -> dict:
+async def orchestrator_feedback(
+    pump_id: str,
+    authorization: str = Header(default=""),
+) -> dict:
     """Process execution feedback for a pump."""
+    _verify_strike_token(authorization)
     from ..strike_point_orchestrator import process_execution_feedback
     return await process_execution_feedback(pump_id)
 
@@ -1290,12 +1407,12 @@ async def get_dashboard_data() -> dict:
                         recent_events.append(event)
                     except json.JSONDecodeError:
                         pass
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("Failed to read recent events from events file: %s", e)
 
     # ── Orchestrator Pipeline Stages ───────────────────────────────────────
     orchestrator_stages = {}
-    # Derive NCL base from brain.data_dir (e.g., ~/NCL/data → ~/NCL)
+    # Derive NCL base from brain.data_dir (e.g., ~/dev/NCL/data → ~/dev/NCL)
     ncl_base = Path(brain.data_dir).parent
     exec_pipeline = ncl_base / "workspaces" / "execution-pipeline"
 
@@ -1305,7 +1422,8 @@ async def get_dashboard_data() -> dict:
             try:
                 file_count = len(list(stage_path.glob("**/*")))
                 orchestrator_stages[stage_dir] = file_count
-            except Exception:
+            except Exception as e:
+                log.debug("Failed to count files in orchestrator stage %s: %s", stage_dir, e)
                 orchestrator_stages[stage_dir] = 0
         else:
             orchestrator_stages[stage_dir] = 0
@@ -1403,8 +1521,10 @@ class CouncilRunRequest(BaseModel):
 
 @app.post("/councils/run")
 async def trigger_council_run(
+    request: Request,
     body: CouncilRunRequest,
     background_tasks: BackgroundTasks,
+    authorization: str = Header(default=""),
 ) -> dict:
     """
     Trigger council runner to execute YouTube and/or X councils.
@@ -1418,6 +1538,8 @@ async def trigger_council_run(
     Returns:
         Dict with session_id and status
     """
+    _verify_strike_token(authorization)
+    _check_rate_limit(request)
     if not brain:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
@@ -1503,7 +1625,8 @@ async def list_council_reports() -> dict:
                 # Read first 200 chars as preview
                 try:
                     preview = report_file.read_text()[:200]
-                except Exception:
+                except Exception as e:
+                    log.debug("Could not read preview for report %s: %s", report_file.name, e)
                     preview = ""
                 reports.append(
                     {
@@ -1762,7 +1885,11 @@ class LDESearchRequest(BaseModel):
 
 
 @app.post("/lde/process")
-async def lde_process_url(req: LDEProcessRequest, background_tasks: BackgroundTasks):
+async def lde_process_url(
+    req: LDEProcessRequest,
+    background_tasks: BackgroundTasks,
+    authorization: str = Header(default=""),
+):
     """
     Process a URL through the full LDE pipeline.
 
@@ -1771,6 +1898,7 @@ async def lde_process_url(req: LDEProcessRequest, background_tasks: BackgroundTa
 
     Runs in background. Returns session tracking info immediately.
     """
+    _verify_strike_token(authorization)
     if not brain:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
@@ -2606,8 +2734,12 @@ async def get_emergency_stop_ledger(n: int = Query(default=100, le=1000)) -> dic
 
 
 @app.post("/evaluation/run")
-async def run_golden_task_suite(background_tasks: BackgroundTasks) -> dict:
+async def run_golden_task_suite(
+    background_tasks: BackgroundTasks,
+    authorization: str = Header(default=""),
+) -> dict:
     """Run the full Golden Task Suite (50 deterministic tasks)."""
+    _verify_strike_token(authorization)
     if not _eval_runner:
         raise HTTPException(status_code=503, detail="EvalRunner not initialized")
 
@@ -2799,11 +2931,15 @@ async def review_queue_dashboard() -> HTMLResponse:
 
 @app.post("/council-runner/run")
 async def run_council_runner(
+    request: Request,
     topic: str,
     prompt: str,
     background_tasks: BackgroundTasks,
+    authorization: str = Header(default=""),
 ) -> dict:
     """Run the Planner/Skeptic/Risk parallel council on a topic."""
+    _verify_strike_token(authorization)
+    _check_rate_limit(request)
     if not _council_store:
         raise HTTPException(status_code=503, detail="CouncilRunner not initialized")
 
@@ -2912,8 +3048,10 @@ async def run_research(
     depth: str = Query(default="standard"),
     priority: int = Query(default=5, ge=1, le=10),
     background_tasks: BackgroundTasks = None,
+    authorization: str = Header(default=""),
 ) -> dict:
     """Run a deep research task via the UNI Research Cortex."""
+    _verify_strike_token(authorization)
     if not _research_cortex:
         raise HTTPException(status_code=503, detail="ResearchCortex not initialized")
     from ..uni.models import ResearchDepth
@@ -2982,8 +3120,14 @@ async def get_memory_timeline(limit: int = Query(default=50, le=200)) -> dict:
 
 
 @app.post("/memory/search")
-async def search_memory(body: dict) -> dict:
+async def search_memory(
+    body: dict,
+    authorization: str = Header(default=""),
+) -> dict:
     """Search memory units with text, tags, importance, and date filters."""
+    _verify_strike_token(authorization)
+    if not body.get("query_text") and not body.get("tags"):
+        raise HTTPException(status_code=400, detail="Missing required field: 'query_text' or 'tags'")
     if not _memory_bridge:
         raise HTTPException(status_code=503, detail="MemoryBridge not initialized")
     results = await _memory_bridge.search(
@@ -3016,8 +3160,9 @@ async def semantic_search_memory(body: dict) -> dict:
 
 
 @app.post("/memory/reindex")
-async def reindex_memory() -> dict:
+async def reindex_memory(authorization: str = Header(default="")) -> dict:
     """Rebuild the vector search index from all stored memory units."""
+    _verify_strike_token(authorization)
     if not brain:
         raise HTTPException(status_code=503, detail="Brain not initialized")
     return await brain.memory_store.reindex_all()
@@ -3106,8 +3251,9 @@ async def autonomous_status() -> dict:
 
 
 @app.post("/autonomous/stop")
-async def autonomous_stop() -> dict:
+async def autonomous_stop(authorization: str = Header(default="")) -> dict:
     """Stop the autonomous scheduler (manual override)."""
+    _verify_strike_token(authorization)
     if not _autonomous:
         raise HTTPException(status_code=503, detail="Autonomous scheduler not initialized")
     await _autonomous.stop()
@@ -3115,8 +3261,9 @@ async def autonomous_stop() -> dict:
 
 
 @app.post("/autonomous/start")
-async def autonomous_start() -> dict:
+async def autonomous_start(authorization: str = Header(default="")) -> dict:
     """Restart the autonomous scheduler after a stop."""
+    _verify_strike_token(authorization)
     if not _autonomous:
         raise HTTPException(status_code=503, detail="Autonomous scheduler not initialized")
     await _autonomous.start()
@@ -3154,8 +3301,12 @@ async def autonomous_council_flags() -> dict:
 
 
 @app.post("/autonomous/trigger-council")
-async def autonomous_trigger_council(prompt: str = Query(..., min_length=10)) -> dict:
+async def autonomous_trigger_council(
+    prompt: str = Query(..., min_length=10),
+    authorization: str = Header(default=""),
+) -> dict:
     """Manually trigger an autonomous council session."""
+    _verify_strike_token(authorization)
     if not _autonomous:
         raise HTTPException(status_code=503, detail="Autonomous scheduler not initialized")
     await _autonomous._flag_for_council(
@@ -3167,8 +3318,9 @@ async def autonomous_trigger_council(prompt: str = Query(..., min_length=10)) ->
 
 
 @app.post("/autonomous/scan-now")
-async def autonomous_scan_now() -> dict:
+async def autonomous_scan_now(authorization: str = Header(default="")) -> dict:
     """Trigger an immediate intelligence scan (outside normal schedule)."""
+    _verify_strike_token(authorization)
     if not brain:
         raise HTTPException(status_code=503, detail="Brain not initialized")
     try:
@@ -3197,8 +3349,10 @@ async def autonomous_scan_now() -> dict:
 @app.post("/intelligence/brief")
 async def generate_intelligence_brief(
     brief_type: str = Query(default="daily", description="Brief type: daily, alert, strategic_review"),
+    authorization: str = Header(default=""),
 ) -> dict:
     """Generate a fresh intelligence brief from all data sources."""
+    _verify_strike_token(authorization)
     if not _intelligence:
         raise HTTPException(status_code=503, detail="Intelligence engine not initialized")
     try:
@@ -3252,8 +3406,9 @@ async def intelligence_stats() -> dict:
 
 
 @app.post("/intelligence/collect")
-async def collect_intelligence_signals() -> dict:
+async def collect_intelligence_signals(authorization: str = Header(default="")) -> dict:
     """Run a signal collection sweep without generating a full brief."""
+    _verify_strike_token(authorization)
     if not _intelligence:
         raise HTTPException(status_code=503, detail="Intelligence engine not initialized")
     try:
@@ -3369,6 +3524,7 @@ async def escalate_intelligence_to_strike_point(
     brief_id: str = Query(default="", description="Brief ID to escalate (empty = latest)"),
     signal_ids: str = Query(default="", description="Comma-separated signal IDs to focus on"),
     background_tasks: BackgroundTasks = BackgroundTasks(),
+    authorization: str = Header(default=""),
 ) -> dict:
     """
     Escalate intelligence signals to STRIKE-POINT for deep council analysis.
@@ -3377,6 +3533,7 @@ async def escalate_intelligence_to_strike_point(
     a pump prompt that feeds into the STRIKE-POINT mandate generation pipeline.
     This is the "expand and analyze" action from FirstStrike on iPhone.
     """
+    _verify_strike_token(authorization)
     if not _intelligence:
         raise HTTPException(status_code=503, detail="Intelligence engine not initialized")
 
@@ -3503,6 +3660,7 @@ async def escalate_intelligence_to_strike_point(
 async def escalate_single_signal(
     signal_id: str,
     background_tasks: BackgroundTasks = BackgroundTasks(),
+    authorization: str = Header(default=""),
 ) -> dict:
     """
     Escalate a single intelligence signal to STRIKE-POINT.
@@ -3510,6 +3668,7 @@ async def escalate_single_signal(
     Used from the FirstStrike "NCL Signal Action" shortcut when NATRIX
     picks a specific signal to expand on.
     """
+    _verify_strike_token(authorization)
     if not _intelligence:
         raise HTTPException(status_code=503, detail="Intelligence engine not initialized")
 
@@ -3684,12 +3843,14 @@ async def send_test_notification():
 async def push_brief_to_phone(
     brief_type: str = Query(default="daily"),
     background_tasks: BackgroundTasks = BackgroundTasks(),
+    authorization: str = Header(default=""),
 ) -> dict:
     """
     Generate a fresh brief AND push it to iPhone via Pushover/FirstStrike.
 
     This is the endpoint the autonomous scheduler calls on its periodic loop.
     """
+    _verify_strike_token(authorization)
     if not _intelligence:
         raise HTTPException(status_code=503, detail="Intelligence engine not initialized")
 
@@ -3941,8 +4102,10 @@ async def create_swarm_task(
     priority: int = Query(default=5, ge=1, le=10),
     budget_cents: int = Query(default=5000),
     tags: str = Query(default=""),
+    authorization: str = Header(default=""),
 ) -> dict:
     """Submit a task to the agent swarm for autonomous execution."""
+    _verify_strike_token(authorization)
     if not brain or not brain.swarm:
         raise HTTPException(status_code=503, detail="Swarm not initialized")
 
@@ -4026,8 +4189,12 @@ async def get_swarm_task(task_id: str) -> dict:
 
 
 @app.post("/swarm/tasks/{task_id}/cancel")
-async def cancel_swarm_task(task_id: str) -> dict:
+async def cancel_swarm_task(
+    task_id: str,
+    authorization: str = Header(default=""),
+) -> dict:
     """Cancel a running swarm task."""
+    _verify_strike_token(authorization)
     if not brain or not brain.swarm:
         raise HTTPException(status_code=503, detail="Swarm not initialized")
 

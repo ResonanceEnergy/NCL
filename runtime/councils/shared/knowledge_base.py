@@ -9,7 +9,7 @@ Maintains a structured knowledge base from council outputs:
     - Transcript chunks saved as reference notes
 
 Directory structure:
-    ~/NCL/knowledge-base/
+    ~/dev/NCL/knowledge-base/
     ├── insights/          # Individual insight notes
     ├── sessions/          # Session summary notes
     ├── transcripts/       # Video transcript chunks

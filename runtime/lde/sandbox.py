@@ -6,7 +6,7 @@ insights, analyses, and the Living Doctrine JSON. Every new URL updates
 both the sandbox (vector + JSONL) and the doctrine (structured JSON).
 
 Storage:
-    ~/NCL/data/lde/
+    ~/dev/NCL/data/lde/
     ├── LIVING_DOCTRINE.json       # The doctrine itself
     ├── sandbox_entries.jsonl       # All sandbox entries (append-only)
     ├── insights.jsonl              # All extracted insights (append-only)
