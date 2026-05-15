@@ -93,9 +93,9 @@ class Settings(BaseSettings):
     ollama_host: str = "localhost:11434"
 
     # ── Paperclip integration ─────────────────────────────────────────────────
-    paperclip_url: str = "http://localhost:3102"
+    paperclip_url: str = "http://localhost:3100"
     paperclip_host: str = "localhost"
-    paperclip_port: int = 3102
+    paperclip_port: int = 3100
     paperclip_api_key: Optional[str] = None
 
     # ── Digital Labour integration ────────────────────────────────────────────

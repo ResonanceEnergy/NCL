@@ -308,7 +308,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.add_middleware(BodySizeLimitMiddleware, max_size=_MAX_BODY_SIZE)
+# NOTE: BodySizeLimitMiddleware is registered after its definition below.
 
 # ---------------------------------------------------------------------------
 # Simple in-memory rate limiter — fallback when slowapi is not installed.
@@ -380,6 +380,8 @@ class BodySizeLimitMiddleware(BaseHTTPMiddleware):
                 )
         return await call_next(request)
 
+
+app.add_middleware(BodySizeLimitMiddleware, max_size=_MAX_BODY_SIZE)
 
 # ---------------------------------------------------------------------------
 # SSRF prevention — validate URLs against allowlist
