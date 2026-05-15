@@ -15,14 +15,14 @@
     <array>
         <string>/bin/bash</string>
         <string>-c</string>
-        <string>cd ~/Projects/NCL &amp;&amp; ./run-councils.sh both --session-id=sweep-$(date +%Y%m%d-%H%M) 2>&1 | tee -a ~/Projects/NCL/logs/council-sweep.log</string>
+        <string>cd ~/dev/NCL &amp;&amp; ./run-councils.sh both --session-id=sweep-$(date +%Y%m%d-%H%M) 2>&1 | tee -a ~/dev/NCL/logs/council-sweep.log</string>
     </array>
 
     <key>StartInterval</key>
     <integer>21600</integer><!-- 6 hours = 21600 seconds -->
 
     <key>WorkingDirectory</key>
-    <string>/Users/natrix/Projects/NCL</string>
+    <string>/Users/natrix/dev/NCL</string>
 
     <key>EnvironmentVariables</key>
     <dict>
@@ -33,10 +33,10 @@
     </dict>
 
     <key>StandardOutPath</key>
-    <string>/Users/natrix/Projects/NCL/logs/council-sweep-stdout.log</string>
+    <string>/Users/natrix/dev/NCL/logs/council-sweep-stdout.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/Users/natrix/Projects/NCL/logs/council-sweep-stderr.log</string>
+    <string>/Users/natrix/dev/NCL/logs/council-sweep-stderr.log</string>
 
     <key>RunAtLoad</key>
     <false/>

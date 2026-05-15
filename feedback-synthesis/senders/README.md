@@ -135,7 +135,7 @@ In NCC execution pipeline:
 
 ```bash
 # After execution pass:
-python /Users/natrix/Projects/NCL/feedback-synthesis/senders/ncc_sender.py \
+python /Users/natrix/dev/NCL/feedback-synthesis/senders/ncc_sender.py \
   --all --brain-url http://localhost:8800
 ```
 
@@ -145,7 +145,7 @@ In BRS revenue reporting:
 
 ```bash
 # Daily revenue sync:
-python /Users/natrix/Projects/NCL/feedback-synthesis/senders/brs_sender.py \
+python /Users/natrix/dev/NCL/feedback-synthesis/senders/brs_sender.py \
   --all
 ```
 
@@ -155,7 +155,7 @@ In AAC capital cycle:
 
 ```bash
 # Weekly performance report:
-python /Users/natrix/Projects/NCL/feedback-synthesis/senders/aac_sender.py \
+python /Users/natrix/dev/NCL/feedback-synthesis/senders/aac_sender.py \
   --all
 ```
 

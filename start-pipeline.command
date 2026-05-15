@@ -19,8 +19,8 @@ echo ""
 
 # Ensure directories exist
 mkdir -p ~/Projects/FirstStrike/logs
-mkdir -p ~/Projects/NCL/logs
-mkdir -p ~/Projects/NCL/mandate-generation/{input,processed,failed}
+mkdir -p ~/dev/NCL/logs
+mkdir -p ~/dev/NCL/mandate-generation/{input,processed,failed}
 
 # Install deps if needed
 $PYTHON -c "import fastapi, uvicorn, pydantic, httpx" 2>/dev/null || {
@@ -53,8 +53,8 @@ fi
 
 # Start NCL Brain (port 8800)
 echo -e "${YELLOW}  Starting NCL Brain on :8800...${NC}"
-cd ~/Projects/NCL
-PYTHONPATH=~/Projects/NCL nohup $PYTHON -m runtime.api.routes > logs/ncl-brain-stdout.log 2> logs/ncl-brain-stderr.log &
+cd ~/dev/NCL
+PYTHONPATH=~/dev/NCL nohup $PYTHON -m runtime.api.routes > logs/ncl-brain-stdout.log 2> logs/ncl-brain-stderr.log &
 sleep 3
 if curl -s http://localhost:8800/health >/dev/null 2>&1; then
     echo -e "${GREEN}  ✓ Brain started${NC}"
@@ -64,8 +64,8 @@ fi
 
 # Start Pump Watcher
 echo -e "${YELLOW}  Starting Pump Watcher...${NC}"
-cd ~/Projects/NCL
-PYTHONPATH=~/Projects/NCL nohup $PYTHON -m runtime.pump_watcher > logs/pump-watcher-stdout.log 2> logs/pump-watcher-stderr.log &
+cd ~/dev/NCL
+PYTHONPATH=~/dev/NCL nohup $PYTHON -m runtime.pump_watcher > logs/pump-watcher-stdout.log 2> logs/pump-watcher-stderr.log &
 echo -e "${GREEN}  ✓ Watcher started${NC}"
 
 # Run E2E test
@@ -73,7 +73,7 @@ echo ""
 echo -e "${CYAN}Running E2E pipeline test...${NC}"
 echo ""
 sleep 2
-cd ~/Projects/NCL
+cd ~/dev/NCL
 $PYTHON tests/test_e2e_pipeline.py
 
 echo ""

@@ -6,8 +6,8 @@ Detect cross-domain patterns and signal convergence (UNI intelligence output).
 
 | Source | File/Location | Section/Scope | Why |
 |--------|--------------|---------------|-----|
-| Stage 03 | `/Projects/NCL/research/synthesis_{topic}_{date}.md` | All topic syntheses | Convergence detection input |
-| Index | `/Projects/NCL/research/convergence_index.yaml` | Pattern registry | Known convergence signals |
+| Stage 03 | `/dev/NCL/research/synthesis_{topic}_{date}.md` | All topic syntheses | Convergence detection input |
+| Index | `/dev/NCL/research/convergence_index.yaml` | Pattern registry | Known convergence signals |
 
 ## Process
 
@@ -21,8 +21,8 @@ Detect cross-domain patterns and signal convergence (UNI intelligence output).
 
 | Artifact | Location | Format |
 |----------|----------|--------|
-| Convergence Report | `/Projects/NCL/research/convergence/{date}_report.md` | Markdown |
-| Signal Log | `/Projects/NCL/research/convergence_signals.log` | JSONL |
+| Convergence Report | `/dev/NCL/research/convergence/{date}_report.md` | Markdown |
+| Signal Log | `/dev/NCL/research/convergence_signals.log` | JSONL |
 
 ## Checkpoints
 

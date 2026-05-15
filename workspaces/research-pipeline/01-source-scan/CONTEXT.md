@@ -6,8 +6,8 @@ Fetch from arXiv, web, GitHub repos, academic papers based on research briefs.
 
 | Source | File/Location | Section/Scope | Why |
 |--------|--------------|---------------|-----|
-| Briefs | `/Projects/NCL/research/briefs/{topic}.md` | Topic + keywords | Research direction |
-| Standing List | `/Projects/NCL/research/standing_topics.yaml` | Active research areas | Continuous scan scope |
+| Briefs | `/dev/NCL/research/briefs/{topic}.md` | Topic + keywords | Research direction |
+| Standing List | `/dev/NCL/research/standing_topics.yaml` | Active research areas | Continuous scan scope |
 
 ## Process
 
@@ -21,5 +21,5 @@ Fetch from arXiv, web, GitHub repos, academic papers based on research briefs.
 
 | Artifact | Location | Format |
 |----------|----------|--------|
-| Source Catalog | `/Projects/NCL/research/sources/{topic}_{date}.json` | JSON (metadata + links) |
-| Raw Sources | `/Projects/NCL/research/sources/raw/{uuid}.txt` | Plain text (extracted text) |
+| Source Catalog | `/dev/NCL/research/sources/{topic}_{date}.json` | JSON (metadata + links) |
+| Raw Sources | `/dev/NCL/research/sources/raw/{uuid}.txt` | Plain text (extracted text) |

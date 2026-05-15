@@ -40,7 +40,7 @@ class DeploymentManager:
         Returns:
             List of ServiceDefinition for NCL Brain, Pump Watcher, Orchestrator, Councils.
         """
-        ncl_root = os.path.expanduser("~/Projects/NCL")
+        ncl_root = os.path.expanduser("~/dev/NCL")
         log_dir = os.path.join(ncl_root, "logs")
 
         return [
@@ -418,7 +418,7 @@ class DeploymentManager:
             "echo 'Checking dependencies...'",
             "which python3 > /dev/null || { echo 'python3 not found'; exit 1; }",
             "",
-            "NCL_ROOT=~/Projects/NCL",
+            "NCL_ROOT=~/dev/NCL",
             "LAUNCH_AGENTS=~/Library/LaunchAgents",
             "",
             "if [ ! -d \"$NCL_ROOT\" ]; then",

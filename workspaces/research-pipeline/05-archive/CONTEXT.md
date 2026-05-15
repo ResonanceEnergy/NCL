@@ -6,8 +6,8 @@ Store findings in memory system and convergence index for future recall.
 
 | Source | File/Location | Section/Scope | Why |
 |--------|--------------|---------------|-----|
-| Stage 04 | `/Projects/NCL/research/convergence/{date}_report.md` | Final convergence output | Archive source |
-| Stage 03 | `/Projects/NCL/research/synthesis_{topic}_{date}.md` | Topic syntheses | Semantic extraction |
+| Stage 04 | `/dev/NCL/research/convergence/{date}_report.md` | Final convergence output | Archive source |
+| Stage 03 | `/dev/NCL/research/synthesis_{topic}_{date}.md` | Topic syntheses | Semantic extraction |
 
 ## Process
 
@@ -21,6 +21,6 @@ Store findings in memory system and convergence index for future recall.
 
 | Artifact | Location | Format |
 |----------|----------|--------|
-| MemUnits | `/Projects/NCL/memory/units/{uuid}.yaml` | YAML (fact + meta) |
-| Index | `/Projects/NCL/memory/index_convergence.json` | JSON (searchable) |
-| Decay Map | `/Projects/NCL/memory/decay_{date}.json` | JSON (reinforcement log) |
+| MemUnits | `/dev/NCL/memory/units/{uuid}.yaml` | YAML (fact + meta) |
+| Index | `/dev/NCL/memory/index_convergence.json` | JSON (searchable) |
+| Decay Map | `/dev/NCL/memory/decay_{date}.json` | JSON (reinforcement log) |

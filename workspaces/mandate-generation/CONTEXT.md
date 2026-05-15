@@ -28,6 +28,6 @@ Sequential: 01 → 02 → 03 → 04 → 05. Stage 03 runs parallel council (asyn
 
 ## Storage
 
-- Pump prompts: `/Projects/NCL/prompts/intake/`
-- Draft mandates: `/Projects/NCL/mandates/drafts/`
-- Approved mandates: `/Projects/NCL/mandates/approved/` (YAML, dated, versioned)
+- Pump prompts: `/dev/NCL/prompts/intake/`
+- Draft mandates: `/dev/NCL/mandates/drafts/`
+- Approved mandates: `/dev/NCL/mandates/approved/` (YAML, dated, versioned)

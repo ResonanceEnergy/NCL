@@ -6,8 +6,8 @@ Human approval gate - NATRIX sign-off required before mandate activation.
 
 | Source | File/Location | Section/Scope | Why |
 |--------|--------------|---------------|-----|
-| Stage 04 | `/Projects/NCL/mandates/drafts/{timestamp}.yaml` | Full mandate draft | Human review package |
-| Stage 03 | `/Projects/NCL/council/{timestamp}_synthesis.md` | Council reasoning | Transparent justification |
+| Stage 04 | `/dev/NCL/mandates/drafts/{timestamp}.yaml` | Full mandate draft | Human review package |
+| Stage 03 | `/dev/NCL/council/{timestamp}_synthesis.md` | Council reasoning | Transparent justification |
 
 ## Process
 
@@ -21,6 +21,6 @@ Human approval gate - NATRIX sign-off required before mandate activation.
 
 | Artifact | Location | Format |
 |----------|----------|--------|
-| Approved Mandate | `/Projects/NCL/mandates/approved/{timestamp}.yaml` | YAML |
-| Activation Notice | `/Projects/NCL/mandates/approved/{timestamp}_notice.txt` | Plain text |
+| Approved Mandate | `/dev/NCL/mandates/approved/{timestamp}.yaml` | YAML |
+| Activation Notice | `/dev/NCL/mandates/approved/{timestamp}_notice.txt` | Plain text |
 | NCC Work Order | `/Projects/NCC-Doctrine/work_orders/{timestamp}.yaml` | YAML |

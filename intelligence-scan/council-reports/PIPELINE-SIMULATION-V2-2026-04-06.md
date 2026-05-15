@@ -234,7 +234,7 @@ mandate-generation/output/mandate-20260406-001.json
 ### Gap 9: MWP Workspace Directories Don't Exist
 **Severity:** CRITICAL — execution_loop.py writes to dirs that don't exist
 **Files affected:** All of `workspaces/execution-pipeline/{01-Input,02-Planning,03-Execution,04-Review,05-Output}/`
-**Fix:** `mkdir -p ~/Projects/NCL/workspaces/execution-pipeline/{01-Input,02-Planning,03-Execution,04-Review,05-Output}`
+**Fix:** `mkdir -p ~/dev/NCL/workspaces/execution-pipeline/{01-Input,02-Planning,03-Execution,04-Review,05-Output}`
 **Complexity:** Trivial (one command)
 
 ### Gap 10: NCC Server Has No mandate-intake Directory
@@ -275,7 +275,7 @@ mandate-generation/output/mandate-20260406-001.json
 ## Recommended Fix Order (Fastest Path to First Live Run)
 
 ### Tier 1: 5 Minutes (mkdir + config)
-1. `mkdir -p ~/Projects/NCL/workspaces/execution-pipeline/{01-Input,02-Planning,03-Execution,04-Review,05-Output}`
+1. `mkdir -p ~/dev/NCL/workspaces/execution-pipeline/{01-Input,02-Planning,03-Execution,04-Review,05-Output}`
 2. `mkdir -p ~/Projects/ncc-server/mandate-intake/`
 3. `mkdir -p ~/Projects/AAC-v2/war-room/intelligence/`
 

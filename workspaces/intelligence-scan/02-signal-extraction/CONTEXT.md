@@ -6,8 +6,8 @@ Identify actionable signals (trends, anomalies, breaking events) from raw feeds.
 
 | Source | File/Location | Section/Scope | Why |
 |--------|--------------|---------------|-----|
-| Stage 01 | `/Projects/NCL/intelligence/raw/{source}_{timestamp}.jsonl` | All feed items | Signal detection input |
-| Watch List | `/Projects/NCL/intelligence/watch_list.yaml` | Keywords, entities, domains | Signal filter config |
+| Stage 01 | `/dev/NCL/intelligence/raw/{source}_{timestamp}.jsonl` | All feed items | Signal detection input |
+| Watch List | `/dev/NCL/intelligence/watch_list.yaml` | Keywords, entities, domains | Signal filter config |
 
 ## Process
 
@@ -21,5 +21,5 @@ Identify actionable signals (trends, anomalies, breaking events) from raw feeds.
 
 | Artifact | Location | Format |
 |----------|----------|--------|
-| Signal Log | `/Projects/NCL/intelligence/signals.log` | JSONL (signal + metadata) |
-| Event List | `/Projects/NCL/intelligence/events_{timestamp}.json` | JSON (breaking items) |
+| Signal Log | `/dev/NCL/intelligence/signals.log` | JSONL (signal + metadata) |
+| Event List | `/dev/NCL/intelligence/events_{timestamp}.json` | JSON (breaking items) |

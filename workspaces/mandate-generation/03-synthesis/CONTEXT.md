@@ -6,7 +6,7 @@ Run council debate (Claude, Grok, Gemini, Perplexity, GPT) to explore mandate de
 
 | Source | File/Location | Section/Scope | Why |
 |--------|--------------|---------------|-----|
-| Stage 02 | `/Projects/NCL/analysis/{timestamp}.md` | Full analysis | Council debate foundation |
+| Stage 02 | `/dev/NCL/analysis/{timestamp}.md` | Full analysis | Council debate foundation |
 | Council | Multi-model endpoints | API keys in vault | Parallel reasoning across models |
 
 ## Process
@@ -21,8 +21,8 @@ Run council debate (Claude, Grok, Gemini, Perplexity, GPT) to explore mandate de
 
 | Artifact | Location | Format |
 |----------|----------|--------|
-| Debate Log | `/Projects/NCL/council/{timestamp}_debate.log` | JSON Lines |
-| Synthesis | `/Projects/NCL/council/{timestamp}_synthesis.md` | Markdown |
+| Debate Log | `/dev/NCL/council/{timestamp}_debate.log` | JSON Lines |
+| Synthesis | `/dev/NCL/council/{timestamp}_synthesis.md` | Markdown |
 
 ## Checkpoints
 

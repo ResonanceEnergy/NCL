@@ -22,5 +22,5 @@ Fetch feeds from X, YouTube, Reddit APIs with deduplication.
 
 | Artifact | Location | Format |
 |----------|----------|--------|
-| Raw Feed | `/Projects/NCL/intelligence/raw/{source}_{timestamp}.jsonl` | JSONL |
-| Ingest Log | `/Projects/NCL/intelligence/ingest.log` | TSV (counts, API latencies) |
+| Raw Feed | `/dev/NCL/intelligence/raw/{source}_{timestamp}.jsonl` | JSONL |
+| Ingest Log | `/dev/NCL/intelligence/ingest.log` | TSV (counts, API latencies) |

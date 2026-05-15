@@ -25,7 +25,7 @@ fi
 echo -e "${GREEN}OK${NC}"
 
 # Define paths
-NCL_ROOT=~/Projects/NCL
+NCL_ROOT=~/dev/NCL
 LAUNCH_AGENTS=~/Library/LaunchAgents
 
 # Check NCL directory exists
@@ -113,8 +113,8 @@ echo "=========================================="
 echo "Service Details:"
 echo "=========================================="
 echo "View logs:"
-echo "  tail -f ~/Projects/NCL/logs/ncl-brain-stdout.log"
-echo "  tail -f ~/Projects/NCL/logs/pump-watcher-stdout.log"
+echo "  tail -f ~/dev/NCL/logs/ncl-brain-stdout.log"
+echo "  tail -f ~/dev/NCL/logs/pump-watcher-stdout.log"
 echo ""
 echo "Service control:"
 echo "  launchctl list | grep com.resonanceenergy"

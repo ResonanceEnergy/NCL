@@ -38,10 +38,10 @@ company:
 
   # Integration endpoints
   endpoints:
-    mandate_queue: "file:///Projects/NCL/mandate-generation/output/"
-    feedback_inbox: "file:///Projects/NCL/feedback-synthesis/"
-    memory_store: "file:///Projects/NCL/memory-processing/long-term/"
-    intelligence_feed: "file:///Projects/NCL/intelligence-scan/signals/"
+    mandate_queue: "file:///dev/NCL/mandate-generation/output/"
+    feedback_inbox: "file:///dev/NCL/feedback-synthesis/"
+    memory_store: "file:///dev/NCL/memory-processing/long-term/"
+    intelligence_feed: "file:///dev/NCL/intelligence-scan/signals/"
 
   # Governance
   approval_authority:
@@ -72,7 +72,7 @@ agent:
   parent_company: "ncl"
   responsibility: "Deep science research + alt-science investigations"
 
-  workspace: "file:///Projects/NCL/research-pipeline/"
+  workspace: "file:///dev/NCL/research-pipeline/"
 
   capabilities:
     - "Literature mining (arXiv, PubMed, etc.)"
@@ -109,7 +109,7 @@ agent:
   parent_company: "ncl"
   responsibility: "Real-time intelligence scanning + ensemble forecasting"
 
-  workspace: "file:///Projects/NCL/intelligence-scan/"
+  workspace: "file:///dev/NCL/intelligence-scan/"
 
   capabilities:
     - "X feed monitoring (NATRIX subscriptions)"
@@ -150,7 +150,7 @@ agent:
   parent_company: "ncl"
   responsibility: "Mandate generation + council facilitation + feedback synthesis"
 
-  workspace: "file:///Projects/NCL/mandate-generation/ + feedback-synthesis/"
+  workspace: "file:///dev/NCL/mandate-generation/ + feedback-synthesis/"
 
   capabilities:
     - "Council orchestration (chairs via Claude, invites Grok/Gemini/Perplexity/GPT)"
@@ -197,7 +197,7 @@ agent:
   parent_company: "ncl"
   responsibility: "Long-term memory storage + decay management + context retrieval"
 
-  workspace: "file:///Projects/NCL/memory-processing/"
+  workspace: "file:///dev/NCL/memory-processing/"
 
   capabilities:
     - "Memory indexing + tagging"
@@ -251,7 +251,7 @@ issue:
 
   # NCL Integration
   ncl_agent: "strategy-doctrine"
-  ncl_mandate_file: "file:///Projects/NCL/mandate-generation/output/active/MANDATE-2026-001.yaml"
+  ncl_mandate_file: "file:///dev/NCL/mandate-generation/output/active/MANDATE-2026-001.yaml"
 
   # Workflow
   status: "executing"
@@ -341,7 +341,7 @@ activity:
 
   # Link to Mandate
   mandate_id: "MANDATE-2026-001"
-  mandate_link: "file:///Projects/NCL/feedback-synthesis/ncc-reports/NCC-2026-002.yaml"
+  mandate_link: "file:///dev/NCL/feedback-synthesis/ncc-reports/NCC-2026-002.yaml"
 
   # Validation
   schema_validation: "PASS"

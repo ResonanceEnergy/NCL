@@ -6,8 +6,8 @@ Claude-validated synthesis of feedback signals with confidence scoring.
 
 | Source | File/Location | Section/Scope | Why |
 |--------|--------------|---------------|-----|
-| Stage 01 | `/Projects/NCL/feedback/intake_{date}.jsonl` | All received reports | Validation input |
-| Context | `/Projects/NCL/mandates/approved/` | Active mandates | Mandate-feedback mapping |
+| Stage 01 | `/dev/NCL/feedback/intake_{date}.jsonl` | All received reports | Validation input |
+| Context | `/dev/NCL/mandates/approved/` | Active mandates | Mandate-feedback mapping |
 
 ## Process
 
@@ -21,5 +21,5 @@ Claude-validated synthesis of feedback signals with confidence scoring.
 
 | Artifact | Location | Format |
 |----------|----------|--------|
-| Validation Summary | `/Projects/NCL/feedback/validation_{date}.md` | Markdown (claims + confidence) |
-| Signal Matrix | `/Projects/NCL/feedback/signal_matrix_{date}.json` | JSON (claim × confidence grid) |
+| Validation Summary | `/dev/NCL/feedback/validation_{date}.md` | Markdown (claims + confidence) |
+| Signal Matrix | `/dev/NCL/feedback/signal_matrix_{date}.json` | JSON (claim × confidence grid) |

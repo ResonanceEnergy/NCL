@@ -6,8 +6,8 @@ Propose mandate adjustments and doctrine refinements based on detected patterns.
 
 | Source | File/Location | Section/Scope | Why |
 |--------|--------------|---------------|-----|
-| Stage 03 | `/Projects/NCL/feedback/patterns_{date}.json` | All patterns + trends | Recommendation source |
-| Mandates | `/Projects/NCL/mandates/approved/` | Active mandates | Amendment target mapping |
+| Stage 03 | `/dev/NCL/feedback/patterns_{date}.json` | All patterns + trends | Recommendation source |
+| Mandates | `/dev/NCL/mandates/approved/` | Active mandates | Amendment target mapping |
 
 ## Process
 
@@ -21,8 +21,8 @@ Propose mandate adjustments and doctrine refinements based on detected patterns.
 
 | Artifact | Location | Format |
 |----------|----------|--------|
-| Recommendations | `/Projects/NCL/feedback/recommendations_{date}.md` | Markdown (recommendation + rationale) |
-| Amendment List | `/Projects/NCL/feedback/amendments_{date}.json` | JSON (mandate_id, change, strength) |
+| Recommendations | `/dev/NCL/feedback/recommendations_{date}.md` | Markdown (recommendation + rationale) |
+| Amendment List | `/dev/NCL/feedback/amendments_{date}.json` | JSON (mandate_id, change, strength) |
 
 ## Checkpoints
 

@@ -6,8 +6,8 @@ Identify recurring themes and anomalies across validated reports.
 
 | Source | File/Location | Section/Scope | Why |
 |--------|--------------|---------------|-----|
-| Stage 02 | `/Projects/NCL/feedback/signal_matrix_{date}.json` | All validated signals | Pattern detection source |
-| History | `/Projects/NCL/feedback/patterns_{date-7}*.json` | Prior week patterns | Temporal trend detection |
+| Stage 02 | `/dev/NCL/feedback/signal_matrix_{date}.json` | All validated signals | Pattern detection source |
+| History | `/dev/NCL/feedback/patterns_{date-7}*.json` | Prior week patterns | Temporal trend detection |
 
 ## Process
 
@@ -21,8 +21,8 @@ Identify recurring themes and anomalies across validated reports.
 
 | Artifact | Location | Format |
 |----------|----------|--------|
-| Pattern Report | `/Projects/NCL/feedback/patterns_{date}.md` | Markdown (patterns + trends) |
-| Pattern Matrix | `/Projects/NCL/feedback/patterns_{date}.json` | JSON (signal, frequency, trend) |
+| Pattern Report | `/dev/NCL/feedback/patterns_{date}.md` | Markdown (patterns + trends) |
+| Pattern Matrix | `/dev/NCL/feedback/patterns_{date}.json` | JSON (signal, frequency, trend) |
 
 ## Checkpoints
 

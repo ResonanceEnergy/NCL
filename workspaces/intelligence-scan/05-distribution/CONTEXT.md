@@ -6,8 +6,8 @@ Route insights to relevant NCL, NCC, and BRS modules based on domain and mandate
 
 | Source | File/Location | Section/Scope | Why |
 |--------|--------------|---------------|-----|
-| Stage 04 | `/Projects/NCL/intelligence/insights/{date}.json` | All insights | Routing source |
-| Router Config | `/Projects/NCL/intelligence/routing.yaml` | Module subscriptions | Recipient mapping |
+| Stage 04 | `/dev/NCL/intelligence/insights/{date}.json` | All insights | Routing source |
+| Router Config | `/dev/NCL/intelligence/routing.yaml` | Module subscriptions | Recipient mapping |
 
 ## Process
 
@@ -21,5 +21,5 @@ Route insights to relevant NCL, NCC, and BRS modules based on domain and mandate
 
 | Artifact | Location | Format |
 |----------|----------|--------|
-| Delivery Log | `/Projects/NCL/intelligence/delivery_{date}.log` | TSV (insight, recipient, status) |
-| Archive Copy | `/Projects/NCL/intelligence/distributed/{date}_insights.json` | JSON (audit trail) |
+| Delivery Log | `/dev/NCL/intelligence/delivery_{date}.log` | TSV (insight, recipient, status) |
+| Archive Copy | `/dev/NCL/intelligence/distributed/{date}_insights.json` | JSON (audit trail) |

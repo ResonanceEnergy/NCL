@@ -141,7 +141,7 @@ if [ $? -eq 0 ] && [ -n "$BRAIN_HEALTH" ]; then
     echo -e "  Response: $BRAIN_HEALTH"
 else
     echo -e "  $FAIL  Brain not responding on localhost:8800"
-    echo -e "  → Check logs: tail ~/Projects/NCL/logs/ncl-brain-stderr.log"
+    echo -e "  → Check logs: tail ~/dev/NCL/logs/ncl-brain-stderr.log"
     ISSUES=$((ISSUES+1))
 fi
 echo ""
@@ -194,7 +194,7 @@ if [ -f "$RELAY_ERR" ]; then
 fi
 echo ""
 
-BRAIN_ERR="$HOME/Projects/NCL/logs/ncl-brain-stderr.log"
+BRAIN_ERR="$HOME/dev/NCL/logs/ncl-brain-stderr.log"
 if [ -f "$BRAIN_ERR" ]; then
     echo -e "${CYAN}[Logs] Brain Errors (last 10)${NC}"
     tail -10 "$BRAIN_ERR" 2>/dev/null | sed 's/^/  /'
@@ -227,7 +227,7 @@ echo ""
 if [ $ISSUES -gt 0 ]; then
     echo -e "${YELLOW}Quick Fixes:${NC}"
     echo -e "  1. Double-click install-services.command (fixes plists + restarts)"
-    echo -e "  2. Or run: ~/Projects/NCL/start-pipeline.command (manual start)"
+    echo -e "  2. Or run: ~/dev/NCL/start-pipeline.command (manual start)"
     echo -e "  3. Check Tailscale is connected on both Mac and iPhone"
     echo -e "  4. On iPhone, verify endpoint is https://$TS_IP:8787"
     echo ""

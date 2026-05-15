@@ -6,8 +6,8 @@ Merge related MemUnits, resolve conflicts, build consolidated index.
 
 | Source | File/Location | Section/Scope | Why |
 |--------|--------------|---------------|-----|
-| MemUnits | `/Projects/NCL/memory/units/` | All historical units | Consolidation source |
-| New Units | `/Projects/NCL/memory/units/{uuid}.yaml` | Today's extractions | Incremental update |
+| MemUnits | `/dev/NCL/memory/units/` | All historical units | Consolidation source |
+| New Units | `/dev/NCL/memory/units/{uuid}.yaml` | Today's extractions | Incremental update |
 
 ## Process
 
@@ -22,8 +22,8 @@ Merge related MemUnits, resolve conflicts, build consolidated index.
 
 | Artifact | Location | Format |
 |----------|----------|--------|
-| Consolidated Index | `/Projects/NCL/memory/index_consolidated.json` | JSON (merged units + dedup map) |
-| Conflict Log | `/Projects/NCL/memory/conflicts_{date}.json` | JSON (contradictions flagged) |
+| Consolidated Index | `/dev/NCL/memory/index_consolidated.json` | JSON (merged units + dedup map) |
+| Conflict Log | `/dev/NCL/memory/conflicts_{date}.json` | JSON (contradictions flagged) |
 
 ## Checkpoints
 

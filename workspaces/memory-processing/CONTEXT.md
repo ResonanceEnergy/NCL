@@ -28,7 +28,7 @@ Stages 01-02 continuous (event-driven). Stages 03-04 run daily (consolidation + 
 
 ## Storage
 
-- Episodic events: `/Projects/NCL/memory/episodic/`
-- MemUnits: `/Projects/NCL/memory/units/`
-- Consolidated index: `/Projects/NCL/memory/index_consolidated.json`
-- Retrieval indices: `/Projects/NCL/memory/indices/`
+- Episodic events: `/dev/NCL/memory/episodic/`
+- MemUnits: `/dev/NCL/memory/units/`
+- Consolidated index: `/dev/NCL/memory/index_consolidated.json`
+- Retrieval indices: `/dev/NCL/memory/indices/`

@@ -6,7 +6,7 @@ Build searchable indices for fast recall by context, recency, confidence, domain
 
 | Source | File/Location | Section/Scope | Why |
 |--------|--------------|---------------|-----|
-| Stage 04 | `/Projects/NCL/memory/index_decayed_{date}.json` | Decayed consolidated index | Indexing source |
+| Stage 04 | `/dev/NCL/memory/index_decayed_{date}.json` | Decayed consolidated index | Indexing source |
 
 ## Process
 
@@ -21,5 +21,5 @@ Build searchable indices for fast recall by context, recency, confidence, domain
 
 | Artifact | Location | Format |
 |----------|----------|--------|
-| Index Bundle | `/Projects/NCL/memory/indices/` | JSON files (keyword, recency, confidence, domain, temporal) |
-| Index Manifest | `/Projects/NCL/memory/index_manifest_{date}.json` | JSON (index metadata + build timestamp) |
+| Index Bundle | `/dev/NCL/memory/indices/` | JSON files (keyword, recency, confidence, domain, temporal) |
+| Index Manifest | `/dev/NCL/memory/index_manifest_{date}.json` | JSON (index metadata + build timestamp) |

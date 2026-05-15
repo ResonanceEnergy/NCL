@@ -48,8 +48,8 @@ done
 echo -e "${GREEN}  ✓ Both source plists present${NC}"
 
 # Sanity check: ensure plists reference the new path, not the old one.
-if grep -q "/Projects/NCL" "$SCRIPT_DIR/$BRAIN_PLIST_NAME" "$SCRIPT_DIR/$WATCHER_PLIST_NAME" 2>/dev/null; then
-    echo -e "${YELLOW}  ! Warning: plists still reference /Projects/NCL — expected /dev/NCL.${NC}"
+if grep -q "/dev/NCL" "$SCRIPT_DIR/$BRAIN_PLIST_NAME" "$SCRIPT_DIR/$WATCHER_PLIST_NAME" 2>/dev/null; then
+    echo -e "${YELLOW}  ! Warning: plists still reference /dev/NCL — expected /dev/NCL.${NC}"
     echo -e "${YELLOW}    Continuing, but you may want to fix the paths first.${NC}"
 fi
 

@@ -6,7 +6,7 @@ Apply approved mandate amendments, version control, and notify affected pillars.
 
 | Source | File/Location | Section/Scope | Why |
 |--------|--------------|---------------|-----|
-| Stage 04 | `/Projects/NCL/feedback/amendments_{date}.json` | Recommended amendments | Update source |
+| Stage 04 | `/dev/NCL/feedback/amendments_{date}.json` | Recommended amendments | Update source |
 | Approval Gate | Grok app notification | NATRIX sign-off | Approval required |
 
 ## Process
@@ -21,6 +21,6 @@ Apply approved mandate amendments, version control, and notify affected pillars.
 
 | Artifact | Location | Format |
 |----------|----------|--------|
-| Updated Mandates | `/Projects/NCL/mandates/approved/{id}_v{n}.yaml` | YAML (versioned) |
-| Change Log | `/Projects/NCL/mandates/changelog_{date}.md` | Markdown (amendments applied) |
+| Updated Mandates | `/dev/NCL/mandates/approved/{id}_v{n}.yaml` | YAML (versioned) |
+| Change Log | `/dev/NCL/mandates/changelog_{date}.md` | Markdown (amendments applied) |
 | Work Orders | `/Projects/NCC-Doctrine/work_orders/` | YAML (notify of changes) |

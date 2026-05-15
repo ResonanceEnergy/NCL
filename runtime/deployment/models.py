@@ -81,7 +81,7 @@ class ServiceState:
 @dataclass
 class DeploymentConfig:
     """Configuration for the deployment manager."""
-    ncl_root: str = "~/Projects/NCL"
+    ncl_root: str = "~/dev/NCL"
     log_dir: str = "logs"
     python_path: str = "/opt/homebrew/bin/python3"
     services: List[ServiceDefinition] = field(default_factory=list)

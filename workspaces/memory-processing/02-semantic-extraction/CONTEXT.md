@@ -6,7 +6,7 @@ Extract MemUnits (atomic facts) with source, confidence, and temporal metadata.
 
 | Source | File/Location | Section/Scope | Why |
 |--------|--------------|---------------|-----|
-| Stage 01 | `/Projects/NCL/memory/episodic/episodes_{date}.jsonl` | All episodes | MemUnit extraction source |
+| Stage 01 | `/dev/NCL/memory/episodic/episodes_{date}.jsonl` | All episodes | MemUnit extraction source |
 
 ## Process
 
@@ -20,5 +20,5 @@ Extract MemUnits (atomic facts) with source, confidence, and temporal metadata.
 
 | Artifact | Location | Format |
 |----------|----------|--------|
-| MemUnits | `/Projects/NCL/memory/units/{uuid}.yaml` | YAML (fact + metadata) |
-| Extraction Log | `/Projects/NCL/memory/extraction_{date}.json` | JSON (count, confidence distribution) |
+| MemUnits | `/dev/NCL/memory/units/{uuid}.yaml` | YAML (fact + metadata) |
+| Extraction Log | `/dev/NCL/memory/extraction_{date}.json` | JSON (count, confidence distribution) |

@@ -6,7 +6,7 @@ Produce mandate YAML with objectives, KPIs, authority chain, and success metrics
 
 | Source | File/Location | Section/Scope | Why |
 |--------|--------------|---------------|-----|
-| Stage 03 | `/Projects/NCL/council/{timestamp}_synthesis.md` | Synthesis + tradeoffs | Mandate design foundation |
+| Stage 03 | `/dev/NCL/council/{timestamp}_synthesis.md` | Synthesis + tradeoffs | Mandate design foundation |
 | Doctrine | `/Projects/NCC_CONTEXT.md` | Authority chain, pillar roles | Template and authority mapping |
 
 ## Process
@@ -21,8 +21,8 @@ Produce mandate YAML with objectives, KPIs, authority chain, and success metrics
 
 | Artifact | Location | Format |
 |----------|----------|--------|
-| Mandate YAML | `/Projects/NCL/mandates/drafts/{timestamp}.yaml` | YAML |
-| Execution Plan | `/Projects/NCL/mandates/drafts/{timestamp}_exec.md` | Markdown |
+| Mandate YAML | `/dev/NCL/mandates/drafts/{timestamp}.yaml` | YAML |
+| Execution Plan | `/dev/NCL/mandates/drafts/{timestamp}_exec.md` | Markdown |
 
 ## Checkpoints
 

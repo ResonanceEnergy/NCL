@@ -6,7 +6,7 @@ Apply time decay to old facts, boost reinforced facts (recited multiple times).
 
 | Source | File/Location | Section/Scope | Why |
 |--------|--------------|---------------|-----|
-| Stage 03 | `/Projects/NCL/memory/index_consolidated.json` | All MemUnits + metadata | Decay/reinforce source |
+| Stage 03 | `/dev/NCL/memory/index_consolidated.json` | All MemUnits + metadata | Decay/reinforce source |
 
 ## Process
 
@@ -20,8 +20,8 @@ Apply time decay to old facts, boost reinforced facts (recited multiple times).
 
 | Artifact | Location | Format |
 |----------|----------|--------|
-| Decayed Index | `/Projects/NCL/memory/index_decayed_{date}.json` | JSON (updated confidences) |
-| Decay Map | `/Projects/NCL/memory/decay_{date}.log` | TSV (unit, old_conf, decay, reinforce, new_conf) |
+| Decayed Index | `/dev/NCL/memory/index_decayed_{date}.json` | JSON (updated confidences) |
+| Decay Map | `/dev/NCL/memory/decay_{date}.log` | TSV (unit, old_conf, decay, reinforce, new_conf) |
 
 ## Checkpoints
 

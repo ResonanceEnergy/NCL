@@ -22,5 +22,5 @@ Receive structured feedback reports from NCC, BRS, AAC pillars.
 
 | Artifact | Location | Format |
 |----------|----------|--------|
-| Intake Log | `/Projects/NCL/feedback/intake_{date}.jsonl` | JSONL (report metadata) |
-| Report Archive | `/Projects/NCL/feedback/reports/{pillar}/{uuid}.json` | JSON (validated report) |
+| Intake Log | `/dev/NCL/feedback/intake_{date}.jsonl` | JSONL (report metadata) |
+| Report Archive | `/dev/NCL/feedback/reports/{pillar}/{uuid}.json` | JSON (validated report) |

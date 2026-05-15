@@ -6,7 +6,7 @@ Parse and extract key findings, claims, methodologies, and data from sources.
 
 | Source | File/Location | Section/Scope | Why |
 |--------|--------------|---------------|-----|
-| Stage 01 | `/Projects/NCL/research/sources/{topic}_{date}.json` | Source catalog + raw texts | Extraction input list |
+| Stage 01 | `/dev/NCL/research/sources/{topic}_{date}.json` | Source catalog + raw texts | Extraction input list |
 
 ## Process
 
@@ -20,5 +20,5 @@ Parse and extract key findings, claims, methodologies, and data from sources.
 
 | Artifact | Location | Format |
 |----------|----------|--------|
-| Extraction Summary | `/Projects/NCL/research/extractions/{uuid}.json` | JSON (structured claims) |
-| Evidence Index | `/Projects/NCL/research/evidence_{topic}_{date}.tsv` | TSV (claim, source, strength) |
+| Extraction Summary | `/dev/NCL/research/extractions/{uuid}.json` | JSON (structured claims) |
+| Evidence Index | `/dev/NCL/research/evidence_{topic}_{date}.tsv` | TSV (claim, source, strength) |

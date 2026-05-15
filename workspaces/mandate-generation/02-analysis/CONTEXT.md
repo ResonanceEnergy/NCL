@@ -6,7 +6,7 @@ Decompose intent, extract constraints and opportunities from pump prompt.
 
 | Source | File/Location | Section/Scope | Why |
 |--------|--------------|---------------|-----|
-| Stage 01 | `/Projects/NCL/prompts/intake/{timestamp}.json` | Full pump object | Raw intent decomposition |
+| Stage 01 | `/dev/NCL/prompts/intake/{timestamp}.json` | Full pump object | Raw intent decomposition |
 
 ## Process
 
@@ -20,5 +20,5 @@ Decompose intent, extract constraints and opportunities from pump prompt.
 
 | Artifact | Location | Format |
 |----------|----------|--------|
-| Analysis Doc | `/Projects/NCL/analysis/{timestamp}.md` | Markdown |
-| Constraint Map | `/Projects/NCL/analysis/{timestamp}_constraints.yaml` | YAML |
+| Analysis Doc | `/dev/NCL/analysis/{timestamp}.md` | Markdown |
+| Constraint Map | `/dev/NCL/analysis/{timestamp}_constraints.yaml` | YAML |

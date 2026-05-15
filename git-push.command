@@ -12,6 +12,6 @@ cd /tmp/ncl-push
 git add -A
 git commit -m "feat: MANDATE-2026-008 STRIKE-POINT pipeline + doctrine + roadmap" 2>/dev/null || echo "(nothing new)"
 git push origin main 2>&1
-cp -r /tmp/ncl-push/.git "$HOME/Projects/NCL/.git"
+cp -r /tmp/ncl-push/.git "$HOME/dev/NCL/.git"
 rm -rf /tmp/ncl-push
 echo ""; echo "✅ Done"; read -n1

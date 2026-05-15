@@ -6,8 +6,8 @@ Cross-reference findings, validate assertions, build synthesis matrix.
 
 | Source | File/Location | Section/Scope | Why |
 |--------|--------------|---------------|-----|
-| Stage 02 | `/Projects/NCL/research/evidence_{topic}_{date}.tsv` | All extracted claims | Cross-ref foundation |
-| Memory | `/Projects/NCL/memory/units/` | Historical findings | Prior art check |
+| Stage 02 | `/dev/NCL/research/evidence_{topic}_{date}.tsv` | All extracted claims | Cross-ref foundation |
+| Memory | `/dev/NCL/memory/units/` | Historical findings | Prior art check |
 
 ## Process
 
@@ -21,5 +21,5 @@ Cross-reference findings, validate assertions, build synthesis matrix.
 
 | Artifact | Location | Format |
 |----------|----------|--------|
-| Claim Matrix | `/Projects/NCL/research/matrix_{topic}_{date}.json` | JSON |
-| Synthesis | `/Projects/NCL/research/synthesis_{topic}_{date}.md` | Markdown |
+| Claim Matrix | `/dev/NCL/research/matrix_{topic}_{date}.json` | JSON |
+| Synthesis | `/dev/NCL/research/synthesis_{topic}_{date}.md` | Markdown |

@@ -6,7 +6,7 @@ Compress top signals into 3-5 key insights with actionable implications.
 
 | Source | File/Location | Section/Scope | Why |
 |--------|--------------|---------------|-----|
-| Stage 03 | `/Projects/NCL/intelligence/scored_{timestamp}.json` | Top 20 signals (score > 60) | Insight source |
+| Stage 03 | `/dev/NCL/intelligence/scored_{timestamp}.json` | Top 20 signals (score > 60) | Insight source |
 
 ## Process
 
@@ -20,8 +20,8 @@ Compress top signals into 3-5 key insights with actionable implications.
 
 | Artifact | Location | Format |
 |----------|----------|--------|
-| Insight Report | `/Projects/NCL/intelligence/insights/{date}_report.md` | Markdown |
-| Insight JSON | `/Projects/NCL/intelligence/insights/{date}.json` | JSON (structured insights) |
+| Insight Report | `/dev/NCL/intelligence/insights/{date}_report.md` | Markdown |
+| Insight JSON | `/dev/NCL/intelligence/insights/{date}.json` | JSON (structured insights) |
 
 ## Checkpoints
 

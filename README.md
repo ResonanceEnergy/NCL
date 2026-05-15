@@ -51,7 +51,7 @@ Downstream Projects (monitored via API):
 ### Setup
 
 ```bash
-cd ~/Projects/NCL
+cd ~/dev/NCL
 
 # Create venv
 python3.12 -m venv venv
@@ -322,7 +322,7 @@ cat > ~/Library/LaunchAgents/com.resonance-energy.ncl.plist << 'EOF'
       <string>8800</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>/Users/natrix/Projects/NCL</string>
+    <string>/Users/natrix/dev/NCL</string>
     <key>StandardOutPath</key>
     <string>/var/log/ncl-brain.log</string>
     <key>StandardErrorPath</key>

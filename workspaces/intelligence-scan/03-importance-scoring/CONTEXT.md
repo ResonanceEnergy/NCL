@@ -6,8 +6,8 @@ Score signals 0-100 using multi-factor formula and contextual relevance.
 
 | Source | File/Location | Section/Scope | Why |
 |--------|--------------|---------------|-----|
-| Stage 02 | `/Projects/NCL/intelligence/signals.log` | All extracted signals | Scoring input |
-| Context | `/Projects/NCL/mandates/approved/` | Active mandates | Relevance weight factors |
+| Stage 02 | `/dev/NCL/intelligence/signals.log` | All extracted signals | Scoring input |
+| Context | `/dev/NCL/mandates/approved/` | Active mandates | Relevance weight factors |
 
 ## Process
 
@@ -21,8 +21,8 @@ Score signals 0-100 using multi-factor formula and contextual relevance.
 
 | Artifact | Location | Format |
 |----------|----------|--------|
-| Scored Signals | `/Projects/NCL/intelligence/scored_{timestamp}.json` | JSON (signal + score) |
-| Score Audit | `/Projects/NCL/intelligence/score_audit_{timestamp}.tsv` | TSV (formula trace) |
+| Scored Signals | `/dev/NCL/intelligence/scored_{timestamp}.json` | JSON (signal + score) |
+| Score Audit | `/dev/NCL/intelligence/score_audit_{timestamp}.tsv` | TSV (formula trace) |
 
 ## Checkpoints
 

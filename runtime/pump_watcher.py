@@ -168,12 +168,38 @@ async def forward_pump_to_brain(pump_file: Path) -> bool:
             headers["Authorization"] = f"Bearer {STRIKE_AUTH_TOKEN}"
 
         async with httpx.AsyncClient(timeout=180.0) as client:
-            resp = await client.post(
-                f"{NCL_BRAIN_URL}/pump",
-                json=brain_payload,
-                headers=headers,
-                params={"auto_flow": True},
-            )
+            t0 = time.monotonic()
+            try:
+                resp = await client.post(
+                    f"{NCL_BRAIN_URL}/pump",
+                    json=brain_payload,
+                    headers=headers,
+                    params={"auto_flow": True},
+                )
+            except httpx.ReadTimeout:
+                elapsed = time.monotonic() - t0
+                log.error(
+                    "Brain ReadTimeout after %.1fs forwarding %s "
+                    "(url=%s/pump?auto_flow=true, timeout=180s, prompt_id=%s) "
+                    "— /pump should return mode='background' immediately; "
+                    "check brain stderr for lifespan / scheduler errors",
+                    elapsed,
+                    pump_file.name,
+                    NCL_BRAIN_URL,
+                    brain_payload.get("prompt_id"),
+                )
+                return False
+            except httpx.WriteTimeout:
+                elapsed = time.monotonic() - t0
+                log.error(
+                    "Brain WriteTimeout after %.1fs forwarding %s "
+                    "(url=%s/pump, timeout=180s, payload_bytes=%d)",
+                    elapsed,
+                    pump_file.name,
+                    NCL_BRAIN_URL,
+                    len(json.dumps(brain_payload)),
+                )
+                return False
 
             if resp.status_code == 200:
                 # Brain accepted the pump and created a mandate. We MUST mark

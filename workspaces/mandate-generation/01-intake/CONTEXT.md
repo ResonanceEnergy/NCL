@@ -21,5 +21,5 @@ Receive and validate pump prompt from NATRIX via Grok on iPhone.
 
 | Artifact | Location | Format |
 |----------|----------|--------|
-| Validated Pump | `/Projects/NCL/prompts/intake/{timestamp}.json` | JSON |
-| Audit Log | `/Projects/NCL/audit/intake.log` | TSV |
+| Validated Pump | `/dev/NCL/prompts/intake/{timestamp}.json` | JSON |
+| Audit Log | `/dev/NCL/audit/intake.log` | TSV |

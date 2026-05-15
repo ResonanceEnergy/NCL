@@ -28,7 +28,7 @@ Stages 01-02 run daily (autonomous feed). Stages 03-04 run on-demand or weekly a
 
 ## Storage
 
-- Sources: `/Projects/NCL/research/sources/`
-- Extractions: `/Projects/NCL/research/extractions/`
-- Convergence reports: `/Projects/NCL/research/convergence/`
-- Memory archive: `/Projects/NCL/memory/units/`
+- Sources: `/dev/NCL/research/sources/`
+- Extractions: `/dev/NCL/research/extractions/`
+- Convergence reports: `/dev/NCL/research/convergence/`
+- Memory archive: `/dev/NCL/memory/units/`

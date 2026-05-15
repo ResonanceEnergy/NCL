@@ -6,10 +6,10 @@ Ingest raw observations (feedback, research, intelligence, decisions) into memor
 
 | Source | File/Location | Section/Scope | Why |
 |--------|--------------|---------------|-----|
-| Feedback | `/Projects/NCL/feedback/reports/` | NCC, BRS, AAC reports | Operational observations |
-| Research | `/Projects/NCL/research/synthesis_*` | Research syntheses | Domain knowledge updates |
-| Intelligence | `/Projects/NCL/intelligence/insights/` | Daily intelligence insights | External signal observations |
-| Decisions | `/Projects/NCL/mandates/approved/` | Mandate approvals, changes | Decision recording |
+| Feedback | `/dev/NCL/feedback/reports/` | NCC, BRS, AAC reports | Operational observations |
+| Research | `/dev/NCL/research/synthesis_*` | Research syntheses | Domain knowledge updates |
+| Intelligence | `/dev/NCL/intelligence/insights/` | Daily intelligence insights | External signal observations |
+| Decisions | `/dev/NCL/mandates/approved/` | Mandate approvals, changes | Decision recording |
 
 ## Process
 
@@ -23,5 +23,5 @@ Ingest raw observations (feedback, research, intelligence, decisions) into memor
 
 | Artifact | Location | Format |
 |----------|----------|--------|
-| Episode Log | `/Projects/NCL/memory/episodic/episodes_{date}.jsonl` | JSONL |
-| Intake Manifest | `/Projects/NCL/memory/intake_{date}.json` | JSON (count, sources) |
+| Episode Log | `/dev/NCL/memory/episodic/episodes_{date}.jsonl` | JSONL |
+| Intake Manifest | `/dev/NCL/memory/intake_{date}.json` | JSON (count, sources) |

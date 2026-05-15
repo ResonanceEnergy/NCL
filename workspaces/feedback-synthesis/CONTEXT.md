@@ -28,8 +28,8 @@ Stages 01-03 continuous (event-driven). Stages 04-05 weekly synthesis + approval
 
 ## Storage
 
-- Incoming reports: `/Projects/NCL/feedback/reports/{pillar}/`
-- Validation summaries: `/Projects/NCL/feedback/validations/`
-- Patterns: `/Projects/NCL/feedback/patterns_{date}.json`
-- Recommendations: `/Projects/NCL/feedback/recommendations_{date}.md`
-- Updated mandates: `/Projects/NCL/mandates/approved/` (versioned)
+- Incoming reports: `/dev/NCL/feedback/reports/{pillar}/`
+- Validation summaries: `/dev/NCL/feedback/validations/`
+- Patterns: `/dev/NCL/feedback/patterns_{date}.json`
+- Recommendations: `/dev/NCL/feedback/recommendations_{date}.md`
+- Updated mandates: `/dev/NCL/mandates/approved/` (versioned)

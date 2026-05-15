@@ -28,6 +28,6 @@ Stages 01-02 run hourly (continuous feed). Stage 03 continuous. Stage 04 aggrega
 
 ## Storage
 
-- Raw feeds: `/Projects/NCL/intelligence/raw/{source}/`
-- Signals: `/Projects/NCL/intelligence/signals.log`
-- Insights: `/Projects/NCL/intelligence/insights/{date}/`
+- Raw feeds: `/dev/NCL/intelligence/raw/{source}/`
+- Signals: `/dev/NCL/intelligence/signals.log`
+- Insights: `/dev/NCL/intelligence/insights/{date}/`
