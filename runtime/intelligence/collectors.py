@@ -76,6 +76,24 @@ class _RateLimiter:
                 await asyncio.sleep(wait_time)
 
 
+class SafeAPIError(Exception):
+    """
+    Sanitized HTTP error — status + URL only, never the response body.
+
+    Upstream APIs may include attacker-controlled text in error bodies
+    (e.g. UW 401 contains a prompt-injection payload aimed at AI agents).
+    Raising this instead of httpx.HTTPStatusError prevents that payload
+    from reaching log files, stack traces, or downstream LLM context.
+    """
+
+    def __init__(self, status_code: int, url: str):
+        self.status_code = status_code
+        # Strip query string — may also be sensitive (api keys in some APIs)
+        clean_url = url.split("?", 1)[0]
+        self.url = clean_url
+        super().__init__(f"HTTP {status_code} from {clean_url}")
+
+
 async def _fetch_json(
     client: httpx.AsyncClient,
     url: str,
@@ -84,7 +102,12 @@ async def _fetch_json(
     limiter: Optional[_RateLimiter] = None,
     retries: int = 3,
 ) -> Any:
-    """GET JSON with retry and rate limiting."""
+    """GET JSON with retry and rate limiting.
+
+    Auth/forbidden errors raise SafeAPIError (sanitized). Other transport
+    errors propagate, but their str() should not be logged verbatim by
+    callers if the upstream is untrusted.
+    """
     if limiter:
         await limiter.acquire()
     last_err = None
@@ -93,21 +116,28 @@ async def _fetch_json(
             resp = await client.get(url, params=params, headers=headers)
             if resp.status_code == 404:
                 # Resource does not exist — no point retrying
-                log.debug(f"404 Not Found for {url} — skipping retries")
+                log.debug(f"404 Not Found for {url.split('?', 1)[0]} — skipping retries")
                 return None
             if resp.status_code == 429:
                 wait = int(resp.headers.get("retry-after", 2 ** attempt))
-                log.warning(f"Rate limited on {url}, waiting {wait}s")
+                log.warning(f"Rate limited on {url.split('?', 1)[0]}, waiting {wait}s")
                 await asyncio.sleep(wait)
                 continue
+            if resp.status_code in (401, 403):
+                # Do NOT log resp.text — may contain prompt-injection content
+                raise SafeAPIError(resp.status_code, url)
             resp.raise_for_status()
             return resp.json()
+        except SafeAPIError:
+            raise
         except (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException) as e:
             last_err = e
-            if isinstance(e, httpx.HTTPStatusError) and e.response.status_code in (401, 403):
-                raise
             await asyncio.sleep(2 ** attempt)
-    raise last_err or Exception(f"Failed after {retries} retries: {url}")
+    # Wrap final failure in SafeAPIError so callers can't accidentally
+    # log an httpx error containing response.text from the upstream.
+    if isinstance(last_err, httpx.HTTPStatusError):
+        raise SafeAPIError(last_err.response.status_code, url)
+    raise SafeAPIError(0, url) from last_err
 
 
 async def retry_api_call(
