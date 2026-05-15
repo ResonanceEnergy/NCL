@@ -4023,10 +4023,16 @@ async def list_swarm_agents() -> dict:
 # ── API Versioning ─────────────────────────────────────────────────────────
 # Mount current app under /v1 prefix while keeping root routes for backwards
 # compatibility. Clients can migrate to /v1/... at their own pace.
+#
+# IMPORTANT: lifespan must be passed to versioned_app — FastAPI does NOT
+# propagate lifespans into mounted sub-apps, so without this the inner `app`'s
+# startup (which initializes the `brain` global) never runs and every request
+# returns 503 Service Unavailable.
 versioned_app = FastAPI(
     title=f"{config.service_name} (versioned)",
     version=config.service_version,
     description="NCL Brain API — versioned gateway",
+    lifespan=lifespan,
 )
 versioned_app.mount("/v1", app)  # All routes available under /v1/...
 versioned_app.mount("/", app)    # Backwards compat: root routes still work
