@@ -4,15 +4,15 @@
 <dict>
     <!-- Strike Point Orchestrator — mandate watcher service -->
     <!-- Install: cp config/com.resonanceenergy.ncl-orchestrator.plist ~/Library/LaunchAgents/ -->
-    <!-- Load:    launchctl load ~/Library/LaunchAgents/com.resonanceenergy.ncl-orchestrator.plist -->
-    <!-- Unload:  launchctl unload ~/Library/LaunchAgents/com.resonanceenergy.ncl-orchestrator.plist -->
+    <!-- Load:    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.resonanceenergy.ncl-orchestrator.plist -->
+    <!-- Unload:  launchctl bootout gui/$(id -u)/com.resonanceenergy.ncl-orchestrator -->
 
     <key>Label</key>
     <string>com.resonanceenergy.ncl-orchestrator</string>
 
     <key>ProgramArguments</key>
     <array>
-        <string>/Users/natrix/.pyenv/shims/python3</string>
+        <string>__HOME__/.pyenv/shims/python3</string>
         <string>-m</string>
         <string>runtime.strike_point_orchestrator</string>
         <string>--watch</string>
@@ -21,23 +21,23 @@
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/natrix/dev/NCL</string>
+    <string>__HOME__/dev/NCL</string>
 
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/Users/natrix/.pyenv/shims</string>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:__HOME__/.pyenv/shims</string>
         <key>HOME</key>
-        <string>/Users/natrix</string>
+        <string>__HOME__</string>
         <key>PYTHONPATH</key>
-        <string>/Users/natrix/dev/NCL</string>
+        <string>__HOME__/dev/NCL</string>
     </dict>
 
     <key>StandardOutPath</key>
-    <string>/Users/natrix/dev/NCL/logs/orchestrator-stdout.log</string>
+    <string>__HOME__/dev/NCL/logs/orchestrator-stdout.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/Users/natrix/dev/NCL/logs/orchestrator-stderr.log</string>
+    <string>__HOME__/dev/NCL/logs/orchestrator-stderr.log</string>
 
     <key>RunAtLoad</key>
     <true/><!-- Start automatically on login -->

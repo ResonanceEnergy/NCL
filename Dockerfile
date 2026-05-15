@@ -8,22 +8,29 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy project files
-COPY pyproject.toml README.md .gitignore ./
-COPY runtime/ ./runtime/
+# Copy dependency files first to maximise layer cache reuse
+COPY requirements.txt pyproject.toml README.md ./
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -e .
+# Install Python dependencies (cached unless requirements change)
+RUN pip install --no-cache-dir -r requirements.txt && pip install --no-cache-dir -e .
+
+# Copy application code (layer invalidated only when code changes)
+COPY runtime/ ./runtime/
 
 # Create data directories
 RUN mkdir -p /app/data/memory /app/config
 
-# Expose port
-EXPOSE 8787
+# Run as non-root user for container security
+RUN adduser --disabled-password --gecos '' appuser \
+    && chown -R appuser:appuser /app
+USER appuser
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8787/health || exit 1
+# Expose Brain API port
+EXPOSE 8800
 
-# Run service
-CMD ["uvicorn", "runtime.api.routes:app", "--host", "0.0.0.0", "--port", "8787"]
+# Health check against the Brain API port
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:8800/health || exit 1
+
+# Run the NCL Brain service
+CMD ["uvicorn", "runtime.api.routes:app", "--host", "0.0.0.0", "--port", "8800"]

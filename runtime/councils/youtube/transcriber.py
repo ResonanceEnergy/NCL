@@ -67,6 +67,26 @@ def transcribe_audio(
     return None
 
 
+# Module-level cache for Whisper models (load once, reuse across calls)
+_faster_whisper_model = None
+_mlx_whisper_available: Optional[bool] = None
+
+
+def _get_faster_whisper_model():
+    """Get or create the cached faster-whisper model instance."""
+    global _faster_whisper_model
+    if _faster_whisper_model is not None:
+        return _faster_whisper_model
+    from faster_whisper import WhisperModel
+    _faster_whisper_model = WhisperModel(
+        WHISPER_MODEL,
+        device=WHISPER_DEVICE,
+        compute_type=WHISPER_COMPUTE_TYPE,
+    )
+    log.info(f"faster-whisper model loaded: {WHISPER_MODEL} ({WHISPER_DEVICE}/{WHISPER_COMPUTE_TYPE})")
+    return _faster_whisper_model
+
+
 def _transcribe_faster_whisper(
     audio_path: Path,
     video_id: str,
@@ -81,11 +101,7 @@ def _transcribe_faster_whisper(
 
     try:
         start = time.monotonic()
-        model = WhisperModel(
-            WHISPER_MODEL,
-            device=WHISPER_DEVICE,
-            compute_type=WHISPER_COMPUTE_TYPE,
-        )
+        model = _get_faster_whisper_model()
 
         segments_iter, info = model.transcribe(
             str(audio_path),

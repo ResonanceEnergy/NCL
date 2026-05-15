@@ -13,7 +13,7 @@ import traceback
 
 from . import register_agent
 from ..agent_base import SwarmAgent
-from ..models import SubtaskNode, TaskResult
+from ..models import SubtaskNode, TaskResult, TaskStatus
 
 logger = logging.getLogger("ncl.swarm.architect")
 
@@ -24,6 +24,11 @@ class ArchitectAgent(SwarmAgent):
     System design agent that produces technical specifications covering
     architecture, API design, database schemas, and integration planning.
     """
+
+    DESCRIPTION = "Architect — system design, API contracts, data models, implementation planning (Claude + GPT)"
+
+    def __str__(self) -> str:
+        return f"ArchitectAgent(id={self.agent_id}, state={self.state.value})"
 
     async def execute(self, task: SubtaskNode) -> TaskResult:
         start_ms = int(time.time() * 1000)
@@ -150,6 +155,7 @@ class ArchitectAgent(SwarmAgent):
                 subtask_id=task.subtask_id,
                 agent_id=self.agent_id,
                 output=f"ERROR: {exc}\n{traceback.format_exc()}",
+                status=TaskStatus.FAILED,
                 confidence=0.0,
                 cost_cents=total_cost,
                 duration_ms=duration_ms,

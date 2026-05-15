@@ -8,7 +8,8 @@ services:
       dockerfile: Dockerfile
     container_name: ncl-brain
     ports:
-      - "8787:8787"
+      - "8800:8800"
+    mem_limit: 4g
     volumes:
       - ./data:/app/data
       - ./config:/app/config
@@ -24,24 +25,26 @@ services:
       - NCL_REDDIT_CLIENT_SECRET=${NCL_REDDIT_CLIENT_SECRET}
       - NCL_OLLAMA_HOST=ollama:11434
       - NCL_PAPERCLIP_HOST=paperclip
-      - NCL_PAPERCLIP_PORT=8765
+      - NCL_PAPERCLIP_PORT=3102
       - NCL_DEBUG=false
     depends_on:
-      - ollama
-      - paperclip
+      ollama:
+        condition: service_healthy
+      paperclip:
+        condition: service_healthy
     networks:
       - resonance-energy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8787/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8800/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 5s
+      start_period: 30s
 
   # Ollama local models
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.3
     container_name: ollama
     ports:
       - "11434:11434"
@@ -52,6 +55,12 @@ services:
     networks:
       - resonance-energy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     # Pre-download models on startup (optional)
     # command: serve & sleep 5 && ollama pull qwen3:32b && ollama pull deepseek-coder-v2:16b
 
@@ -63,11 +72,17 @@ services:
     volumes:
       - ./paperclip_mock.py:/app/main.py
     ports:
-      - "8765:8765"
+      - "3102:3102"
     command: python /app/main.py
     networks:
       - resonance-energy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3102/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
 networks:
   resonance-energy:

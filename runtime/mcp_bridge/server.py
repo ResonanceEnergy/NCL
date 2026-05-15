@@ -15,6 +15,8 @@ import json
 import logging
 from typing import Any, Optional
 
+import asyncio
+
 import httpx
 from mcp.server.fastmcp import FastMCP
 
@@ -35,6 +37,31 @@ if not STRIKE_AUTH_TOKEN:
 # Initialize FastMCP server
 server = FastMCP("ncl-brain")
 
+
+# ── Shared HTTP Client ───────────────────────────────────────────────────
+# Reuse a single httpx.AsyncClient to avoid connection pool exhaustion.
+
+_mcp_client: Optional[httpx.AsyncClient] = None
+_mcp_client_lock: Optional[asyncio.Lock] = None
+
+
+def _get_mcp_lock() -> asyncio.Lock:
+    global _mcp_client_lock
+    if _mcp_client_lock is None:
+        _mcp_client_lock = asyncio.Lock()
+    return _mcp_client_lock
+
+
+async def _get_mcp_client() -> httpx.AsyncClient:
+    """Return a shared HTTP client for MCP bridge calls."""
+    global _mcp_client
+    if _mcp_client is None or _mcp_client.is_closed:
+        async with _get_mcp_lock():
+            if _mcp_client is None or _mcp_client.is_closed:
+                _mcp_client = httpx.AsyncClient(timeout=30.0)
+    return _mcp_client
+
+
 # HTTP client with auth
 def get_headers() -> dict[str, str]:
     """Build headers with bearer token auth."""
@@ -48,10 +75,10 @@ async def http_get(path: str) -> dict[str, Any]:
     """Make authenticated GET request to NCL Brain API."""
     url = f"{NCL_BRAIN_URL}{path}"
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(url, headers=get_headers())
-            response.raise_for_status()
-            return response.json()
+        client = await _get_mcp_client()
+        response = await client.get(url, headers=get_headers())
+        response.raise_for_status()
+        return response.json()
     except httpx.HTTPError as e:
         logger.error(f"HTTP error on GET {url}: {e}")
         raise ValueError(f"NCL Brain API error: {e}")
@@ -64,10 +91,10 @@ async def http_post(path: str, data: dict[str, Any]) -> dict[str, Any]:
     """Make authenticated POST request to NCL Brain API."""
     url = f"{NCL_BRAIN_URL}{path}"
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(url, json=data, headers=get_headers())
-            response.raise_for_status()
-            return response.json()
+        client = await _get_mcp_client()
+        response = await client.post(url, json=data, headers=get_headers())
+        response.raise_for_status()
+        return response.json()
     except httpx.HTTPError as e:
         logger.error(f"HTTP error on POST {url}: {e}")
         raise ValueError(f"NCL Brain API error: {e}")

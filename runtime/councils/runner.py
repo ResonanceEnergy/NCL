@@ -62,8 +62,10 @@ async def run_youtube_council(
     log.info("=" * 60)
 
     # Step 1: Scrape channel metadata (with Strike Point scoring)
+    # scrape_recent_videos() uses time.sleep() for polite rate limiting, so
+    # it is run in a thread pool to avoid blocking the event loop.
     log.info("Step 1/4: Scraping channel feeds (Strike Point targeting)...")
-    videos = scrape_recent_videos()
+    videos = await asyncio.to_thread(scrape_recent_videos)
     if not videos:
         log.warning("No recent videos found — YouTube Council has nothing to process")
         return None
@@ -78,8 +80,9 @@ async def run_youtube_council(
         return None
 
     # Step 2: Download audio
+    # download_batch() does blocking yt-dlp I/O; run in thread pool.
     log.info("Step 2/4: Downloading audio...")
-    downloaded = download_batch(videos)
+    downloaded = await asyncio.to_thread(download_batch, videos)
     if not downloaded:
         log.warning("No audio downloaded — YouTube Council cannot proceed")
         return None

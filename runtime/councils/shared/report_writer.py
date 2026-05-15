@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -164,15 +165,43 @@ def _render_markdown(report: CouncilReport) -> str:
     return "\n".join(lines)
 
 
+_SIGNALS_FILE_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+_SIGNALS_ROTATE_BACKUPS = 5
+
+
+def _rotate_signals_file(path: Path) -> None:
+    """Rotate signals JSONL when it exceeds the size limit."""
+    try:
+        if path.exists() and path.stat().st_size > _SIGNALS_FILE_MAX_BYTES:
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            rotated = path.with_name(f"{path.stem}_{stamp}{path.suffix}")
+            path.rename(rotated)
+            # Prune old backups beyond _SIGNALS_ROTATE_BACKUPS
+            existing = sorted(path.parent.glob(f"{path.stem}_*{path.suffix}"))
+            for old in existing[:-_SIGNALS_ROTATE_BACKUPS]:
+                old.unlink(missing_ok=True)
+            log.info(f"Rotated {path.name} → {rotated.name}")
+    except OSError as e:
+        log.warning(f"Signal file rotation failed: {e}")
+
+
 def _write_signals(report: CouncilReport, date_str: str) -> None:
     """Write processed signals to the Awarebot-FPC signals directory."""
     SIGNALS_DIR.mkdir(parents=True, exist_ok=True)
     signals_file = SIGNALS_DIR / f"signals-{date_str}.jsonl"
+    _rotate_signals_file(signals_file)
 
     signals = []
+    seen_signal_ids: set[str] = set()
     for i, insight in enumerate(report.insights):
+        signal_id = f"sig-{date_str}-{report.council_type.value}-{uuid.uuid4().hex[:8]}"
+        # Deduplicate: skip any signal whose ID has already been recorded
+        if signal_id in seen_signal_ids:
+            log.debug(f"Skipping duplicate signal_id={signal_id}")
+            continue
+        seen_signal_ids.add(signal_id)
         signal = {
-            "signal_id": f"sig-{date_str}-{report.council_type.value}-{i+1:03d}",
+            "signal_id": signal_id,
             "source_council": report.council_type.value,
             "session_id": report.session_id,
             "category": insight.category.value,

@@ -27,6 +27,35 @@ from .models import (
 
 log = logging.getLogger("ncl.council_runner.agents")
 
+# Shared HTTP client — reused across all model calls to avoid connection pool exhaustion.
+_shared_http_client: Optional[httpx.AsyncClient] = None
+_http_client_lock: Optional[asyncio.Lock] = None
+
+
+def _get_http_lock() -> asyncio.Lock:
+    global _http_client_lock
+    if _http_client_lock is None:
+        _http_client_lock = asyncio.Lock()
+    return _http_client_lock
+
+
+async def _get_http_client() -> httpx.AsyncClient:
+    """Return (and lazily create) the shared httpx client for council_runner."""
+    global _shared_http_client
+    if _shared_http_client is None or _shared_http_client.is_closed:
+        async with _get_http_lock():
+            if _shared_http_client is None or _shared_http_client.is_closed:
+                _shared_http_client = httpx.AsyncClient(timeout=90.0)
+    return _shared_http_client
+
+
+async def close_council_runner_client() -> None:
+    """Close the shared HTTP client. Call on application shutdown."""
+    global _shared_http_client
+    if _shared_http_client is not None:
+        await _shared_http_client.aclose()
+        _shared_http_client = None
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Agent Configuration
@@ -101,7 +130,7 @@ async def _call_model(
 
     Returns: (response_text, model_used)
     """
-    http_client = httpx.AsyncClient(timeout=90.0)
+    http_client = await _get_http_client()
 
     # Try Claude first
     if model_preference in ("claude", "default"):
@@ -132,9 +161,6 @@ async def _call_model(
     except Exception as e:
         log.error(f"All model calls failed: {e}")
         raise
-
-    finally:
-        await http_client.aclose()
 
 
 async def _call_claude(

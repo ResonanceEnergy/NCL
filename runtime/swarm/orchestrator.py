@@ -13,7 +13,7 @@ import json
 import logging
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .agents import get_agent_class, list_agent_types
@@ -80,10 +80,18 @@ class SwarmOrchestrator:
     - Optional PolicyKernel gate for Execute-tier actions
     - Emergency stop support
     - Stalled task detection and recovery
+    - Per-agent execution timeouts (TIMED_OUT state on breach)
+    - AWAITING_APPROVAL expiration (EXPIRED state after approval_timeout_seconds)
+    - Automatic cleanup of completed tasks older than 24 h
     """
 
     MAX_CONCURRENT_AGENTS = 4
-    STALL_TIMEOUT_SECONDS = 300  # 5 minutes
+    STALL_TIMEOUT_SECONDS = 300        # 5 minutes — deadlock / no-progress detection
+    AGENT_TIMEOUT_SECONDS = 300        # 5 minutes — max wall-clock for a single agent run
+    APPROVAL_TIMEOUT_SECONDS = 3600    # 1 hour   — max wait in AWAITING_APPROVAL
+    COMPLETED_TASK_TTL_SECONDS = 86400 # 24 hours — cleanup_completed_tasks() threshold
+    MAX_TASKS = 5000  # Hard cap on _tasks dict size
+    TASK_TTL_HOURS = 24  # Completed/failed tasks older than this are evicted
 
     def __init__(
         self,
@@ -113,10 +121,11 @@ class SwarmOrchestrator:
             paperclip_client=config.get("paperclip_client"),
         )
 
-        # Task storage
+        # Task storage — all three dicts must be modified together under _tasks_guard
         self._tasks: dict[str, SwarmTask] = {}
         self._task_graphs: dict[str, TaskGraphEngine] = {}
         self._task_locks: dict[str, asyncio.Lock] = {}
+        self._tasks_guard = asyncio.Lock()  # Serialises insertions and deletions across all three dicts
         self._background_workers: dict[str, asyncio.Task[None]] = {}
 
         # Agent pool
@@ -125,7 +134,9 @@ class SwarmOrchestrator:
         self._agent_semaphore = asyncio.Semaphore(self.MAX_CONCURRENT_AGENTS)
         self._pool_lock = asyncio.Lock()
 
-        # Stats
+        # Stats — guarded by _stats_lock so concurrent coroutines can safely
+        # increment them via += without risking a read-modify-write race.
+        self._stats_lock = asyncio.Lock()
         self._total_submitted: int = 0
         self._total_completed: int = 0
         self._total_failed: int = 0
@@ -133,6 +144,7 @@ class SwarmOrchestrator:
 
         # Maintenance
         self._maintenance_task: asyncio.Task[None] | None = None
+        self._tasks_since_last_cleanup: int = 0
 
         # Graph builder
         self._graph_builder = TaskGraphBuilder(
@@ -182,9 +194,19 @@ class SwarmOrchestrator:
             metadata=metadata or {},
         )
 
-        self._tasks[task.task_id] = task
-        self._task_locks[task.task_id] = asyncio.Lock()
-        self._total_submitted += 1
+        # Enforce max task cap — evict old finished tasks if needed
+        self._tasks_since_last_cleanup += 1
+        if self._tasks_since_last_cleanup >= 100:
+            await self._cleanup_old_tasks()
+            self._tasks_since_last_cleanup = 0
+        elif len(self._tasks) >= self.MAX_TASKS:
+            await self._cleanup_old_tasks()
+
+        async with self._tasks_guard:
+            self._tasks[task.task_id] = task
+            self._task_locks[task.task_id] = asyncio.Lock()
+        async with self._stats_lock:
+            self._total_submitted += 1
 
         # Allocate budget
         await self._cost_gate.allocate(task.task_id, budget_cents)
@@ -194,7 +216,8 @@ class SwarmOrchestrator:
             self._execute_task(task),
             name=f"swarm-task-{task.task_id}",
         )
-        self._background_workers[task.task_id] = worker
+        async with self._tasks_guard:
+            self._background_workers[task.task_id] = worker
 
         # Start maintenance if not running
         await self._ensure_maintenance_running()
@@ -247,7 +270,8 @@ class SwarmOrchestrator:
             task.completed_at = _utcnow()
 
         # Cancel background worker
-        worker = self._background_workers.pop(task_id, None)
+        async with self._tasks_guard:
+            worker = self._background_workers.pop(task_id, None)
         if worker and not worker.done():
             worker.cancel()
             try:
@@ -255,11 +279,11 @@ class SwarmOrchestrator:
             except asyncio.CancelledError:
                 pass
 
-        # Mark all pending subtasks as cancelled
+        # Mark all pending and running subtasks as cancelled
         engine = self._task_graphs.get(task_id)
         if engine:
             for node in engine.graph.nodes.values():
-                if node.status == TaskStatus.PENDING:
+                if node.status in (TaskStatus.PENDING, TaskStatus.IN_PROGRESS, TaskStatus.ASSIGNED):
                     node.status = TaskStatus.CANCELLED
 
         await self._cost_gate.deallocate(task_id)
@@ -323,6 +347,63 @@ class SwarmOrchestrator:
             "llm_total_cost": round(self._llm_router.total_cost_cents, 4),
         }
 
+    def cleanup_completed_tasks(self, max_age_seconds: float | None = None) -> int:
+        """
+        Remove finished tasks (COMPLETED, FAILED, CANCELLED, TIMED_OUT, EXPIRED)
+        that completed more than ``max_age_seconds`` ago.
+
+        This is a synchronous, on-demand companion to the automatic maintenance
+        loop. Callers can invoke it at any time without waiting for the next
+        60-second tick.
+
+        Args:
+            max_age_seconds: Maximum age in seconds for a finished task to be
+                retained. Defaults to ``COMPLETED_TASK_TTL_SECONDS`` (24 h).
+
+        Returns:
+            Number of tasks removed.
+        """
+        if max_age_seconds is None:
+            max_age_seconds = float(self.COMPLETED_TASK_TTL_SECONDS)
+
+        terminal = {
+            TaskStatus.COMPLETED,
+            TaskStatus.FAILED,
+            TaskStatus.CANCELLED,
+            TaskStatus.TIMED_OUT,
+            TaskStatus.EXPIRED,
+        }
+        cutoff = _utcnow() - timedelta(seconds=max_age_seconds)
+
+        # Snapshot under _tasks_guard so insertions/deletions from the async
+        # maintenance loop cannot race with this synchronous caller.
+        # NOTE: _tasks_guard is an asyncio.Lock, so we cannot await it here.
+        # This method must only be called from coroutine context via
+        # asyncio.run_coroutine_threadsafe or equivalent, or the caller must
+        # ensure no concurrent async maintenance loop is running.  The async
+        # _cleanup_old_tasks() companion properly acquires _tasks_guard.
+        to_remove = [
+            task_id
+            for task_id, task in self._tasks.items()
+            if task.status in terminal
+            and task.completed_at is not None
+            and task.completed_at < cutoff
+        ]
+
+        for task_id in to_remove:
+            self._tasks.pop(task_id, None)
+            self._task_graphs.pop(task_id, None)
+            self._task_locks.pop(task_id, None)
+
+        if to_remove:
+            logger.info(
+                "cleanup_completed_tasks: removed %d tasks older than %.0fs",
+                len(to_remove),
+                max_age_seconds,
+            )
+
+        return len(to_remove)
+
     async def shutdown(self) -> None:
         """
         Gracefully shut down the orchestrator.
@@ -340,7 +421,9 @@ class SwarmOrchestrator:
                 pass
 
         # Cancel all workers
-        for task_id, worker in list(self._background_workers.items()):
+        async with self._tasks_guard:
+            workers_snapshot = list(self._background_workers.items())
+        for task_id, worker in workers_snapshot:
             if not worker.done():
                 worker.cancel()
                 try:
@@ -435,10 +518,11 @@ class SwarmOrchestrator:
                         task.status = TaskStatus.FAILED
                         task.results = {"error": "Budget exceeded"}
                         task.completed_at = _utcnow()
-                    self._total_failed += 1
+                    async with self._stats_lock:
+                        self._total_failed += 1
                     return
 
-                ready_nodes = engine.get_ready_nodes()
+                ready_nodes = await engine.get_ready_nodes()
                 if not ready_nodes:
                     # Nothing ready — either waiting for agents or deadlocked
                     await asyncio.sleep(0.5)
@@ -446,14 +530,20 @@ class SwarmOrchestrator:
 
                 last_progress_time = time.time()
 
-                # Dispatch ready nodes concurrently
+                # Dispatch ready nodes concurrently — hold the pool lock while
+                # checking + setting status so two coroutines cannot both see
+                # PENDING and both dispatch the same node (Gap 25).
                 dispatch_tasks = []
-                for node in ready_nodes:
-                    # Mark as assigned so we don't double-dispatch
-                    node.status = TaskStatus.ASSIGNED
-                    dispatch_tasks.append(
-                        self._dispatch_subtask(task, engine, node)
-                    )
+                async with self._pool_lock:
+                    for node in ready_nodes:
+                        # Re-check status inside the lock: another coroutine may
+                        # have already claimed this node since get_ready_nodes().
+                        if node.status != TaskStatus.PENDING:
+                            continue
+                        node.status = TaskStatus.ASSIGNED
+                        dispatch_tasks.append(
+                            self._dispatch_subtask(task, engine, node)
+                        )
 
                 # Run dispatches concurrently (semaphore limits parallelism)
                 await asyncio.gather(*dispatch_tasks, return_exceptions=True)
@@ -465,7 +555,8 @@ class SwarmOrchestrator:
                     task.status = TaskStatus.COMPLETED
                     task.results = {"output": final_result}
                     task.completed_at = _utcnow()
-                self._total_completed += 1
+                async with self._stats_lock:
+                    self._total_completed += 1
 
                 logger.info("Task %s COMPLETED successfully", task.task_id)
             else:
@@ -478,7 +569,8 @@ class SwarmOrchestrator:
                         "progress": progress,
                     }
                     task.completed_at = _utcnow()
-                self._total_failed += 1
+                async with self._stats_lock:
+                    self._total_failed += 1
 
                 logger.warning(
                     "Task %s FAILED (progress: %s)", task.task_id, progress
@@ -493,9 +585,11 @@ class SwarmOrchestrator:
                 task.status = TaskStatus.FAILED
                 task.results = {"error": str(exc)}
                 task.completed_at = _utcnow()
-            self._total_failed += 1
+            async with self._stats_lock:
+                self._total_failed += 1
         finally:
-            self._background_workers.pop(task.task_id, None)
+            async with self._tasks_guard:
+                self._background_workers.pop(task.task_id, None)
 
     async def _dispatch_subtask(
         self,
@@ -534,7 +628,7 @@ class SwarmOrchestrator:
                     subtask_id,
                     task.task_id,
                 )
-                engine.mark_failed(subtask_id, "Insufficient budget remaining")
+                await engine.mark_failed(subtask_id, "Insufficient budget remaining")
                 return
 
             # Spawn and execute
@@ -546,24 +640,37 @@ class SwarmOrchestrator:
                     task=task,
                 )
 
-            # Record cost
+            # Record cost (budget may have been deallocated if task was cancelled)
             if result:
-                await self._cost_gate.spend(
-                    task.task_id,
-                    result.cost_cents,
-                    f"Subtask {subtask_id}: {node.title}",
-                )
-                self._total_cost_cents += result.cost_cents
+                try:
+                    await self._cost_gate.spend(
+                        task.task_id,
+                        result.cost_cents,
+                        f"Subtask {subtask_id}: {node.title}",
+                    )
+                except KeyError:
+                    logger.warning(
+                        "Budget already deallocated for task %s; skipping spend record",
+                        task.task_id,
+                    )
+                async with self._stats_lock:
+                    self._total_cost_cents += result.cost_cents
 
-                # Mark complete
-                engine.mark_complete(
-                    subtask_id,
-                    {
-                        "output": result.output,
-                        "confidence": result.confidence,
-                        "artifacts": result.artifacts,
-                    },
-                )
+                # Mark complete or failed based on result status
+                if result.status == TaskStatus.FAILED:
+                    await engine.mark_failed(
+                        subtask_id,
+                        result.output[:200],
+                    )
+                else:
+                    await engine.mark_complete(
+                        subtask_id,
+                        {
+                            "output": result.output,
+                            "confidence": result.confidence,
+                            "artifacts": result.artifacts,
+                        },
+                    )
 
                 # Publish result to blackboard
                 await self._blackboard.put(
@@ -576,13 +683,13 @@ class SwarmOrchestrator:
                     ttl=7200,
                 )
             else:
-                engine.mark_failed(subtask_id, "Agent returned no result")
+                await engine.mark_failed(subtask_id, "Agent returned no result")
 
         except Exception as exc:
             logger.exception(
                 "Error dispatching subtask %s: %s", subtask_id, exc
             )
-            engine.mark_failed(subtask_id, str(exc))
+            await engine.mark_failed(subtask_id, str(exc))
 
     async def _spawn_agent(
         self,
@@ -605,6 +712,7 @@ class SwarmOrchestrator:
             TaskResult on success, None on failure.
         """
         agent = await self._acquire_agent(agent_type)
+        agent_timeout = self._config.get("agent_timeout_seconds", self.AGENT_TIMEOUT_SECONDS)
 
         try:
             async with self._pool_lock:
@@ -622,7 +730,22 @@ class SwarmOrchestrator:
                 ttl=3600,
             )
 
-            result = await agent.execute(subtask)
+            try:
+                result = await asyncio.wait_for(
+                    agent.execute(subtask),
+                    timeout=agent_timeout,
+                )
+            except asyncio.TimeoutError:
+                logger.error(
+                    "Agent %s timed out after %.0fs on subtask %s (task %s)",
+                    agent.agent_id,
+                    agent_timeout,
+                    subtask.subtask_id,
+                    task.task_id,
+                )
+                subtask.status = TaskStatus.TIMED_OUT
+                return None
+
             return result
 
         except Exception as exc:
@@ -756,7 +879,8 @@ class SwarmOrchestrator:
             response.cost_cents,
             "Result synthesis",
         )
-        self._total_cost_cents += response.cost_cents
+        async with self._stats_lock:
+            self._total_cost_cents += response.cost_cents
 
         return response.content
 
@@ -774,16 +898,70 @@ class SwarmOrchestrator:
 
     async def _maintenance_loop(self) -> None:
         """
-        Periodic maintenance: detect stalled tasks, prune dead agents.
+        Periodic maintenance: detect stalled tasks, prune dead agents,
+        and clean up old completed/failed tasks.
         Runs every 60 seconds.
         """
         try:
             while True:
                 await asyncio.sleep(60)
                 await self._check_stalled_tasks()
+                await self._check_approval_timeouts()
                 await self._prune_idle_agents()
+                await self._cleanup_old_tasks()
         except asyncio.CancelledError:
             pass
+
+    async def _cleanup_old_tasks(self) -> None:
+        """
+        Remove completed, failed, and cancelled tasks older than TASK_TTL_HOURS.
+
+        Also enforces the MAX_TASKS hard cap: if the dict is still over the
+        limit after TTL eviction, removes the oldest finished tasks until we
+        are back under the cap.
+
+        All three storage dicts (_tasks, _task_graphs, _task_locks) are modified
+        together under _tasks_guard to keep them in sync.
+        """
+        cutoff = _utcnow() - timedelta(hours=self.TASK_TTL_HOURS)
+        terminal = (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED)
+
+        async with self._tasks_guard:
+            to_remove = [
+                task_id
+                for task_id, task in self._tasks.items()
+                if task.status in terminal and task.completed_at is not None and task.completed_at < cutoff
+            ]
+
+            for task_id in to_remove:
+                self._tasks.pop(task_id, None)
+                self._task_graphs.pop(task_id, None)
+                self._task_locks.pop(task_id, None)
+
+            if to_remove:
+                logger.debug(
+                    "Task cleanup: removed %d expired tasks (cutoff=%s)",
+                    len(to_remove),
+                    cutoff.isoformat(),
+                )
+
+            # If still over cap, evict oldest finished tasks regardless of age
+            if len(self._tasks) >= self.MAX_TASKS:
+                finished = sorted(
+                    [t for t in self._tasks.values() if t.status in terminal and t.completed_at],
+                    key=lambda t: t.completed_at,
+                )
+                overflow = len(self._tasks) - self.MAX_TASKS + 1
+                for task in finished[:overflow]:
+                    self._tasks.pop(task.task_id, None)
+                    self._task_graphs.pop(task.task_id, None)
+                    self._task_locks.pop(task.task_id, None)
+                if overflow > 0:
+                    logger.warning(
+                        "Task dict at MAX_TASKS cap (%d); force-evicted %d finished tasks",
+                        self.MAX_TASKS,
+                        min(overflow, len(finished)),
+                    )
 
     async def _check_stalled_tasks(self) -> None:
         """
@@ -808,7 +986,7 @@ class SwarmOrchestrator:
 
             if not any_active:
                 # All subtasks are either done or pending — check if stuck
-                ready = engine.get_ready_nodes()
+                ready = await engine.get_ready_nodes()
                 if not ready and not engine.is_complete():
                     # Deadlocked — no ready nodes but not complete
                     elapsed = now - (
@@ -826,7 +1004,47 @@ class SwarmOrchestrator:
                                 "error": f"Task stalled — no progress for {elapsed:.0f}s"
                             }
                             task.completed_at = _utcnow()
-                        self._total_failed += 1
+                        async with self._stats_lock:
+                            self._total_failed += 1
+
+    async def _check_approval_timeouts(self) -> None:
+        """
+        Expire tasks stuck in AWAITING_APPROVAL longer than APPROVAL_TIMEOUT_SECONDS.
+
+        After the timeout the task transitions to EXPIRED so the caller knows
+        the approval window has closed. The budget allocation is released.
+        """
+        approval_timeout = self._config.get(
+            "approval_timeout_seconds", self.APPROVAL_TIMEOUT_SECONDS
+        )
+        now = _utcnow()
+
+        for task_id, task in list(self._tasks.items()):
+            if task.status != TaskStatus.AWAITING_APPROVAL:
+                continue
+
+            # Use started_at as the proxy for when approval was requested
+            reference_time = task.started_at or task.created_at
+            elapsed = (now - reference_time).total_seconds()
+
+            if elapsed > approval_timeout:
+                logger.warning(
+                    "Task %s has been AWAITING_APPROVAL for %.0fs (limit %.0fs) — expiring",
+                    task_id,
+                    elapsed,
+                    approval_timeout,
+                )
+                async with self._task_locks[task_id]:
+                    task.status = TaskStatus.EXPIRED
+                    task.completed_at = now
+                    task.results = {
+                        "error": (
+                            f"Approval not received within {approval_timeout:.0f}s — task expired"
+                        )
+                    }
+                await self._cost_gate.deallocate(task_id)
+                async with self._stats_lock:
+                    self._total_failed += 1
 
     async def _prune_idle_agents(self) -> None:
         """Remove agents that have been idle in the pool for too long."""

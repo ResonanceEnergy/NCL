@@ -1,7 +1,9 @@
 """Memory system for NCL brain."""
 
+import asyncio
 import json
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
@@ -37,6 +39,11 @@ class MemoryStore:
         self.data_dir = Path(data_dir).expanduser() / "memory"
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.memory_file = self.data_dir / "units.jsonl"
+        self._write_lock = asyncio.Lock()  # Single-writer lock
+        self._read_lock = asyncio.Lock()   # Protects reader count
+        self._readers = 0
+        self._no_readers = asyncio.Event()
+        self._no_readers.set()
 
     async def create_unit(
         self,
@@ -73,19 +80,47 @@ class MemoryStore:
             tags=tags or [],
         )
 
-        # Check total unit count and evict if necessary
-        await self._ensure_capacity()
+        # Acquire exclusive write lock (waits for readers to finish).
+        await self._acquire_write()
+        try:
+            await self._ensure_capacity()
+            await self._persist_unit(unit)
+        finally:
+            self._release_write()
 
-        await self._persist_unit(unit)
-
-        # Index in vector DB for semantic search
+        # Index in vector DB for semantic search (outside lock — read-only path)
         await self.index_unit(unit)
 
         return unit
 
+    async def _acquire_read(self) -> None:
+        """Acquire a read lock (multiple readers allowed)."""
+        async with self._read_lock:
+            self._readers += 1
+            self._no_readers.clear()
+
+    async def _release_read(self) -> None:
+        """Release a read lock."""
+        async with self._read_lock:
+            self._readers -= 1
+            if self._readers == 0:
+                self._no_readers.set()
+
+    async def _acquire_write(self) -> None:
+        """Acquire exclusive write lock (waits for all readers to finish)."""
+        await self._write_lock.acquire()
+        await self._no_readers.wait()
+
+    def _release_write(self) -> None:
+        """Release exclusive write lock."""
+        self._write_lock.release()
+
     async def get_unit(self, unit_id: str) -> Optional[MemUnit]:
         """
         Retrieve a memory unit and update access time.
+
+        Reinforcement changes are persisted to disk via a full rewrite
+        so that updated scores survive restarts.
 
         Args:
             unit_id: Unit ID to retrieve
@@ -99,7 +134,8 @@ class MemoryStore:
             unit.last_accessed = datetime.now(timezone.utc)
             unit.reinforcement_count += 1
             unit.importance = min(100.0, unit.importance * 1.2)
-            await self._persist_unit(unit)
+            # Persist reinforcement to disk so changes survive restarts
+            await self._persist_reinforcement(unit)
         return unit
 
     async def search_units(
@@ -119,7 +155,11 @@ class MemoryStore:
         Returns:
             List of matching MemUnits, sorted by importance descending
         """
-        units = await self._load_all_units()
+        await self._acquire_read()
+        try:
+            units = await self._load_all_units()
+        finally:
+            await self._release_read()
         cutoff = datetime.now(timezone.utc) - timedelta(days=days_back) if days_back else None
 
         results = []
@@ -373,18 +413,44 @@ class MemoryStore:
 
     async def _rewrite_units(self, units: list[MemUnit]) -> None:
         """
-        Rewrite the entire memory file with the given units.
+        Atomically rewrite the entire memory file with the given units.
+
+        Writes to a .tmp file first, then uses os.replace() for an atomic
+        rename so a crash mid-write never leaves a partial/corrupt file.
 
         Args:
             units: List of MemUnits to persist
         """
         try:
-            async with aiofiles.open(self.memory_file, "w") as f:
+            tmp = str(self.memory_file) + ".tmp"
+            async with aiofiles.open(tmp, "w") as f:
                 for unit in units:
                     await f.write(unit.model_dump_json() + "\n")
-            log.debug(f"Memory file rewritten with {len(units)} units")
+            os.replace(tmp, str(self.memory_file))
+            log.debug(f"Memory file atomically rewritten with {len(units)} units")
         except Exception as e:
             log.error(f"Failed to rewrite memory file: {e}")
+
+    async def _persist_reinforcement(self, unit: MemUnit) -> None:
+        """
+        Persist a reinforced unit to disk by rewriting the JSONL file.
+
+        This ensures that importance score updates, access times, and
+        reinforcement counts survive process restarts.
+        """
+        try:
+            await self._acquire_write()
+            try:
+                units = await self._load_all_units()
+                for i, u in enumerate(units):
+                    if u.unit_id == unit.unit_id:
+                        units[i] = unit
+                        break
+                await self._rewrite_units(units)
+            finally:
+                self._release_write()
+        except Exception as e:
+            log.warning(f"Failed to persist reinforcement for {unit.unit_id}: {e}")
 
     async def _persist_unit(self, unit: MemUnit) -> None:
         """
@@ -464,14 +530,17 @@ class MemoryStore:
 
     async def _load_all_units(self) -> list[MemUnit]:
         """
-        Load all memory units from NDJSON file.
+        Load all memory units from NDJSON file, deduplicated by unit_id.
+
+        When the same unit_id appears multiple times (e.g. from append-only
+        updates), the last occurrence wins — it has the most recent state.
 
         Returns:
-            List of all MemUnits
+            List of unique MemUnits
         """
-        units = []
+        seen: dict[str, MemUnit] = {}
         if not self.memory_file.exists():
-            return units
+            return []
 
         async with aiofiles.open(self.memory_file, "r") as f:
             async for line in f:
@@ -479,11 +548,11 @@ class MemoryStore:
                     continue
                 try:
                     unit = MemUnit(**json.loads(line))
-                    units.append(unit)
+                    seen[unit.unit_id] = unit  # last occurrence wins
                 except (json.JSONDecodeError, ValidationError) as e:
                     log.warning(f"Failed to parse memory unit: {e}")
                     continue
-        return units
+        return list(seen.values())
 
     async def get_stats(self) -> dict:
         """
@@ -541,7 +610,8 @@ class MemoryStore:
         if not self._init_vector_db():
             return
         try:
-            self._chroma_collection.upsert(
+            await asyncio.to_thread(
+                self._chroma_collection.upsert,
                 ids=[unit.unit_id],
                 documents=[unit.content],
                 metadatas=[{
@@ -553,6 +623,41 @@ class MemoryStore:
             )
         except Exception as e:
             log.warning(f"Failed to index unit {unit.unit_id}: {e}")
+
+    async def _load_units_batch(self, unit_ids: set) -> dict[str, MemUnit]:
+        """
+        Load multiple memory units in a single sequential pass through the file.
+
+        More efficient than calling _load_unit() N times (each of which opens
+        and scans the file independently).
+
+        Args:
+            unit_ids: Set of unit IDs to retrieve.
+
+        Returns:
+            Dict mapping unit_id → MemUnit for all found IDs.
+        """
+        found: dict[str, MemUnit] = {}
+        if not unit_ids or not self.memory_file.exists():
+            return found
+        remaining = set(unit_ids)
+        try:
+            async with aiofiles.open(self.memory_file, "r") as f:
+                async for line in f:
+                    if not remaining:
+                        break
+                    if not line.strip():
+                        continue
+                    try:
+                        unit = MemUnit(**json.loads(line))
+                        if unit.unit_id in remaining:
+                            found[unit.unit_id] = unit
+                            remaining.discard(unit.unit_id)
+                    except (json.JSONDecodeError, ValidationError):
+                        continue
+        except FileNotFoundError:
+            pass
+        return found
 
     async def semantic_search(
         self,
@@ -580,10 +685,12 @@ class MemoryStore:
                     n_results=n_results * 2,  # Over-fetch, then filter
                 )
                 if results and results["ids"] and results["ids"][0]:
-                    unit_ids = results["ids"][0]
+                    unit_ids = set(results["ids"][0])
+                    # Single-pass batch load instead of N separate file scans
+                    units_by_id = await self._load_units_batch(unit_ids)
                     units = []
-                    for uid in unit_ids:
-                        unit = await self._load_unit(uid)
+                    for uid in results["ids"][0]:
+                        unit = units_by_id.get(uid)
                         if unit and unit.importance >= importance_threshold:
                             units.append(unit)
                         if len(units) >= n_results:

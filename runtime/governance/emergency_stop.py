@@ -3,7 +3,12 @@
 One-tap STOP disables all Execute-tier actions immediately.
 Persists across restarts via flag file.
 All activations/deactivations logged in AuditLedger.
+
+Global EMERGENCY_STOP_EVENT (threading.Event) is set on activation so that
+all subsystem loops can check `if EMERGENCY_STOP_EVENT.is_set(): break`.
 """
+import asyncio
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Any
@@ -15,6 +20,12 @@ import aiofiles
 from pydantic import BaseModel, Field
 
 log = logging.getLogger("ncl.emergency_stop")
+
+# ─── Global emergency stop event ─────────────────────────────────────────────
+# All subsystem loops MUST check `if EMERGENCY_STOP_EVENT.is_set(): break`
+# at the top of each iteration.  Set on activation; cleared on deactivation
+# so that loops can resume without a process restart.
+EMERGENCY_STOP_EVENT: threading.Event = threading.Event()
 
 
 class EmergencyStopState(BaseModel):
@@ -44,23 +55,70 @@ class EmergencyStop:
     """
     Emergency Stop Controller.
 
-    One-tap STOP disables ALL Execute-tier actions.
+    One-tap STOP disables ALL Execute-tier actions AND signals all subsystems
+    to halt via the global EMERGENCY_STOP_EVENT (threading.Event).
+
     State persists across restarts via file system.
     All operations logged to AuditLedger.
+
+    Usage in subsystem loops::
+
+        from runtime.governance.emergency_stop import EMERGENCY_STOP_EVENT
+
+        while running:
+            if EMERGENCY_STOP_EVENT.is_set():
+                log.critical("Emergency stop active — halting loop")
+                break
+            ...
     """
 
     FLAG_FILE = "emergency_stop.flag"
     STATE_FILE = "emergency_stop_state.json"
     LEDGER_FILE = "emergency_stop_ledger.jsonl"
 
-    def __init__(self, data_dir):
+    NOTIFICATIONS_FILE = "emergency_stop_notifications.jsonl"
+
+    def __init__(self, data_dir, policy_kernel=None, scheduler=None, swarm_orchestrator=None, intelligence_engine=None):
         self.data_dir = Path(data_dir) if not isinstance(data_dir, Path) else data_dir
         self.gov_dir = self.data_dir / "governance"
         self._state = EmergencyStopState()
         self._callbacks = []  # Notify on activate/deactivate
+        self._init_lock = asyncio.Lock()
+        self._initialized = False
+
+        # Optional subsystem references for direct halt
+        self._policy_kernel = policy_kernel
+        self._scheduler = scheduler
+        self._swarm_orchestrator = swarm_orchestrator
+        self._intelligence_engine = intelligence_engine
+
+    def register_subsystems(
+        self,
+        policy_kernel=None,
+        scheduler=None,
+        swarm_orchestrator=None,
+        intelligence_engine=None,
+    ) -> None:
+        """Register subsystem references so stop() can halt them directly."""
+        if policy_kernel is not None:
+            self._policy_kernel = policy_kernel
+        if scheduler is not None:
+            self._scheduler = scheduler
+        if swarm_orchestrator is not None:
+            self._swarm_orchestrator = swarm_orchestrator
+        if intelligence_engine is not None:
+            self._intelligence_engine = intelligence_engine
 
     async def init(self):
-        """Initialize — load persisted state."""
+        """Initialize — load persisted state. Safe to call multiple times (idempotent)."""
+        async with self._init_lock:
+            if self._initialized:
+                return
+            await self._do_init()
+            self._initialized = True
+
+    async def _do_init(self):
+        """Internal init logic — called exactly once."""
         self.gov_dir.mkdir(parents=True, exist_ok=True)
 
         # Load state from file
@@ -77,7 +135,12 @@ class EmergencyStop:
             log.warning("Emergency stop flag file detected — STOP is ACTIVE")
 
         if self._state.active:
-            log.warning(f"Emergency stop is ACTIVE (activated by {self._state.activated_by} at {self._state.activated_at})")
+            log.warning(
+                f"Emergency stop is ACTIVE (activated by {self._state.activated_by} "
+                f"at {self._state.activated_at})"
+            )
+            # Re-arm the global event so loops that started after restart also stop
+            EMERGENCY_STOP_EVENT.set()
 
     @property
     def is_active(self) -> bool:
@@ -92,10 +155,24 @@ class EmergencyStop:
         self._callbacks.append(callback)
 
     async def activate(self, actor: str = "NATRIX", reason: str = "Manual emergency stop") -> EmergencyStopState:
-        """ONE-TAP STOP — immediately disable all Execute-tier actions."""
+        """ONE-TAP STOP — immediately halt ALL subsystems.
+
+        Actions taken in order:
+        1. Set global EMERGENCY_STOP_EVENT (all loops break on next iteration)
+        2. Freeze PolicyKernel (no more policy evaluations)
+        3. Cancel scheduler tasks
+        4. Cancel swarm orchestrator tasks
+        5. Cancel intelligence engine tasks
+        6. Persist state + flag file
+        7. Notify callbacks
+        """
         if self._state.active:
             log.warning(f"Emergency stop already active (activated by {self._state.activated_by})")
             return self._state
+
+        # ── 1. Signal all loops to halt immediately ────────────────────────
+        EMERGENCY_STOP_EVENT.set()
+        log.critical("EMERGENCY_STOP_EVENT SET — all subsystem loops signaled to halt")
 
         self._state.active = True
         self._state.activated_at = datetime.now(timezone.utc)
@@ -105,10 +182,47 @@ class EmergencyStop:
         self._state.deactivated_by = None
         self._state.activation_count += 1
 
-        # Persist state
+        # ── 2. Freeze PolicyKernel ─────────────────────────────────────────
+        if self._policy_kernel is not None:
+            try:
+                self._policy_kernel.set_emergency_stop(enabled=True)
+                log.critical("PolicyKernel: emergency stop engaged — policy evaluation frozen")
+            except Exception as e:
+                log.error(f"Failed to freeze PolicyKernel: {e}")
+
+        # ── 3. Cancel scheduler ────────────────────────────────────────────
+        if self._scheduler is not None:
+            try:
+                await self._scheduler.stop()
+                log.critical("Scheduler: stopped")
+            except Exception as e:
+                log.error(f"Failed to stop scheduler: {e}")
+
+        # ── 4. Cancel swarm orchestrator ───────────────────────────────────
+        if self._swarm_orchestrator is not None:
+            try:
+                if hasattr(self._swarm_orchestrator, 'stop'):
+                    await self._swarm_orchestrator.stop()
+                elif hasattr(self._swarm_orchestrator, 'shutdown'):
+                    await self._swarm_orchestrator.shutdown()
+                log.critical("SwarmOrchestrator: stopped")
+            except Exception as e:
+                log.error(f"Failed to stop swarm orchestrator: {e}")
+
+        # ── 5. Cancel intelligence engine ──────────────────────────────────
+        if self._intelligence_engine is not None:
+            try:
+                if hasattr(self._intelligence_engine, 'stop'):
+                    await self._intelligence_engine.stop()
+                elif hasattr(self._intelligence_engine, 'shutdown'):
+                    await self._intelligence_engine.shutdown()
+                log.critical("IntelligenceEngine: stopped")
+            except Exception as e:
+                log.error(f"Failed to stop intelligence engine: {e}")
+
+        # ── 6. Persist state + flag file ───────────────────────────────────
         await self._persist_state()
 
-        # Write flag file (persists across restarts)
         flag_path = self.gov_dir / self.FLAG_FILE
         async with aiofiles.open(flag_path, 'w') as f:
             await f.write(json.dumps({
@@ -118,7 +232,6 @@ class EmergencyStop:
                 "reason": reason,
             }))
 
-        # Log to audit ledger
         await self._log_ledger(AuditLedgerEntry(
             action="activated",
             actor=actor,
@@ -126,9 +239,12 @@ class EmergencyStop:
             metadata={"activation_count": self._state.activation_count},
         ))
 
-        log.critical(f"EMERGENCY STOP ACTIVATED by {actor}: {reason}")
+        log.critical(f"EMERGENCY STOP FULLY ACTIVATED by {actor}: {reason}")
 
-        # Notify callbacks
+        # ── 7. Emit notification ───────────────────────────────────────────
+        await self._emit_notification("activated", actor, reason)
+
+        # ── 8. Notify callbacks ────────────────────────────────────────────
         for cb in self._callbacks:
             try:
                 cb("activated", self._state)
@@ -138,7 +254,12 @@ class EmergencyStop:
         return self._state
 
     async def deactivate(self, actor: str = "NATRIX", reason: str = "Manual deactivation") -> EmergencyStopState:
-        """Deactivate emergency stop — re-enable Execute-tier actions."""
+        """Deactivate emergency stop — re-enable Execute-tier actions.
+
+        Clears the global EMERGENCY_STOP_EVENT so scheduler loops can resume
+        on the next iteration without requiring a full process restart.
+        PolicyKernel flag is also cleared so new actions can be evaluated.
+        """
         if not self._state.active:
             log.info("Emergency stop already inactive")
             return self._state
@@ -146,6 +267,18 @@ class EmergencyStop:
         self._state.active = False
         self._state.deactivated_at = datetime.now(timezone.utc)
         self._state.deactivated_by = actor
+
+        # Clear the global event so all scheduler loops resume on next iteration
+        EMERGENCY_STOP_EVENT.clear()
+        log.info("EMERGENCY_STOP_EVENT cleared — scheduler loops will resume")
+
+        # Unfreeze PolicyKernel so new requests can be evaluated
+        if self._policy_kernel is not None:
+            try:
+                self._policy_kernel.set_emergency_stop(enabled=False)
+                log.info("PolicyKernel: emergency stop cleared — policy evaluation resumed")
+            except Exception as e:
+                log.error(f"Failed to unfreeze PolicyKernel: {e}")
 
         # Persist state
         await self._persist_state()
@@ -155,7 +288,6 @@ class EmergencyStop:
         if flag_path.exists():
             flag_path.unlink()
 
-        # Log to audit ledger
         await self._log_ledger(AuditLedgerEntry(
             action="deactivated",
             actor=actor,
@@ -165,7 +297,10 @@ class EmergencyStop:
             },
         ))
 
-        log.info(f"Emergency stop DEACTIVATED by {actor}: {reason}")
+        log.info(f"Emergency stop DEACTIVATED by {actor}: {reason}. Operations may resume.")
+
+        # Emit notification
+        await self._emit_notification("deactivated", actor, reason)
 
         for cb in self._callbacks:
             try:
@@ -180,7 +315,6 @@ class EmergencyStop:
         if not self._state.active:
             return False  # Not blocked
 
-        # Log the blocked action
         await self._log_ledger(AuditLedgerEntry(
             action="blocked_action",
             actor="emergency_stop",
@@ -215,6 +349,7 @@ class EmergencyStop:
 
         return {
             "active": self._state.active,
+            "global_event_set": EMERGENCY_STOP_EVENT.is_set(),
             "activated_at": self._state.activated_at.isoformat() if self._state.activated_at else None,
             "activated_by": self._state.activated_by,
             "reason": self._state.reason,
@@ -224,11 +359,28 @@ class EmergencyStop:
         }
 
     async def _persist_state(self):
+        """Persist state using atomic write-to-temp-then-rename pattern."""
         state_path = self.gov_dir / self.STATE_FILE
-        async with aiofiles.open(state_path, 'w') as f:
+        tmp_path = state_path.with_suffix(".tmp")
+        async with aiofiles.open(tmp_path, 'w') as f:
             await f.write(self._state.model_dump_json(indent=2))
+        tmp_path.rename(state_path)
 
     async def _log_ledger(self, entry: AuditLedgerEntry):
         ledger_path = self.gov_dir / self.LEDGER_FILE
         async with aiofiles.open(ledger_path, 'a') as f:
             await f.write(entry.model_dump_json() + "\n")
+
+    async def _emit_notification(self, event: str, actor: str, reason: str) -> None:
+        """Write a notification entry so external consumers can detect state changes."""
+        notif_path = self.gov_dir / self.NOTIFICATIONS_FILE
+        notification = {
+            "id": str(_uuid.uuid4()),
+            "event": f"emergency_stop.{event}",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "actor": actor,
+            "reason": reason,
+            "active": self._state.active,
+        }
+        async with aiofiles.open(notif_path, 'a') as f:
+            await f.write(json.dumps(notification) + "\n")

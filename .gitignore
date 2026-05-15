@@ -93,6 +93,8 @@ celerybeat.pid
 
 # Environments
 .env
+.env.local
+.env.*.local
 .venv
 env/
 venv/
@@ -162,3 +164,11 @@ mandate-generation/quarantine/
 
 # Pump watcher runtime archive (audit trail copies, not source)
 workspaces/execution-pipeline/01-Input/pump-*.json
+
+# Mandate workspace stage outputs (runtime artifacts, ~22k files)
+workspaces/mandate-generation/stages/*/output/
+workspaces/mandate-generation/stages/*/input/
+
+# Local data store
+data/
+intelligence-sweeps/

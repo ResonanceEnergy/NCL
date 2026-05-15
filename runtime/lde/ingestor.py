@@ -350,15 +350,38 @@ def _extract_newspaper(url: str) -> tuple[str, str]:
     return article.text or "", article.title or ""
 
 
+_ingestor_client: Optional["httpx.AsyncClient"] = None
+_ingestor_lock: Optional["asyncio.Lock"] = None
+
+
+def _get_ingestor_lock() -> "asyncio.Lock":
+    global _ingestor_lock
+    import asyncio
+    if _ingestor_lock is None:
+        _ingestor_lock = asyncio.Lock()
+    return _ingestor_lock
+
+
+async def _get_ingestor_client() -> "httpx.AsyncClient":
+    """Return a shared HTTP client for LDE ingestor fetches."""
+    global _ingestor_client
+    import httpx
+    import asyncio
+    if _ingestor_client is None or _ingestor_client.is_closed:
+        async with _get_ingestor_lock():
+            if _ingestor_client is None or _ingestor_client.is_closed:
+                _ingestor_client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
+    return _ingestor_client
+
+
 async def _extract_httpx(url: str) -> tuple[str, str]:
     """Basic HTTP fetch + HTML tag stripping as last resort."""
-    import httpx
-    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-        resp = await client.get(url, headers={
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) NCL-LDE/1.0"
-        })
-        resp.raise_for_status()
-        html = resp.text
+    client = await _get_ingestor_client()
+    resp = await client.get(url, headers={
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) NCL-LDE/1.0"
+    })
+    resp.raise_for_status()
+    html = resp.text
 
     # Extract title
     title = ""

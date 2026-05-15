@@ -61,6 +61,7 @@ class Settings(BaseSettings):
         """Expand ~ in all path fields after init."""
         self.data_dir = os.path.expanduser(self.data_dir)
         self.config_dir = os.path.expanduser(self.config_dir)
+        self.digital_labour_path = os.path.expanduser(self.digital_labour_path)
 
     # ── Required API keys ─────────────────────────────────────────────────────
     anthropic_api_key: str = ""
@@ -92,9 +93,13 @@ class Settings(BaseSettings):
     ollama_host: str = "localhost:11434"
 
     # ── Paperclip integration ─────────────────────────────────────────────────
+    paperclip_url: str = "http://localhost:3102"
     paperclip_host: str = "localhost"
-    paperclip_port: int = 3100
+    paperclip_port: int = 3102
     paperclip_api_key: Optional[str] = None
+
+    # ── Digital Labour integration ────────────────────────────────────────────
+    digital_labour_path: str = "~/dev/NCL/digital-labour"
 
     # ── Notifications ─────────────────────────────────────────────────────────
     ntfy_topic: Optional[str] = None
@@ -216,14 +221,22 @@ def load_config() -> Settings:
     """
     settings = Settings()
 
-    # Try to load YAML config (lower priority than env vars)
+    # Try to load YAML config (lower priority than env vars).
+    # Only apply a YAML value when the corresponding env var (bare or NCL_-prefixed)
+    # was NOT set — this ensures env vars always win over YAML.
     config_file = Path(settings.config_dir).expanduser() / "ncl.yaml"
     if config_file.exists():
         with open(config_file) as f:
             yaml_config = yaml.safe_load(f) or {}
             for key, value in yaml_config.items():
-                if hasattr(settings, key) and value not in (None, ""):
-                    setattr(settings, key, value)
+                if not hasattr(settings, key) or value in (None, ""):
+                    continue
+                env_key_bare = key.upper()
+                env_key_prefixed = f"NCL_{env_key_bare}"
+                # Skip if either form of the env var was explicitly set
+                if env_key_bare in os.environ or env_key_prefixed in os.environ:
+                    continue
+                setattr(settings, key, value)
 
     # Override with NCL_* prefixed environment variables (Docker)
     for field_name, field_info in settings.model_fields.items():

@@ -24,6 +24,13 @@ from pathlib import Path
 
 import httpx
 
+# Tests in this file hit live network endpoints (relay + brain).
+# They are skipped by default and only run when RUN_LIVE_TESTS=1 is set.
+_live = pytest.mark.skipif(
+    not os.getenv("RUN_LIVE_TESTS"),
+    reason="requires live network — set RUN_LIVE_TESTS=1 to enable",
+)
+
 # Config
 RELAY_URL = os.getenv("RELAY_URL", "https://localhost:8787")
 BRAIN_URL = os.getenv("BRAIN_URL", "http://localhost:8800")
@@ -49,6 +56,7 @@ def warn(msg: str):
     print(f"  {YELLOW}⚠{NC} {msg}")
 
 
+@_live
 def test_relay_health():
     """Test 1: Relay server is up and healthy."""
     print(f"\n{CYAN}[Test 1] Relay Health Check{NC}")
@@ -72,6 +80,7 @@ def test_relay_health():
         return False
 
 
+@_live
 def test_brain_health():
     """Test 2: NCL Brain service is up."""
     print(f"\n{CYAN}[Test 2] NCL Brain Health Check{NC}")
@@ -88,6 +97,7 @@ def test_brain_health():
         return False
 
 
+@_live
 def test_send_pump():
     """Test 3: Send a test pump prompt through the relay."""
     print(f"\n{CYAN}[Test 3] Send Test Pump Prompt{NC}")
@@ -173,6 +183,7 @@ def test_file_landed(ncl_file: str):
     return False
 
 
+@_live
 def test_relay_stats():
     """Test 5: Verify relay stats updated."""
     print(f"\n{CYAN}[Test 5] Relay Stats Updated{NC}")

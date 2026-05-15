@@ -1,9 +1,16 @@
 """Dashboard bridge for memory search and visualization."""
 
+import asyncio
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from .store import MemoryStore
+
+log = logging.getLogger("ncl.memory.dashboard")
+
+# Maximum time (seconds) allowed for any single bridge call
+_BRIDGE_TIMEOUT = 30.0
 
 
 class MemoryDashboardBridge:
@@ -26,7 +33,16 @@ class MemoryDashboardBridge:
             Dict containing: total_units, avg_importance, decay_factor,
             units_by_source (dict), top_tags (list), importance_distribution (dict)
         """
-        units = await self.store._load_all_units()
+        try:
+            units = await asyncio.wait_for(
+                self.store._load_all_units(), timeout=_BRIDGE_TIMEOUT
+            )
+        except asyncio.TimeoutError:
+            log.warning("get_stats: _load_all_units timed out after %.0fs", _BRIDGE_TIMEOUT)
+            units = []
+        except Exception as e:
+            log.error("get_stats: failed to load units: %s", e)
+            units = []
 
         if not units:
             return {
@@ -96,7 +112,16 @@ class MemoryDashboardBridge:
         Returns:
             List of timeline events sorted by time (newest first)
         """
-        units = await self.store._load_all_units()
+        try:
+            units = await asyncio.wait_for(
+                self.store._load_all_units(), timeout=_BRIDGE_TIMEOUT
+            )
+        except asyncio.TimeoutError:
+            log.warning("get_timeline: _load_all_units timed out after %.0fs", _BRIDGE_TIMEOUT)
+            return []
+        except Exception as e:
+            log.error("get_timeline: failed to load units: %s", e)
+            return []
 
         events = []
         for unit in units:
@@ -162,10 +187,21 @@ class MemoryDashboardBridge:
         Returns:
             List of matching units as dicts with truncated content
         """
-        # Use store's search for tag/importance/date filtering
-        results = await self.store.search_units(
-            tags=tags, importance_threshold=importance_threshold, days_back=days_back
-        )
+        try:
+            results = await asyncio.wait_for(
+                self.store.search_units(
+                    tags=tags,
+                    importance_threshold=importance_threshold,
+                    days_back=days_back,
+                ),
+                timeout=_BRIDGE_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            log.warning("search: search_units timed out after %.0fs", _BRIDGE_TIMEOUT)
+            return []
+        except Exception as e:
+            log.error("search: search_units failed: %s", e)
+            return []
 
         # Apply text search filter if provided
         if query_text:

@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
+import time
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,6 +29,14 @@ PILLAR_DIRS: dict[str, str] = {
     "AAC": "aac-reports",
 }
 
+# Rate limiting: max reports to process per scan pass (prevents runaway I/O
+# if thousands of files appear at once, e.g. after a long outage).
+MAX_REPORTS_PER_SCAN = 100
+
+# Maximum size (bytes) of a single feedback report file — oversized files are
+# quarantined without reading to prevent memory exhaustion.
+MAX_REPORT_FILE_BYTES = 1 * 1024 * 1024  # 1 MB
+
 
 class FeedbackScanner:
     """Scans pillar report dirs, produces synthesis notes."""
@@ -36,6 +46,7 @@ class FeedbackScanner:
         self.synthesis_dir = self.base / "synthesis"
         self.synthesis_dir.mkdir(parents=True, exist_ok=True)
         self.log_path = self.base / "LOG.md"
+        self._last_scan_ts: float = 0.0   # monotonic time of last scan (for external callers)
 
     def _iter_inbox(self) -> Iterable[tuple[str, Path]]:
         for pillar, sub in PILLAR_DIRS.items():
@@ -46,23 +57,55 @@ class FeedbackScanner:
                 yield pillar, path
 
     def _move_to(self, src: Path, dest_dir: Path) -> None:
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        target = dest_dir / src.name
-        # Avoid clobbers — append timestamp on collision
-        if target.exists():
-            stem = target.stem
-            target = dest_dir / f"{stem}-{int(datetime.now().timestamp())}.json"
-        src.rename(target)
+        try:
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            target = dest_dir / src.name
+            # Avoid clobbers — append timestamp on collision
+            if target.exists():
+                stem = target.stem
+                target = dest_dir / f"{stem}-{int(datetime.now().timestamp())}.json"
+            shutil.move(str(src), str(target))
+        except OSError as e:
+            log.error("Failed to move %s → %s: %s", src.name, dest_dir, e)
 
     def scan_once(self) -> SynthesisNote | None:
         """Run one scan pass. Returns the synthesis note (or None if no input)."""
+        self._last_scan_ts = time.monotonic()
         window_start = datetime.now(timezone.utc)
         consumed: list[FeedbackReport] = []
         consumed_ids: list[str] = []
+        processed_count = 0
 
         for pillar, path in self._iter_inbox():
+            # Rate limit: stop processing when per-scan cap is reached
+            if processed_count >= MAX_REPORTS_PER_SCAN:
+                log.warning(
+                    "Rate limit reached (%d reports/scan). Remaining files will be "
+                    "processed on the next tick.",
+                    MAX_REPORTS_PER_SCAN,
+                )
+                break
+
+            processed_count += 1
+
             try:
-                data = json.loads(path.read_text())
+                # Guard against oversized files
+                try:
+                    file_size = path.stat().st_size
+                except OSError as e:
+                    log.warning("Cannot stat %s: %s — skipping", path.name, e)
+                    self._move_to(path, path.parent / ".quarantine")
+                    continue
+
+                if file_size > MAX_REPORT_FILE_BYTES:
+                    log.warning(
+                        "Feedback report %s is too large (%d bytes > %d limit) — quarantining",
+                        path.name, file_size, MAX_REPORT_FILE_BYTES,
+                    )
+                    self._move_to(path, path.parent / ".quarantine")
+                    continue
+
+                data = json.loads(path.read_text(encoding="utf-8"))
                 report = FeedbackReport.model_validate(data)
                 if report.pillar != pillar:
                     raise ValueError(
@@ -72,7 +115,7 @@ class FeedbackScanner:
                 consumed_ids.append(report.report_id)
                 self._move_to(path, path.parent / ".consumed")
             except Exception as e:
-                log.warning(f"feedback report invalid {path.name}: {e}")
+                log.warning("feedback report invalid %s: %s", path.name, e)
                 self._move_to(path, path.parent / ".quarantine")
 
         if not consumed:
@@ -109,7 +152,11 @@ class FeedbackScanner:
         )
 
         out = self.synthesis_dir / f"{note.synthesis_id}.json"
-        out.write_text(note.model_dump_json(indent=2))
+        try:
+            out.write_text(note.model_dump_json(indent=2), encoding="utf-8")
+        except OSError as e:
+            log.error("Failed to write synthesis note %s: %s", out.name, e)
+            return note  # still return the in-memory note even if write failed
 
         # Append a one-line LOG entry
         summary_line = (

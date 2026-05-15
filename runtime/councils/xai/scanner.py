@@ -12,8 +12,11 @@ Falls back to Grok API for X-integrated intelligence when available.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
+import time
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -24,6 +27,77 @@ log = logging.getLogger("ncl.councils.xai.scanner")
 # X API config
 X_BEARER_TOKEN = os.getenv("X_BEARER_TOKEN", "")
 XAI_API_KEY = os.getenv("XAI_API_KEY", "")
+
+# ── Rate limiters ─────────────────────────────────────────────────────────
+# X API v2 (app-level): 300 requests per 15-minute window for /tweets/search/recent
+# and user timeline endpoints.
+# Grok API: conservative 60/min default (no published rate documented).
+
+
+class _SlidingWindowLimiter:
+    """Thread-safe sliding-window rate limiter for use with asyncio.
+
+    Calculates wait time under the lock, releases before sleeping so
+    other coroutines aren't blocked during the wait.
+    """
+
+    def __init__(self, calls: int, window_seconds: float) -> None:
+        self._calls = calls
+        self._window = window_seconds
+        self._timestamps: list[float] = []
+        self._lock = asyncio.Lock()
+
+    async def acquire(self) -> None:
+        wait = 0.0
+        async with self._lock:
+            now = time.monotonic()
+            self._timestamps = [t for t in self._timestamps if now - t < self._window]
+            if len(self._timestamps) >= self._calls:
+                wait = self._window - (now - self._timestamps[0])
+
+        # Sleep outside the lock so other coroutines aren't blocked
+        if wait > 0:
+            await asyncio.sleep(wait)
+
+        # Record timestamp after waiting
+        async with self._lock:
+            self._timestamps.append(time.monotonic())
+
+
+# Module-level rate limiters shared across all scanner functions
+_x_api_limiter = _SlidingWindowLimiter(calls=300, window_seconds=900)   # X: 300/15 min
+_grok_limiter = _SlidingWindowLimiter(calls=60, window_seconds=60)       # Grok: 60/min (conservative)
+
+# Shared HTTP client — reused across all scanner calls to avoid connection pool exhaustion.
+# Lazily created; call close_scanner_client() on shutdown.
+_shared_client: Optional["httpx.AsyncClient"] = None
+_client_lock: Optional[asyncio.Lock] = None
+
+
+def _get_scanner_lock() -> asyncio.Lock:
+    global _client_lock
+    if _client_lock is None:
+        _client_lock = asyncio.Lock()
+    return _client_lock
+
+
+async def _get_shared_client() -> "httpx.AsyncClient":
+    """Return (and lazily create) the module-level shared httpx client."""
+    global _shared_client
+    import httpx
+    if _shared_client is None or _shared_client.is_closed:
+        async with _get_scanner_lock():
+            if _shared_client is None or _shared_client.is_closed:
+                _shared_client = httpx.AsyncClient(timeout=60.0)
+    return _shared_client
+
+
+async def close_scanner_client() -> None:
+    """Close the shared HTTP client. Call on application shutdown."""
+    global _shared_client
+    if _shared_client is not None:
+        await _shared_client.aclose()
+        _shared_client = None
 
 # Default tracked accounts
 DEFAULT_ACCOUNTS: list[str] = [
@@ -105,19 +179,43 @@ async def full_sweep(
 
     since = datetime.now(timezone.utc) - timedelta(hours=lookback_hours)
 
-    # Vector 1: Tracked accounts
+    # Vector 1: Tracked accounts — parallel with semaphore to cap concurrency
     accounts = get_tracked_accounts()
-    log.info(f"Scanning {len(accounts)} tracked accounts...")
-    for handle in accounts:
-        posts = await scan_account(handle, since)
-        results["accounts"].extend(posts)
+    log.info(f"Scanning {len(accounts)} tracked accounts (parallel, max 3 concurrent)...")
+    account_semaphore = asyncio.Semaphore(3)
 
-    # Vector 2: Keyword search
+    async def _scan_account_limited(handle: str) -> list[XPost]:
+        async with account_semaphore:
+            return await scan_account(handle, since)
+
+    account_results = await asyncio.gather(
+        *[_scan_account_limited(h) for h in accounts],
+        return_exceptions=True,
+    )
+    for r in account_results:
+        if isinstance(r, list):
+            results["accounts"].extend(r)
+        elif isinstance(r, Exception):
+            log.warning(f"Account scan error: {r}")
+
+    # Vector 2: Keyword search — parallel with semaphore
     keywords = get_keywords()
-    log.info(f"Searching {len(keywords)} keyword sets...")
-    for keyword in keywords:
-        posts = await search_keyword(keyword, since)
-        results["keywords"].extend(posts)
+    log.info(f"Searching {len(keywords)} keyword sets (parallel, max 3 concurrent)...")
+    keyword_semaphore = asyncio.Semaphore(3)
+
+    async def _search_keyword_limited(keyword: str) -> list[XPost]:
+        async with keyword_semaphore:
+            return await search_keyword(keyword, since)
+
+    keyword_results = await asyncio.gather(
+        *[_search_keyword_limited(k) for k in keywords],
+        return_exceptions=True,
+    )
+    for r in keyword_results:
+        if isinstance(r, list):
+            results["keywords"].extend(r)
+        elif isinstance(r, Exception):
+            log.warning(f"Keyword search error: {r}")
 
     # Vector 3: Trending topics
     log.info("Scanning trending topics...")
@@ -233,58 +331,60 @@ async def _scan_account_api(
         return []
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            # First get user ID from handle
-            user_resp = await client.get(
-                f"https://api.twitter.com/2/users/by/username/{handle}",
-                headers={"Authorization": f"Bearer {X_BEARER_TOKEN}"},
-            )
-            user_resp.raise_for_status()
-            user_id = user_resp.json()["data"]["id"]
-            user_name = user_resp.json()["data"].get("name", handle)
+        client = await _get_shared_client()
+        # First get user ID from handle (consumes 1 rate-limit slot)
+        await _x_api_limiter.acquire()
+        user_resp = await client.get(
+            f"https://api.twitter.com/2/users/by/username/{handle}",
+            headers={"Authorization": f"Bearer {X_BEARER_TOKEN}"},
+        )
+        user_resp.raise_for_status()
+        user_id = user_resp.json()["data"]["id"]
+        user_name = user_resp.json()["data"].get("name", handle)
 
-            # Get recent tweets
-            since_str = since.strftime("%Y-%m-%dT%H:%M:%SZ")
-            tweets_resp = await client.get(
-                f"https://api.twitter.com/2/users/{user_id}/tweets",
-                headers={"Authorization": f"Bearer {X_BEARER_TOKEN}"},
-                params={
-                    "max_results": min(max_posts, 100),
-                    "start_time": since_str,
-                    "tweet.fields": "created_at,public_metrics,entities,referenced_tweets",
-                    "expansions": "attachments.media_keys",
-                    "media.fields": "url,preview_image_url",
-                },
-            )
-            tweets_resp.raise_for_status()
-            data = tweets_resp.json()
+        # Get recent tweets (another rate-limit slot)
+        await _x_api_limiter.acquire()
+        since_str = since.strftime("%Y-%m-%dT%H:%M:%SZ")
+        tweets_resp = await client.get(
+            f"https://api.twitter.com/2/users/{user_id}/tweets",
+            headers={"Authorization": f"Bearer {X_BEARER_TOKEN}"},
+            params={
+                "max_results": min(max_posts, 100),
+                "start_time": since_str,
+                "tweet.fields": "created_at,public_metrics,entities,referenced_tweets",
+                "expansions": "attachments.media_keys",
+                "media.fields": "url,preview_image_url",
+            },
+        )
+        tweets_resp.raise_for_status()
+        data = tweets_resp.json()
 
-            posts = []
-            for tweet in data.get("data", []):
-                metrics = tweet.get("public_metrics", {})
-                entities = tweet.get("entities", {})
-                refs = tweet.get("referenced_tweets", [])
+        posts = []
+        for tweet in data.get("data", []):
+            metrics = tweet.get("public_metrics", {})
+            entities = tweet.get("entities", {})
+            refs = tweet.get("referenced_tweets", [])
 
-                posts.append(XPost(
-                    post_id=tweet["id"],
-                    author_handle=handle,
-                    author_name=user_name,
-                    text=tweet.get("text", ""),
-                    created_at=tweet.get("created_at", ""),
-                    url=f"https://x.com/{handle}/status/{tweet['id']}",
-                    retweet_count=metrics.get("retweet_count", 0),
-                    like_count=metrics.get("like_count", 0),
-                    reply_count=metrics.get("reply_count", 0),
-                    quote_count=metrics.get("quote_count", 0),
-                    impression_count=metrics.get("impression_count", 0),
-                    is_retweet=any(r.get("type") == "retweeted" for r in refs),
-                    is_reply=any(r.get("type") == "replied_to" for r in refs),
-                    hashtags=[h["tag"] for h in entities.get("hashtags", [])],
-                    mentioned_users=[m["username"] for m in entities.get("mentions", [])],
-                ))
+            posts.append(XPost(
+                post_id=tweet["id"],
+                author_handle=handle,
+                author_name=user_name,
+                text=tweet.get("text", ""),
+                created_at=tweet.get("created_at", ""),
+                url=f"https://x.com/{handle}/status/{tweet['id']}",
+                retweet_count=metrics.get("retweet_count", 0),
+                like_count=metrics.get("like_count", 0),
+                reply_count=metrics.get("reply_count", 0),
+                quote_count=metrics.get("quote_count", 0),
+                impression_count=metrics.get("impression_count", 0),
+                is_retweet=any(r.get("type") == "retweeted" for r in refs),
+                is_reply=any(r.get("type") == "replied_to" for r in refs),
+                hashtags=[h["tag"] for h in entities.get("hashtags", [])],
+                mentioned_users=[m["username"] for m in entities.get("mentions", [])],
+            ))
 
-            log.info(f"@{handle}: {len(posts)} posts via X API")
-            return posts
+        log.info(f"@{handle}: {len(posts)} posts via X API")
+        return posts
 
     except Exception as e:
         log.warning(f"X API scan failed for @{handle}: {e}")
@@ -303,51 +403,52 @@ async def _search_keyword_api(
         return []
 
     try:
+        await _x_api_limiter.acquire()
         since_str = since.strftime("%Y-%m-%dT%H:%M:%SZ")
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(
-                "https://api.twitter.com/2/tweets/search/recent",
-                headers={"Authorization": f"Bearer {X_BEARER_TOKEN}"},
-                params={
-                    "query": f"{keyword} -is:retweet lang:en",
-                    "max_results": min(max_posts, 100),
-                    "start_time": since_str,
-                    "tweet.fields": "created_at,public_metrics,author_id,entities",
-                    "expansions": "author_id",
-                    "user.fields": "username,name",
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
+        client = await _get_shared_client()
+        resp = await client.get(
+            "https://api.twitter.com/2/tweets/search/recent",
+            headers={"Authorization": f"Bearer {X_BEARER_TOKEN}"},
+            params={
+                "query": f"{keyword} -is:retweet lang:en",
+                "max_results": min(max_posts, 100),
+                "start_time": since_str,
+                "tweet.fields": "created_at,public_metrics,author_id,entities",
+                "expansions": "author_id",
+                "user.fields": "username,name",
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
 
-            # Build user lookup
-            users = {u["id"]: u for u in data.get("includes", {}).get("users", [])}
+        # Build user lookup
+        users = {u["id"]: u for u in data.get("includes", {}).get("users", [])}
 
-            posts = []
-            for tweet in data.get("data", []):
-                author = users.get(tweet.get("author_id", ""), {})
-                handle = author.get("username", "unknown")
-                metrics = tweet.get("public_metrics", {})
-                entities = tweet.get("entities", {})
+        posts = []
+        for tweet in data.get("data", []):
+            author = users.get(tweet.get("author_id", ""), {})
+            handle = author.get("username", "unknown")
+            metrics = tweet.get("public_metrics", {})
+            entities = tweet.get("entities", {})
 
-                posts.append(XPost(
-                    post_id=tweet["id"],
-                    author_handle=handle,
-                    author_name=author.get("name", handle),
-                    text=tweet.get("text", ""),
-                    created_at=tweet.get("created_at", ""),
-                    url=f"https://x.com/{handle}/status/{tweet['id']}",
-                    retweet_count=metrics.get("retweet_count", 0),
-                    like_count=metrics.get("like_count", 0),
-                    reply_count=metrics.get("reply_count", 0),
-                    quote_count=metrics.get("quote_count", 0),
-                    impression_count=metrics.get("impression_count", 0),
-                    hashtags=[h["tag"] for h in entities.get("hashtags", [])],
-                    mentioned_users=[m["username"] for m in entities.get("mentions", [])],
-                ))
+            posts.append(XPost(
+                post_id=tweet["id"],
+                author_handle=handle,
+                author_name=author.get("name", handle),
+                text=tweet.get("text", ""),
+                created_at=tweet.get("created_at", ""),
+                url=f"https://x.com/{handle}/status/{tweet['id']}",
+                retweet_count=metrics.get("retweet_count", 0),
+                like_count=metrics.get("like_count", 0),
+                reply_count=metrics.get("reply_count", 0),
+                quote_count=metrics.get("quote_count", 0),
+                impression_count=metrics.get("impression_count", 0),
+                hashtags=[h["tag"] for h in entities.get("hashtags", [])],
+                mentioned_users=[m["username"] for m in entities.get("mentions", [])],
+            ))
 
-            log.info(f"Keyword '{keyword}': {len(posts)} posts via X API")
-            return posts
+        log.info(f"Keyword '{keyword}': {len(posts)} posts via X API")
+        return posts
 
     except Exception as e:
         log.warning(f"X API search failed for '{keyword}': {e}")
@@ -477,11 +578,6 @@ async def _scan_account_grok(
     max_posts: int,
 ) -> list[XPost]:
     """Use Grok API to get intelligence about an X account's recent activity."""
-    try:
-        import httpx
-    except ImportError:
-        return []
-
     prompt = (
         f"What has @{handle} posted about on X/Twitter in the last 24 hours? "
         f"Give me their key posts with approximate engagement numbers. "
@@ -489,26 +585,27 @@ async def _scan_account_grok(
     )
 
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(
-                "https://api.x.ai/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {XAI_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": "grok-4",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 2000,
-                },
-            )
-            resp.raise_for_status()
-            text = resp.json()["choices"][0]["message"]["content"]
+        await _grok_limiter.acquire()
+        client = await _get_shared_client()
+        resp = await client.post(
+            "https://api.x.ai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {XAI_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "grok-4",
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 2000,
+            },
+        )
+        resp.raise_for_status()
+        text = resp.json()["choices"][0]["message"]["content"]
 
-            # Parse Grok's response into XPost objects
-            posts = _parse_grok_posts(text, handle)
-            log.info(f"@{handle}: {len(posts)} posts via Grok")
-            return posts
+        # Parse Grok's response into XPost objects
+        posts = _parse_grok_posts(text, handle)
+        log.info(f"@{handle}: {len(posts)} posts via Grok")
+        return posts
 
     except Exception as e:
         log.warning(f"Grok scan failed for @{handle}: {e}")
@@ -521,11 +618,6 @@ async def _search_keyword_grok(
     max_posts: int,
 ) -> list[XPost]:
     """Use Grok to search X for keyword-relevant posts."""
-    try:
-        import httpx
-    except ImportError:
-        return []
-
     prompt = (
         f"Search X/Twitter for the most significant posts about '{keyword}' "
         f"from the last 24 hours. Give me the top {min(max_posts, 10)} posts "
@@ -534,25 +626,26 @@ async def _search_keyword_grok(
     )
 
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(
-                "https://api.x.ai/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {XAI_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": "grok-4",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 2000,
-                },
-            )
-            resp.raise_for_status()
-            text = resp.json()["choices"][0]["message"]["content"]
+        await _grok_limiter.acquire()
+        client = await _get_shared_client()
+        resp = await client.post(
+            "https://api.x.ai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {XAI_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "grok-4",
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 2000,
+            },
+        )
+        resp.raise_for_status()
+        text = resp.json()["choices"][0]["message"]["content"]
 
-            posts = _parse_grok_posts(text, f"search:{keyword}")
-            log.info(f"Keyword '{keyword}': {len(posts)} posts via Grok")
-            return posts
+        posts = _parse_grok_posts(text, f"search:{keyword}")
+        log.info(f"Keyword '{keyword}': {len(posts)} posts via Grok")
+        return posts
 
     except Exception as e:
         log.warning(f"Grok search failed for '{keyword}': {e}")
@@ -561,11 +654,6 @@ async def _search_keyword_grok(
 
 async def _scan_trending_grok(since: datetime) -> list[XPost]:
     """Use Grok to get trending topic intelligence."""
-    try:
-        import httpx
-    except ImportError:
-        return []
-
     prompt = (
         "What are the top trending topics on X/Twitter right now in these areas: "
         "AI/tech, geopolitics, markets, gaming, music? "
@@ -574,25 +662,26 @@ async def _scan_trending_grok(since: datetime) -> list[XPost]:
     )
 
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            resp = await client.post(
-                "https://api.x.ai/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {XAI_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": "grok-4",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 3000,
-                },
-            )
-            resp.raise_for_status()
-            text = resp.json()["choices"][0]["message"]["content"]
+        await _grok_limiter.acquire()
+        client = await _get_shared_client()
+        resp = await client.post(
+            "https://api.x.ai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {XAI_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "grok-4",
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 3000,
+            },
+        )
+        resp.raise_for_status()
+        text = resp.json()["choices"][0]["message"]["content"]
 
-            posts = _parse_grok_posts(text, "trending")
-            log.info(f"Trending: {len(posts)} posts via Grok")
-            return posts
+        posts = _parse_grok_posts(text, "trending")
+        log.info(f"Trending: {len(posts)} posts via Grok")
+        return posts
 
     except Exception as e:
         log.warning(f"Grok trending scan failed: {e}")
@@ -629,7 +718,7 @@ def _parse_grok_posts(text: str, default_handle: str) -> list[XPost]:
         rts = _extract_number(line, ["RTs:", "retweets:", "🔁", "RT:"])
 
         posts.append(XPost(
-            post_id=f"grok-{default_handle}-{i:03d}",
+            post_id=f"grok-{uuid.uuid4().hex[:12]}",
             author_handle=handle,
             author_name=handle,
             text=line[:500],

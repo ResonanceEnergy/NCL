@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import os
 import tempfile
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
@@ -49,6 +50,12 @@ STRIKE_POINT_KEYWORDS: list[str] = [
 
 # Where to store downloaded audio temporarily
 AUDIO_CACHE_DIR = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL"))) / ".cache" / "youtube-audio"
+
+
+# YouTube Data API v3 quota: 10,000 units/day. yt-dlp doesn't consume quota
+# but we respect a polite crawl rate to avoid bot-detection blocks.
+_CHANNEL_SCRAPE_DELAY_SECONDS = 2.0   # minimum gap between channel scrapes
+_MAX_RETRIES_PER_CHANNEL = 2          # retry once on transient failure
 
 
 def get_channel_list() -> list[str]:
@@ -91,35 +98,57 @@ def scrape_recent_videos(
         "dateafter": cutoff_str,
     }
 
+    last_scrape_time: float = 0.0
+
     for channel_url in channels:
         log.info(f"Scraping channel: {channel_url}")
-        try:
-            with YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(channel_url + "/videos", download=False)
-                if not info or "entries" not in info:
-                    log.warning(f"No entries found for {channel_url}")
-                    continue
 
-                channel_name = info.get("channel", info.get("uploader", "Unknown"))
-                for entry in info["entries"]:
-                    if not entry:
-                        continue
-                    all_videos.append({
-                        "video_id": entry.get("id", ""),
-                        "title": entry.get("title", "Untitled"),
-                        "channel": channel_name,
-                        "channel_id": info.get("channel_id", ""),
-                        "upload_date": entry.get("upload_date", ""),
-                        "duration": entry.get("duration") or 0,
-                        "url": f"https://www.youtube.com/watch?v={entry.get('id', '')}",
-                        "description": entry.get("description", "")[:500],
-                        "view_count": entry.get("view_count") or 0,
-                        "like_count": entry.get("like_count") or 0,
-                        "tags": entry.get("tags") or [],
-                        "thumbnail": entry.get("thumbnail", ""),
-                    })
-        except Exception as e:
-            log.error(f"Failed to scrape {channel_url}: {e}")
+        # Polite rate limiting between channel requests
+        now = time.monotonic()
+        gap = now - last_scrape_time
+        if gap < _CHANNEL_SCRAPE_DELAY_SECONDS:
+            time.sleep(_CHANNEL_SCRAPE_DELAY_SECONDS - gap)
+        last_scrape_time = time.monotonic()
+
+        for attempt in range(_MAX_RETRIES_PER_CHANNEL):
+            try:
+                with YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(channel_url + "/videos", download=False)
+                    if not info or "entries" not in info:
+                        log.warning(f"No entries found for {channel_url}")
+                        break  # Nothing to retry
+
+                    channel_name = info.get("channel", info.get("uploader", "Unknown"))
+                    for entry in info["entries"]:
+                        if not entry:
+                            continue
+                        # Post-filter by date: yt-dlp ignores dateafter in
+                        # extract_flat mode, so we filter manually here.
+                        upload_date = entry.get("upload_date", "")
+                        if upload_date and upload_date < cutoff_str:
+                            continue
+                        all_videos.append({
+                            "video_id": entry.get("id", ""),
+                            "title": entry.get("title", "Untitled"),
+                            "channel": channel_name,
+                            "channel_id": info.get("channel_id", ""),
+                            "upload_date": upload_date,
+                            "duration": entry.get("duration") or 0,
+                            "url": f"https://www.youtube.com/watch?v={entry.get('id', '')}",
+                            "description": entry.get("description", "")[:500],
+                            "view_count": entry.get("view_count") or 0,
+                            "like_count": entry.get("like_count") or 0,
+                            "tags": entry.get("tags") or [],
+                            "thumbnail": entry.get("thumbnail", ""),
+                        })
+                break  # Success — no retry needed
+            except Exception as e:
+                if attempt < _MAX_RETRIES_PER_CHANNEL - 1:
+                    wait = 5.0 * (attempt + 1)
+                    log.warning(f"Scrape attempt {attempt+1} failed for {channel_url}: {e} — retrying in {wait:.0f}s")
+                    time.sleep(wait)
+                else:
+                    log.error(f"Failed to scrape {channel_url} after {_MAX_RETRIES_PER_CHANNEL} attempts: {e}")
 
     # ── Strike Point scoring ─────────────────────────────────────────
     # Score each video by keyword relevance, then select highest-scoring
@@ -225,13 +254,18 @@ def download_batch(
         if not url:
             continue
 
-        # Skip if already cached
+        # Skip if already cached (check all common audio formats)
         out_dir = output_dir or AUDIO_CACHE_DIR
         video_id = video.get("video_id", "")
-        cached = out_dir / f"{video_id}.mp3"
-        if cached.exists():
-            log.info(f"Cache hit: {cached.name}")
-            results.append((video, cached))
+        cached_path = None
+        for ext in ("mp3", "mp4", "webm", "m4a", "opus", "ogg", "wav"):
+            candidate = out_dir / f"{video_id}.{ext}"
+            if candidate.exists():
+                cached_path = candidate
+                break
+        if cached_path:
+            log.info(f"Cache hit: {cached_path.name}")
+            results.append((video, cached_path))
             continue
 
         audio_path = download_audio(url, output_dir)

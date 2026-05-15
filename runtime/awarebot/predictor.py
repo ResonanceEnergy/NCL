@@ -1,8 +1,12 @@
 """Future Predictor Council - ensemble forecast engine."""
 
+import json
 import logging
+import math
 import uuid
+from collections import deque
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 import httpx
@@ -27,6 +31,54 @@ class PredictionOutput:
         self.warnings: list[str] = []
 
 
+def _compute_model_confidence(
+    signals: list,
+    response_text: str,
+    base: float = 0.5,
+) -> float:
+    """
+    Compute a confidence score from data quality and response characteristics.
+
+    Factors:
+    - Signal count: more signals = more data to ground the prediction
+    - Average signal importance: higher importance = stronger evidence base
+    - Response includes explicit probability: boosts confidence
+    - Caps at 0.95 to avoid overconfidence.
+
+    Args:
+        signals: The InsightSignal objects used for the prediction.
+        response_text: The raw model response text.
+        base: Model-specific baseline (Claude = 0.6, local = 0.45).
+
+    Returns:
+        Confidence score in [0.0, 0.95].
+    """
+    score = base
+
+    # Signal quantity bonus (up to +0.15 for 10+ signals)
+    n = len(signals)
+    if n > 0:
+        score += min(0.15, 0.015 * n)
+
+    # Signal quality bonus: average importance (0-100 scale assumed)
+    if signals:
+        avg_importance = sum(
+            getattr(s, "importance_score", 0)
+            for s in signals
+        ) / len(signals)
+        # Normalise to 0-0.10 bonus
+        score += min(0.10, avg_importance / 100)
+
+    # Explicitness bonus: response contains a numeric probability
+    import re
+    if re.search(r"\b(\d{1,3})\s*(?:–|-|to)\s*(\d{1,3})\s*%", response_text):
+        score += 0.05  # Model gave a probability range
+    elif re.search(r"\b\d{1,3}\s*%", response_text):
+        score += 0.02  # At least one percentage mentioned
+
+    return round(min(0.95, max(0.0, score)), 3)
+
+
 class FuturePredictor:
     """
     Ensemble prediction system.
@@ -36,12 +88,16 @@ class FuturePredictor:
     Integrates with AAC War Room for geopolitical signals.
     """
 
+    # Rolling accuracy window: last N prediction outcomes
+    _ACCURACY_WINDOW = 100
+
     def __init__(
         self,
         claude_api_key: str,
         anthropic_base_url: str = "https://api.anthropic.com",
         ollama_host: str = "localhost:11434",
         aac_war_room_url: Optional[str] = None,
+        accuracy_file: Optional[Path] = None,
     ) -> None:
         """
         Initialize future predictor.
@@ -51,12 +107,26 @@ class FuturePredictor:
             anthropic_base_url: Anthropic API base URL
             ollama_host: Ollama server host:port for local models
             aac_war_room_url: AAC War Room API URL for geopolitical data
+            accuracy_file: Optional path to persist prediction outcomes (JSON lines)
         """
         self.claude_api_key = claude_api_key
         self.anthropic_base_url = anthropic_base_url
         self.ollama_host = ollama_host
         self.aac_war_room_url = aac_war_room_url
         self.http_client = httpx.AsyncClient(timeout=60.0)
+
+        # Accuracy tracking — rolling deque of {"prediction_id": ..., "correct": bool}
+        self._outcomes: deque[dict] = deque(maxlen=self._ACCURACY_WINDOW)
+        self._accuracy_file = accuracy_file
+
+        # Load persisted outcomes from disk
+        if self._accuracy_file and self._accuracy_file.exists():
+            try:
+                lines = self._accuracy_file.read_text().strip().splitlines()
+                for line in lines[-self._ACCURACY_WINDOW:]:
+                    self._outcomes.append(json.loads(line))
+            except Exception:
+                pass  # Start fresh on any parse error
 
     async def predict(
         self, signals: list[InsightSignal], topic: str
@@ -156,11 +226,17 @@ Format your response as JSON with keys: prediction, confidence (0-1), reasoning.
             data = response.json()
             text = data["content"][0]["text"]
 
-            # Parse response (simplified)
+            # Compute confidence from data quality: signal count, avg importance,
+            # and whether the model returned structured probability ranges.
+            confidence = _compute_model_confidence(
+                signals=signals,
+                response_text=text,
+                base=0.6,
+            )
             return {
                 "model": "claude",
                 "prediction": text,
-                "confidence": 0.75,
+                "confidence": confidence,
             }
         except Exception as e:
             logger.warning(f"Claude prediction failed for topic '{topic}': {e}")
@@ -206,10 +282,16 @@ What is the most likely outcome? Provide 1-2 sentences."""
             response.raise_for_status()
             data = response.json()
 
+            response_text = data.get("response", "")[:200]
+            confidence = _compute_model_confidence(
+                signals=signals,
+                response_text=response_text,
+                base=0.45,  # Local models get lower base than Claude
+            )
             return {
                 "model": model,
-                "prediction": data.get("response", "")[:200],
-                "confidence": 0.65,
+                "prediction": response_text,
+                "confidence": confidence,
             }
         except Exception as e:
             logger.warning(f"Ollama prediction failed with model '{model}' for topic '{topic}': {e}")
@@ -376,9 +458,21 @@ What is the most likely outcome? Provide 1-2 sentences."""
             return None
 
         try:
-            response = await self.http_client.get(
+            # Serialize signals to a compact form the War Room endpoint can consume
+            signals_payload = [
+                {
+                    "content": s.content[:200],
+                    "importance": getattr(s, "importance_score", 0),
+                    "tags": list(getattr(s, "tags", [])),
+                }
+                for s in signals[:20]  # Cap at 20 to keep payload reasonable
+            ]
+            response = await self.http_client.post(
                 f"{self.aac_war_room_url}/geopolitical/signals",
-                params={"topic": topic},
+                json={
+                    "topic": topic,
+                    "signals": signals_payload,
+                },
             )
             response.raise_for_status()
             data = response.json()
@@ -386,6 +480,54 @@ What is the most likely outcome? Provide 1-2 sentences."""
         except Exception as e:
             logger.warning(f"War room query failed for topic '{topic}': {e}")
             return None
+
+    # ── Accuracy Tracking ────────────────────────────────────────────────
+
+    def record_outcome(self, prediction_id: str, correct: bool) -> None:
+        """
+        Record whether a prediction was correct.
+
+        Call this once the ground truth is known (e.g. 30 days after prediction).
+
+        Args:
+            prediction_id: The PredictionOutput.prediction_id value.
+            correct: True if the prediction proved accurate.
+        """
+        record = {
+            "prediction_id": prediction_id,
+            "correct": correct,
+            "recorded_at": datetime.now(timezone.utc).isoformat(),
+        }
+        self._outcomes.append(record)
+
+        if self._accuracy_file:
+            try:
+                self._accuracy_file.parent.mkdir(parents=True, exist_ok=True)
+                with self._accuracy_file.open("a") as f:
+                    f.write(json.dumps(record) + "\n")
+            except Exception as e:
+                logger.warning(f"Failed to persist prediction outcome: {e}")
+
+    def rolling_accuracy(self) -> Optional[float]:
+        """
+        Compute rolling accuracy over the last N recorded outcomes.
+
+        Returns:
+            Fraction correct (0.0–1.0), or None if no outcomes recorded.
+        """
+        if not self._outcomes:
+            return None
+        correct = sum(1 for o in self._outcomes if o.get("correct"))
+        return round(correct / len(self._outcomes), 3)
+
+    def accuracy_stats(self) -> dict:
+        """Return accuracy stats dict for logging/reporting."""
+        acc = self.rolling_accuracy()
+        return {
+            "outcomes_recorded": len(self._outcomes),
+            "rolling_accuracy": acc,
+            "window_size": self._ACCURACY_WINDOW,
+        }
 
     async def close(self) -> None:
         """Close HTTP client."""

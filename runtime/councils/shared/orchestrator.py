@@ -19,6 +19,7 @@ Fallback: if only one model is available, all roles collapse to that model
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -197,35 +198,92 @@ If it doesn't lead to understanding or action, cut it.""",
 
 # ── API Backends ──────────────────────────────────────────────────────────
 
-ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-XAI_KEY = os.getenv("XAI_API_KEY", "")
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+# Keys are read fresh inside each function to support rotation without restart.
+# Do NOT cache them at module level.
+
+import httpx as _httpx
+
+# Shared HTTP clients — lazily created on first use so they are instantiated
+# inside a running event loop.  Call close_shared_clients() on shutdown.
+_claude_client: Optional[_httpx.AsyncClient] = None
+_grok_client: Optional[_httpx.AsyncClient] = None
+_ollama_client: Optional[_httpx.AsyncClient] = None
+_client_lock: asyncio.Lock | None = None  # bootstrapped on first access
+
+
+def _get_client_lock() -> asyncio.Lock:
+    """Return (and lazily create) the module-level asyncio lock."""
+    global _client_lock
+    if _client_lock is None:
+        _client_lock = asyncio.Lock()
+    return _client_lock
+
+
+async def _get_claude_client() -> _httpx.AsyncClient:
+    global _claude_client
+    if _claude_client is None:
+        async with _get_client_lock():
+            if _claude_client is None:
+                _claude_client = _httpx.AsyncClient(timeout=120.0)
+    return _claude_client
+
+
+async def _get_grok_client() -> _httpx.AsyncClient:
+    global _grok_client
+    if _grok_client is None:
+        async with _get_client_lock():
+            if _grok_client is None:
+                _grok_client = _httpx.AsyncClient(timeout=120.0)
+    return _grok_client
+
+
+async def _get_ollama_client() -> _httpx.AsyncClient:
+    global _ollama_client
+    if _ollama_client is None:
+        async with _get_client_lock():
+            if _ollama_client is None:
+                _ollama_client = _httpx.AsyncClient(timeout=300.0)
+    return _ollama_client
+
+
+async def close_shared_clients() -> None:
+    """Close all shared HTTP clients. Call this on application shutdown."""
+    global _claude_client, _grok_client, _ollama_client
+    if _claude_client is not None:
+        await _claude_client.aclose()
+        _claude_client = None
+    if _grok_client is not None:
+        await _grok_client.aclose()
+        _grok_client = None
+    if _ollama_client is not None:
+        await _ollama_client.aclose()
+        _ollama_client = None
 
 
 async def _call_claude(system: str, prompt: str, temperature: float = 0.3, max_tokens: int = 4096) -> str:
     """Call Anthropic Claude API."""
-    if not ANTHROPIC_KEY:
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
+    if not anthropic_key:
         return ""
     try:
-        import httpx
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            resp = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": ANTHROPIC_KEY,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": os.getenv("COUNCIL_CLAUDE_MODEL", "claude-sonnet-4-6"),
-                    "max_tokens": max_tokens,
-                    "system": system,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": temperature,
-                },
-            )
-            resp.raise_for_status()
-            return resp.json()["content"][0]["text"]
+        client = await _get_claude_client()
+        resp = await client.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": anthropic_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": os.getenv("COUNCIL_CLAUDE_MODEL", "claude-sonnet-4-6"),
+                "max_tokens": max_tokens,
+                "system": system,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": temperature,
+            },
+        )
+        resp.raise_for_status()
+        return resp.json()["content"][0]["text"]
     except Exception as e:
         log.warning(f"Claude call failed: {e}")
         return ""
@@ -233,29 +291,29 @@ async def _call_claude(system: str, prompt: str, temperature: float = 0.3, max_t
 
 async def _call_grok(system: str, prompt: str, temperature: float = 0.5, max_tokens: int = 4096) -> str:
     """Call xAI Grok API."""
-    if not XAI_KEY:
+    xai_key = os.getenv("XAI_API_KEY", "")
+    if not xai_key:
         return ""
     try:
-        import httpx
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            resp = await client.post(
-                "https://api.x.ai/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {XAI_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": os.getenv("COUNCIL_GROK_MODEL", "grok-4"),
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": prompt},
-                    ],
-                    "max_tokens": max_tokens,
-                    "temperature": temperature,
-                },
-            )
-            resp.raise_for_status()
-            return resp.json()["choices"][0]["message"]["content"]
+        client = await _get_grok_client()
+        resp = await client.post(
+            "https://api.x.ai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {xai_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": os.getenv("COUNCIL_GROK_MODEL", "grok-4"),
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": prompt},
+                ],
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+            },
+        )
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"]
     except Exception as e:
         log.warning(f"Grok call failed: {e}")
         return ""
@@ -264,33 +322,52 @@ async def _call_grok(system: str, prompt: str, temperature: float = 0.5, max_tok
 async def _call_ollama(system: str, prompt: str, temperature: float = 0.4, max_tokens: int = 4096) -> str:
     """Call local Ollama."""
     try:
-        import httpx
         model = os.getenv("OLLAMA_COUNCIL_MODEL", "qwen3:32b")
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            resp = await client.post(
-                f"{OLLAMA_HOST}/api/chat",
-                json={
-                    "model": model,
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": prompt},
-                    ],
-                    "stream": False,
-                    "options": {"temperature": temperature, "num_predict": max_tokens},
-                },
-            )
-            resp.raise_for_status()
-            return resp.json().get("message", {}).get("content", "")
+        ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+        client = await _get_ollama_client()
+        resp = await client.post(
+            f"{ollama_host}/api/chat",
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": prompt},
+                ],
+                "stream": False,
+                "options": {"temperature": temperature, "num_predict": max_tokens},
+            },
+        )
+        resp.raise_for_status()
+        return resp.json().get("message", {}).get("content", "")
     except Exception as e:
         log.warning(f"Ollama call failed: {e}")
         return ""
 
 
-async def _call_agent(agent: AgentRole, prompt: str) -> tuple[str, str]:
+_MEMBER_RESPONSE_TIMEOUT = 30.0   # seconds per backend attempt (per spec)
+_AGENT_TOTAL_TIMEOUT = 120.0      # total budget for all backend fallbacks
+
+
+async def _call_agent(
+    agent: AgentRole,
+    prompt: str,
+    per_agent_timeout: float = _AGENT_TOTAL_TIMEOUT,
+) -> tuple[str, str]:
     """
     Call an agent using its preferred model with fallback chain.
 
-    Returns (response_text, model_used).
+    Each individual backend call is capped at _MEMBER_RESPONSE_TIMEOUT (30s).
+    The overall agent (all fallbacks combined) is capped at per_agent_timeout.
+    If a member times out or errors, the next backend is tried automatically.
+
+    Args:
+        agent: AgentRole definition.
+        prompt: Full prompt (source material + accumulated context).
+        per_agent_timeout: Wall-clock seconds before the entire agent
+            (including all backend fallbacks) is abandoned.
+
+    Returns:
+        (response_text, model_used) — ("", "none") if all backends fail.
     """
     import time
     start = time.monotonic()
@@ -305,19 +382,140 @@ async def _call_agent(agent: AgentRole, prompt: str) -> tuple[str, str]:
         backends = [("ollama", _call_ollama), ("claude", _call_claude), ("grok", _call_grok)]
 
     for model_name, call_fn in backends:
-        result = await call_fn(
-            system=agent.system_prompt,
-            prompt=prompt,
-            temperature=agent.temperature,
-            max_tokens=agent.max_tokens,
-        )
+        # Respect overall per-agent timeout — skip backend if time is already up.
+        elapsed = time.monotonic() - start
+        if elapsed >= per_agent_timeout:
+            log.warning(
+                "[%s] per-agent timeout (%.1fs) reached — skipping remaining backends",
+                agent.name,
+                per_agent_timeout,
+            )
+            break
+
+        remaining = per_agent_timeout - elapsed
+        # Cap each individual backend at _MEMBER_RESPONSE_TIMEOUT (30s)
+        backend_timeout = min(remaining, _MEMBER_RESPONSE_TIMEOUT)
+        try:
+            result = await asyncio.wait_for(
+                call_fn(
+                    system=agent.system_prompt,
+                    prompt=prompt,
+                    temperature=agent.temperature,
+                    max_tokens=agent.max_tokens,
+                ),
+                timeout=backend_timeout,
+            )
+        except asyncio.TimeoutError:
+            log.warning(
+                "[%s] %s timed out after %.1fs — trying next backend",
+                agent.name,
+                model_name,
+                backend_timeout,
+            )
+            continue
+        except Exception as e:
+            log.warning(
+                "[%s] %s raised an error: %s — trying next backend",
+                agent.name,
+                model_name,
+                e,
+            )
+            continue
+
         if result:
-            elapsed = time.monotonic() - start
-            log.info(f"[{agent.name}] responded via {model_name} in {elapsed:.1f}s ({len(result)} chars)")
+            total_elapsed = time.monotonic() - start
+            log.info(
+                "[%s] responded via %s in %.1fs (%d chars)",
+                agent.name,
+                model_name,
+                total_elapsed,
+                len(result),
+            )
             return result, model_name
 
-    log.error(f"[{agent.name}] ALL backends failed")
+    log.error("[%s] ALL backends failed or timed out", agent.name)
     return "", "none"
+
+
+# ── JSON Extraction Helper ────────────────────────────────────────────────
+
+def _extract_json(text: str) -> dict[str, Any] | list:
+    """
+    Robustly extract a JSON object or array from LLM output.
+
+    Strategy:
+    1. Try parsing the raw text directly.
+    2. Find the first '{' or '[' and match braces/brackets to locate the
+       JSON substring (handles nested code fences that break split-based approaches).
+    3. Return {} on failure.
+    """
+    stripped = text.strip()
+
+    # Fast path — entire response is valid JSON
+    try:
+        return json.loads(stripped)
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    # Find first { or [ and attempt to match balanced braces
+    for start_char, end_char in [('{', '}'), ('[', ']')]:
+        start_idx = stripped.find(start_char)
+        if start_idx == -1:
+            continue
+        depth = 0
+        in_string = False
+        escape_next = False
+        for i in range(start_idx, len(stripped)):
+            ch = stripped[i]
+            if escape_next:
+                escape_next = False
+                continue
+            if ch == '\\' and in_string:
+                escape_next = True
+                continue
+            if ch == '"' and not escape_next:
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == start_char:
+                depth += 1
+            elif ch == end_char:
+                depth -= 1
+                if depth == 0:
+                    candidate = stripped[start_idx:i + 1]
+                    try:
+                        return json.loads(candidate)
+                    except (json.JSONDecodeError, ValueError):
+                        break  # Try next start_char type
+        # If we didn't return, try next type
+
+    return {}
+
+
+# ── Context Size Management ──────────────────────────────────────────────
+
+# Maximum accumulated context size in characters (configurable via env).
+_MAX_CONTEXT_CHARS = int(os.environ.get("NCL_ORCHESTRATOR_MAX_CONTEXT", "51200"))  # ~50KB
+
+
+def _truncate_context(context: str, max_chars: int = _MAX_CONTEXT_CHARS) -> str:
+    """
+    Truncate accumulated context to stay within max_chars.
+
+    Keeps the first section (source material header) and the most recent
+    agent outputs, trimming from the middle.
+    """
+    if len(context) <= max_chars:
+        return context
+
+    # Keep first 20% (source material) and last 80% (recent agent outputs)
+    head_budget = max_chars // 5
+    tail_budget = max_chars - head_budget - 50  # 50 chars for separator
+
+    head = context[:head_budget]
+    tail = context[-tail_budget:]
+    return head + "\n\n[...context truncated...]\n\n" + tail
 
 
 # ── Orchestrator Pipeline ─────────────────────────────────────────────────
@@ -367,7 +565,15 @@ class CouncilOrchestrator:
                 f"Produce your output now."
             )
 
-            response, model_used = await _call_agent(agent, prompt)
+            try:
+                response, model_used = await _call_agent(agent, prompt)
+            except Exception as e:
+                log.error(
+                    "Unexpected error from agent %s: %s — continuing pipeline",
+                    agent.name,
+                    e,
+                )
+                response, model_used = "", "none"
 
             output = AgentOutput(
                 role=agent.role,
@@ -377,20 +583,14 @@ class CouncilOrchestrator:
 
             # Try to parse structured output
             if response:
-                try:
-                    json_str = response
-                    if "```json" in response:
-                        json_str = response.split("```json")[1].split("```")[0].strip()
-                    elif "```" in response:
-                        json_str = response.split("```")[1].split("```")[0].strip()
-                    output.structured = json.loads(json_str)
-                except (json.JSONDecodeError, IndexError):
-                    pass
+                output.structured = _extract_json(response)
 
                 # Add this agent's output to context for next agent
                 accumulated_context += (
                     f"\n\n## {agent.name} Output\n\n{response}\n"
                 )
+                # Prevent unbounded growth
+                accumulated_context = _truncate_context(accumulated_context)
 
             result.agents_run.append(output)
             if model_used != "none":

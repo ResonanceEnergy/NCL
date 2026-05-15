@@ -1,6 +1,7 @@
 #!/bin/bash
 # Kill old services and restart with new code
-set -e
+# Note: set -e is intentionally NOT set here so test failures don't abort the restart.
+# Tests are run with "|| true" to ensure the restart completes regardless.
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -70,7 +71,7 @@ PYTHONPATH=~/dev/NCL nohup python3 -m runtime.pump_watcher > logs/pump-watcher-s
 WATCHER_PID=$!
 echo -e "${GREEN}  ✓ Watcher started (PID $WATCHER_PID)${NC}"
 
-# Run E2E test
+# Run E2E test — failures here are logged but do NOT abort the restart
 echo ""
 echo -e "${CYAN}============================================${NC}"
 echo -e "${CYAN}  Running E2E Pipeline Test${NC}"
@@ -78,7 +79,7 @@ echo -e "${CYAN}============================================${NC}"
 echo ""
 sleep 2
 cd ~/dev/NCL
-python3 tests/test_e2e_pipeline.py
+python3 tests/test_e2e_pipeline.py || echo -e "${YELLOW}  ⚠ E2E test failed — services are still running, check output above${NC}"
 
 echo ""
 echo -e "${CYAN}Dashboard: https://localhost:8787/status${NC}"

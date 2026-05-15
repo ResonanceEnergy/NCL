@@ -75,6 +75,18 @@ class SwarmAgent(ABC):
         """Total cost in cents incurred by this agent."""
         return self._cost_cents
 
+    def __str__(self) -> str:
+        return (
+            f"{self.__class__.__name__}("
+            f"id={self._agent_id}, "
+            f"type={self._agent_type}, "
+            f"state={self._state.value}, "
+            f"cost={self._cost_cents:.2f}¢)"
+        )
+
+    def __repr__(self) -> str:
+        return self.__str__()
+
     # ------------------------------------------------------------------
     # Abstract method — must be implemented by subclasses
     # ------------------------------------------------------------------
@@ -158,15 +170,23 @@ class SwarmAgent(ABC):
         results.sort(key=lambda e: e.get("importance", 0.0), reverse=True)
         return results
 
+    # Default timeout for a single LLM call (seconds). Override via config
+    # key "llm_call_timeout_seconds".
+    LLM_CALL_TIMEOUT_SECONDS: int = 30
+
     async def call_llm(
         self,
         prompt: str,
         model_preference: str | None = None,
         max_tokens: int = 4096,
         temperature: float = 0.7,
+        timeout: float | None = None,
     ) -> LLMResponse:
         """
         Make an LLM call through the router with cost tracking.
+
+        Wraps the underlying router call in ``asyncio.wait_for`` so a hung
+        backend cannot block an agent indefinitely.
 
         Args:
             prompt: The prompt text to send.
@@ -174,18 +194,41 @@ class SwarmAgent(ABC):
                               Falls back to agent config default if None.
             max_tokens: Maximum tokens in the response.
             temperature: Sampling temperature.
+            timeout: Override the per-call timeout (seconds). None uses the
+                     class default (30s) or the ``llm_call_timeout_seconds``
+                     config key.
 
         Returns:
             LLMResponse with content, model used, token counts, cost, and latency.
+
+        Raises:
+            asyncio.TimeoutError: If the LLM backend does not respond in time.
         """
         backend = model_preference or self._config.get("default_llm", "claude")
-
-        response = await self._llm_router.call(
-            backend=backend,
-            prompt=prompt,
-            max_tokens=max_tokens,
-            temperature=temperature,
+        effective_timeout = (
+            timeout
+            if timeout is not None
+            else self._config.get("llm_call_timeout_seconds", self.LLM_CALL_TIMEOUT_SECONDS)
         )
+
+        try:
+            response = await asyncio.wait_for(
+                self._llm_router.call(
+                    backend=backend,
+                    prompt=prompt,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                ),
+                timeout=effective_timeout,
+            )
+        except asyncio.TimeoutError:
+            logger.error(
+                "LLM call timed out after %.0fs: agent=%s backend=%s",
+                effective_timeout,
+                self._agent_id,
+                backend,
+            )
+            raise
 
         self._cost_cents += response.cost_cents
         logger.debug(

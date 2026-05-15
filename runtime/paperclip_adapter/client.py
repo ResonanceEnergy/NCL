@@ -16,12 +16,52 @@ Built against REAL Paperclip API endpoints:
   - GET    /api/companies/:id/budgets/overview  → Budget overview
 """
 
+import asyncio
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Callable, Coroutine, Optional, TypeVar
 
 log = logging.getLogger("ncl.paperclip_adapter")
+
+_T = TypeVar("_T")
+_DEFAULT_TIMEOUT = 10.0      # seconds — applied when universal client is unavailable
+_RETRY_ATTEMPTS = 3          # total attempts
+_RETRY_BASE_DELAY = 1.0      # seconds — doubles on each retry
+
+
+async def _with_retry(
+    coro_fn: Callable[[], Coroutine[Any, Any, _T]],
+    *,
+    attempts: int = _RETRY_ATTEMPTS,
+    base_delay: float = _RETRY_BASE_DELAY,
+    label: str = "operation",
+) -> _T:
+    """
+    Call ``coro_fn()`` up to ``attempts`` times with exponential backoff.
+
+    Raises the last exception if all attempts are exhausted.
+    """
+    last_exc: Exception = RuntimeError("no attempts made")
+    for attempt in range(1, attempts + 1):
+        try:
+            return await coro_fn()
+        except Exception as exc:
+            last_exc = exc
+            # Do not retry client errors (4xx) — they won't succeed on retry
+            if hasattr(exc, "response") and exc.response is not None:
+                status = getattr(exc.response, "status_code", None)
+                if status is not None and 400 <= status < 500:
+                    raise
+            if attempt == attempts:
+                break
+            delay = base_delay * (2 ** (attempt - 1))
+            log.warning(
+                "%s failed (attempt %d/%d): %s — retrying in %.1fs",
+                label, attempt, attempts, exc, delay,
+            )
+            await asyncio.sleep(delay)
+    raise last_exc
 
 
 class PaperclipClient:
@@ -114,11 +154,14 @@ class PaperclipClient:
             )
 
         try:
-            result = await self._client.create_company(
-                name=name,
-                description=description or "NCL - Think, Research, Plan, Decide",
-                issue_prefix="NCL",
-                budget_monthly_cents=budget_monthly_cents,
+            result = await _with_retry(
+                lambda: self._client.create_company(
+                    name=name,
+                    description=description or "NCL - Think, Research, Plan, Decide",
+                    issue_prefix="NCL",
+                    budget_monthly_cents=budget_monthly_cents,
+                ),
+                label="register_company",
             )
             self.company_id = result.get("id", self.company_id)
             log.info(f"Registered company NCL (id: {self.company_id})")
@@ -154,14 +197,17 @@ class PaperclipClient:
             # Map NCL-specific roles to Paperclip roles
             paperclip_role = self._map_role(role)
 
-            result = await self._client.create_agent(
-                name=name,
-                role=paperclip_role,
-                adapter_type="claude_local",
-                adapter_config={
-                    "name": name,
-                    "model": "claude-opus-4-6",
-                },
+            result = await _with_retry(
+                lambda: self._client.create_agent(
+                    name=name,
+                    role=paperclip_role,
+                    adapter_type="claude_local",
+                    adapter_config={
+                        "name": name,
+                        "model": "claude-opus-4-6",
+                    },
+                ),
+                label=f"register_agent:{name}",
             )
             agent_id = result.get("id", "")
             if agent_id:
@@ -228,14 +274,17 @@ class PaperclipClient:
             if deadline:
                 description_parts.append(f"\n**Deadline**: {deadline}")
 
-            result = await self._client.create_mandate_as_issue(
-                mandate_id=mandate_id,
-                pillar=pillar,
-                title=title,
-                objective=objective,
-                priority=priority,
-                assigned_agent_id=assigned_agent_id,
-                success_criteria=success_criteria,
+            result = await _with_retry(
+                lambda: self._client.create_mandate_as_issue(
+                    mandate_id=mandate_id,
+                    pillar=pillar,
+                    title=title,
+                    objective=objective,
+                    priority=priority,
+                    assigned_agent_id=assigned_agent_id,
+                    success_criteria=success_criteria,
+                ),
+                label=f"create_mandate_as_issue:{mandate_id}",
             )
             issue_id = result.get("id", "")
             if issue_id:
@@ -271,10 +320,13 @@ class PaperclipClient:
             raise RuntimeError("Universal Paperclip client not available.")
 
         try:
-            await self._client.update_issue(
-                issue_id=issue_id,
-                status=status,
-                description=f"Completed: {notes}" if notes and status == "closed" else None,
+            await _with_retry(
+                lambda: self._client.update_issue(
+                    issue_id=issue_id,
+                    status=status,
+                    description=f"Completed: {notes}" if notes and status == "closed" else None,
+                ),
+                label=f"update_mandate_status:{mandate_id}",
             )
             log.info(f"Updated mandate '{mandate_id}' to status '{status}'")
         except Exception as e:

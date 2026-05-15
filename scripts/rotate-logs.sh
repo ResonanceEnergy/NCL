@@ -19,7 +19,11 @@ cd "$LOGS_DIR"
 # 1) Truncate active logs > 20MB to last 5MB (keeps tail intact for forensics)
 for f in *.log; do
     [ -f "$f" ] || continue
-    sz=$(stat -f%z "$f" 2>/dev/null || echo 0)
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        sz=$(stat -f%z "$f" 2>/dev/null || echo 0)
+    else
+        sz=$(stat -c%s "$f" 2>/dev/null || echo 0)
+    fi
     if [ "$sz" -gt 20971520 ]; then  # 20MB
         tail -c 5242880 "$f" > "$f.tmp" && mv "$f.tmp" "$f"
         echo "truncated $f (was $((sz/1024/1024))MB → 5MB)"

@@ -47,20 +47,33 @@ log = logging.getLogger("ncl.intelligence.collectors")
 
 
 class _RateLimiter:
-    """Token-bucket rate limiter."""
+    """Sliding-window rate limiter supporting arbitrary windows."""
 
-    def __init__(self, calls_per_minute: int = 10):
-        self.calls_per_minute = calls_per_minute
+    def __init__(self, calls: int = 10, window_seconds: int = 60):
+        """
+        Args:
+            calls: Maximum calls allowed in the window.
+            window_seconds: Window length in seconds (default 60 = per-minute).
+        """
+        self.calls = calls
+        self.window = window_seconds
         self._timestamps: list[float] = []
+        self._lock = asyncio.Lock()
 
     async def acquire(self) -> None:
-        now = time.monotonic()
-        self._timestamps = [t for t in self._timestamps if now - t < 60]
-        if len(self._timestamps) >= self.calls_per_minute:
-            wait = 60 - (now - self._timestamps[0])
-            if wait > 0:
-                await asyncio.sleep(wait)
-        self._timestamps.append(time.monotonic())
+        while True:
+            wait_time = 0.0
+            async with self._lock:
+                now = time.monotonic()
+                self._timestamps = [t for t in self._timestamps if now - t < self.window]
+                if len(self._timestamps) >= self.calls:
+                    wait_time = self.window - (now - self._timestamps[0])
+                else:
+                    self._timestamps.append(time.monotonic())
+                    return
+            # Sleep outside the lock so other requests aren't blocked
+            if wait_time > 0:
+                await asyncio.sleep(wait_time)
 
 
 async def _fetch_json(
@@ -78,6 +91,10 @@ async def _fetch_json(
     for attempt in range(retries):
         try:
             resp = await client.get(url, params=params, headers=headers)
+            if resp.status_code == 404:
+                # Resource does not exist — no point retrying
+                log.debug(f"404 Not Found for {url} — skipping retries")
+                return None
             if resp.status_code == 429:
                 wait = int(resp.headers.get("retry-after", 2 ** attempt))
                 log.warning(f"Rate limited on {url}, waiting {wait}s")
@@ -91,6 +108,57 @@ async def _fetch_json(
                 raise
             await asyncio.sleep(2 ** attempt)
     raise last_err or Exception(f"Failed after {retries} retries: {url}")
+
+
+async def retry_api_call(
+    func,
+    *args,
+    max_retries: int = 3,
+    backoff: float = 1.0,
+    **kwargs,
+) -> Any:
+    """
+    Call an async function with exponential backoff retry.
+
+    Designed for external API calls (YouTube, Reddit, X/Twitter, etc.).
+    Delays: 1s → 2s → 4s (with default backoff=1.0).
+
+    Args:
+        func: Async callable.
+        *args: Positional args forwarded to func.
+        max_retries: Total attempts before re-raising.
+        backoff: Base delay in seconds; doubled each attempt.
+        **kwargs: Keyword args forwarded to func.
+
+    Returns:
+        The return value of func on success.
+
+    Raises:
+        The last exception if all attempts are exhausted.
+    """
+    last_err: Optional[Exception] = None
+    for attempt in range(max_retries):
+        try:
+            return await func(*args, **kwargs)
+        except Exception as e:
+            last_err = e
+            if attempt < max_retries - 1:
+                delay = backoff * (2 ** attempt)
+                log.warning(
+                    "retry_api_call: attempt %d/%d failed: %s — retrying in %.1fs",
+                    attempt + 1,
+                    max_retries,
+                    e,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+            else:
+                log.warning(
+                    "retry_api_call: all %d attempts exhausted: %s",
+                    max_retries,
+                    e,
+                )
+    raise last_err  # type: ignore[misc]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -118,7 +186,7 @@ class GoogleTrendsCollector:
             },
             follow_redirects=True,
         )
-        self._limiter = _RateLimiter(calls_per_minute=5)
+        self._limiter = _RateLimiter(calls=5, window_seconds=60)
 
     async def collect_daily_trends(self, geo: str = "US") -> list[TrendSignal]:
         """
@@ -131,6 +199,7 @@ class GoogleTrendsCollector:
 
         # ── Primary: RSS feed ─────────────────────────────────────
         try:
+            await self._limiter.acquire()
             resp = await self._client.get(
                 self.TRENDING_URL,
                 params={"geo": geo},
@@ -145,6 +214,7 @@ class GoogleTrendsCollector:
 
         # ── Fallback: JSON API ────────────────────────────────────
         try:
+            await self._limiter.acquire()
             resp = await self._client.get(
                 self.DAILY_TRENDS_URL,
                 params={"hl": "en-US", "tz": "-240", "geo": geo, "ns": "15"},
@@ -266,46 +336,53 @@ class GoogleTrendsCollector:
         Fetch interest-over-time for specific keywords.
 
         Uses pytrends if available, falls back to basic API call.
+        pytrends makes synchronous HTTP requests, so the blocking call is
+        offloaded to a thread pool via asyncio.to_thread.
         """
         signals = []
         try:
-            from pytrends.request import TrendReq
-            pt = TrendReq(hl="en-US", tz=240)
-            pt.build_payload(keywords[:5], cat=0, timeframe=timeframe, geo=geo)
-            iot = pt.interest_over_time()
+            def _fetch_pytrends() -> list[TrendSignal]:
+                from pytrends.request import TrendReq
+                pt = TrendReq(hl="en-US", tz=240)
+                pt.build_payload(keywords[:5], cat=0, timeframe=timeframe, geo=geo)
+                iot = pt.interest_over_time()
 
-            if iot is not None and not iot.empty:
-                for kw in keywords[:5]:
-                    if kw in iot.columns:
-                        values = iot[kw].tolist()
-                        if len(values) >= 2:
-                            current = values[-1]
-                            previous = values[-2] if values[-2] > 0 else 1
-                            change = ((current - previous) / previous) * 100
-                            avg_val = sum(values) / len(values)
+                result: list[TrendSignal] = []
+                if iot is not None and not iot.empty:
+                    for kw in keywords[:5]:
+                        if kw in iot.columns:
+                            values = iot[kw].tolist()
+                            if len(values) >= 2:
+                                current = values[-1]
+                                previous = values[-2] if values[-2] > 0 else 1
+                                change = ((current - previous) / previous) * 100
+                                avg_val = sum(values) / len(values)
 
-                            if change > 20:
-                                direction = SignalDirection.EXPANDING
-                            elif change < -20:
-                                direction = SignalDirection.CONTRACTING
-                            else:
-                                direction = SignalDirection.NEUTRAL
+                                if change > 20:
+                                    direction = SignalDirection.EXPANDING
+                                elif change < -20:
+                                    direction = SignalDirection.CONTRACTING
+                                else:
+                                    direction = SignalDirection.NEUTRAL
 
-                            signals.append(TrendSignal(
-                                source=SourceType.GOOGLE_TRENDS,
-                                category="interest",
-                                title=f"Google Trends: {kw}",
-                                content=f"{kw} interest {'up' if change > 0 else 'down'} {abs(change):.0f}% over period. Current={current}, avg={avg_val:.0f}",
-                                search_term=kw,
-                                trend_direction="rising" if change > 10 else "declining" if change < -10 else "stable",
-                                geo=geo,
-                                value=float(current),
-                                change_pct=change,
-                                volume=avg_val,
-                                confidence=0.7,
-                                direction=direction,
-                                tags=["interest", "google_trends", kw.lower().replace(" ", "_")],
-                            ))
+                                result.append(TrendSignal(
+                                    source=SourceType.GOOGLE_TRENDS,
+                                    category="interest",
+                                    title=f"Google Trends: {kw}",
+                                    content=f"{kw} interest {'up' if change > 0 else 'down'} {abs(change):.0f}% over period. Current={current}, avg={avg_val:.0f}",
+                                    search_term=kw,
+                                    trend_direction="rising" if change > 10 else "declining" if change < -10 else "stable",
+                                    geo=geo,
+                                    value=float(current),
+                                    change_pct=change,
+                                    volume=avg_val,
+                                    confidence=0.7,
+                                    direction=direction,
+                                    tags=["interest", "google_trends", kw.lower().replace(" ", "_")],
+                                ))
+                return result
+
+            signals = await asyncio.to_thread(_fetch_pytrends)
         except ImportError:
             log.info("pytrends not installed — skipping interest_over_time (pip install pytrends)")
         except Exception as e:
@@ -352,7 +429,7 @@ class PolymarketCollector:
             timeout=30.0,
             headers={"User-Agent": "NCL-Intelligence/1.0"},
         )
-        self._limiter = _RateLimiter(calls_per_minute=15)
+        self._limiter = _RateLimiter(calls=15, window_seconds=60)
 
     async def collect_trending_markets(self, limit: int = 30) -> list[PredictionMarketSignal]:
         """Fetch highest-volume active markets as probability signals."""
@@ -405,8 +482,10 @@ class PolymarketCollector:
                     continue
 
                 question = best_mkt.get("question", title)
-                raw_prices = best_mkt.get("outcomePrices", "0.5,0.5")
+                raw_prices = best_mkt.get("outcomePrices")
                 yes_price = self._parse_yes_price(raw_prices)
+                if yes_price is None:
+                    continue  # Skip markets with missing price data
                 no_price = 1.0 - yes_price
 
                 # Price change from 24h ago (if available)
@@ -471,7 +550,9 @@ class PolymarketCollector:
                 if isinstance(data, list):
                     for mkt in data:
                         question = mkt.get("question", "")
-                        yes_price = self._parse_yes_price(mkt.get("outcomePrices", "0.5,0.5"))
+                        yes_price = self._parse_yes_price(mkt.get("outcomePrices"))
+                        if yes_price is None:
+                            continue  # Skip markets with missing price data
                         vol = float(mkt.get("volume", 0) or 0)
 
                         signals.append(PredictionMarketSignal(
@@ -493,13 +574,17 @@ class PolymarketCollector:
 
         return signals
 
-    def _parse_yes_price(self, raw: Any) -> float:
-        """Parse outcomePrices field (JSON array string, CSV, or list)."""
+    def _parse_yes_price(self, raw: Any) -> Optional[float]:
+        """Parse outcomePrices field (JSON array string, CSV, or list).
+
+        Returns None when price data is missing or unparseable, so callers
+        can handle missing data explicitly rather than assuming 50%.
+        """
         if isinstance(raw, list) and raw:
             try:
                 return float(raw[0])
             except (ValueError, TypeError):
-                return 0.5
+                return None
         if isinstance(raw, str):
             cleaned = raw.strip().strip("[]")
             parts = [p.strip().strip('"\'') for p in cleaned.split(",")]
@@ -508,7 +593,7 @@ class PolymarketCollector:
                     return float(parts[0])
                 except ValueError:
                     pass
-        return 0.5
+        return None
 
     def _categorize_event(self, title: str, tags: list[str]) -> str:
         """Categorize event by topic with comprehensive keyword matching."""
@@ -627,7 +712,7 @@ class NewsCollector:
         self._gnews_key = gnews_api_key
         self._newsapi_key = newsapi_key
         self._client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
-        self._limiter = _RateLimiter(calls_per_minute=10)
+        self._limiter = _RateLimiter(calls=10, window_seconds=60)
 
     async def collect_top_headlines(self, category: str = "general", lang: str = "en") -> list[NewsSignal]:
         """Fetch top headlines (GNews → NewsAPI → RSS fallback)."""
@@ -838,7 +923,7 @@ class CryptoMarketCollector:
 
     def __init__(self):
         self._client = httpx.AsyncClient(timeout=30.0)
-        self._limiter = _RateLimiter(calls_per_minute=10)  # CoinGecko free = ~10-30/min
+        self._limiter = _RateLimiter(calls=10, window_seconds=60)  # CoinGecko free = ~10-30/min
 
     async def collect_market_overview(self) -> list[MarketSignal]:
         """Fetch current prices and 24h changes for tracked coins."""
@@ -1011,15 +1096,24 @@ class CryptoMarketCollector:
 # ═══════════════════════════════════════════════════════════════════════════
 
 def compute_rsi(prices: list[float], period: int = 14) -> Optional[float]:
-    """Relative Strength Index. Returns 0-100 or None."""
+    """Relative Strength Index using Wilder's exponential smoothing. Returns 0-100 or None."""
     if len(prices) < period + 1:
         return None
     deltas = [prices[i] - prices[i - 1] for i in range(1, len(prices))]
-    recent = deltas[-period:]
-    gains = [d for d in recent if d > 0]
-    losses = [-d for d in recent if d < 0]
-    avg_gain = sum(gains) / period if gains else 0.0
-    avg_loss = sum(losses) / period if losses else 0.0
+
+    # Seed with SMA of first `period` deltas
+    first_gains = [max(d, 0.0) for d in deltas[:period]]
+    first_losses = [max(-d, 0.0) for d in deltas[:period]]
+    avg_gain = sum(first_gains) / period
+    avg_loss = sum(first_losses) / period
+
+    # Wilder's smoothing (EMA with alpha = 1/period) for remaining deltas
+    for d in deltas[period:]:
+        gain = max(d, 0.0)
+        loss = max(-d, 0.0)
+        avg_gain = (avg_gain * (period - 1) + gain) / period
+        avg_loss = (avg_loss * (period - 1) + loss) / period
+
     if avg_loss == 0:
         return 100.0
     rs = avg_gain / avg_loss
@@ -1038,24 +1132,52 @@ def compute_ema(prices: list[float], period: int) -> Optional[float]:
 
 
 def compute_macd(prices: list[float]) -> Optional[tuple[float, float, float]]:
-    """MACD line, signal line, histogram."""
+    """
+    MACD line, signal line, histogram.
+
+    Uses an incremental EMA pass (O(N)) instead of recalculating EMA from
+    scratch for every bar (O(N²)).  Each EMA is seeded with the SMA of its
+    first *period* bars and then updated as:
+        ema = price * k + ema_prev * (1 - k)   where k = 2 / (period + 1)
+
+    Both fast (12) and slow (26) EMAs are seeded at their respective SMA points,
+    then the fast EMA is updated from bar 12 to bar 25 (while slow is still in its
+    seed window).  MACD values are only produced from bar 26 onward once both EMAs
+    are running.
+    """
     if len(prices) < 35:
         return None
-    fast_ema = compute_ema(prices, 12)
-    slow_ema = compute_ema(prices, 26)
-    if fast_ema is None or slow_ema is None:
-        return None
-    macd_line = fast_ema - slow_ema
-    macd_vals = []
-    for i in range(26, len(prices)):
-        subset = prices[:i + 1]
-        f = compute_ema(subset, 12)
-        s = compute_ema(subset, 26)
-        if f is not None and s is not None:
-            macd_vals.append(f - s)
+
+    k_fast = 2.0 / (12 + 1)
+    k_slow = 2.0 / (26 + 1)
+
+    # Seed fast EMA with SMA of first 12 bars
+    fast_ema = sum(prices[:12]) / 12
+    # Seed slow EMA with SMA of first 26 bars
+    slow_ema = sum(prices[:26]) / 26
+
+    # Advance fast EMA through bars 12-25 (slow is still seeding during this window)
+    for price in prices[12:26]:
+        fast_ema = price * k_fast + fast_ema * (1 - k_fast)
+
+    # Walk from bar 26 onward, updating both EMAs incrementally
+    macd_vals: list[float] = []
+    for price in prices[26:]:
+        fast_ema = price * k_fast + fast_ema * (1 - k_fast)
+        slow_ema = price * k_slow + slow_ema * (1 - k_slow)
+        macd_vals.append(fast_ema - slow_ema)
+
     if len(macd_vals) < 9:
         return None
-    signal_line = sum(macd_vals[-9:]) / 9
+
+    macd_line = macd_vals[-1]
+
+    # Signal line: 9-period EMA of MACD values, seeded with SMA of first 9
+    k_sig = 2.0 / (9 + 1)
+    signal_line = sum(macd_vals[:9]) / 9
+    for mv in macd_vals[9:]:
+        signal_line = mv * k_sig + signal_line * (1 - k_sig)
+
     return macd_line, signal_line, macd_line - signal_line
 
 
@@ -1238,7 +1360,8 @@ class RedditCollector:
             headers={"User-Agent": self._user_agent},
             follow_redirects=True,
         )
-        self._limiter = _RateLimiter(calls_per_minute=25)
+        # Reddit OAuth: 60 requests/min (authenticated); be conservative
+        self._limiter = _RateLimiter(calls=60, window_seconds=60)
 
     async def _get_oauth_token(self) -> str | None:
         """Fetch (and cache) a Reddit OAuth bearer token via client_credentials."""
@@ -1273,8 +1396,15 @@ class RedditCollector:
             return {"Authorization": f"Bearer {token}", "User-Agent": self._user_agent}
         return {"User-Agent": self._user_agent}
 
-    def _build_scan_list(self) -> list[str]:
-        """Build subreddit list based on tier config."""
+    def _build_scan_list(self, advance_offset: bool = False) -> list[str]:
+        """Build subreddit list based on tier config.
+
+        Args:
+            advance_offset: If True, advance the Tier-3 rotation counter after
+                selecting this cycle's subreddits.  Should only be True when
+                called from collect_all() so that the offset advances exactly
+                once per real collection sweep (not at __init__ time).
+        """
         if self._tier == "t1":
             return list(self.TIER1_SUBS)
         elif self._tier == "t2":
@@ -1293,7 +1423,8 @@ class RedditCollector:
                 for i in range(5):
                     rotating.append(self.TIER3_SUBS[(start + i) % t3_len])
                 subs.extend(rotating)
-                RedditCollector._tier3_offset += 5
+                if advance_offset:
+                    RedditCollector._tier3_offset += 5
             return subs
 
     async def collect_all(self) -> list[SocialSignal]:
@@ -1305,7 +1436,7 @@ class RedditCollector:
         Tier 3 (29 subs): 5 per cycle, rotating — broad context
         """
         all_signals: list[SocialSignal] = []
-        scan_list = self.subreddits if not self._use_tiers else self._build_scan_list()
+        scan_list = self.subreddits if not self._use_tiers else self._build_scan_list(advance_offset=True)
 
         # Batch subs into concurrent groups of 5 to manage rate limits
         batch_size = 5
@@ -1496,6 +1627,9 @@ class RedditCollector:
             # Include first 200 chars of body for DD posts
             content_parts.append(f"Body: {selftext[:200].strip()}...")
 
+        # Log author handle only at DEBUG to avoid PII in INFO-level logs / persisted data
+        log.debug("Reddit signal: post_id=%s author=%s subreddit=%s", post_id, author, subreddit)
+
         return SocialSignal(
             source=SourceType.REDDIT,
             category=self._categorize_post(subreddit, flair, title, tickers),
@@ -1515,7 +1649,7 @@ class RedditCollector:
             metadata={
                 "post_id": post_id,
                 "subreddit": subreddit,
-                "author": author,
+                # author handle omitted from persisted metadata to avoid PII at rest
                 "score": score,
                 "num_comments": num_comments,
                 "upvote_ratio": upvote_ratio,
@@ -1624,11 +1758,15 @@ class RedditCollector:
         import re
         ticker_counts: dict[str, int] = {}
 
-        url = f"{self.BASE_URL}/r/{subreddit}/hot.json"
+        if self._authed:
+            url = f"{self.OAUTH_URL}/r/{subreddit}/hot"
+        else:
+            url = f"{self.BASE_URL}/r/{subreddit}/hot.json"
+        headers = await self._auth_headers()
         try:
             data = await _fetch_json(
                 self._client, url, params={"limit": limit, "raw_json": 1},
-                limiter=self._limiter,
+                headers=headers, limiter=self._limiter,
             )
         except Exception as e:
             log.warning(f"Reddit ticker scan failed: {e}")

@@ -11,6 +11,7 @@ real-time context, Ollama for fast local processing.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -164,35 +165,54 @@ async def _call_model(user_prompt: str) -> str:
     return await _call_ollama(user_prompt)
 
 
+# Shared HTTP client for YouTube analyzer — avoids connection pool exhaustion
+_yt_client: Optional["httpx.AsyncClient"] = None
+_yt_client_lock: Optional["asyncio.Lock"] = None
+
+
+def _get_yt_lock():
+    global _yt_client_lock
+    if _yt_client_lock is None:
+        import asyncio
+        _yt_client_lock = asyncio.Lock()
+    return _yt_client_lock
+
+
+async def _get_yt_client():
+    global _yt_client
+    import httpx
+    import asyncio
+    if _yt_client is None or _yt_client.is_closed:
+        async with _get_yt_lock():
+            if _yt_client is None or _yt_client.is_closed:
+                _yt_client = httpx.AsyncClient(timeout=300.0)
+    return _yt_client
+
+
 async def _call_anthropic(prompt: str) -> str:
     """Call Anthropic Claude API."""
     try:
-        import httpx
-    except ImportError:
-        log.error("httpx not installed")
-        return ""
-
-    try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": ANTHROPIC_API_KEY,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": ANALYSIS_MODEL,
-                    "max_tokens": 4096,
-                    "system": ANALYSIS_SYSTEM_PROMPT,
-                    "messages": [{"role": "user", "content": prompt}],
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
-            text = data["content"][0]["text"]
-            log.info(f"Anthropic response: {len(text)} chars")
-            return text
+        client = await _get_yt_client()
+        response = await client.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": ANALYSIS_MODEL,
+                "max_tokens": 4096,
+                "system": ANALYSIS_SYSTEM_PROMPT,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+            timeout=120.0,
+        )
+        response.raise_for_status()
+        data = response.json()
+        text = data["content"][0]["text"]
+        log.info(f"Anthropic response: {len(text)} chars")
+        return text
     except Exception as e:
         log.error(f"Anthropic API failed: {e}")
         return ""
@@ -201,32 +221,28 @@ async def _call_anthropic(prompt: str) -> str:
 async def _call_xai(prompt: str) -> str:
     """Call xAI Grok API (OpenAI-compatible)."""
     try:
-        import httpx
-    except ImportError:
-        return ""
-
-    try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
-                "https://api.x.ai/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {XAI_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": ANALYSIS_MODEL,
-                    "messages": [
-                        {"role": "system", "content": ANALYSIS_SYSTEM_PROMPT},
-                        {"role": "user", "content": prompt},
-                    ],
-                    "max_tokens": 4096,
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
-            text = data["choices"][0]["message"]["content"]
-            log.info(f"xAI response: {len(text)} chars")
-            return text
+        client = await _get_yt_client()
+        response = await client.post(
+            "https://api.x.ai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {XAI_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": ANALYSIS_MODEL,
+                "messages": [
+                    {"role": "system", "content": ANALYSIS_SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                "max_tokens": 4096,
+            },
+            timeout=120.0,
+        )
+        response.raise_for_status()
+        data = response.json()
+        text = data["choices"][0]["message"]["content"]
+        log.info(f"xAI response: {len(text)} chars")
+        return text
     except Exception as e:
         log.error(f"xAI API failed: {e}")
         return ""
@@ -234,30 +250,25 @@ async def _call_xai(prompt: str) -> str:
 
 async def _call_ollama(prompt: str) -> str:
     """Call Ollama local model."""
-    try:
-        import httpx
-    except ImportError:
-        return ""
-
     model = os.getenv("OLLAMA_COUNCIL_MODEL", "qwen3:32b")
     try:
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            response = await client.post(
-                f"{OLLAMA_HOST}/api/chat",
-                json={
-                    "model": model,
-                    "messages": [
-                        {"role": "system", "content": ANALYSIS_SYSTEM_PROMPT},
-                        {"role": "user", "content": prompt},
-                    ],
-                    "stream": False,
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
-            text = data.get("message", {}).get("content", "")
-            log.info(f"Ollama ({model}) response: {len(text)} chars")
-            return text
+        client = await _get_yt_client()
+        response = await client.post(
+            f"{OLLAMA_HOST}/api/chat",
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": ANALYSIS_SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                "stream": False,
+            },
+        )
+        response.raise_for_status()
+        data = response.json()
+        text = data.get("message", {}).get("content", "")
+        log.info(f"Ollama ({model}) response: {len(text)} chars")
+        return text
     except Exception as e:
         log.error(f"Ollama failed: {e}")
         return ""

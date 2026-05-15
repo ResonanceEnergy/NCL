@@ -9,7 +9,7 @@ from enum import Enum
 from typing import Any, Optional
 import uuid as _uuid
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class ActionTier(str, Enum):
@@ -64,19 +64,70 @@ class Action(BaseModel):
     mandate_id: Optional[str] = Field(default=None)
     correlation_id: Optional[str] = Field(default=None)
 
+    @field_validator("name")
+    @classmethod
+    def name_must_not_be_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Action name must not be empty")
+        return v.strip()
+
+    @field_validator("source_agent")
+    @classmethod
+    def source_agent_must_not_be_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("source_agent must not be empty")
+        return v.strip()
+
+    @model_validator(mode="after")
+    def execute_tier_consent_defaults(self) -> "Action":
+        """Execute-tier actions default to NOT_REQUIRED only if consent not otherwise set."""
+        # Suggest/Draft should always be NOT_REQUIRED
+        if self.tier in (ActionTier.SUGGEST, ActionTier.DRAFT):
+            self.consent_status = ConsentStatus.NOT_REQUIRED
+        return self
+
+    def __repr__(self) -> str:
+        return (
+            f"Action(action_id={self.action_id!r}, name={self.name!r}, "
+            f"tier={self.tier.value!r}, source_agent={self.source_agent!r}, "
+            f"consent_status={self.consent_status.value!r})"
+        )
+
 
 class PolicyRule(BaseModel):
     """A rule in the PolicyKernel rule set."""
 
     rule_id: str = Field(default_factory=lambda: str(_uuid.uuid4()))
-    name: str
-    description: str
+    name: str = Field(..., description="Unique human-readable name for this rule")
+    description: str = Field(..., description="What this rule enforces")
     tier: ActionTier = Field(..., description="Which tier this rule governs")
     condition: str = Field(..., description="Condition expression (action name pattern or *)")
-    verdict: PolicyVerdict
+    verdict: PolicyVerdict = Field(..., description="Verdict to return when rule matches")
     priority: int = Field(default=50, ge=0, le=100, description="Higher = evaluated first")
     enabled: bool = True
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+    @field_validator("name")
+    @classmethod
+    def name_must_not_be_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Rule name must not be empty")
+        return v.strip()
+
+    @field_validator("condition")
+    @classmethod
+    def condition_must_not_be_empty(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("Rule condition must not be empty")
+        return v.strip()
+
+    def __repr__(self) -> str:
+        return (
+            f"PolicyRule(rule_id={self.rule_id!r}, name={self.name!r}, "
+            f"tier={self.tier.value!r}, condition={self.condition!r}, "
+            f"verdict={self.verdict.value!r}, priority={self.priority}, "
+            f"enabled={self.enabled})"
+        )
 
 
 class AuditEntry(BaseModel):
@@ -92,3 +143,10 @@ class AuditEntry(BaseModel):
     source_agent: str
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    def __repr__(self) -> str:
+        return (
+            f"AuditEntry(entry_id={self.entry_id!r}, action_name={self.action_name!r}, "
+            f"tier={self.tier.value!r}, verdict={self.verdict.value!r}, "
+            f"timestamp={self.timestamp.isoformat()!r})"
+        )

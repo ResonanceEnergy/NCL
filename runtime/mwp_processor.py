@@ -70,7 +70,23 @@ class WorkspaceProcessor:
         Args:
             workspace_name: Name of workspace (execution-pipeline, etc.)
             ncl_base: Base path to NCL directory
+
+        Raises:
+            ValueError: If workspace_name is not in the known WORKSPACES dict
+                        or contains path-traversal characters.
         """
+        # Input validation: reject unknown workspace names and path-traversal attempts
+        if workspace_name not in WORKSPACES:
+            raise ValueError(
+                f"Unknown workspace '{workspace_name}'. "
+                f"Valid workspaces: {', '.join(sorted(WORKSPACES))}"
+            )
+        if ".." in workspace_name or "/" in workspace_name or "\\" in workspace_name:
+            raise ValueError(f"Invalid workspace name '{workspace_name}': path traversal detected")
+
+        # Validate ncl_base is a Path (not a bare string that could carry a traversal)
+        ncl_base = Path(ncl_base).expanduser().resolve()
+
         self.name = workspace_name
         self.ncl_base = ncl_base
         self.workspace_dir = ncl_base / "workspaces" / workspace_name

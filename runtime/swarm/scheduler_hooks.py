@@ -128,23 +128,61 @@ class SwarmSchedulerHooks:
         Periodic maintenance for the swarm: detect stalled tasks,
         reap completed workers, and log stats.
 
-        Runs every 60 seconds while attached.
+        Runs every 60 seconds while attached. Every individual hook is
+        wrapped so a failure in one step does not crash the whole loop.
         """
         while self._running:
-            try:
-                stats = self.swarm.get_stats()
-                active = stats.get("active_tasks", 0)
-                if active > 0:
-                    log.debug(
-                        "[swarm-maintenance] active_tasks=%d completed=%d cost=%.2f cents",
-                        active,
-                        stats.get("completed_tasks", 0),
-                        stats.get("total_cost_cents", 0),
-                    )
-            except Exception as e:
-                log.warning(f"[swarm-maintenance] Error during check: {e}")
-
             await asyncio.sleep(60)
+
+            await self._run_hook("get_stats", self._hook_log_stats)
+            await self._run_hook("cleanup_completed_tasks", self._hook_cleanup_tasks)
+
+    async def _run_hook(self, hook_name: str, coro_fn) -> None:
+        """
+        Execute a maintenance hook, catching and logging any exception so
+        the scheduler loop cannot be brought down by a single failing hook.
+
+        Args:
+            hook_name: Short name used in log messages.
+            coro_fn: Zero-argument async callable to invoke.
+        """
+        log.debug("[swarm-hook] Running hook: %s", hook_name)
+        try:
+            await coro_fn()
+            log.debug("[swarm-hook] Hook completed: %s", hook_name)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.error(
+                "[swarm-hook] Hook '%s' raised an unhandled exception: %s",
+                hook_name,
+                exc,
+                exc_info=True,
+            )
+
+    async def _hook_log_stats(self) -> None:
+        """Log current swarm statistics."""
+        stats = self.swarm.get_stats()
+        active = stats.get("active_tasks", 0)
+        log.debug(
+            "[swarm-maintenance] active_tasks=%d completed=%d failed=%d "
+            "cost=%.2f¢ agents=%d",
+            active,
+            stats.get("completed_tasks", 0),
+            stats.get("failed_tasks", 0),
+            stats.get("total_cost_cents", 0.0),
+            stats.get("active_agents", 0),
+        )
+
+    async def _hook_cleanup_tasks(self) -> None:
+        """Evict completed tasks older than 24 h from the orchestrator dict."""
+        if hasattr(self.swarm, "cleanup_completed_tasks"):
+            removed = self.swarm.cleanup_completed_tasks()
+            if removed:
+                log.info(
+                    "[swarm-maintenance] cleanup_completed_tasks evicted %d task(s)",
+                    removed,
+                )
 
     # ------------------------------------------------------------------
     # Recurring Task Scheduling

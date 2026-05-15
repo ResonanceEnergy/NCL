@@ -16,14 +16,19 @@ All intervals are configurable via ncl.yaml or environment variables.
 """
 
 import asyncio
+import fcntl
 import json
 import logging
 import urllib.request
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+import aiofiles
+
 from ..ncl_brain.models import InsightSignal
+from ..governance.emergency_stop import EMERGENCY_STOP_EVENT
 
 log = logging.getLogger("ncl.autonomous")
 
@@ -64,11 +69,13 @@ class AutonomousScheduler:
         config,  # Settings instance
         councils_runner=None,  # councils.runner module (optional)
         intelligence_engine=None,  # IntelligenceEngine instance (optional)
+        emergency_stop=None,  # EmergencyStop instance (optional)
     ):
         self.brain = brain
         self.config = config
         self.councils_runner = councils_runner
         self.intelligence_engine = intelligence_engine
+        self.emergency_stop = emergency_stop  # EmergencyStop instance
 
         self.data_dir = Path(config.data_dir).expanduser()
         self.signals_dir = self.data_dir / "autonomous_signals"
@@ -76,7 +83,10 @@ class AutonomousScheduler:
 
         # State tracking
         self._tasks: list[asyncio.Task] = []
-        self._running = False
+        # _stop_event must be created before the _running property is accessed.
+        # Starts as "set" (stopped state); start() clears it.
+        self._stop_event: asyncio.Event = asyncio.Event()
+        self._stop_event.set()  # initially stopped
         self._stats = {
             "scans_completed": 0,
             "predictions_run": 0,
@@ -97,8 +107,9 @@ class AutonomousScheduler:
             "last_intel_collection": None,
         }
 
-        # Signal buffer — accumulates between prediction cycles
-        self._signal_buffer: list[dict] = []
+        # Signal buffer — bounded deque to prevent unbounded accumulation
+        # Capped at 1000 entries; oldest signals are dropped automatically
+        self._signal_buffer: deque[dict] = deque(maxlen=1000)
         self._signal_lock = asyncio.Lock()
 
         # Council trigger threshold (importance score 0-100)
@@ -106,13 +117,18 @@ class AutonomousScheduler:
         # Minimum signals needed before auto-spawning a council
         self.council_min_signals = 3
 
+    @property
+    def _running(self) -> bool:
+        """Derived from _stop_event for backward compat — True when NOT stopped."""
+        return not self._stop_event.is_set()
+
     async def start(self) -> None:
         """Start all autonomous background loops."""
-        if self._running:
+        if not self._stop_event.is_set() and self._tasks:
             log.warning("Autonomous scheduler already running")
             return
 
-        self._running = True
+        self._stop_event.clear()
         self._stats["started_at"] = datetime.now(timezone.utc).isoformat()
 
         log.info("=" * 60)
@@ -139,6 +155,7 @@ class AutonomousScheduler:
             asyncio.create_task(self._workspace_health_loop(), name="ncl-workspace"),
             asyncio.create_task(self._mandate_purge_loop(), name="ncl-mandate-purge"),
             asyncio.create_task(self._feedback_synthesis_loop(), name="ncl-feedback-synth"),
+            asyncio.create_task(self._heartbeat_loop(), name="ncl-heartbeat"),
         ]
 
         # Intelligence Engine loops (only if engine is provided)
@@ -177,15 +194,30 @@ class AutonomousScheduler:
         })
 
     async def stop(self) -> None:
-        """Gracefully stop all background loops."""
-        self._running = False
+        """Gracefully stop all background loops.
+
+        Sets _stop_event so loops break cleanly (the _running property
+        derives from _stop_event — no separate flag to desync).
+        Cancels all asyncio tasks and waits for them to finish.
+        """
+        log.warning("[SCHEDULER] stop() called — cancelling %d tasks", len(self._tasks))
+        self._stop_event.set()
         for task in self._tasks:
             task.cancel()
         if self._tasks:
             await asyncio.gather(*self._tasks, return_exceptions=True)
         self._tasks = []
-        log.info("NCL Autonomous Scheduler stopped")
+        log.info("[SCHEDULER] All tasks stopped")
         await self._log_autonomous_event("scheduler_stopped", self._stats)
+
+    def _emergency_stop_active(self) -> bool:
+        """Return True if the emergency stop kill switch is engaged.
+
+        Delegates solely to EMERGENCY_STOP_EVENT (the single source of truth)
+        so all loops—regardless of which check style they use—see the same state.
+        The EmergencyStop instance is kept for activation/deactivation calls only.
+        """
+        return EMERGENCY_STOP_EVENT.is_set()
 
     def get_stats(self) -> dict:
         """Return scheduler statistics."""
@@ -210,7 +242,16 @@ class AutonomousScheduler:
         # Stagger startup so all loops don't fire simultaneously
         await asyncio.sleep(5)
 
-        while self._running:
+        while not self._stop_event.is_set():
+            # Break immediately on stop signal
+            if self._stop_event.is_set():
+                break
+            # Respect emergency stop — suspend action-taking loops
+            if EMERGENCY_STOP_EVENT.is_set():
+                log.warning("[SCANNER] Emergency stop active — scanner suspended")
+                await asyncio.sleep(30)
+                continue
+
             try:
                 log.info("[SCANNER] Starting intelligence sweep...")
 
@@ -261,7 +302,7 @@ class AutonomousScheduler:
                     high_signals = [s for s in all_signals if s.importance_score >= 50.0]
                     critical_signals = [s for s in all_signals if s.importance_score >= self.council_trigger_threshold]
 
-                    # Add to signal buffer for prediction
+                    # Add to signal buffer for prediction (bounded to prevent leaks)
                     async with self._signal_lock:
                         for sig in all_signals:
                             self._signal_buffer.append({
@@ -271,6 +312,8 @@ class AutonomousScheduler:
                                 "tags": sig.tags,
                                 "timestamp": datetime.now(timezone.utc).isoformat(),
                             })
+                        # Deque is bounded by maxlen=5000 — oldest entries are
+                        # dropped automatically on append; no manual trim needed.
 
                     # Store high-importance signals in memory
                     for sig in high_signals:
@@ -309,8 +352,14 @@ class AutonomousScheduler:
             except Exception as e:
                 log.error(f"[SCANNER] Loop error: {e}", exc_info=True)
 
-            # Sleep for shortest scan interval (X is fastest at 5 min)
-            await asyncio.sleep(self.config.x_scan_interval)
+            # Sleep for shortest scan interval; break immediately if stop is signaled
+            try:
+                await asyncio.wait_for(
+                    self._stop_event.wait(), timeout=self.config.x_scan_interval
+                )
+                break  # stop_event was set
+            except asyncio.TimeoutError:
+                pass  # normal wakeup — continue loop
 
     # ─── LOOP 2: Future Prediction ─────────────────────────────
 
@@ -326,6 +375,9 @@ class AutonomousScheduler:
         await asyncio.sleep(self.config.x_scan_interval + 30)
 
         while self._running:
+            if EMERGENCY_STOP_EVENT.is_set():
+                log.critical("[PREDICTOR] Emergency stop active — halting loop")
+                break
             try:
                 # Drain signal buffer
                 async with self._signal_lock:
@@ -439,6 +491,12 @@ class AutonomousScheduler:
         await asyncio.sleep(self.config.prediction_interval + 60)
 
         while self._running:
+            # Suspend council spawning while emergency stop is active
+            if EMERGENCY_STOP_EVENT.is_set():
+                log.warning("[COUNCIL-AUTO] Emergency stop active — council spawning suspended")
+                await asyncio.sleep(30)
+                continue
+
             try:
                 now = datetime.now(timezone.utc)
                 council_needed = False
@@ -490,15 +548,15 @@ class AutonomousScheduler:
 
                         if session:
                             # Store council output in memory
-                            await self.brain.memory_store.store({
-                                "type": "autonomous_council",
-                                "trigger": council_trigger,
-                                "consensus": session.get("consensus", ""),
-                                "consensus_score": session.get("consensus_score", 0),
-                                "mandates_proposed": session.get("mandates", []),
-                                "importance": 90,
-                                "tags": ["council", "autonomous", council_trigger],
-                            })
+                            await self.brain.memory_store.create_unit(
+                                content=(
+                                    f"Autonomous council ({council_trigger}): "
+                                    f"{session.get('consensus', '')[:500]}"
+                                ),
+                                source=f"autonomous:council:{council_trigger}",
+                                importance=90.0,
+                                tags=["council", "autonomous", council_trigger],
+                            )
 
                             # Clear processed flags
                             await self._clear_council_flags()
@@ -540,6 +598,9 @@ class AutonomousScheduler:
         await asyncio.sleep(60)  # Brief startup delay
 
         while self._running:
+            if EMERGENCY_STOP_EVENT.is_set():
+                log.critical("[MEMORY] Emergency stop active — halting loop")
+                break
             try:
                 log.info("[MEMORY] Starting consolidation cycle...")
 
@@ -602,10 +663,18 @@ class AutonomousScheduler:
         await asyncio.sleep(120)  # Wait for services to stabilize
 
         while self._running:
+            if EMERGENCY_STOP_EVENT.is_set():
+                log.critical("[AAC-SYNC] Emergency stop active — halting loop")
+                break
             try:
                 aac_data = {}
 
-                # Try AAC health endpoint
+                # Try AAC health endpoint.
+                # json.loads() is called on the event loop after each to_thread()
+                # HTTP call completes. These are small health/status responses
+                # (typically <10 KB) so parsing on the event loop is acceptable;
+                # wrapping in a second to_thread() would add overhead without
+                # meaningful benefit.
                 try:
                     aac_health = await asyncio.to_thread(
                         self._http_get, "http://localhost:8080/health"
@@ -658,14 +727,15 @@ class AutonomousScheduler:
 
                 if aac_data:
                     # Store pillar sync data in memory
-                    await self.brain.memory_store.store({
-                        "type": "pillar_sync",
-                        "pillars_reached": list(aac_data.keys()),
-                        "data": aac_data,
-                        "importance": 40,
-                        "tags": ["aac", "sync", "pillar_status", "autonomous"],
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
-                    })
+                    await self.brain.memory_store.create_unit(
+                        content=(
+                            f"Pillar sync: reached {list(aac_data.keys())} at "
+                            f"{datetime.now(timezone.utc).isoformat()}"
+                        ),
+                        source="autonomous:aac_sync",
+                        importance=40.0,
+                        tags=["aac", "sync", "pillar_status", "autonomous"],
+                    )
 
                     self._stats["aac_syncs"] += 1
                     self._stats["last_aac_sync"] = datetime.now(timezone.utc).isoformat()
@@ -757,6 +827,9 @@ class AutonomousScheduler:
         ]
 
         while self._running:
+            if EMERGENCY_STOP_EVENT.is_set():
+                log.critical("[PURGE] Emergency stop active — halting loop")
+                break
             try:
                 purged_total = 0
                 async with self.brain._mandates_lock:
@@ -980,6 +1053,9 @@ class AutonomousScheduler:
         await asyncio.sleep(60)
 
         while self._running:
+            if EMERGENCY_STOP_EVENT.is_set():
+                log.critical("[INTEL-COLLECT] Emergency stop active — halting loop")
+                break
             try:
                 log.info("[INTEL-COLLECT] Starting signal collection sweep...")
                 signals = await self.intelligence_engine.collect_all_signals()
@@ -1029,6 +1105,9 @@ class AutonomousScheduler:
         await asyncio.sleep(self.config.intelligence_collection_interval + 30)
 
         while self._running:
+            if EMERGENCY_STOP_EVENT.is_set():
+                log.critical("[INTEL-BRIEF] Emergency stop active — halting loop")
+                break
             try:
                 log.info("[INTEL-BRIEF] Generating scheduled intelligence brief...")
 
@@ -1080,6 +1159,36 @@ class AutonomousScheduler:
 
     # ─── Helpers ───────────────────────────────────────────────
 
+    # ─── LOOP 9: Heartbeat ──────────────────────────────────────────
+
+    async def _heartbeat_loop(self) -> None:
+        """Log a heartbeat every 60 seconds so operators can verify the scheduler
+        is alive without checking individual loop stats."""
+        while self._running:
+            if EMERGENCY_STOP_EVENT.is_set():
+                log.critical("[HEARTBEAT] Emergency stop active — halting loop")
+                break
+            try:
+                active = [t.get_name() for t in self._tasks if not t.done()]
+                log.info(
+                    "[SCHEDULER][HEARTBEAT] alive — active_tasks=%d signal_buffer=%d "
+                    "scans=%d predictions=%d councils=%d",
+                    len(active),
+                    len(self._signal_buffer),
+                    self._stats["scans_completed"],
+                    self._stats["predictions_run"],
+                    self._stats["councils_auto_spawned"],
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.error("[HEARTBEAT] error: %s", e, exc_info=True)
+
+            try:
+                await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                raise
+
     def _get_watch_queries(self, platform: str) -> list[str]:
         """
         Get intelligence watch queries for a platform.
@@ -1121,7 +1230,10 @@ class AutonomousScheduler:
         return defaults.get(platform, [])
 
     async def _flag_for_council(self, trigger: str, data: dict, importance: float) -> None:
-        """Flag a signal/prediction for council consideration."""
+        """Flag a signal/prediction for council consideration.
+
+        Uses file locking to prevent TOCTOU races with concurrent readers.
+        """
         flag = {
             "trigger": trigger,
             "data": data,
@@ -1130,33 +1242,61 @@ class AutonomousScheduler:
         }
         flags_file = self.signals_dir / "council_flags.jsonl"
         try:
-            import aiofiles
-            async with aiofiles.open(flags_file, "a") as f:
-                await f.write(json.dumps(flag, default=_json_safe) + "\n")
+            line = json.dumps(flag, default=_json_safe) + "\n"
+
+            def _locked_append() -> None:
+                with open(flags_file, "a") as f:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+                    try:
+                        f.write(line)
+                    finally:
+                        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+            await asyncio.to_thread(_locked_append)
         except Exception as e:
             log.warning(f"Failed to write council flag: {e}")
 
     async def _get_council_flags(self) -> list[dict]:
-        """Read pending council flags."""
+        """Read pending council flags with file locking to avoid TOCTOU races."""
         flags_file = self.signals_dir / "council_flags.jsonl"
         flags = []
-        if flags_file.exists():
+        try:
+            fd = await asyncio.to_thread(
+                lambda: open(flags_file, "r")
+            )
             try:
-                import aiofiles
-                async with aiofiles.open(flags_file, "r") as f:
-                    content = await f.read()
-                    for line in content.strip().split("\n"):
-                        if line.strip():
-                            flags.append(json.loads(line))
-            except Exception:
-                pass
+                fcntl.flock(fd.fileno(), fcntl.LOCK_SH | fcntl.LOCK_NB)
+                content = fd.read()
+                fcntl.flock(fd.fileno(), fcntl.LOCK_UN)
+                for line in content.strip().split("\n"):
+                    if line.strip():
+                        flags.append(json.loads(line))
+            finally:
+                fd.close()
+        except (FileNotFoundError, OSError):
+            pass
         return flags
 
     async def _clear_council_flags(self) -> None:
-        """Clear processed council flags."""
+        """Clear processed council flags atomically.
+
+        Renames the file to a .processing sentinel before unlinking so that
+        a concurrent writer appending to council_flags.jsonl at the same moment
+        will not see a partially-deleted file. The rename is atomic on POSIX
+        filesystems; the subsequent unlink is then safe to fail silently.
+        """
         flags_file = self.signals_dir / "council_flags.jsonl"
         if flags_file.exists():
-            flags_file.unlink()
+            processing = self.signals_dir / "council_flags.jsonl.processing"
+            try:
+                flags_file.rename(processing)
+            except OSError as e:
+                log.warning(f"[COUNCIL-AUTO] Failed to rename flags file for atomic clear: {e}")
+                return
+            try:
+                processing.unlink()
+            except OSError as e:
+                log.warning(f"[COUNCIL-AUTO] Failed to unlink processing flags file: {e}")
 
     async def _log_autonomous_event(self, event_type: str, data: dict) -> None:
         """Log an autonomous event to the autonomous events file."""
@@ -1167,7 +1307,6 @@ class AutonomousScheduler:
         }
         events_file = self.signals_dir / "events.ndjson"
         try:
-            import aiofiles
             async with aiofiles.open(events_file, "a") as f:
                 await f.write(json.dumps(event, default=_json_safe) + "\n")
         except Exception as e:

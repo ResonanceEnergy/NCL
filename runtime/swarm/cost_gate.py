@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -26,6 +27,9 @@ class _SpendRecord:
     timestamp: float = field(default_factory=time.time)
 
 
+_MAX_SPEND_RECORDS = 500  # Per-task spend record cap
+
+
 @dataclass
 class _TaskBudget:
     """In-memory budget ledger for a single task."""
@@ -33,7 +37,8 @@ class _TaskBudget:
     task_id: str
     budget_cents: int
     spent_cents: float = 0.0
-    records: list[_SpendRecord] = field(default_factory=list)
+    # Bounded deque — oldest spend records dropped automatically when full
+    records: deque = field(default_factory=lambda: deque(maxlen=_MAX_SPEND_RECORDS))
     created_at: float = field(default_factory=time.time)
 
 
@@ -123,6 +128,14 @@ class CostGate:
             budget.spent_cents += amount_cents
             budget.records.append(record)
 
+        # Snapshot values for logging while still under lock (Gap 15)
+        # (The lock was just released above; re-read is fine for spend()
+        # because the values were captured inside the lock block.)
+        async with self._lock:
+            budget = self._get_budget(task_id)
+            spent_snap = budget.spent_cents
+            budget_snap = budget.budget_cents
+
         # Best-effort sync with Paperclip
         await self._paperclip_record(task_id, amount_cents, description)
 
@@ -130,7 +143,7 @@ class CostGate:
             "CostGate spend: task=%s amount=%.2f¢ remaining=%.2f¢ desc=%s",
             task_id,
             amount_cents,
-            budget.budget_cents - budget.spent_cents,
+            budget_snap - spent_snap,
             description,
         )
 
@@ -167,6 +180,57 @@ class CostGate:
         """
         rem = await self.remaining(task_id)
         return rem >= estimated_cost
+
+    async def check_and_spend(
+        self,
+        task_id: str,
+        estimated_cost: float,
+        description: str,
+    ) -> bool:
+        """
+        Atomically check affordability and record the spend (Gap 14).
+
+        Merges can_afford + spend into a single lock acquisition so that
+        two concurrent callers cannot both pass the affordability check
+        and overshoot the budget (TOCTOU race).
+
+        Args:
+            task_id: Task to charge against.
+            estimated_cost: Amount in cents.
+            description: Human-readable spend description.
+
+        Returns:
+            True if the spend was recorded; False if budget would be exceeded.
+
+        Raises:
+            KeyError: If no budget has been allocated for the task.
+        """
+        async with self._lock:
+            budget = self._get_budget(task_id)
+            remaining = budget.budget_cents - budget.spent_cents
+            if remaining < estimated_cost:
+                return False
+            record = _SpendRecord(
+                amount_cents=estimated_cost,
+                description=description,
+            )
+            budget.spent_cents += estimated_cost
+            budget.records.append(record)
+            # Snapshot values for logging while still under lock (Gap 15)
+            spent_snap = budget.spent_cents
+            budget_snap = budget.budget_cents
+
+        # Best-effort sync with Paperclip (outside lock)
+        await self._paperclip_record(task_id, estimated_cost, description)
+
+        logger.debug(
+            "CostGate check_and_spend: task=%s amount=%.2f¢ remaining=%.2f¢ desc=%s",
+            task_id,
+            estimated_cost,
+            budget_snap - spent_snap,
+            description,
+        )
+        return True
 
     async def exceeded(self, task_id: str) -> bool:
         """
@@ -225,6 +289,34 @@ class CostGate:
                 removed.spent_cents,
                 removed.budget_cents,
             )
+
+    async def cleanup_stale_budgets(self, max_age_seconds: float = 86400.0) -> int:
+        """
+        Remove budget entries for tasks that are older than max_age_seconds
+        and have not been explicitly deallocated (e.g. process crashed mid-task).
+
+        Args:
+            max_age_seconds: Age threshold in seconds (default: 24 hours).
+
+        Returns:
+            Number of stale budget entries removed.
+        """
+        cutoff = time.time() - max_age_seconds
+        async with self._lock:
+            stale = [
+                task_id
+                for task_id, budget in self._budgets.items()
+                if budget.created_at < cutoff
+            ]
+            for task_id in stale:
+                removed = self._budgets.pop(task_id)
+                logger.info(
+                    "CostGate evicted stale budget: task=%s age=%.0fs spent=%.2f¢",
+                    task_id,
+                    time.time() - removed.created_at,
+                    removed.spent_cents,
+                )
+        return len(stale)
 
     async def get_summary(self) -> dict[str, Any]:
         """

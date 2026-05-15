@@ -52,8 +52,14 @@ wait_for_port() {
         sleep 1
     done
     echo -e "  ${RED}✗ $name failed to start on :$port${NC}"
-    return 0
+    return 1
 }
+
+# Only use --reload in development mode
+RELOAD_FLAG=""
+if [ "$NCL_ENV" = "development" ]; then
+    RELOAD_FLAG="--reload"
+fi
 
 # ─── 1. NCL Brain (:8800) ───────────────────────────────────
 echo -e "${YELLOW}[1/8] NCL Brain (:8800)${NC}"
@@ -64,7 +70,7 @@ else
     sleep 1
     cd "$NCL_DIR"
     PYTHONPATH="$NCL_DIR" nohup $PYTHON -m uvicorn runtime.api.routes:app \
-        --host 0.0.0.0 --port 8800 --reload \
+        --host 0.0.0.0 --port 8800 $RELOAD_FLAG \
         > "$LOGS/brain-stdout.log" 2> "$LOGS/brain-stderr.log" &
     wait_for_port 8800 "NCL Brain"
 fi

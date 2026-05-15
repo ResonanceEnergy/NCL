@@ -32,7 +32,9 @@ import json
 import logging
 import os
 import re
+import time
 import uuid
+from collections import deque
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -49,6 +51,35 @@ from .models import (
 )
 
 log = logging.getLogger("ncl.council")
+
+# ---------------------------------------------------------------------------
+# Cost configuration — overrideable via environment variables (cents per call)
+# ---------------------------------------------------------------------------
+
+def _cost_cfg() -> dict[str, int]:
+    """
+    Build cost-per-call config from environment variables.
+
+    Each key can be overridden by NCL_COST_<MEMBER> (e.g. NCL_COST_CLAUDE=7).
+    Values are in cents. Defaults match the original hardcoded estimates.
+    """
+    defaults = {
+        "claude": 5,
+        "grok": 4,
+        "gemini": 1,
+        "perplexity": 3,
+        "gpt": 5,
+        "copilot": 5,
+        "ollama": 0,
+    }
+    return {
+        member: int(os.environ.get(f"NCL_COST_{member.upper()}", default))
+        for member, default in defaults.items()
+    }
+
+
+# Module-level singleton — re-read from env at import time so tests can patch env.
+COST_CONFIG: dict[str, int] = _cost_cfg()
 
 # ---------------------------------------------------------------------------
 # Role Prompting System — Each member gets a unique persona + lens
@@ -225,16 +256,12 @@ class CouncilEngine:
     - Council engine focuses on debate logic; brain.py handles MWP file I/O
     """
 
-    # Estimated cost per API call in cents (for Paperclip cost tracking)
-    COST_ESTIMATES_CENTS: dict[str, int] = {
-        "claude": 5,       # ~1500 tokens in + 800 out on claude-sonnet-4-6
-        "grok": 4,         # Grok-3 comparable
-        "gemini": 1,       # Gemini Flash is cheap
-        "perplexity": 3,   # Sonar Pro
-        "gpt": 5,          # GPT-4o
-        "copilot": 5,      # Azure/GPT-4o
-        "ollama": 0,       # Local — free
-    }
+    # Estimated cost per API call in cents (for Paperclip cost tracking).
+    # Values are loaded from COST_CONFIG which reads NCL_COST_<MEMBER> env vars,
+    # so this property always reflects the current config without a restart.
+    @property
+    def COST_ESTIMATES_CENTS(self) -> dict[str, int]:  # noqa: N802
+        return COST_CONFIG
 
     MODEL_NAMES: dict[str, str] = {
         "claude": "claude-sonnet-4-6",
@@ -260,27 +287,37 @@ class CouncilEngine:
         consensus_threshold: float = 70.0,
         paperclip_client: Optional[object] = None,
     ) -> None:
-        self.claude_api_key = claude_api_key
+        # Store keys as private backing attributes; access via properties so
+        # callers always get the live env-var value if the arg was None/empty.
+        self._claude_api_key = claude_api_key
         self.anthropic_base_url = anthropic_base_url
-        self.xai_api_key = xai_api_key
-        self.google_api_key = google_api_key
-        self.perplexity_api_key = perplexity_api_key
-        self.openai_api_key = openai_api_key
-        self.copilot_api_key = copilot_api_key or os.getenv("GITHUB_COPILOT_API_KEY", "")
+        self._xai_api_key = xai_api_key
+        self._google_api_key = google_api_key
+        self._perplexity_api_key = perplexity_api_key
+        self._openai_api_key = openai_api_key
+        self._copilot_api_key = copilot_api_key  # None = fall through to env
         self.ollama_host = ollama_host
         self.max_rounds = max_rounds
         self.consensus_threshold = consensus_threshold
-        self.http_client = httpx.AsyncClient(timeout=90.0)
+        # Default per-request timeout (seconds). Override via NCL_API_TIMEOUT env var.
+        self._api_timeout: float = float(os.environ.get("NCL_API_TIMEOUT", "30"))
+        self.http_client = httpx.AsyncClient(timeout=self._api_timeout)
         self._paperclip = paperclip_client  # Injected from brain.py
         self._session_costs: dict[str, int] = {}  # session_id → total cents
 
+        # Rate limiter — max 5 council sessions per 60-second window
+        self._rate_limit_max: int = int(os.environ.get("NCL_COUNCIL_RATE_LIMIT", "5"))
+        self._rate_limit_window: float = float(os.environ.get("NCL_COUNCIL_RATE_WINDOW", "60"))
+        self._rate_limit_timestamps: deque[float] = deque()  # monotonic timestamps
+        self._rate_limit_lock = asyncio.Lock()
+
         # Log council member API key availability at init
         _key_status = {
-            "Claude": bool(claude_api_key),
-            "Grok (xAI)": bool(xai_api_key),
-            "Gemini (Google)": bool(google_api_key),
-            "Perplexity": bool(perplexity_api_key),
-            "GPT (OpenAI)": bool(openai_api_key),
+            "Claude": bool(self.claude_api_key),
+            "Grok (xAI)": bool(self.xai_api_key),
+            "Gemini (Google)": bool(self.google_api_key),
+            "Perplexity": bool(self.perplexity_api_key),
+            "GPT (OpenAI)": bool(self.openai_api_key),
             "Copilot": bool(self.copilot_api_key),
         }
         _active = [k for k, v in _key_status.items() if v]
@@ -292,10 +329,75 @@ class CouncilEngine:
                 f"Set keys in .env to enable paid API access."
             )
 
+    # ------------------------------------------------------------------
+    # API key properties — read from env at point of use so keys can be
+    # rotated without restarting the process.  Constructor args are the
+    # initial/cached value; env vars take precedence when set.
+    # ------------------------------------------------------------------
+
+    @property
+    def claude_api_key(self) -> str:
+        return os.environ.get("ANTHROPIC_API_KEY", "") or self._claude_api_key or ""
+
+    @property
+    def xai_api_key(self) -> Optional[str]:
+        return os.environ.get("XAI_API_KEY") or self._xai_api_key or None
+
+    @property
+    def google_api_key(self) -> Optional[str]:
+        return os.environ.get("GOOGLE_API_KEY") or self._google_api_key or None
+
+    @property
+    def perplexity_api_key(self) -> Optional[str]:
+        return os.environ.get("PERPLEXITY_API_KEY") or self._perplexity_api_key or None
+
+    @property
+    def openai_api_key(self) -> Optional[str]:
+        return os.environ.get("OPENAI_API_KEY") or self._openai_api_key or None
+
+    @property
+    def copilot_api_key(self) -> Optional[str]:
+        return (
+            os.environ.get("GITHUB_COPILOT_API_KEY")
+            or self._copilot_api_key
+            or None
+        )
+
+    # ------------------------------------------------------------------
+    # Rate limiter helpers
+    # ------------------------------------------------------------------
+
+    async def _check_rate_limit(self) -> None:
+        """
+        Enforce max council sessions per sliding window.
+
+        Raises RuntimeError if the rate limit is exceeded.
+        """
+        async with self._rate_limit_lock:
+            now = time.monotonic()
+            cutoff = now - self._rate_limit_window
+            # Purge timestamps outside the window
+            while self._rate_limit_timestamps and self._rate_limit_timestamps[0] < cutoff:
+                self._rate_limit_timestamps.popleft()
+            if len(self._rate_limit_timestamps) >= self._rate_limit_max:
+                oldest = self._rate_limit_timestamps[0]
+                wait_secs = self._rate_limit_window - (now - oldest)
+                log.warning(
+                    f"[council] Rate limit hit ({self._rate_limit_max} sessions / "
+                    f"{self._rate_limit_window:.0f}s). Retry in {wait_secs:.1f}s."
+                )
+                raise RuntimeError(
+                    f"Council rate limit exceeded: max {self._rate_limit_max} sessions "
+                    f"per {self._rate_limit_window:.0f}s. Retry in {wait_secs:.1f}s."
+                )
+            self._rate_limit_timestamps.append(now)
+
     async def spawn_session(
         self, topic: str, prompt: str, members: Optional[list[CouncilMember]] = None
     ) -> CouncilSession:
         """Spawn a new council debate session with role assignments."""
+        await self._check_rate_limit()
+
         if members is None:
             members = list(CouncilMember)
 
@@ -330,6 +432,23 @@ class CouncilEngine:
         Phase 3 — CONVERGENCE: Final positions after seeing all rebuttals
         Phase 4 — SYNTHESIS:   Claude (chair) synthesizes + scores consensus
         """
+        try:
+            return await self._run_debate_inner(session)
+        except Exception as e:
+            log.error(f"[council:{session.session_id}] Debate FAILED with unhandled error: {e}")
+            session.status = CouncilStatus.FAILED
+            session.completed_at = datetime.now(timezone.utc)
+            session.synthesis = f"Council debate FAILED: {type(e).__name__}: {e}"
+            session.consensus_score = ConsensusScore(
+                agreement_pct=0.0,
+                confidence_weighted=0.0,
+                threshold_met=False,
+                reason=f"Session failed: {e}",
+            )
+            return session
+
+    async def _run_debate_inner(self, session: CouncilSession) -> CouncilSession:
+        """Inner implementation of the debate protocol."""
         session.status = CouncilStatus.DEBATING
         debaters = [m for m in session.members if m != CouncilMember.CLAUDE]
 
@@ -402,6 +521,9 @@ class CouncilEngine:
             [m.value for m in session.members],
         )
 
+        # Brief delay between rounds to avoid rate-limit pressure on APIs
+        await asyncio.sleep(0.5)
+
         # ===================================================================
         # Round 2 — REBUTTAL (parallel, debaters respond to all R1 positions)
         # ===================================================================
@@ -467,6 +589,9 @@ class CouncilEngine:
             [m.value for m in debaters],
         )
 
+        # Brief delay between rounds to avoid rate-limit pressure on APIs
+        await asyncio.sleep(0.5)
+
         # ===================================================================
         # Round 3 — CONVERGENCE (parallel, final positions)
         # ===================================================================
@@ -501,6 +626,9 @@ class CouncilEngine:
             session.session_id, _pc_issue_id, 3,
             [m.value for m in debaters],
         )
+
+        # Brief delay before synthesis to avoid rate-limit pressure on APIs
+        await asyncio.sleep(0.5)
 
         # ===================================================================
         # SYNTHESIS — Claude (chair) synthesizes all 3 rounds
@@ -592,20 +720,29 @@ class CouncilEngine:
     # -----------------------------------------------------------------------
 
     async def _call_claude(self, prompt: str) -> str:
-        resp = await self.http_client.post(
-            f"{self.anthropic_base_url}/v1/messages",
-            headers={
-                "x-api-key": self.claude_api_key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": "claude-sonnet-4-6",
-                "max_tokens": 2048,
-                "messages": [{"role": "user", "content": prompt}],
-            },
-        )
-        resp.raise_for_status()
+        api_key = self.claude_api_key
+        if not api_key:
+            raise ValueError("Anthropic API key not configured")
+        try:
+            resp = await self.http_client.post(
+                f"{self.anthropic_base_url}/v1/messages",
+                headers={
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": "claude-sonnet-4-6",
+                    "max_tokens": 2048,
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+                timeout=self._api_timeout,
+            )
+            resp.raise_for_status()
+        except httpx.TimeoutException as exc:
+            raise TimeoutError(f"Claude API timed out after {self._api_timeout}s") from exc
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(f"Claude API HTTP {exc.response.status_code}") from exc
         data = resp.json()
         content = data.get("content", [])
         if not content or not isinstance(content, list):
@@ -613,19 +750,26 @@ class CouncilEngine:
         return content[0].get("text", "")
 
     async def _call_grok(self, prompt: str) -> str:
-        if not self.xai_api_key:
+        api_key = self.xai_api_key
+        if not api_key:
             raise ValueError("xAI API key not configured")
-        resp = await self.http_client.post(
-            "https://api.x.ai/v1/chat/completions",
-            headers={"Authorization": f"Bearer {self.xai_api_key}"},
-            json={
-                "model": "grok-3",
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.8,  # Slightly higher for strategist boldness
-                "max_tokens": 2048,
-            },
-        )
-        resp.raise_for_status()
+        try:
+            resp = await self.http_client.post(
+                "https://api.x.ai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={
+                    "model": "grok-3",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.8,  # Slightly higher for strategist boldness
+                    "max_tokens": 2048,
+                },
+                timeout=self._api_timeout,
+            )
+            resp.raise_for_status()
+        except httpx.TimeoutException as exc:
+            raise TimeoutError(f"Grok API timed out after {self._api_timeout}s") from exc
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(f"Grok API HTTP {exc.response.status_code}") from exc
         data = resp.json()
         choices = data.get("choices", [])
         if not choices:
@@ -633,14 +777,21 @@ class CouncilEngine:
         return choices[0].get("message", {}).get("content", "")
 
     async def _call_gemini(self, prompt: str) -> str:
-        if not self.google_api_key:
+        api_key = self.google_api_key
+        if not api_key:
             raise ValueError("Google API key not configured")
-        resp = await self.http_client.post(
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
-            params={"key": self.google_api_key},
-            json={"contents": [{"parts": [{"text": prompt}]}]},
-        )
-        resp.raise_for_status()
+        try:
+            resp = await self.http_client.post(
+                "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+                params={"key": api_key},
+                json={"contents": [{"parts": [{"text": prompt}]}]},
+                timeout=self._api_timeout,
+            )
+            resp.raise_for_status()
+        except httpx.TimeoutException as exc:
+            raise TimeoutError(f"Gemini API timed out after {self._api_timeout}s") from exc
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(f"Gemini API HTTP {exc.response.status_code}") from exc
         data = resp.json()
         candidates = data.get("candidates", [])
         if not candidates:
@@ -651,19 +802,26 @@ class CouncilEngine:
         return parts[0].get("text", "")
 
     async def _call_perplexity(self, prompt: str) -> str:
-        if not self.perplexity_api_key:
+        api_key = self.perplexity_api_key
+        if not api_key:
             raise ValueError("Perplexity API key not configured")
-        resp = await self.http_client.post(
-            "https://api.perplexity.ai/chat/completions",
-            headers={"Authorization": f"Bearer {self.perplexity_api_key}"},
-            json={
-                "model": "sonar-pro",
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.5,  # Lower for fact-checking accuracy
-                "max_tokens": 2048,
-            },
-        )
-        resp.raise_for_status()
+        try:
+            resp = await self.http_client.post(
+                "https://api.perplexity.ai/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={
+                    "model": "sonar-pro",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.5,  # Lower for fact-checking accuracy
+                    "max_tokens": 2048,
+                },
+                timeout=self._api_timeout,
+            )
+            resp.raise_for_status()
+        except httpx.TimeoutException as exc:
+            raise TimeoutError(f"Perplexity API timed out after {self._api_timeout}s") from exc
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(f"Perplexity API HTTP {exc.response.status_code}") from exc
         data = resp.json()
         choices = data.get("choices", [])
         if not choices:
@@ -671,19 +829,26 @@ class CouncilEngine:
         return choices[0].get("message", {}).get("content", "")
 
     async def _call_gpt(self, prompt: str) -> str:
-        if not self.openai_api_key:
+        api_key = self.openai_api_key
+        if not api_key:
             raise ValueError("OpenAI API key not configured")
-        resp = await self.http_client.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers={"Authorization": f"Bearer {self.openai_api_key}"},
-            json={
-                "model": "gpt-4o",
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.9,  # Higher for creative divergence
-                "max_tokens": 2048,
-            },
-        )
-        resp.raise_for_status()
+        try:
+            resp = await self.http_client.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={
+                    "model": "gpt-4o",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.9,  # Higher for creative divergence
+                    "max_tokens": 2048,
+                },
+                timeout=self._api_timeout,
+            )
+            resp.raise_for_status()
+        except httpx.TimeoutException as exc:
+            raise TimeoutError(f"GPT API timed out after {self._api_timeout}s") from exc
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(f"GPT API HTTP {exc.response.status_code}") from exc
         data = resp.json()
         choices = data.get("choices", [])
         if not choices:
@@ -711,22 +876,28 @@ class CouncilEngine:
                 f"{azure_endpoint.rstrip('/')}/openai/deployments/{azure_deployment}"
                 f"/chat/completions?api-version={azure_api_version}"
             )
-            resp = await self.http_client.post(
-                url,
-                headers={
-                    "api-key": azure_key,
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "messages": [
-                        {"role": "system", "content": ROLE_SYSTEM_PROMPTS[CouncilRole.ENGINEER]},
-                        {"role": "user", "content": prompt},
-                    ],
-                    "temperature": 0.5,
-                    "max_tokens": 2048,
-                },
-            )
-            resp.raise_for_status()
+            try:
+                resp = await self.http_client.post(
+                    url,
+                    headers={
+                        "api-key": azure_key,
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "messages": [
+                            {"role": "system", "content": ROLE_SYSTEM_PROMPTS[CouncilRole.ENGINEER]},
+                            {"role": "user", "content": prompt},
+                        ],
+                        "temperature": 0.5,
+                        "max_tokens": 2048,
+                    },
+                    timeout=self._api_timeout,
+                )
+                resp.raise_for_status()
+            except httpx.TimeoutException as exc:
+                raise TimeoutError(f"Azure OpenAI timed out after {self._api_timeout}s") from exc
+            except httpx.HTTPStatusError as exc:
+                raise RuntimeError(f"Azure OpenAI HTTP {exc.response.status_code}") from exc
             data = resp.json()
             choices = data.get("choices", [])
             if choices:
@@ -737,20 +908,26 @@ class CouncilEngine:
         if not api_key:
             raise ValueError("No Azure, Copilot, or OpenAI API key configured for ENGINEER role")
 
-        resp = await self.http_client.post(
-            "https://api.openai.com/v1/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}"},
-            json={
-                "model": "gpt-4o",
-                "messages": [
-                    {"role": "system", "content": ROLE_SYSTEM_PROMPTS[CouncilRole.ENGINEER]},
-                    {"role": "user", "content": prompt},
-                ],
-                "temperature": 0.5,
-                "max_tokens": 2048,
-            },
-        )
-        resp.raise_for_status()
+        try:
+            resp = await self.http_client.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json={
+                    "model": "gpt-4o",
+                    "messages": [
+                        {"role": "system", "content": ROLE_SYSTEM_PROMPTS[CouncilRole.ENGINEER]},
+                        {"role": "user", "content": prompt},
+                    ],
+                    "temperature": 0.5,
+                    "max_tokens": 2048,
+                },
+                timeout=self._api_timeout,
+            )
+            resp.raise_for_status()
+        except httpx.TimeoutException as exc:
+            raise TimeoutError(f"Copilot/OpenAI timed out after {self._api_timeout}s") from exc
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(f"Copilot/OpenAI HTTP {exc.response.status_code}") from exc
         data = resp.json()
         choices = data.get("choices", [])
         if not choices:
@@ -881,9 +1058,23 @@ class CouncilEngine:
             return score
 
         # Get Round 3 (convergence) data
-        r3 = session.rounds[-1] if session.rounds else None
-        if not r3 or r3.round_type != "convergence":
-            r3 = session.rounds[-1]
+        r3 = next(
+            (r for r in reversed(session.rounds) if r.round_type == "convergence"),
+            None,
+        )
+        if r3 is None:
+            # No convergence round — score is inconclusive, do not fall back to wrong data
+            score.agreement_pct = 0.0
+            score.confidence_weighted = 0.0
+            score.threshold_met = False
+            score.unanimous = False
+            score.dissent_strength = 0.0
+            log.warning(
+                "[council] _score_consensus: no convergence round found for session %s — "
+                "returning inconclusive score",
+                session.session_id,
+            )
+            return score
 
         confidences = list(r3.scores.values()) if r3 else []
         if not confidences:
@@ -920,17 +1111,21 @@ class CouncilEngine:
         if total_members > 0:
             score.agreement_pct = (agree_count / total_members) * 100
         score.confidence_weighted = avg_confidence * (score.agreement_pct / 100)
-        score.unanimous = agree_count >= total_members and disagree_count == 0
+        score.unanimous = int(agree_count) >= total_members and disagree_count == 0
         score.threshold_met = score.agreement_pct >= self.consensus_threshold
         score.dissent_strength = (disagree_count / max(total_members, 1)) * 100
 
         # Convergence delta: how much positions shifted from R1 to R3
+        # Only compare members present in both rounds (handles dropouts).
         if len(session.rounds) >= 3:
-            r1_confs = list(session.rounds[0].scores.values())
-            r3_confs = list(session.rounds[2].scores.values())
-            if r1_confs and r3_confs:
-                r1_spread = max(r1_confs) - min(r1_confs) if r1_confs else 0
-                r3_spread = max(r3_confs) - min(r3_confs) if r3_confs else 0
+            r1_scores = session.rounds[0].scores
+            r3_scores = session.rounds[2].scores
+            common_members = set(r1_scores.keys()) & set(r3_scores.keys())
+            if common_members:
+                r1_confs = [r1_scores[m] for m in common_members]
+                r3_confs = [r3_scores[m] for m in common_members]
+                r1_spread = max(r1_confs) - min(r1_confs)
+                r3_spread = max(r3_confs) - min(r3_confs)
                 score.convergence_delta = r1_spread - r3_spread  # Positive = converged
 
         return score

@@ -11,6 +11,7 @@ Each agent uses Claude → Grok → Ollama fallback chain.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -18,11 +19,33 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+import httpx
+
 log = logging.getLogger("ncl.lde.agents")
 
 # API keys
 ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 XAI_KEY = os.getenv("XAI_API_KEY", "")
+
+# Shared HTTP client for LDE agent calls — avoids connection pool exhaustion
+_lde_client: Optional[httpx.AsyncClient] = None
+_lde_client_lock: Optional[asyncio.Lock] = None
+
+
+def _get_lde_lock() -> asyncio.Lock:
+    global _lde_client_lock
+    if _lde_client_lock is None:
+        _lde_client_lock = asyncio.Lock()
+    return _lde_client_lock
+
+
+async def _get_lde_client() -> httpx.AsyncClient:
+    global _lde_client
+    if _lde_client is None or _lde_client.is_closed:
+        async with _get_lde_lock():
+            if _lde_client is None or _lde_client.is_closed:
+                _lde_client = httpx.AsyncClient(timeout=300.0)
+    return _lde_client
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 
 
@@ -198,25 +221,25 @@ async def _call_model(system: str, prompt: str, temperature: float = 0.3, max_to
 
 async def _call_claude(system: str, prompt: str, temp: float, max_tok: int) -> str:
     try:
-        import httpx
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            resp = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": ANTHROPIC_KEY,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": os.getenv("LDE_CLAUDE_MODEL", "claude-sonnet-4-6"),
-                    "max_tokens": max_tok,
-                    "system": system,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": temp,
-                },
-            )
-            resp.raise_for_status()
-            return resp.json()["content"][0]["text"]
+        client = await _get_lde_client()
+        resp = await client.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": ANTHROPIC_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            json={
+                "model": os.getenv("LDE_CLAUDE_MODEL", "claude-sonnet-4-6"),
+                "max_tokens": max_tok,
+                "system": system,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": temp,
+            },
+            timeout=180.0,
+        )
+        resp.raise_for_status()
+        return resp.json()["content"][0]["text"]
     except Exception as e:
         log.warning(f"Claude failed: {e}")
         return ""
@@ -224,26 +247,26 @@ async def _call_claude(system: str, prompt: str, temp: float, max_tok: int) -> s
 
 async def _call_grok(system: str, prompt: str, temp: float, max_tok: int) -> str:
     try:
-        import httpx
-        async with httpx.AsyncClient(timeout=180.0) as client:
-            resp = await client.post(
-                "https://api.x.ai/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {XAI_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": os.getenv("LDE_GROK_MODEL", "grok-4"),
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": prompt},
-                    ],
-                    "max_tokens": max_tok,
-                    "temperature": temp,
-                },
-            )
-            resp.raise_for_status()
-            return resp.json()["choices"][0]["message"]["content"]
+        client = await _get_lde_client()
+        resp = await client.post(
+            "https://api.x.ai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {XAI_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": os.getenv("LDE_GROK_MODEL", "grok-4"),
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": prompt},
+                ],
+                "max_tokens": max_tok,
+                "temperature": temp,
+            },
+            timeout=180.0,
+        )
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"]
     except Exception as e:
         log.warning(f"Grok failed: {e}")
         return ""
@@ -251,23 +274,22 @@ async def _call_grok(system: str, prompt: str, temp: float, max_tok: int) -> str
 
 async def _call_ollama(system: str, prompt: str, temp: float, max_tok: int) -> str:
     try:
-        import httpx
         model = os.getenv("LDE_OLLAMA_MODEL", "qwen3:32b")
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            resp = await client.post(
-                f"{OLLAMA_HOST}/api/chat",
-                json={
-                    "model": model,
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": prompt},
-                    ],
-                    "stream": False,
-                    "options": {"temperature": temp, "num_predict": max_tok},
-                },
-            )
-            resp.raise_for_status()
-            return resp.json().get("message", {}).get("content", "")
+        client = await _get_lde_client()
+        resp = await client.post(
+            f"{OLLAMA_HOST}/api/chat",
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": prompt},
+                ],
+                "stream": False,
+                "options": {"temperature": temp, "num_predict": max_tok},
+            },
+        )
+        resp.raise_for_status()
+        return resp.json().get("message", {}).get("content", "")
     except Exception as e:
         log.warning(f"Ollama failed: {e}")
         return ""

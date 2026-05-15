@@ -40,6 +40,8 @@ class TaskStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    TIMED_OUT = "timed_out"   # Agent execution exceeded timeout
+    EXPIRED = "expired"       # AWAITING_APPROVAL exceeded approval timeout
 
 
 class AgentState(str, Enum):
@@ -177,6 +179,7 @@ class TaskResult(BaseModel):
     subtask_id: str
     agent_id: str
     output: str
+    status: TaskStatus = TaskStatus.COMPLETED
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     cost_cents: float = 0.0
     duration_ms: int = 0

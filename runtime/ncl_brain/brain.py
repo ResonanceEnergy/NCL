@@ -4,13 +4,47 @@ import asyncio
 import json
 import logging
 import os
+import re
 import uuid
+from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
 import aiofiles
 import httpx
+
+
+# ---------------------------------------------------------------------------
+# Config validation — fail fast on missing required env vars
+# ---------------------------------------------------------------------------
+
+_REQUIRED_ENV_VARS = [
+    "CLAUDE_API_KEY",
+]
+
+_OPTIONAL_BUT_WARNED_ENV_VARS = [
+    "NCC_HOST",
+    "NCC_PORT",
+]
+
+
+def _validate_config() -> None:
+    """Validate required environment variables exist at import time."""
+    missing = [v for v in _REQUIRED_ENV_VARS if not os.getenv(v)]
+    if missing:
+        raise RuntimeError(
+            f"NCL Brain startup failed — missing required env vars: {', '.join(missing)}. "
+            f"Set them before starting the service."
+        )
+    for v in _OPTIONAL_BUT_WARNED_ENV_VARS:
+        if not os.getenv(v):
+            logging.getLogger("ncl.brain").warning(
+                f"[config] Optional env var {v} not set — using defaults"
+            )
+
+
+_validate_config()
 
 log = logging.getLogger("ncl.brain")
 
@@ -23,6 +57,7 @@ from .models import (
     FeedbackReport,
     PillarType,
     InsightSignal,
+    NCLEvent,
 )
 from .council import CouncilEngine
 from ..memory import MemoryStore
@@ -72,6 +107,39 @@ def _redact(payload):
     return payload
 
 
+# ── Shared HTTP Client for brain outbound calls ─────────────────────────
+# Reused across budget policies, NCC dispatch, and ntfy notifications
+# to avoid connection pool exhaustion from per-request client creation.
+
+_brain_http_client: Optional[httpx.AsyncClient] = None
+_brain_http_lock: Optional[asyncio.Lock] = None
+
+
+def _get_brain_http_lock() -> asyncio.Lock:
+    global _brain_http_lock
+    if _brain_http_lock is None:
+        _brain_http_lock = asyncio.Lock()
+    return _brain_http_lock
+
+
+async def _get_brain_http_client() -> httpx.AsyncClient:
+    """Return a shared HTTP client for NCL Brain outbound calls."""
+    global _brain_http_client
+    if _brain_http_client is None or _brain_http_client.is_closed:
+        async with _get_brain_http_lock():
+            if _brain_http_client is None or _brain_http_client.is_closed:
+                _brain_http_client = httpx.AsyncClient(timeout=30.0)
+    return _brain_http_client
+
+
+async def close_brain_http_client() -> None:
+    """Close the shared HTTP client (call on shutdown)."""
+    global _brain_http_client
+    if _brain_http_client is not None:
+        await _brain_http_client.aclose()
+        _brain_http_client = None
+
+
 class NCLBrain:
     """
     The NCL brain - NCL runtime service.
@@ -96,7 +164,7 @@ class NCLBrain:
         reddit_client_secret: Optional[str] = None,
         ollama_host: str = "localhost:11434",
         paperclip_host: str = "localhost",
-        paperclip_port: int = 8765,
+        paperclip_port: int = 8787,
         policy_kernel: Optional[object] = None,
         emergency_stop: Optional[object] = None,
     ) -> None:
@@ -126,6 +194,11 @@ class NCLBrain:
         self.events_file = self.data_dir / "events.ndjson"
         self.mandates_file = self.data_dir / "mandates.json"
         self.state_file = self.data_dir / "state.json"
+        self._pending_dispatches_file = self.data_dir / "pending_dispatches.json"
+
+        # Event log rotation: rotate events.ndjson when it exceeds 100 MB
+        self._events_file_max_bytes = 100 * 1024 * 1024  # 100 MB
+        self._events_rotate_backups = 5
 
         # Initialize Paperclip first (needed by council engine)
         _pc_base = f"http://{paperclip_host}:{paperclip_port}" if paperclip_host else None
@@ -164,11 +237,15 @@ class NCLBrain:
         # MWP output directories for stage handoffs (Jake Van Clief protocol)
         self.mwp_base = Path(data_dir).expanduser().parent / "workspaces" / "mandate-generation" / "stages"
 
-        # In-memory state
+        # In-memory state (bounded collections to prevent unbounded growth)
         self.mandates: dict[str, Mandate] = {}
         self._mandates_lock = asyncio.Lock()
-        self.council_sessions: dict[str, CouncilSession] = {}
-        self._pending_dispatches: dict[str, dict] = {}  # pump_id → pending approval data
+        self.council_sessions: OrderedDict[str, CouncilSession] = OrderedDict()
+        self._council_sessions_lock = asyncio.Lock()  # Guards council_sessions dict
+        self._COUNCIL_SESSIONS_MAX = 50  # Evict oldest completed sessions when full
+        self._pending_dispatches: OrderedDict[str, dict] = OrderedDict()  # pump_id → pending approval data
+        self._PENDING_DISPATCHES_MAX = 200
+        self._pending_dispatches_lock = asyncio.Lock()  # Guards _pending_dispatches reads/writes
 
         # Governance hooks (optional — graceful degradation when None)
         self.policy_kernel = policy_kernel
@@ -204,6 +281,10 @@ class NCLBrain:
         self._started_at = datetime.now(timezone.utc)
         # Load existing state
         await self._load_state()
+        await self._load_pending_dispatches()
+
+        # Start periodic cleanup for zombie council sessions (every 15 min)
+        self._cleanup_task = asyncio.create_task(self._periodic_council_cleanup())
 
         # Register with Paperclip (skip entirely if explicitly disabled)
         self._paperclip_connected = False
@@ -242,9 +323,6 @@ class NCLBrain:
 
         Uses POST /api/companies/:companyId/budgets/policies
         """
-        import httpx
-        import os
-
         paperclip_url = os.getenv("PAPERCLIP_URL", "http://localhost:3100")
         company_id = os.getenv("PAPERCLIP_COMPANY_ID", "")
         if not company_id:
@@ -260,24 +338,25 @@ class NCLBrain:
             "Memory": 700,       # $7/month — context storage
         }
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            for agent_name, budget_cents in agent_budgets.items():
-                try:
-                    resp = await client.post(
-                        f"{paperclip_url}/api/companies/{company_id}/budgets/policies",
-                        json={
-                            "scopeType": "agent",
-                            "scopeId": agent_name,
-                            "amount": budget_cents,
-                            "windowKind": "calendar_month",
-                        },
-                    )
-                    if resp.status_code < 400:
-                        log.info(f"[budget] Set {agent_name} budget: {budget_cents}¢/month")
-                    else:
-                        log.warning(f"[budget] Failed to set {agent_name} budget: {resp.status_code}")
-                except Exception as e:
-                    log.warning(f"[budget] Budget policy error for {agent_name}: {e}")
+        client = await _get_brain_http_client()
+        for agent_name, budget_cents in agent_budgets.items():
+            try:
+                resp = await client.post(
+                    f"{paperclip_url}/api/companies/{company_id}/budgets/policies",
+                    json={
+                        "scopeType": "agent",
+                        "scopeId": agent_name,
+                        "amount": budget_cents,
+                        "windowKind": "calendar_month",
+                    },
+                    timeout=10.0,
+                )
+                if resp.status_code < 400:
+                    log.info(f"[budget] Set {agent_name} budget: {budget_cents}¢/month")
+                else:
+                    log.warning(f"[budget] Failed to set {agent_name} budget: {resp.status_code}")
+            except Exception as e:
+                log.warning(f"[budget] Budget policy error for {agent_name}: {e}")
 
     async def receive_pump_prompt(self, prompt: PumpPrompt, auto_flow: bool = True) -> dict:
         """
@@ -401,11 +480,16 @@ class NCLBrain:
         await self._mwp_review(prompt, session, result["mandates"])
 
         # Store pump_id → mandate mapping for approval lookup
-        self._pending_dispatches[prompt.prompt_id] = {
-            "mandates": result["mandates"],
-            "council_session_id": session.session_id,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
+        async with self._pending_dispatches_lock:
+            self._pending_dispatches[prompt.prompt_id] = {
+                "mandates": result["mandates"],
+                "council_session_id": session.session_id,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+            # Enforce bounded size
+            while len(self._pending_dispatches) > self._PENDING_DISPATCHES_MAX:
+                self._pending_dispatches.popitem(last=False)
+            await self._persist_pending_dispatches_unlocked()
 
         result["status"] = "pending_approval"
         result["message"] = (
@@ -443,7 +527,8 @@ class NCLBrain:
         Returns:
             Dict with dispatch results
         """
-        pending = self._pending_dispatches.get(pump_id)
+        async with self._pending_dispatches_lock:
+            pending = self._pending_dispatches.get(pump_id)
         if not pending:
             return {"error": f"No pending dispatch found for pump {pump_id}"}
 
@@ -555,7 +640,9 @@ class NCLBrain:
         dispatch_result = await self._dispatch_to_ncc(mandates_to_dispatch)
 
         # Clean up pending
-        del self._pending_dispatches[pump_id]
+        async with self._pending_dispatches_lock:
+            self._pending_dispatches.pop(pump_id, None)
+            await self._persist_pending_dispatches_unlocked()
 
         await self._log_event(
             "strike_approved_dispatched",
@@ -581,7 +668,8 @@ class NCLBrain:
         Returns:
             Status dict
         """
-        pending = self._pending_dispatches.get(pump_id)
+        async with self._pending_dispatches_lock:
+            pending = self._pending_dispatches.get(pump_id)
         if not pending:
             return {"error": f"No pending dispatch found for pump {pump_id}"}
 
@@ -603,7 +691,9 @@ class NCLBrain:
                         mandate.updated_at = datetime.now(timezone.utc)
 
             await self._persist_mandates_unlocked()
-        del self._pending_dispatches[pump_id]
+        async with self._pending_dispatches_lock:
+            self._pending_dispatches.pop(pump_id, None)
+            await self._persist_pending_dispatches_unlocked()
 
         await self._log_event(
             "strike_rejected",
@@ -767,7 +857,6 @@ class NCLBrain:
         text_lower = text.lower()
 
         # Try to parse structured mandate blocks from council output
-        import re
 
         # Look for PILLAR: mentions
         pillar_map = {
@@ -819,64 +908,82 @@ class NCLBrain:
 
     async def _dispatch_to_ncc(self, mandates: list[dict]) -> dict:
         """Dispatch mandates to NCC for execution."""
-        import httpx
-        import os
-
         ncc_host = os.getenv("NCC_HOST", "http://localhost")
-        ncc_port = int(os.getenv("NCC_PORT", "8765"))
+        ncc_port = int(os.getenv("NCC_PORT", "8787"))
         url = f"{ncc_host}:{ncc_port}/mandate/intake"
 
         dispatched = []
         failed = []
 
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                for m in mandates:
-                    if "error" in m:
-                        continue
-                    try:
-                        # Build NCC-compatible MandateRequest payload
-                        from datetime import timedelta
-                        pillar_val = m.get("pillar", "ncc")
-                        if hasattr(pillar_val, "value"):
-                            pillar_val = pillar_val.value.upper()
-                        else:
-                            pillar_val = str(pillar_val).upper()
-                        # Map pillar to NCC TargetPillar enum (BRS or AAC)
-                        target_list = []
-                        if pillar_val in ("BRS", "AAC"):
-                            target_list = [pillar_val]
-                        else:
-                            target_list = ["BRS"]  # Default: NCC dispatches to BRS
+            client = await _get_brain_http_client()
+            for m in mandates:
+                if "error" in m:
+                    continue
+                mandate_id = m.get("mandate_id", "")
+                try:
+                    # Build NCC-compatible MandateRequest payload
+                    pillar_val = m.get("pillar", "ncc")
+                    if hasattr(pillar_val, "value"):
+                        pillar_val = pillar_val.value.upper()
+                    else:
+                        pillar_val = str(pillar_val).upper()
+                    # Map pillar to NCC TargetPillar enum (BRS or AAC)
+                    target_list = []
+                    if pillar_val in ("BRS", "AAC"):
+                        target_list = [pillar_val]
+                    else:
+                        target_list = ["BRS"]  # Default: NCC dispatches to BRS
 
-                        # Map priority int (1-10) to NCC PriorityLevel
-                        pri = m.get("priority", 5)
-                        if pri >= 8:
-                            priority_level = "P0"
-                        elif pri >= 6:
-                            priority_level = "P1"
-                        elif pri >= 4:
-                            priority_level = "P2"
-                        else:
-                            priority_level = "P3"
+                    # Map priority int (1-10) to NCC PriorityLevel
+                    pri = m.get("priority", 5)
+                    if pri >= 8:
+                        priority_level = "P0"
+                    elif pri >= 6:
+                        priority_level = "P1"
+                    elif pri >= 4:
+                        priority_level = "P2"
+                    else:
+                        priority_level = "P3"
 
-                        resp = await client.post(url, json={
-                            "mandate_id": m.get("mandate_id", ""),
-                            "title": m.get("title", "Untitled mandate"),
-                            "description": m.get("objective", m.get("title", "Mandate from NCL")),
-                            "deadline": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
-                            "priority": priority_level,
-                            "target_pillar": target_list,
-                            "success_criteria": m.get("success_criteria", ["Complete as directed"]),
-                            "tags": ["ncl-generated", "strike-point"],
-                        })
-                        if resp.status_code < 400:
-                            dispatched.append(m.get("mandate_id", m.get("title")))
-                        else:
-                            failed.append({"mandate": m.get("title"), "error": f"HTTP {resp.status_code}"})
-                    except Exception as e:
-                        failed.append({"mandate": m.get("title"), "error": str(e)})
+                    # Only set a deadline if the mandate doesn't already have one
+                    mandate_obj = self.mandates.get(mandate_id)
+                    existing_deadline = getattr(mandate_obj, "deadline", None) if mandate_obj else None
+                    deadline_val = (
+                        existing_deadline.isoformat()
+                        if existing_deadline is not None
+                        else (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+                    )
+                    resp = await client.post(url, json={
+                        "mandate_id": mandate_id,
+                        "title": m.get("title", "Untitled mandate"),
+                        "description": m.get("objective", m.get("title", "Mandate from NCL")),
+                        "deadline": deadline_val,
+                        "priority": priority_level,
+                        "target_pillar": target_list,
+                        "success_criteria": m.get("success_criteria", ["Complete as directed"]),
+                        "tags": ["ncl-generated", "strike-point"],
+                    }, timeout=15.0)
+                    if resp.status_code < 400:
+                        dispatched.append(mandate_id or m.get("title"))
+                    else:
+                        err_msg = f"HTTP {resp.status_code}: {resp.text[:200]}"
+                        log.error(f"[dispatch] NCC rejected mandate {mandate_id}: {err_msg}")
+                        failed.append({"mandate": m.get("title"), "mandate_id": mandate_id, "error": err_msg})
+                        # Mark mandate as failed
+                        await self._mark_dispatch_failed(mandate_id, err_msg)
+                except Exception as e:
+                    log.error(f"[dispatch] Failed to dispatch mandate {mandate_id}: {e}")
+                    failed.append({"mandate": m.get("title"), "mandate_id": mandate_id, "error": str(e)})
+                    # Mark mandate as failed
+                    await self._mark_dispatch_failed(mandate_id, str(e))
         except Exception as e:
+            log.error(f"[dispatch] NCC unreachable at {url}: {e}")
+            # Mark all mandates in this batch as failed
+            for m in mandates:
+                mid = m.get("mandate_id", "")
+                if mid and "error" not in m:
+                    await self._mark_dispatch_failed(mid, f"NCC unreachable: {e}")
             return {"status": "ncc_unreachable", "error": str(e)}
 
         return {
@@ -884,6 +991,25 @@ class NCLBrain:
             "dispatched": dispatched,
             "failed": failed,
         }
+
+    async def _mark_dispatch_failed(self, mandate_id: str, reason: str) -> None:
+        """Mark a mandate as FAILED after dispatch error."""
+        if not mandate_id:
+            return
+        async with self._mandates_lock:
+            mandate = self.mandates.get(mandate_id)
+            if mandate and mandate.status == MandateStatus.ACTIVE:
+                try:
+                    mandate.transition_to(
+                        MandateStatus.FAILED,
+                        reason=f"Dispatch failed: {reason}",
+                    )
+                except (ValueError, AttributeError):
+                    # If FAILED status doesn't exist or transition not allowed,
+                    # mark updated_at so it's visible in state
+                    mandate.updated_at = datetime.now(timezone.utc)
+                    log.warning(f"[dispatch] Could not transition {mandate_id} to FAILED")
+                await self._persist_mandates_unlocked()
 
     async def spawn_council_session(
         self, topic: str, prompt: str, members: Optional[list[str]] = None
@@ -899,8 +1025,6 @@ class NCLBrain:
         Returns:
             CouncilSession
         """
-        from .models import CouncilMember
-
         # Convert string member names to CouncilMember enums
         member_enums: Optional[list[CouncilMember]] = None
         if members:
@@ -912,7 +1036,11 @@ class NCLBrain:
                     log.warning(f"Unknown council member '{m}', skipping")
 
         session = await self.council_engine.spawn_session(topic, prompt, member_enums)
-        self.council_sessions[session.session_id] = session
+        async with self._council_sessions_lock:
+            # Evict oldest sessions when at capacity
+            if len(self.council_sessions) >= self._COUNCIL_SESSIONS_MAX:
+                self._evict_oldest_council_sessions()
+            self.council_sessions[session.session_id] = session
 
         await self._log_event(
             "council_spawned",
@@ -1260,6 +1388,23 @@ class NCLBrain:
                 ]
             )
 
+            # Reddit scan
+            try:
+                reddit_signals = await self.scanner.scan_reddit(query, max_results=5)
+                results["sources"]["reddit"].extend(
+                    [
+                        {
+                            "signal_id": s.signal_id,
+                            "content": s.content[:100],
+                            "importance": s.importance_score,
+                            "url": getattr(s, "url", ""),
+                        }
+                        for s in reddit_signals
+                    ]
+                )
+            except Exception as e:
+                log.warning(f"[awarebot] Reddit scan failed for '{query}': {e}")
+
         await self._log_event("awarebot_scan", f"Scanned {len(queries)} queries", results)
         return results
 
@@ -1280,25 +1425,38 @@ class NCLBrain:
             days_back=7,
         )
 
-        # Run prediction
-        # (simplified - would use actual signals from Awarebot in production)
-        from ..ncl_brain.models import InsightSignal
-
-        signals = [
-            InsightSignal(
-                signal_id=str(uuid.uuid4()),
-                source_platform="memory",
-                content=f"Memory signal about {topic}",
-                importance_score=70.0,
-                relevance=0.8,
-                novelty=0.6,
-                actionability=0.7,
-                source_authority=0.8,
-                time_sensitivity=0.6,
-                timestamp=datetime.now(timezone.utc),
-                tags=[topic.lower()],
+        # Build real InsightSignal objects from memory results
+        signals = []
+        for unit in memory_results.get("units", []):
+            content = unit.get("content", "")
+            importance = float(unit.get("importance", 50.0))
+            if not content:
+                continue
+            signals.append(
+                InsightSignal(
+                    signal_id=str(uuid.uuid4()),
+                    source_platform="memory",
+                    content=content[:500],
+                    importance_score=importance,
+                    relevance=min(1.0, importance / 100.0),
+                    novelty=0.5,
+                    actionability=0.5,
+                    source_authority=0.7,
+                    time_sensitivity=0.5,
+                    timestamp=datetime.now(timezone.utc),
+                    tags=unit.get("tags", [topic.lower()]),
+                )
             )
-        ]
+
+        if not signals:
+            return {
+                "prediction_id": str(uuid.uuid4()),
+                "topic": topic,
+                "consensus": "no data — no memory signals found for this topic",
+                "confidence": 0.0,
+                "convergence": [],
+                "warnings": [f"No memory units found for topic '{topic}' in the past 7 days"],
+            }
 
         prediction_output = await self.predictor.predict(signals, topic)
 
@@ -1438,17 +1596,17 @@ class NCLBrain:
                 topic = os.getenv("NTFY_TOPIC")
                 ntfy_server = os.getenv("NTFY_SERVER", "https://ntfy.sh")
                 if topic:
-                    import httpx as _httpx
-                    async with _httpx.AsyncClient(timeout=5.0) as _client:
-                        await _client.post(
-                            f"{ntfy_server}/{topic}",
-                            content="; ".join(warnings).encode(),
-                            headers={
-                                "Title": "NCL Brain DEGRADED",
-                                "Priority": "high",
-                                "Tags": "warning,ncl",
-                            },
-                        )
+                    _client = await _get_brain_http_client()
+                    await _client.post(
+                        f"{ntfy_server}/{topic}",
+                        content="; ".join(warnings).encode(),
+                        headers={
+                            "Title": "NCL Brain DEGRADED",
+                            "Priority": "high",
+                            "Tags": "warning,ncl",
+                        },
+                        timeout=5.0,
+                    )
             except Exception as exc:
                 log.warning(f"ntfy degraded-alarm send failed: {exc!r}")
         elif not warnings and getattr(self, "_health_alarm_sent", False):
@@ -1474,6 +1632,16 @@ class NCLBrain:
 
     async def shutdown(self) -> None:
         """Shutdown brain on exit."""
+        # Cancel periodic cleanup task
+        if hasattr(self, "_cleanup_task") and self._cleanup_task:
+            self._cleanup_task.cancel()
+            try:
+                await self._cleanup_task
+            except asyncio.CancelledError:
+                pass
+        # Persist final state
+        async with self._pending_dispatches_lock:
+            await self._persist_pending_dispatches_unlocked()
         await self.swarm.shutdown()
         await self.council_engine.close()
         await self.scanner.close()
@@ -1515,8 +1683,6 @@ class NCLBrain:
         Returns:
             event_id of the created event
         """
-        from .models import NCLEvent, EventType as ET
-
         ncl_event = NCLEvent.quick(
             event_type=event_type,
             description=description,
@@ -1530,6 +1696,9 @@ class NCLBrain:
             tags=tags,
             importance=importance,
         )
+
+        # Rotate events file if it has grown too large (synchronous stat check)
+        self._rotate_events_file_if_needed()
 
         # Write v1 schema to NDJSON (backwards-compatible dict format)
         async with aiofiles.open(self.events_file, "a") as f:
@@ -1551,30 +1720,107 @@ class NCLBrain:
 
         return ncl_event.event_id
 
+    def _rotate_events_file_if_needed(self) -> None:
+        """
+        Synchronous rotation for events.ndjson.
+
+        Shifts existing backups (.1 -> .2 up to _events_rotate_backups),
+        then renames the current file to .1, starting a fresh log.
+        Called before every event write -- the stat() check is cheap.
+        """
+        try:
+            if (
+                not self.events_file.exists()
+                or self.events_file.stat().st_size < self._events_file_max_bytes
+            ):
+                return
+            # Shift old backups upward
+            for i in range(self._events_rotate_backups - 1, 0, -1):
+                src = self.events_file.with_suffix(f".ndjson.{i}")
+                dst = self.events_file.with_suffix(f".ndjson.{i + 1}")
+                if src.exists():
+                    src.rename(dst)
+            # Rotate current -> .1
+            rotated = self.events_file.with_suffix(".ndjson.1")
+            self.events_file.rename(rotated)
+            log.info(
+                "Rotated events.ndjson -> %s (exceeded %d MB)",
+                rotated.name,
+                self._events_file_max_bytes // (1024 * 1024),
+            )
+        except OSError as exc:
+            log.warning("events.ndjson rotation failed: %s", exc)
+
+    def _evict_oldest_council_sessions(self) -> None:
+        """
+        Evict the oldest 10% of council sessions when the dict hits capacity.
+
+        Caller MUST hold _council_sessions_lock.
+        Sessions are sorted by completed_at (oldest first); sessions without
+        a completion timestamp are treated as oldest.
+        """
+        evict_count = max(1, self._COUNCIL_SESSIONS_MAX // 10)
+        sorted_ids = sorted(
+            self.council_sessions.keys(),
+            key=lambda sid: (
+                self.council_sessions[sid].completed_at or datetime.min.replace(tzinfo=timezone.utc)
+            ),
+        )
+        for sid in sorted_ids[:evict_count]:
+            del self.council_sessions[sid]
+        log.info(f"[council_sessions] Evicted {evict_count} oldest sessions (limit={self._COUNCIL_SESSIONS_MAX})")
+
+    async def cleanup_council_sessions(self, max_age_hours: int = 1) -> int:
+        """
+        Remove council sessions older than max_age_hours.
+
+        Async-safe. Returns the number of sessions removed.
+        """
+        cutoff = datetime.now(timezone.utc).timestamp() - max_age_hours * 3600
+        removed = 0
+        async with self._council_sessions_lock:
+            stale = [
+                sid for sid, s in self.council_sessions.items()
+                if s.completed_at and s.completed_at.timestamp() < cutoff
+            ]
+            for sid in stale:
+                del self.council_sessions[sid]
+                removed += 1
+        if removed:
+            log.info(f"[council_sessions] Cleaned up {removed} sessions older than {max_age_hours}h")
+        return removed
+
     async def _load_state(self) -> None:
         """Load mandates from disk on startup."""
         if self.mandates_file.exists():
             async with aiofiles.open(self.mandates_file) as f:
                 content = await f.read()
                 if content:
-                    mandates_data = json.loads(content)
+                    try:
+                        mandates_data = json.loads(content)
+                    except (json.JSONDecodeError, ValueError) as exc:
+                        log.error(f"[load_state] Corrupt mandates file — skipping load: {exc}")
+                        mandates_data = []
                     for mandate_dict in mandates_data:
-                        mandate = Mandate(**mandate_dict)
-                        self.mandates[mandate.mandate_id] = mandate
+                        try:
+                            mandate = Mandate(**mandate_dict)
+                            self.mandates[mandate.mandate_id] = mandate
+                        except Exception as exc:
+                            log.error(f"[load_state] Skipping malformed mandate entry: {exc}")
 
     async def _persist_mandates(self) -> None:
         """
         Persist mandates to disk (atomic write).
 
-        Acquires _mandates_lock if not already held by the caller. Callers that
-        already hold the lock should call _persist_mandates_unlocked() directly.
+        Always acquires _mandates_lock before writing. Callers that already
+        hold the lock should call _persist_mandates_unlocked() directly to
+        avoid a deadlock. The previous heuristic (checking .locked()) was
+        not safe — asyncio.Lock.locked() returns True even when held by a
+        *different* coroutine, so the heuristic could skip lock acquisition
+        when it was actually needed.
         """
-        if self._mandates_lock.locked():
-            # Caller already holds the lock — just write
+        async with self._mandates_lock:
             await self._persist_mandates_unlocked()
-        else:
-            async with self._mandates_lock:
-                await self._persist_mandates_unlocked()
 
     async def _persist_mandates_unlocked(self) -> None:
         """Internal — assumes _mandates_lock is already held by caller."""
@@ -1583,6 +1829,59 @@ class NCLBrain:
         tmp_path = self.mandates_file.with_suffix(self.mandates_file.suffix + ".tmp")
         payload = json.dumps(snapshot, default=str, indent=2)
         await asyncio.to_thread(self._atomic_write_json, tmp_path, self.mandates_file, payload)
+
+    # -------------------------------------------------------------------
+    # Pending Dispatches Persistence
+    # -------------------------------------------------------------------
+
+    async def _load_pending_dispatches(self) -> None:
+        """Load pending dispatches from disk on startup."""
+        if not self._pending_dispatches_file.exists():
+            return
+        try:
+            async with aiofiles.open(self._pending_dispatches_file) as f:
+                content = await f.read()
+            if content:
+                try:
+                    data = json.loads(content)
+                except (json.JSONDecodeError, ValueError) as exc:
+                    log.error(f"[load_state] Corrupt pending_dispatches file — skipping: {exc}")
+                    return
+                if isinstance(data, dict):
+                    for k, v in data.items():
+                        self._pending_dispatches[k] = v
+                    # Enforce max size
+                    while len(self._pending_dispatches) > self._PENDING_DISPATCHES_MAX:
+                        self._pending_dispatches.popitem(last=False)
+                    log.info(f"[load_state] Loaded {len(self._pending_dispatches)} pending dispatches")
+        except OSError as exc:
+            log.error(f"[load_state] Could not read pending_dispatches file: {exc}")
+
+    async def _persist_pending_dispatches_unlocked(self) -> None:
+        """Persist pending dispatches to disk. Caller must hold _pending_dispatches_lock."""
+        try:
+            payload = json.dumps(dict(self._pending_dispatches), default=str, indent=2)
+            tmp_path = self._pending_dispatches_file.with_suffix(".json.tmp")
+            await asyncio.to_thread(
+                self._atomic_write_json, tmp_path, self._pending_dispatches_file, payload
+            )
+        except Exception as exc:
+            log.error(f"[persist] Failed to save pending_dispatches: {exc}")
+
+    # -------------------------------------------------------------------
+    # Periodic Council Session Cleanup
+    # -------------------------------------------------------------------
+
+    async def _periodic_council_cleanup(self) -> None:
+        """Background task: clean up zombie council sessions every 15 minutes."""
+        while True:
+            try:
+                await asyncio.sleep(900)  # 15 minutes
+                await self.cleanup_council_sessions(max_age_hours=1)
+            except asyncio.CancelledError:
+                break
+            except Exception as exc:
+                log.warning(f"[cleanup] Council session cleanup error: {exc}")
 
     @staticmethod
     def _atomic_write_json(tmp_path: Path, target: Path, payload: str) -> None:

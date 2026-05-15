@@ -37,7 +37,7 @@
     "paperclip": {
       "name": "Paperclip",
       "url": "http://localhost:3100",
-      "health": "/api/health",
+      "health": "/health",
       "description": "Project management, mandate tracking, cost reporting, approval gates"
     },
     "aac": {
@@ -55,10 +55,10 @@
     },
     "cloudflare_tunnel": {
       "name": "Cloudflare Tunnel (ncc)",
-      "tunnel_id": "afc84bab-daea-41c9-b341-d783d90c20d9",
+      "tunnel_id": "your-cloudflare-tunnel-id-here",
       "subdomains": {
-        "ncc": "ncc.bit-rage-labour.com",
-        "aac": "aac.bit-rage-labour.com"
+        "ncc": "ncc.your-domain.com",
+        "aac": "aac.your-domain.com"
       }
     }
   },

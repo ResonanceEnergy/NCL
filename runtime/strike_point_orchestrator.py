@@ -33,8 +33,10 @@ import json
 import logging
 import logging.handlers
 import os
+import re
 import subprocess
 import sys
+from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -84,8 +86,16 @@ _ensure_directories()
 # Service endpoints
 NCL_BRAIN_URL = os.getenv("NCL_BRAIN_URL", "http://localhost:8800")
 NCC_SERVER_URL = os.getenv("NCC_SERVER_URL", "http://localhost:8765")
-RELAY_URL = os.getenv("RELAY_URL", "https://localhost:8443")
+RELAY_URL = os.getenv("RELAY_URL", "https://localhost:8787")
 STRIKE_TOKEN = os.getenv("STRIKE_AUTH_TOKEN", "")
+
+# TLS verification for the relay (same logic as pump_watcher)
+_relay_tls_env = os.getenv("PUMP_TLS_VERIFY", "true").lower()
+_RELAY_TLS_VERIFY: bool | str = True
+if _relay_tls_env in ("false", "0", "no"):
+    _RELAY_TLS_VERIFY = False
+elif os.getenv("PUMP_CA_CERT"):
+    _RELAY_TLS_VERIFY = os.getenv("PUMP_CA_CERT")
 
 # Pushover notification (iPhone push alerts)
 PUSHOVER_TOKEN = os.getenv("PUSHOVER_APP_TOKEN", "")
@@ -95,6 +105,40 @@ PUSHOVER_USER = os.getenv("PUSHOVER_USER_KEY", "")
 # Install ntfy app on iPhone → subscribe to this topic → done
 NTFY_TOPIC = os.getenv("NTFY_TOPIC", "ncl-natrix-intel-7x9k")
 NTFY_SERVER = os.getenv("NTFY_SERVER", "https://ntfy.sh")
+
+# ── Shared HTTP Client ───────────────────────────────────────────────────
+# Single httpx.AsyncClient reused across all notification / dispatch calls
+# to avoid connection pool exhaustion from per-request client creation.
+
+_spo_client: Optional["httpx.AsyncClient"] = None
+_spo_client_lock: Optional[asyncio.Lock] = None
+
+
+def _get_spo_lock() -> asyncio.Lock:
+    global _spo_client_lock
+    if _spo_client_lock is None:
+        _spo_client_lock = asyncio.Lock()
+    return _spo_client_lock
+
+
+async def _get_spo_client() -> "httpx.AsyncClient":
+    """Return a shared HTTP client for Strike Point Orchestrator calls."""
+    global _spo_client
+    import httpx
+    if _spo_client is None or _spo_client.is_closed:
+        async with _get_spo_lock():
+            if _spo_client is None or _spo_client.is_closed:
+                _spo_client = httpx.AsyncClient(timeout=30.0)
+    return _spo_client
+
+
+async def close_spo_client() -> None:
+    """Close the shared HTTP client (call on shutdown)."""
+    global _spo_client
+    if _spo_client is not None:
+        await _spo_client.aclose()
+        _spo_client = None
+
 
 # ── Logging ───────────────────────────────────────────────────────────────
 
@@ -136,48 +180,48 @@ async def notify_natrix(title: str, message: str, priority: int = 0) -> bool:
     # 1. Try ntfy.sh (free, no config needed)
     if NTFY_TOPIC:
         try:
-            import httpx
             ntfy_priority = {-2: 1, -1: 2, 0: 3, 1: 4, 2: 5}.get(priority, 3)
             # Strip non-ASCII for ntfy compatibility
             safe_title = title.encode("ascii", "replace").decode("ascii")
             safe_message = message.encode("utf-8")
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                resp = await client.post(
-                    f"{NTFY_SERVER}/{NTFY_TOPIC}",
-                    content=safe_message,
-                    headers={
-                        "Content-Type": "text/plain; charset=utf-8",
-                        "Title": safe_title,
-                        "Priority": str(ntfy_priority),
-                        "Tags": "brain,zap" if priority >= 1 else "brain",
-                        "Click": f"{NCL_BRAIN_URL}/app",
-                    },
-                )
-                resp.raise_for_status()
-                log.info(f"ntfy.sh notification sent: {title}")
-                sent = True
+            client = await _get_spo_client()
+            resp = await client.post(
+                f"{NTFY_SERVER}/{NTFY_TOPIC}",
+                content=safe_message,
+                headers={
+                    "Content-Type": "text/plain; charset=utf-8",
+                    "Title": safe_title,
+                    "Priority": str(ntfy_priority),
+                    "Tags": "brain,zap" if priority >= 1 else "brain",
+                    "Click": f"{NCL_BRAIN_URL}/app",
+                },
+                timeout=15.0,
+            )
+            resp.raise_for_status()
+            log.info(f"ntfy.sh notification sent: {title}")
+            sent = True
         except Exception as e:
             log.warning(f"ntfy.sh notification failed: {e}")
 
     # 2. Try Pushover if configured
     if not sent and PUSHOVER_TOKEN and PUSHOVER_USER:
         try:
-            import httpx
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                resp = await client.post(
-                    "https://api.pushover.net/1/messages.json",
-                    data={
-                        "token": PUSHOVER_TOKEN,
-                        "user": PUSHOVER_USER,
-                        "title": f"NARTIX: {title}",
-                        "message": message,
-                        "priority": priority,
-                        "sound": "cosmic" if priority >= 1 else "pushover",
-                    },
-                )
-                resp.raise_for_status()
-                log.info(f"Pushover notification sent: {title}")
-                sent = True
+            client = await _get_spo_client()
+            resp = await client.post(
+                "https://api.pushover.net/1/messages.json",
+                data={
+                    "token": PUSHOVER_TOKEN,
+                    "user": PUSHOVER_USER,
+                    "title": f"NARTIX: {title}",
+                    "message": message,
+                    "priority": priority,
+                    "sound": "cosmic" if priority >= 1 else "pushover",
+                },
+                timeout=15.0,
+            )
+            resp.raise_for_status()
+            log.info(f"Pushover notification sent: {title}")
+            sent = True
         except Exception as e:
             log.warning(f"Pushover notification failed: {e}")
 
@@ -280,50 +324,50 @@ async def notify_intelligence_brief(brief: dict, top_n: int = 3) -> bool:
     # 1. Try ntfy.sh (free, no config)
     if NTFY_TOPIC:
         try:
-            import httpx
             ntfy_priority = 4 if priority >= 1 else 3
             safe_title = f"NCL INTEL - {brief_type}"
             safe_message = message.encode("utf-8")
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                resp = await client.post(
-                    f"{NTFY_SERVER}/{NTFY_TOPIC}",
-                    content=safe_message,
-                    headers={
-                        "Content-Type": "text/plain; charset=utf-8",
-                        "Title": safe_title,
-                        "Priority": str(ntfy_priority),
-                        "Tags": "rotating_light,chart_with_upwards_trend" if priority >= 1 else "brain,chart_with_upwards_trend",
-                        "Click": f"{NCL_BRAIN_URL}/app",
-                    },
-                )
-                resp.raise_for_status()
-                log.info(f"ntfy.sh intel brief push sent: {brief_type} ({brief_id})")
-                sent = True
+            client = await _get_spo_client()
+            resp = await client.post(
+                f"{NTFY_SERVER}/{NTFY_TOPIC}",
+                content=safe_message,
+                headers={
+                    "Content-Type": "text/plain; charset=utf-8",
+                    "Title": safe_title,
+                    "Priority": str(ntfy_priority),
+                    "Tags": "rotating_light,chart_with_upwards_trend" if priority >= 1 else "brain,chart_with_upwards_trend",
+                    "Click": f"{NCL_BRAIN_URL}/app",
+                },
+                timeout=15.0,
+            )
+            resp.raise_for_status()
+            log.info(f"ntfy.sh intel brief push sent: {brief_type} ({brief_id})")
+            sent = True
         except Exception as e:
             log.warning(f"ntfy.sh intel push failed: {e}")
 
     # 2. Try Pushover if configured
     if not sent and PUSHOVER_TOKEN and PUSHOVER_USER:
         try:
-            import httpx
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                resp = await client.post(
-                    "https://api.pushover.net/1/messages.json",
-                    data={
-                        "token": PUSHOVER_TOKEN,
-                        "user": PUSHOVER_USER,
-                        "title": f"NCL INTEL — {brief_type}",
-                        "message": message,
-                        "priority": priority,
-                        "sound": "cosmic" if priority >= 1 else "magic",
-                        "url": f"{NCL_BRAIN_URL}/app",
-                        "url_title": "View Full Report",
-                        "html": 1,
-                    },
-                )
-                resp.raise_for_status()
-                log.info(f"Pushover intel brief push sent: {brief_type} ({brief_id})")
-                sent = True
+            client = await _get_spo_client()
+            resp = await client.post(
+                "https://api.pushover.net/1/messages.json",
+                data={
+                    "token": PUSHOVER_TOKEN,
+                    "user": PUSHOVER_USER,
+                    "title": f"NCL INTEL — {brief_type}",
+                    "message": message,
+                    "priority": priority,
+                    "sound": "cosmic" if priority >= 1 else "magic",
+                    "url": f"{NCL_BRAIN_URL}/app",
+                    "url_title": "View Full Report",
+                    "html": 1,
+                },
+                timeout=15.0,
+            )
+            resp.raise_for_status()
+            log.info(f"Pushover intel brief push sent: {brief_type} ({brief_id})")
+            sent = True
         except Exception as e:
             log.warning(f"Pushover intel push failed: {e}")
 
@@ -451,21 +495,21 @@ async def notify_relay_completion(pump_id: str, feedback: dict) -> bool:
     Send completion notification back to FirstStrike relay for iPhone delivery.
     """
     try:
-        import httpx
-        async with httpx.AsyncClient(timeout=15.0, verify=False) as client:
-            resp = await client.post(
-                f"{RELAY_URL}/responses",
-                headers={"Authorization": f"Bearer {STRIKE_TOKEN}"},
-                json={
-                    "pump_id": pump_id,
-                    "status": feedback.get("status", "complete"),
-                    "summary": feedback.get("summary", ""),
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                },
-            )
-            resp.raise_for_status()
-            log.info(f"Completion relayed to FirstStrike for pump {pump_id}")
-            return True
+        client = await _get_spo_client()
+        resp = await client.post(
+            f"{RELAY_URL}/responses",
+            headers={"Authorization": f"Bearer {STRIKE_TOKEN}"},
+            json={
+                "pump_id": pump_id,
+                "status": feedback.get("status", "complete"),
+                "summary": feedback.get("summary", ""),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+            timeout=15.0,
+        )
+        resp.raise_for_status()
+        log.info(f"Completion relayed to FirstStrike for pump {pump_id}")
+        return True
     except Exception as e:
         log.warning(f"Relay notification failed for {pump_id}: {e}")
         return False
@@ -515,13 +559,18 @@ def gather_brs_context() -> dict:
     return context
 
 
-def build_execution_context(mandate: dict) -> dict:
+async def build_execution_context(mandate: dict) -> dict:
     """
     Build rich execution context by combining mandate data with
     AAC market intelligence and BRS revenue signals.
+
+    gather_aac_context() and gather_brs_context() perform synchronous
+    glob/read_text I/O, so they are offloaded to a thread pool.
     """
-    aac = gather_aac_context()
-    brs = gather_brs_context()
+    aac, brs = await asyncio.gather(
+        asyncio.to_thread(gather_aac_context),
+        asyncio.to_thread(gather_brs_context),
+    )
 
     return {
         "mandate": mandate,
@@ -552,6 +601,10 @@ async def dispatch_mandate(mandate: dict) -> dict:
     3. Sends to NCC server (creates /mandate/intake if needed)
     4. Triggers execution_loop.py for coding mandates
     5. Notifies NATRIX that execution has started
+
+    Returns a result dict with status.  On unexpected failure the
+    exception is logged and re-raised so the caller can decide how to
+    handle it (the watch loop retries; the CLI reports and exits).
     """
     mandate_id = mandate.get("mandate_id", "unknown")
     pump_id = mandate.get("pump_id", "")
@@ -560,69 +613,79 @@ async def dispatch_mandate(mandate: dict) -> dict:
 
     log.info(f"Dispatching mandate {mandate_id} to {pillar}")
 
-    # Step 1: Validate
-    validation = _validate_mandate(mandate)
-    if not validation["valid"]:
-        log.error(f"Mandate validation failed: {validation['errors']}")
+    try:
+        # Step 1: Validate
+        validation = _validate_mandate(mandate)
+        if not validation["valid"]:
+            log.error(f"Mandate validation failed: {validation['errors']}")
+            await notify_natrix(
+                f"❌ Mandate Rejected — {title[:40]}",
+                f"{title}\n\n"
+                f"Validation failed: {', '.join(validation['errors'])}\n\n"
+                f"Fix and resubmit via pump.",
+                priority=1,
+            )
+            return {"status": "rejected", "errors": validation["errors"]}
+
+        # Step 2: Enrich with AAC/BRS context
+        execution_context = await build_execution_context(mandate)
+
+        # Step 3: Write enriched mandate to NCC intake
+        ncc_intake_dir = NCC_BASE / "mandate-intake"
+        ncc_intake_dir.mkdir(parents=True, exist_ok=True)
+        intake_file = ncc_intake_dir / f"{mandate_id}.json"
+        intake_file.write_text(json.dumps(execution_context, indent=2, default=str))
+        log.info(f"Mandate written to NCC intake → {intake_file.name}")
+
+        # Step 4: Also try HTTP dispatch to NCC (if endpoint exists)
+        http_result = await _try_ncc_http_dispatch(mandate)
+
+        # Step 5: Write to execution pipeline input
+        exec_input = EXEC_PIPELINE / "01-Input"
+        exec_input.mkdir(parents=True, exist_ok=True)
+        exec_pump = exec_input / f"pump-{mandate_id}.json"
+        exec_pump.write_text(json.dumps({
+            "pump_id": pump_id or mandate_id,
+            "mandate_id": mandate_id,
+            "raw_intent": mandate.get("objective", title),
+            "target_pillar": pillar,
+            "priority": mandate.get("priority_level", "P2"),
+            "aac_context": execution_context.get("aac_context", {}),
+            "brs_context": execution_context.get("brs_context", {}),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }, indent=2, default=str))
+
+        # Step 6: Auto-trigger execution loop for coding mandates
+        if _is_coding_mandate(mandate):
+            log.info(f"Coding mandate detected — launching execution loop")
+            _trigger_execution_loop(pump_id or mandate_id)
+
+        # Step 7: Notify NATRIX — include objective context so the push has substance
+        objective = mandate.get("objective", "") or title
+        priority_lvl = mandate.get("priority_level", "P2")
         await notify_natrix(
-            f"❌ Mandate Rejected — {title[:40]}",
-            f"{title}\n\n"
-            f"Validation failed: {', '.join(validation['errors'])}\n\n"
-            f"Fix and resubmit via pump.",
-            priority=1,
+            f"⚡ {title[:60]}",
+            f"Mandate dispatched to {pillar} ({priority_lvl})\n\n"
+            f"{objective[:200]}\n\n"
+            f"📋 {NCL_BRAIN_URL}/app",
         )
-        return {"status": "rejected", "errors": validation["errors"]}
 
-    # Step 2: Enrich with AAC/BRS context
-    execution_context = build_execution_context(mandate)
+        return {
+            "status": "dispatched",
+            "mandate_id": mandate_id,
+            "ncc_intake_file": str(intake_file),
+            "http_dispatch": http_result,
+            "execution_triggered": _is_coding_mandate(mandate),
+        }
 
-    # Step 3: Write enriched mandate to NCC intake
-    ncc_intake_dir = NCC_BASE / "mandate-intake"
-    ncc_intake_dir.mkdir(parents=True, exist_ok=True)
-    intake_file = ncc_intake_dir / f"{mandate_id}.json"
-    intake_file.write_text(json.dumps(execution_context, indent=2, default=str))
-    log.info(f"Mandate written to NCC intake → {intake_file.name}")
-
-    # Step 4: Also try HTTP dispatch to NCC (if endpoint exists)
-    http_result = await _try_ncc_http_dispatch(mandate)
-
-    # Step 5: Write to execution pipeline input
-    exec_input = EXEC_PIPELINE / "01-Input"
-    exec_input.mkdir(parents=True, exist_ok=True)
-    exec_pump = exec_input / f"pump-{mandate_id}.json"
-    exec_pump.write_text(json.dumps({
-        "pump_id": pump_id or mandate_id,
-        "mandate_id": mandate_id,
-        "raw_intent": mandate.get("objective", title),
-        "target_pillar": pillar,
-        "priority": mandate.get("priority_level", "P2"),
-        "aac_context": execution_context.get("aac_context", {}),
-        "brs_context": execution_context.get("brs_context", {}),
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }, indent=2, default=str))
-
-    # Step 6: Auto-trigger execution loop for coding mandates
-    if _is_coding_mandate(mandate):
-        log.info(f"Coding mandate detected — launching execution loop")
-        _trigger_execution_loop(pump_id or mandate_id)
-
-    # Step 7: Notify NATRIX — include objective context so the push has substance
-    objective = mandate.get("objective", "") or title
-    priority_lvl = mandate.get("priority_level", "P2")
-    await notify_natrix(
-        f"⚡ {title[:60]}",
-        f"Mandate dispatched to {pillar} ({priority_lvl})\n\n"
-        f"{objective[:200]}\n\n"
-        f"📋 {NCL_BRAIN_URL}/app",
-    )
-
-    return {
-        "status": "dispatched",
-        "mandate_id": mandate_id,
-        "ncc_intake_file": str(intake_file),
-        "http_dispatch": http_result,
-        "execution_triggered": _is_coding_mandate(mandate),
-    }
+    except Exception as e:
+        log.exception(
+            "dispatch_mandate failed for mandate %s: %s",
+            mandate_id,
+            e,
+        )
+        # Surface failure to caller — don't swallow it silently.
+        raise
 
 
 def _validate_mandate(mandate: dict) -> dict:
@@ -630,8 +693,10 @@ def _validate_mandate(mandate: dict) -> dict:
     errors = []
 
     mandate_id = mandate.get("mandate_id", "")
-    if not mandate_id or not mandate_id.startswith("MANDATE-"):
-        errors.append(f"Invalid mandate_id format: '{mandate_id}' (expected MANDATE-YYYY-NNN)")
+    # Strict allowlist: reject any ID containing path-traversal characters (/, \, ..)
+    _MANDATE_ID_RE = re.compile(r"^MANDATE-[a-zA-Z0-9_-]+$")
+    if not mandate_id or not _MANDATE_ID_RE.match(mandate_id):
+        errors.append(f"Invalid mandate_id format: '{mandate_id}' (expected MANDATE-<alphanumeric>)")
 
     priority = mandate.get("priority_level", "")
     if priority not in ("P1", "P2", "P3", "P4"):
@@ -661,30 +726,67 @@ def _is_coding_mandate(mandate: dict) -> bool:
 async def _try_ncc_http_dispatch(mandate: dict) -> dict:
     """Try to dispatch via NCC server HTTP API. Returns status."""
     try:
-        import httpx
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            # Try the event endpoint (NCC's actual ingestion point)
-            resp = await client.post(
-                f"{NCC_SERVER_URL}/event",
-                json={
-                    "type": "mandate_dispatch",
-                    "mandate_id": mandate.get("mandate_id"),
-                    "pillar": mandate.get("pillar"),
-                    "title": mandate.get("title"),
-                    "priority": mandate.get("priority_level", "P2"),
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                },
-            )
-            resp.raise_for_status()
-            log.info("NCC HTTP dispatch succeeded via /event")
-            return {"method": "http", "status": "delivered", "endpoint": "/event"}
+        client = await _get_spo_client()
+        # Try the event endpoint (NCC's actual ingestion point)
+        resp = await client.post(
+            f"{NCC_SERVER_URL}/event",
+            json={
+                "type": "mandate_dispatch",
+                "mandate_id": mandate.get("mandate_id"),
+                "pillar": mandate.get("pillar"),
+                "title": mandate.get("title"),
+                "priority": mandate.get("priority_level", "P2"),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+            timeout=15.0,
+        )
+        resp.raise_for_status()
+        log.info("NCC HTTP dispatch succeeded via /event")
+        return {"method": "http", "status": "delivered", "endpoint": "/event"}
     except Exception as e:
         log.warning(f"NCC HTTP dispatch failed: {e} — using file-based intake")
         return {"method": "file", "status": "file_only", "reason": str(e)}
 
 
+_active_subprocesses: list[subprocess.Popen] = []
+
+
+def _cleanup_subprocesses() -> None:
+    """Reap finished subprocesses and log their stderr if any."""
+    still_alive = []
+    for proc in _active_subprocesses:
+        ret = proc.poll()
+        if ret is not None:
+            # Process finished — capture stderr
+            if proc.stderr:
+                stderr_output = proc.stderr.read()
+                if stderr_output:
+                    log.warning(f"Subprocess PID {proc.pid} stderr: {stderr_output.strip()}")
+                proc.stderr.close()
+            if ret != 0:
+                log.warning(f"Subprocess PID {proc.pid} exited with code {ret}")
+        else:
+            still_alive.append(proc)
+    _active_subprocesses.clear()
+    _active_subprocesses.extend(still_alive)
+
+
+def _kill_all_subprocesses() -> None:
+    """Kill all tracked subprocesses (for shutdown)."""
+    for proc in _active_subprocesses:
+        try:
+            proc.kill()
+            proc.wait(timeout=5)
+        except Exception:
+            pass
+    _active_subprocesses.clear()
+
+
 def _trigger_execution_loop(pump_id: str) -> None:
-    """Launch execution_loop.py as a background process."""
+    """Launch execution_loop.py as a background process with stderr capture."""
+    # Clean up any finished subprocesses first
+    _cleanup_subprocesses()
+
     try:
         cmd = [
             sys.executable, "-m", "runtime.execution_loop", pump_id,
@@ -692,9 +794,11 @@ def _trigger_execution_loop(pump_id: str) -> None:
         proc = subprocess.Popen(
             cmd,
             cwd=str(NCL_BASE),
-            stdout=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
+            text=True,
         )
+        _active_subprocesses.append(proc)
         log.info(f"Execution loop launched for {pump_id} (PID: {proc.pid})")
     except Exception as e:
         log.error(f"Failed to launch execution loop: {e}")
@@ -766,28 +870,61 @@ async def process_execution_feedback(pump_id: str) -> dict:
 async def _post_feedback_to_brain(pump_id: str, feedback: dict) -> bool:
     """POST execution feedback to NCL brain API."""
     try:
-        import httpx
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(
-                f"{NCL_BRAIN_URL}/feedback",
-                headers={"Authorization": f"Bearer {STRIKE_TOKEN}"},
-                json={
-                    "pump_id": pump_id,
-                    "source": "NCC",
-                    "status": feedback.get("status"),
-                    "summary": feedback.get("summary"),
-                    "metrics": feedback.get("metrics", {}),
-                },
-            )
-            resp.raise_for_status()
-            log.info("Feedback posted to NCL brain API")
-            return True
+        client = await _get_spo_client()
+        resp = await client.post(
+            f"{NCL_BRAIN_URL}/feedback",
+            headers={"Authorization": f"Bearer {STRIKE_TOKEN}"},
+            json={
+                "pump_id": pump_id,
+                "source": "NCC",
+                "status": feedback.get("status"),
+                "summary": feedback.get("summary"),
+                "metrics": feedback.get("metrics", {}),
+            },
+            timeout=15.0,
+        )
+        resp.raise_for_status()
+        log.info("Feedback posted to NCL brain API")
+        return True
     except Exception as e:
         log.warning(f"Brain API feedback POST failed: {e}")
         return False
 
 
 # ── Pipeline Status ───────────────────────────────────────────────────────
+
+# Simple in-process cache for notification counts (10-second TTL)
+_notif_cache: dict = {}
+_notif_cache_ts: float = 0.0
+_NOTIF_CACHE_TTL: float = 10.0
+
+
+def _get_notification_counts(notif_dir: Path) -> tuple[int, int]:
+    """
+    Return (total, unacknowledged) notification counts.
+
+    Results are cached for _NOTIF_CACHE_TTL seconds to avoid reading every
+    notification file on each call to get_pipeline_status().
+    """
+    import time as _time
+    global _notif_cache, _notif_cache_ts
+
+    now = _time.monotonic()
+    if _notif_cache and (now - _notif_cache_ts) < _NOTIF_CACHE_TTL:
+        return _notif_cache["total"], _notif_cache["unacked"]
+
+    notifs = list(notif_dir.glob("notif-*.json")) if notif_dir.exists() else []
+    unacked = 0
+    for n in notifs:
+        try:
+            unacked += 0 if json.loads(n.read_text()).get("acknowledged", False) else 1
+        except (json.JSONDecodeError, OSError):
+            log.warning(f"Skipping corrupt notification file: {n.name}")
+
+    _notif_cache = {"total": len(notifs), "unacked": unacked}
+    _notif_cache_ts = now
+    return len(notifs), unacked
+
 
 def get_pipeline_status() -> dict:
     """Get current status of the full First Strike → NCL → NCC pipeline."""
@@ -824,12 +961,11 @@ def get_pipeline_status() -> dict:
         "completed_feedbacks": len(feedback_files),
     }
 
-    # Stage 5: Notifications
+    # Stage 5: Notifications — use cached counts to avoid per-file reads on every call
     notif_dir = NCL_BASE / "notifications"
-    notifs = list(notif_dir.glob("notif-*.json")) if notif_dir.exists() else []
-    unacked = sum(1 for n in notifs if not json.loads(n.read_text()).get("acknowledged", False))
+    total_notifs, unacked = _get_notification_counts(notif_dir)
     status["stages"]["5_notifications"] = {
-        "total": len(notifs),
+        "total": total_notifs,
         "unacknowledged": unacked,
     }
 
@@ -845,16 +981,49 @@ def get_pipeline_status() -> dict:
 
 # ── Mandate Watcher (Service Mode) ───────────────────────────────────────
 
+class _BoundedSet:
+    """Set with a maximum size — evicts oldest entries when full."""
+
+    def __init__(self, maxlen: int = 10_000) -> None:
+        self._data: OrderedDict[str, None] = OrderedDict()
+        self._maxlen = maxlen
+
+    def __contains__(self, item: str) -> bool:
+        return item in self._data
+
+    def add(self, item: str) -> None:
+        if item in self._data:
+            self._data.move_to_end(item)
+            return
+        self._data[item] = None
+        while len(self._data) > self._maxlen:
+            self._data.popitem(last=False)
+
+
+_MAX_DISPATCH_RETRIES = 5
+_BACKOFF_BASE = 1.0       # seconds
+_BACKOFF_MAX = 60.0        # seconds
+
+
 async def watch_mandates(poll_interval: int = 30) -> None:
     """
     Watch for newly approved mandates and auto-dispatch them.
     Runs as a long-lived service alongside NCL brain.
+
+    The outer loop is crash-proof: any unhandled exception is logged and
+    the loop sleeps before retrying, so a transient failure in one cycle
+    cannot kill the service.
     """
     log.info(f"Strike Point Orchestrator watching for mandates (poll every {poll_interval}s)")
-    processed: set[str] = set()
+    processed = _BoundedSet(maxlen=10_000)
+    # Track retry counts per mandate for exponential backoff
+    retry_counts: dict[str, int] = {}
 
     while True:
         try:
+            # Clean up finished subprocesses each cycle
+            _cleanup_subprocesses()
+
             # Check for new mandate files
             for mf in sorted(MANDATE_OUTPUT.glob("mandate-*.json")):
                 if mf.name in processed:
@@ -865,13 +1034,45 @@ async def watch_mandates(poll_interval: int = 30) -> None:
                     status = mandate.get("status", "")
 
                     if status == "APPROVED":
+                        retries = retry_counts.get(mf.name, 0)
+                        if retries >= _MAX_DISPATCH_RETRIES:
+                            log.error(
+                                "Max retries (%d) exhausted for %s — giving up",
+                                _MAX_DISPATCH_RETRIES,
+                                mf.name,
+                            )
+                            processed.add(mf.name)
+                            retry_counts.pop(mf.name, None)
+                            continue
+
                         log.info(f"New approved mandate: {mf.name}")
-                        result = await dispatch_mandate(mandate)
-                        log.info(f"Dispatch result: {result.get('status')}")
-                        processed.add(mf.name)
+                        try:
+                            result = await dispatch_mandate(mandate)
+                            log.info(f"Dispatch result: {result.get('status')}")
+                            processed.add(mf.name)
+                            retry_counts.pop(mf.name, None)
+                        except Exception as e:
+                            retry_counts[mf.name] = retries + 1
+                            backoff = min(_BACKOFF_MAX, _BACKOFF_BASE * (2 ** retries))
+                            log.error(
+                                "dispatch_mandate failed for %s: %s — retry %d/%d, backoff %.1fs",
+                                mf.name,
+                                e,
+                                retries + 1,
+                                _MAX_DISPATCH_RETRIES,
+                                backoff,
+                            )
+                            await asyncio.sleep(backoff)
+                            continue
 
                 except (json.JSONDecodeError, OSError) as e:
-                    log.error(f"Failed to process {mf.name}: {e}")
+                    log.error(f"Failed to read/parse {mf.name}: {e}")
+                except Exception as e:
+                    log.exception(
+                        "Unexpected error processing mandate file %s: %s",
+                        mf.name,
+                        e,
+                    )
 
             # Check for completed executions needing feedback processing
             output_dir = EXEC_PIPELINE / "05-Output"
@@ -880,12 +1081,23 @@ async def watch_mandates(poll_interval: int = 30) -> None:
                     pump_id = fb.stem.replace("feedback-", "")
                     report_key = f"feedback-{pump_id}"
                     if report_key not in processed:
-                        result = await process_execution_feedback(pump_id)
-                        if result.get("status") == "processed":
-                            processed.add(report_key)
+                        try:
+                            result = await process_execution_feedback(pump_id)
+                            if result.get("status") == "processed":
+                                processed.add(report_key)
+                        except Exception as e:
+                            log.error(
+                                "process_execution_feedback failed for pump %s: %s",
+                                pump_id,
+                                e,
+                            )
 
         except Exception as e:
-            log.error(f"Watch loop error: {e}")
+            log.exception(
+                "Unhandled exception in watch_mandates loop: %s — sleeping %ds before retry",
+                e,
+                poll_interval,
+            )
 
         await asyncio.sleep(poll_interval)
 

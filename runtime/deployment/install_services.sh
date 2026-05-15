@@ -77,12 +77,13 @@ for SERVICE in "${SERVICES[@]}"; do
     fi
 
     cp "$PLIST" "$LAUNCH_AGENTS/$LABEL.plist"
-    if launchctl load "$LAUNCH_AGENTS/$LABEL.plist" 2>/dev/null; then
+    launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
+    if launchctl bootstrap "gui/$(id -u)" "$LAUNCH_AGENTS/$LABEL.plist" 2>/dev/null; then
         echo -e "${GREEN}OK${NC}"
         INSTALLED=$((INSTALLED + 1))
     else
         # In some cases, service may be installed but not loaded. That's OK.
-        echo -e "${YELLOW}LOAD${NC} (plist copied, load skipped or already loaded)"
+        echo -e "${YELLOW}LOAD${NC} (plist copied, bootstrap skipped or already loaded)"
         INSTALLED=$((INSTALLED + 1))
     fi
 done
@@ -122,6 +123,6 @@ echo "  launchctl start com.resonanceenergy.ncl-brain"
 echo "  launchctl stop com.resonanceenergy.ncl-brain"
 echo ""
 echo "Uninstall:"
-echo "  launchctl unload ~/Library/LaunchAgents/com.resonanceenergy.*.plist"
+echo "  launchctl bootout gui/\$(id -u)/com.resonanceenergy.ncl-brain"
 echo ""
 echo -e "${GREEN}Installation complete!${NC}"

@@ -8,6 +8,7 @@ lifecycle methods for executing the graph.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections import deque
@@ -202,18 +203,24 @@ class TaskGraphBuilder:
             )
             graph.nodes[node.subtask_id] = node
 
-        # Build edge list from depends_on
+        # Build edge list from depends_on; strip unknown dep IDs so they
+        # don't permanently block nodes (Gap 6).
         for node in graph.nodes.values():
+            valid_deps: list[str] = []
             for dep_id in node.depends_on:
                 if dep_id in graph.nodes:
                     graph.edges.append((dep_id, node.subtask_id))
+                    valid_deps.append(dep_id)
                 else:
                     logger.warning(
-                        "TaskGraph %s: node %s depends on unknown node %s (ignoring)",
+                        "TaskGraph %s: node %s depends on unknown node %s — "
+                        "treating dependency as satisfied",
                         task_id,
                         node.subtask_id,
                         dep_id,
                     )
+            # Keep depends_on in sync with edges (Gap 9)
+            node.depends_on = valid_deps
 
         return graph
 
@@ -270,6 +277,7 @@ class TaskGraphEngine:
 
     def __init__(self, graph: TaskGraph) -> None:
         self._graph = graph
+        self._mutation_lock = asyncio.Lock()  # Serialises mark_complete/mark_failed (Gap 30)
 
     @property
     def graph(self) -> TaskGraph:
@@ -312,30 +320,33 @@ class TaskGraphEngine:
 
         return result
 
-    def get_ready_nodes(self) -> list[SubtaskNode]:
+    async def get_ready_nodes(self) -> list[SubtaskNode]:
         """
         Return subtask nodes whose dependencies are all COMPLETED and
         which are still in PENDING status (ready to execute).
 
+        Thread-safe: acquires _mutation_lock to ensure consistent reads (Gap 8).
+
         Returns:
             List of SubtaskNode objects ready for dispatch.
         """
-        completed_ids = {
-            nid
-            for nid, node in self._graph.nodes.items()
-            if node.status == TaskStatus.COMPLETED
-        }
+        async with self._mutation_lock:
+            completed_ids = {
+                nid
+                for nid, node in self._graph.nodes.items()
+                if node.status == TaskStatus.COMPLETED
+            }
 
-        ready = []
-        for node in self._graph.nodes.values():
-            if node.status != TaskStatus.PENDING:
-                continue
-            if all(dep in completed_ids for dep in node.depends_on):
-                ready.append(node)
+            ready = []
+            for node in self._graph.nodes.values():
+                if node.status != TaskStatus.PENDING:
+                    continue
+                if all(dep in completed_ids for dep in node.depends_on):
+                    ready.append(node)
 
-        return ready
+            return ready
 
-    def mark_complete(self, subtask_id: str, result: dict[str, Any]) -> list[str]:
+    async def mark_complete(self, subtask_id: str, result: dict[str, Any]) -> list[str]:
         """
         Mark a subtask as COMPLETED and store its output.
 
@@ -349,31 +360,39 @@ class TaskGraphEngine:
         Raises:
             KeyError: If subtask_id is not in the graph.
         """
-        node = self._get_node(subtask_id)
-        node.status = TaskStatus.COMPLETED
-        node.output_data = result
+        async with self._mutation_lock:
+            node = self._get_node(subtask_id)
+            # Reject updates to cancelled nodes (Gap 7)
+            if node.status == TaskStatus.CANCELLED:
+                logger.warning(
+                    "TaskGraph: ignoring mark_complete on CANCELLED node %s",
+                    subtask_id,
+                )
+                return []
+            node.status = TaskStatus.COMPLETED
+            node.output_data = result
 
-        logger.info("TaskGraph: subtask %s COMPLETED", subtask_id)
+            logger.info("TaskGraph: subtask %s COMPLETED", subtask_id)
 
-        # Check which downstream nodes are now ready
-        newly_ready: list[str] = []
-        completed_ids = {
-            nid
-            for nid, n in self._graph.nodes.items()
-            if n.status == TaskStatus.COMPLETED
-        }
+            # Check which downstream nodes are now ready
+            newly_ready: list[str] = []
+            completed_ids = {
+                nid
+                for nid, n in self._graph.nodes.items()
+                if n.status == TaskStatus.COMPLETED
+            }
 
-        for nid, n in self._graph.nodes.items():
-            if n.status != TaskStatus.PENDING:
-                continue
-            if subtask_id in n.depends_on and all(
-                dep in completed_ids for dep in n.depends_on
-            ):
-                newly_ready.append(nid)
+            for nid, n in self._graph.nodes.items():
+                if n.status != TaskStatus.PENDING:
+                    continue
+                if subtask_id in n.depends_on and all(
+                    dep in completed_ids for dep in n.depends_on
+                ):
+                    newly_ready.append(nid)
 
-        return newly_ready
+            return newly_ready
 
-    def mark_failed(self, subtask_id: str, error: str) -> list[str]:
+    async def mark_failed(self, subtask_id: str, error: str) -> list[str]:
         """
         Mark a subtask as FAILED and propagate failure to all dependents.
 
@@ -387,36 +406,52 @@ class TaskGraphEngine:
         Raises:
             KeyError: If subtask_id is not in the graph.
         """
-        node = self._get_node(subtask_id)
-        node.status = TaskStatus.FAILED
-        node.output_data = {"error": error}
+        async with self._mutation_lock:
+            node = self._get_node(subtask_id)
+            # Reject updates to cancelled nodes (Gap 7)
+            if node.status == TaskStatus.CANCELLED:
+                logger.warning(
+                    "TaskGraph: ignoring mark_failed on CANCELLED node %s",
+                    subtask_id,
+                )
+                return []
+            node.status = TaskStatus.FAILED
+            node.output_data = {"error": error}
 
-        logger.warning("TaskGraph: subtask %s FAILED: %s", subtask_id, error)
+            logger.warning("TaskGraph: subtask %s FAILED: %s", subtask_id, error)
 
-        # Propagate failure to all downstream dependents (BFS)
-        failed_downstream: list[str] = []
-        queue: deque[str] = deque([subtask_id])
+            # Propagate failure to all downstream dependents (BFS)
+            failed_downstream: list[str] = []
+            queue: deque[str] = deque([subtask_id])
 
-        while queue:
-            current = queue.popleft()
-            for nid, n in self._graph.nodes.items():
-                if n.status == TaskStatus.PENDING and current in n.depends_on:
-                    n.status = TaskStatus.FAILED
-                    n.output_data = {
-                        "error": f"Upstream dependency '{current}' failed"
-                    }
-                    failed_downstream.append(nid)
-                    queue.append(nid)
+            while queue:
+                current = queue.popleft()
+                for nid, n in self._graph.nodes.items():
+                    if n.status == TaskStatus.PENDING and current in n.depends_on:
+                        n.status = TaskStatus.FAILED
+                        n.output_data = {
+                            "error": f"Upstream dependency '{current}' failed"
+                        }
+                        failed_downstream.append(nid)
+                        queue.append(nid)
+                    elif n.status == TaskStatus.IN_PROGRESS and current in n.depends_on:
+                        # IN_PROGRESS dependents cannot recover — cancel them
+                        n.status = TaskStatus.CANCELLED
+                        n.output_data = {
+                            "error": f"Upstream dependency '{current}' failed while in progress"
+                        }
+                        failed_downstream.append(nid)
+                        queue.append(nid)
 
-        if failed_downstream:
-            logger.warning(
-                "TaskGraph: propagated failure from %s to %d downstream nodes: %s",
-                subtask_id,
-                len(failed_downstream),
-                failed_downstream,
-            )
+            if failed_downstream:
+                logger.warning(
+                    "TaskGraph: propagated failure from %s to %d downstream nodes: %s",
+                    subtask_id,
+                    len(failed_downstream),
+                    failed_downstream,
+                )
 
-        return failed_downstream
+            return failed_downstream
 
     def is_complete(self) -> bool:
         """

@@ -5,15 +5,17 @@
     <key>Label</key>
     <string>com.resonanceenergy.ncl-brain</string>
 
+    <!-- Wrapper script sources ~/.env and the project .env before exec-ing uvicorn,
+         ensuring all API keys and runtime variables are present. launchd does not
+         run a login shell so .bashrc/.zshenv are never sourced without this wrapper. -->
     <key>ProgramArguments</key>
     <array>
-        <string>/opt/homebrew/bin/python3</string>
-        <string>-m</string>
-        <string>runtime.api.routes</string>
+        <string>/bin/bash</string>
+        <string>__HOME__/dev/NCL/scripts/launch-brain.sh</string>
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/natrix/dev/NCL</string>
+    <string>__HOME__/dev/NCL</string>
 
     <key>RunAtLoad</key>
     <true/>
@@ -28,17 +30,17 @@
     <integer>10</integer>
 
     <key>StandardOutPath</key>
-    <string>/Users/natrix/dev/NCL/logs/ncl-brain-stdout.log</string>
+    <string>__HOME__/dev/NCL/logs/ncl-brain-stdout.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/Users/natrix/dev/NCL/logs/ncl-brain-stderr.log</string>
+    <string>__HOME__/dev/NCL/logs/ncl-brain-stderr.log</string>
 
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
         <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin</string>
         <key>PYTHONPATH</key>
-        <string>/Users/natrix/dev/NCL</string>
+        <string>__HOME__/dev/NCL</string>
     </dict>
 </dict>
 </plist>

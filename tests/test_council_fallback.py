@@ -31,19 +31,14 @@ from runtime.ncl_brain.models import (
 @pytest.fixture
 def council_engine():
     """Create a council engine with mocked dependencies."""
-    pytest.skip(
-        "Test fixture out of date: CouncilEngine now takes api_key strings "
-        "and uses an internal http_client, not injected client objects. "
-        "Tests need rewriting against the api_key + httpx.AsyncClient mock pattern."
-    )
     engine = CouncilEngine(
-        claude_client=AsyncMock(),
-        grok_client=AsyncMock(),
-        gemini_client=AsyncMock(),
-        perplexity_client=AsyncMock(),
-        gpt_client=AsyncMock(),
-        copilot_client=AsyncMock(),
-        ollama_host="http://localhost:11434",
+        claude_api_key="test-key-claude",
+        xai_api_key="test-key-xai",
+        google_api_key="test-key-google",
+        perplexity_api_key="test-key-perplexity",
+        openai_api_key="test-key-openai",
+        copilot_api_key="test-key-copilot",
+        ollama_host="localhost:11434",
     )
     return engine
 
@@ -406,4 +401,6 @@ async def test_council_timeout_handling(council_engine):
         available = len(responses) - len(timed_out)
         quorum_met = available >= 4
 
-        assert not quorum_met or available >= 4  # Quorum only met if 4+ available
+        # With 1 timed out member, 5 are available — quorum should be met
+        assert quorum_met, f"Expected quorum met with {available} available members"
+        assert available >= 4, f"Expected 4+ available, got {available}"

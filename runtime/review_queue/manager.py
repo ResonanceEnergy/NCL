@@ -4,13 +4,22 @@ Aggregates pending items from pumps, governance actions, and council sessions
 into a unified inbox with batch operations, tagging, linking, and archiving.
 """
 
+import asyncio
 import json
+import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
+
+log = logging.getLogger("ncl.review_queue")
+
+# Queue limits
+MAX_QUEUE_SIZE = 1_000          # Max active (non-archived) items
+MAX_ITEM_AGE_HOURS = 72         # Items older than this are auto-archived on refresh
+MAX_ARCHIVE_SIZE = 5_000        # Max archived items (oldest evicted when exceeded)
 
 
 class ReviewItemType(str, Enum):
@@ -63,6 +72,16 @@ class BatchOperation(BaseModel):
     params: Dict[str, Any] = Field(default_factory=dict)
 
 
+
+def _safe_urgency(value: str) -> "UrgencyLevel":
+    """Convert a string to UrgencyLevel, falling back to NORMAL on invalid values."""
+    try:
+        return UrgencyLevel(value)
+    except ValueError:
+        log.warning("Unknown urgency level %r — defaulting to NORMAL", value)
+        return UrgencyLevel.NORMAL
+
+
 class ReviewQueueManager:
     """Manages review queue inbox for NCL pipeline."""
 
@@ -90,65 +109,169 @@ class ReviewQueueManager:
         self.cached_suggestions: Dict[str, List[Suggestion]] = {}
 
     async def init(self):
-        """Load state from disk."""
-        self._load_items()
-        self._load_tags()
-        self._load_links()
-        self._load_archive()
+        """Load state from disk (file I/O offloaded to thread pool)."""
+        await asyncio.to_thread(self._load_items)
+        await asyncio.to_thread(self._load_tags)
+        await asyncio.to_thread(self._load_links)
+        await asyncio.to_thread(self._load_archive)
 
     def _load_items(self):
         """Load items from jsonl file."""
         if self.items_path.exists():
-            with open(self.items_path, 'r') as f:
-                for line in f:
-                    if line.strip():
-                        data = json.loads(line)
-                        item = ReviewItem(**data)
-                        self.items[item.item_id] = item
+            try:
+                with open(self.items_path, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            data = json.loads(line)
+                            item = ReviewItem(**data)
+                            self.items[item.item_id] = item
+                        except Exception as e:
+                            log.warning("Skipping malformed review item: %s", e)
+            except OSError as e:
+                log.error("Failed to load review queue items: %s", e)
 
     def _load_tags(self):
         """Load tag assignments from json file."""
         if self.tags_path.exists():
-            with open(self.tags_path, 'r') as f:
-                self.tag_assignments = json.load(f)
+            try:
+                with open(self.tags_path, 'r') as f:
+                    self.tag_assignments = json.load(f)
+            except Exception as e:
+                log.error("Failed to load tag assignments: %s", e)
 
     def _load_links(self):
         """Load item links from json file."""
         if self.links_path.exists():
-            with open(self.links_path, 'r') as f:
-                self.item_links = json.load(f)
+            try:
+                with open(self.links_path, 'r') as f:
+                    self.item_links = json.load(f)
+            except Exception as e:
+                log.error("Failed to load item links: %s", e)
 
     def _load_archive(self):
         """Load archived items from jsonl file."""
         if self.archive_path.exists():
-            with open(self.archive_path, 'r') as f:
-                for line in f:
-                    if line.strip():
-                        data = json.loads(line)
-                        item = ReviewItem(**data)
-                        self.archived[item.item_id] = item
+            try:
+                with open(self.archive_path, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            data = json.loads(line)
+                            item = ReviewItem(**data)
+                            self.archived[item.item_id] = item
+                        except Exception as e:
+                            log.warning("Skipping malformed archive item: %s", e)
+            except OSError as e:
+                log.error("Failed to load review queue archive: %s", e)
 
     def _save_items(self):
         """Save items to jsonl file."""
-        with open(self.items_path, 'w') as f:
-            for item in self.items.values():
-                f.write(item.model_dump_json() + '\n')
+        try:
+            with open(self.items_path, 'w') as f:
+                for item in self.items.values():
+                    f.write(item.model_dump_json() + '\n')
+        except OSError as e:
+            log.error("Failed to save review queue items: %s", e)
 
     def _save_tags(self):
         """Save tag assignments to json file."""
-        with open(self.tags_path, 'w') as f:
-            json.dump(self.tag_assignments, f, indent=2)
+        try:
+            with open(self.tags_path, 'w') as f:
+                json.dump(self.tag_assignments, f, indent=2)
+        except OSError as e:
+            log.error("Failed to save tag assignments: %s", e)
 
     def _save_links(self):
         """Save item links to json file."""
-        with open(self.links_path, 'w') as f:
-            json.dump(self.item_links, f, indent=2)
+        try:
+            with open(self.links_path, 'w') as f:
+                json.dump(self.item_links, f, indent=2)
+        except OSError as e:
+            log.error("Failed to save item links: %s", e)
 
     def _save_archive(self):
-        """Save archived items to jsonl file."""
-        with open(self.archive_path, 'w') as f:
-            for item in self.archived.values():
-                f.write(item.model_dump_json() + '\n')
+        """Save archived items to jsonl file, evicting oldest if over cap."""
+        # Evict oldest archived items if over cap
+        if len(self.archived) > MAX_ARCHIVE_SIZE:
+            sorted_archived = sorted(
+                self.archived.items(),
+                key=lambda kv: kv[1].archived_at or "",
+            )
+            excess = len(self.archived) - MAX_ARCHIVE_SIZE
+            for item_id, _ in sorted_archived[:excess]:
+                del self.archived[item_id]
+            log.info("Archive evicted %d oldest entries (cap=%d)", excess, MAX_ARCHIVE_SIZE)
+
+        try:
+            with open(self.archive_path, 'w') as f:
+                for item in self.archived.values():
+                    f.write(item.model_dump_json() + '\n')
+        except OSError as e:
+            log.error("Failed to save review queue archive: %s", e)
+
+    def _enforce_queue_limit(self) -> None:
+        """
+        If queue exceeds MAX_QUEUE_SIZE, auto-archive the oldest LOW-urgency items
+        until we are back within the limit. Critical/High items are never auto-evicted.
+        """
+        if len(self.items) < MAX_QUEUE_SIZE:
+            return
+
+        evictable = [
+            item for item in self.items.values()
+            if item.urgency in (UrgencyLevel.LOW, UrgencyLevel.NORMAL)
+        ]
+        evictable.sort(key=lambda i: i.created_at)
+
+        excess = len(self.items) - MAX_QUEUE_SIZE + 1
+        to_archive = evictable[:excess]
+
+        if not to_archive:
+            # All remaining items are high/critical; still need to make room
+            all_sorted = sorted(self.items.values(), key=lambda i: i.created_at)
+            to_archive = all_sorted[:excess]
+
+        for item in to_archive:
+            item.archived = True
+            item.archived_at = datetime.now(timezone.utc).isoformat()
+            self.archived[item.item_id] = item
+            del self.items[item.item_id]
+            log.info(
+                "Auto-archived item %s (queue limit %d reached)", item.item_id, MAX_QUEUE_SIZE
+            )
+
+    def _auto_archive_stale(self) -> None:
+        """Archive items older than MAX_ITEM_AGE_HOURS on refresh."""
+        cutoff = datetime.now(timezone.utc)
+        stale = []
+        for item in list(self.items.values()):
+            try:
+                created = datetime.fromisoformat(item.created_at)
+                # Make offset-aware if naive
+                if created.tzinfo is None:
+                    created = created.replace(tzinfo=timezone.utc)
+                age_hours = (cutoff - created).total_seconds() / 3600
+                if age_hours > MAX_ITEM_AGE_HOURS:
+                    stale.append(item)
+            except (ValueError, TypeError):
+                pass
+
+        for item in stale:
+            item.archived = True
+            item.archived_at = cutoff.isoformat()
+            self.archived[item.item_id] = item
+            del self.items[item.item_id]
+
+        if stale:
+            log.info(
+                "Auto-archived %d stale item(s) older than %dh",
+                len(stale), MAX_ITEM_AGE_HOURS,
+            )
 
     async def ingest_pump(self, pump_data: dict) -> ReviewItem:
         """Create inbox item from pending pump prompt.
@@ -167,15 +290,16 @@ class ReviewQueueManager:
             description=pump_data.get('description', '')
                         or pump_data.get('payload', {}).get('description', '')
                         or f"From {pump_data.get('source_agent', 'unknown')}",
-            urgency=UrgencyLevel(pump_data.get('urgency', 'normal')),
+            urgency=_safe_urgency(pump_data.get('urgency', 'normal')),
             source_agent=pump_data.get('source_agent', 'First Strike'),
             source_id=pump_id,
             payload=pump_data,
         )
 
         item.suggestions = self._generate_suggestions(item)
+        self._enforce_queue_limit()
         self.items[item.item_id] = item
-        self._save_items()
+        await asyncio.to_thread(self._save_items)
 
         return item
 
@@ -194,15 +318,16 @@ class ReviewQueueManager:
             item_type=ReviewItemType.ACTION,
             title=action_data.get('title', 'Governance Action'),
             description=action_data.get('description', ''),
-            urgency=UrgencyLevel(action_data.get('urgency', 'normal')),
+            urgency=_safe_urgency(action_data.get('urgency', 'normal')),
             source_agent='Governance',
             source_id=action_id,
             payload=action_data,
         )
 
         item.suggestions = self._generate_suggestions(item)
+        self._enforce_queue_limit()
         self.items[item.item_id] = item
-        self._save_items()
+        await asyncio.to_thread(self._save_items)
 
         return item
 
@@ -222,24 +347,28 @@ class ReviewQueueManager:
             title=session_data.get('title', 'Council Session'),
             description=session_data.get('synthesis', '')
                         or f"Council: {session_data.get('type', 'unknown')}",
-            urgency=UrgencyLevel(session_data.get('urgency', 'normal')),
+            urgency=_safe_urgency(session_data.get('urgency', 'normal')),
             source_agent='Council',
             source_id=session_id,
             payload=session_data,
         )
 
         item.suggestions = self._generate_suggestions(item)
+        self._enforce_queue_limit()
         self.items[item.item_id] = item
-        self._save_items()
+        await asyncio.to_thread(self._save_items)
 
         return item
 
     async def refresh(self) -> List[ReviewItem]:
-        """Pull latest items, deduplicate, generate suggestions.
+        """Pull latest items, deduplicate, auto-archive stale, generate suggestions.
 
         Returns:
             List of non-archived items
         """
+        # Auto-archive items older than MAX_ITEM_AGE_HOURS
+        self._auto_archive_stale()
+
         # Deduplicate by source_id
         seen_sources = {}
         for item in self.items.values():
@@ -253,7 +382,8 @@ class ReviewQueueManager:
         for item in self.items.values():
             item.suggestions = self._generate_suggestions(item)
 
-        self._save_items()
+        await asyncio.to_thread(self._save_items)
+        await asyncio.to_thread(self._save_archive)
 
         return self.get_items(archived=False)
 
@@ -288,11 +418,13 @@ class ReviewQueueManager:
 
             items.append(item)
 
-        # Sort by urgency (critical first), then by creation time (newest first)
-        urgency_order = {UrgencyLevel.CRITICAL: 0, UrgencyLevel.HIGH: 1,
-                        UrgencyLevel.NORMAL: 2, UrgencyLevel.LOW: 3}
+        # Sort by urgency (critical first), then by creation time (newest first).
+        # urgency_order assigns CRITICAL the highest value so that sorting
+        # descending (reverse=True) places CRITICAL items at the front.
+        urgency_order = {UrgencyLevel.CRITICAL: 3, UrgencyLevel.HIGH: 2,
+                        UrgencyLevel.NORMAL: 1, UrgencyLevel.LOW: 0}
         items.sort(key=lambda x: (
-            urgency_order.get(x.urgency, 4),
+            urgency_order.get(x.urgency, -1),
             x.created_at
         ), reverse=True)
 
@@ -331,7 +463,7 @@ class ReviewQueueManager:
 
             updated.append(item)
 
-        self._save_items()
+        await asyncio.to_thread(self._save_items)
         return updated
 
     async def batch_link(self, item_ids: List[str]) -> List[ReviewItem]:
@@ -363,8 +495,8 @@ class ReviewQueueManager:
                 item.linked_items = self.item_links.get(item_id, [])
                 updated.append(item)
 
-        self._save_items()
-        self._save_links()
+        await asyncio.to_thread(self._save_items)
+        await asyncio.to_thread(self._save_links)
 
         return updated
 
@@ -386,8 +518,8 @@ class ReviewQueueManager:
                 self.archived[item_id] = item
                 archived_items.append(item)
 
-        self._save_items()
-        self._save_archive()
+        await asyncio.to_thread(self._save_items)
+        await asyncio.to_thread(self._save_archive)
 
         return archived_items
 

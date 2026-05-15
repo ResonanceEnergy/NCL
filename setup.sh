@@ -42,18 +42,19 @@ echo -e "${GREEN}  Python $PY_VERSION${NC}"
 
 # ── Step 2: Create directories ──────────────────────────────────────────────
 echo -e "${BOLD}[2/7] Creating directories...${NC}"
-mkdir -p ~/NCL/data
-mkdir -p ~/NCL/config
-mkdir -p ~/NCL/logs
-mkdir -p ~/NCL/data/memory
-mkdir -p ~/NCL/data/telemetry
-mkdir -p ~/NCL/data/governance
-mkdir -p ~/NCL/data/evaluation
-mkdir -p ~/NCL/data/review_queue
-mkdir -p ~/NCL/data/council_runner
-mkdir -p ~/NCL/data/uni
-mkdir -p ~/NCL/data/lde
-echo -e "${GREEN}  ~/NCL/data, ~/NCL/config, ~/NCL/logs created${NC}"
+NCL_HOME="${NCL_HOME:-$HOME/dev/NCL}"
+mkdir -p "$NCL_HOME/data"
+mkdir -p "$NCL_HOME/config"
+mkdir -p "$NCL_HOME/logs"
+mkdir -p "$NCL_HOME/data/memory"
+mkdir -p "$NCL_HOME/data/telemetry"
+mkdir -p "$NCL_HOME/data/governance"
+mkdir -p "$NCL_HOME/data/evaluation"
+mkdir -p "$NCL_HOME/data/review_queue"
+mkdir -p "$NCL_HOME/data/council_runner"
+mkdir -p "$NCL_HOME/data/uni"
+mkdir -p "$NCL_HOME/data/lde"
+echo -e "${GREEN}  $NCL_HOME/data, $NCL_HOME/config, $NCL_HOME/logs created${NC}"
 
 # ── Step 3: Install Python dependencies ─────────────────────────────────────
 echo -e "${BOLD}[3/7] Installing Python dependencies...${NC}"

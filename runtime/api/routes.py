@@ -1,6 +1,8 @@
 """FastAPI routes for NCL brain service."""
 
 import asyncio
+import html as html_mod
+import ipaddress
 import json
 import os
 import secrets
@@ -9,6 +11,7 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 import logging
 import logging.config
@@ -54,7 +57,7 @@ logging.config.dictConfig({
 
 import aiofiles
 import urllib.request
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Header, Query, Body, Request
+from fastapi import FastAPI, HTTPException, Header, Query, Body, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
@@ -305,32 +308,129 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(BodySizeLimitMiddleware, max_size=_MAX_BODY_SIZE)
 
 # ---------------------------------------------------------------------------
 # Simple in-memory rate limiter — fallback when slowapi is not installed.
 # Limits sensitive endpoints to 30 req/minute per IP.
+# Uses sliding window with non-blocking lock (trylock pattern).
 # ---------------------------------------------------------------------------
+import threading as _threading
 import time as _time
-from collections import defaultdict
+from collections import defaultdict, deque
 
-_rate_limit_store: dict[str, list[float]] = defaultdict(list)
+_rate_limit_store: dict[str, deque] = defaultdict(lambda: deque())
+_rate_limit_lock = _threading.Lock()
 _RATE_LIMIT_WINDOW = 60  # seconds
 _RATE_LIMIT_MAX = 30     # requests per window
 
 
 def _check_rate_limit(request: Request, limit: int = _RATE_LIMIT_MAX) -> None:
-    """Raise HTTP 429 if the calling IP exceeds `limit` requests per minute."""
+    """Raise HTTP 429 if the calling IP exceeds `limit` requests per minute.
+
+    Uses a sliding window approach with non-blocking lock acquisition to avoid
+    blocking under contention. If lock cannot be acquired, request is allowed
+    through (fail-open for availability).
+    """
     client_ip = request.client.host if request.client else "unknown"
     now = _time.monotonic()
-    bucket = _rate_limit_store[client_ip]
-    # Prune timestamps outside the window
-    _rate_limit_store[client_ip] = [t for t in bucket if now - t < _RATE_LIMIT_WINDOW]
-    if len(_rate_limit_store[client_ip]) >= limit:
+    acquired = _rate_limit_lock.acquire(blocking=False)
+    if not acquired:
+        # Fail open under contention rather than blocking the event loop thread
+        return
+    try:
+        bucket = _rate_limit_store[client_ip]
+        # Sliding window: remove timestamps outside the window
+        window_start = now - _RATE_LIMIT_WINDOW
+        while bucket and bucket[0] < window_start:
+            bucket.popleft()
+        if len(bucket) >= limit:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Rate limit exceeded: max {limit} requests per {_RATE_LIMIT_WINDOW}s",
+            )
+        bucket.append(now)
+    finally:
+        _rate_limit_lock.release()
+
+
+# ---------------------------------------------------------------------------
+# Body size limit middleware
+# ---------------------------------------------------------------------------
+_MAX_BODY_SIZE = 1 * 1024 * 1024  # 1 MB default
+
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as StarletteRequest
+
+
+class BodySizeLimitMiddleware(BaseHTTPMiddleware):
+    """Reject request bodies exceeding a configurable maximum size."""
+
+    def __init__(self, app_instance, max_size: int = _MAX_BODY_SIZE):
+        super().__init__(app_instance)
+        self.max_size = max_size
+
+    async def dispatch(self, request: StarletteRequest, call_next):
+        if request.method in ("POST", "PUT", "PATCH"):
+            content_length = request.headers.get("content-length")
+            if content_length and int(content_length) > self.max_size:
+                return JSONResponse(
+                    status_code=413,
+                    content={"detail": f"Request body too large. Max: {self.max_size} bytes"},
+                )
+        return await call_next(request)
+
+
+# ---------------------------------------------------------------------------
+# SSRF prevention — validate URLs against allowlist
+# ---------------------------------------------------------------------------
+_BLOCKED_NETWORKS = [
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fc00::/7"),
+]
+
+
+def _validate_url(url: str) -> str:
+    """Validate a URL is safe (http/https only, no private IPs). Returns the URL or raises."""
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
         raise HTTPException(
-            status_code=429,
-            detail=f"Rate limit exceeded: max {limit} requests per {_RATE_LIMIT_WINDOW}s",
+            status_code=400,
+            detail=f"Invalid URL scheme '{parsed.scheme}'. Only http and https are allowed.",
         )
-    _rate_limit_store[client_ip].append(now)
+    hostname = parsed.hostname
+    if not hostname:
+        raise HTTPException(status_code=400, detail="URL missing hostname")
+    # Resolve and check against blocked ranges
+    import socket
+    try:
+        resolved = socket.getaddrinfo(hostname, None)
+        for _family, _type, _proto, _canonname, sockaddr in resolved:
+            ip = ipaddress.ip_address(sockaddr[0])
+            for network in _BLOCKED_NETWORKS:
+                if ip in network:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"URL resolves to a blocked private IP range.",
+                    )
+    except socket.gaierror:
+        raise HTTPException(status_code=400, detail=f"Cannot resolve hostname: {hostname}")
+    return url
+
+
+# ---------------------------------------------------------------------------
+# Token/key masking helper
+# ---------------------------------------------------------------------------
+def _mask_token(token: str) -> str:
+    """Mask a token showing only the last 4 characters."""
+    if not token or len(token) <= 4:
+        return "****"
+    return f"****{token[-4:]}"
 
 
 # Health check
@@ -385,10 +485,9 @@ async def network_info():
     """Return the server's LAN IP for iPhone shortcut configuration."""
     import socket
     try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        lan_ip = s.getsockname()[0]
-        s.close()
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            lan_ip = s.getsockname()[0]
     except Exception as e:
         log.debug("Could not determine LAN IP, falling back to localhost: %s", e)
         lan_ip = "localhost"
@@ -478,12 +577,17 @@ async def receive_pump_prompt(
                 )
 
         task = asyncio.create_task(_run_auto_flow())
-        task.add_done_callback(
-            lambda t: log.error(
-                f"[/pump] auto_flow task for {prompt.prompt_id} died: {t.exception()!r}"
-            )
-            if t.exception() else None
-        )
+
+        def _pump_task_done(t: asyncio.Task) -> None:
+            if t.cancelled():
+                return
+            exc = t.exception()
+            if exc is not None:
+                log.error(
+                    f"[/pump] auto_flow task for {prompt.prompt_id} died: {exc!r}"
+                )
+
+        task.add_done_callback(_pump_task_done)
         return {
             "pump_id": prompt.prompt_id,
             "intent": prompt.intent,
@@ -515,7 +619,9 @@ async def list_pending_pumps(
         raise HTTPException(status_code=503, detail="Service not initialized")
 
     pending = {}
-    for pump_id, data in brain._pending_dispatches.items():
+    async with brain._pending_dispatches_lock:
+        snapshot = list(brain._pending_dispatches.items())
+    for pump_id, data in snapshot:
         pending[pump_id] = {
             "council_session_id": data.get("council_session_id"),
             "mandates_proposed": len(data.get("mandates", [])),
@@ -541,7 +647,8 @@ async def review_pump(
     if not brain:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
-    pending = brain._pending_dispatches.get(pump_id)
+    async with brain._pending_dispatches_lock:
+        pending = brain._pending_dispatches.get(pump_id)
     if not pending:
         raise HTTPException(status_code=404, detail=f"No pending dispatch for pump {pump_id}")
 
@@ -759,6 +866,9 @@ async def create_mandate(
     if not brain:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
+    if not (1 <= priority <= 10):
+        raise HTTPException(status_code=400, detail="Priority must be between 1 and 10")
+
     try:
         pillar_enum = PillarType(pillar)
     except ValueError:
@@ -923,11 +1033,11 @@ async def approve_mandate(
     if not brain:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
-    mandate = brain.mandates.get(mandate_id)
-    if not mandate:
-        raise HTTPException(status_code=404, detail=f"Mandate not found: {mandate_id}")
-
+    # Atomic compare-and-swap: lookup + transition under a single lock hold
     async with brain._mandates_lock:
+        mandate = brain.mandates.get(mandate_id)
+        if not mandate:
+            raise HTTPException(status_code=404, detail=f"Mandate not found: {mandate_id}")
         try:
             mandate.transition_to(MandateStatus.ACTIVE, reason=reason)
         except ValueError as e:
@@ -954,11 +1064,11 @@ async def cancel_mandate(
     if not brain:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
-    mandate = brain.mandates.get(mandate_id)
-    if not mandate:
-        raise HTTPException(status_code=404, detail=f"Mandate not found: {mandate_id}")
-
+    # Atomic compare-and-swap: lookup + transition under a single lock hold
     async with brain._mandates_lock:
+        mandate = brain.mandates.get(mandate_id)
+        if not mandate:
+            raise HTTPException(status_code=404, detail=f"Mandate not found: {mandate_id}")
         try:
             mandate.transition_to(MandateStatus.CANCELLED, reason=reason)
         except ValueError as e:
@@ -1295,7 +1405,7 @@ async def dashboard_ui() -> HTMLResponse:
 
 
 @app.get("/dashboard")
-async def get_dashboard_data() -> dict:
+async def get_dashboard_data(authorization: str = Header(default="")) -> dict:
     """
     Aggregate all dashboard data in a single call.
 
@@ -1303,11 +1413,13 @@ async def get_dashboard_data() -> dict:
         Dict with pipeline_status, services, councils, memory, mandates,
         recent_events, and orchestrator stage counts.
     """
+    _verify_strike_token(authorization)
     if not brain:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
     # ── Pipeline Status ────────────────────────────────────────────────────
-    pending_count = len(brain._pending_dispatches)
+    async with brain._pending_dispatches_lock:
+        pending_count = len(brain._pending_dispatches)
     active_mandates = sum(
         1
         for m in brain.mandates.values()
@@ -1523,7 +1635,6 @@ class CouncilRunRequest(BaseModel):
 async def trigger_council_run(
     request: Request,
     body: CouncilRunRequest,
-    background_tasks: BackgroundTasks,
     authorization: str = Header(default=""),
 ) -> dict:
     """
@@ -1533,7 +1644,6 @@ async def trigger_council_run(
 
     Args:
         body: CouncilRunRequest with council_type and dry_run flag
-        background_tasks: FastAPI background tasks
 
     Returns:
         Dict with session_id and status
@@ -1575,12 +1685,14 @@ async def trigger_council_run(
                 f"Council run ({body.council_type}) completed: {session_id}",
             )
         except Exception as e:
+            log.exception(f"[/councils/run] council background task failed: {e}")
             await brain._log_event(
                 "council_run_error",
                 f"Council run ({body.council_type}) failed: {str(e)}",
             )
 
-    background_tasks.add_task(run_council_background)
+    task = asyncio.create_task(run_council_background())
+    task.add_done_callback(lambda t: log.error(f"Council task died: {t.exception()!r}") if not t.cancelled() and t.exception() else None)
 
     return {
         "session_id": session_id,
@@ -1591,13 +1703,14 @@ async def trigger_council_run(
 
 
 @app.get("/councils/reports")
-async def list_council_reports() -> dict:
+async def list_council_reports(authorization: str = Header(default="")) -> dict:
     """
     List available council reports from the intelligence-scan/council-reports/ directory.
 
     Returns:
         Dict with list of report filenames, dates, and types
     """
+    _verify_strike_token(authorization)
     if not brain:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
@@ -1710,6 +1823,8 @@ async def get_council_report(filename: str) -> dict:
 # Global instances (initialized in lifespan)
 council_vector_store = None
 council_knowledge_base = None
+_council_vector_store_lock = asyncio.Lock()
+_council_knowledge_base_lock = asyncio.Lock()
 
 
 class RAGQueryRequest(BaseModel):
@@ -1727,17 +1842,20 @@ class MultiAgentRequest(BaseModel):
 
 
 @app.post("/councils/rag")
-async def council_rag_query(req: RAGQueryRequest):
+async def council_rag_query(req: RAGQueryRequest, authorization: str = Header(default="")):
     """
     Semantic search across all council knowledge (insights, transcripts, reports).
 
     Uses ChromaDB → LanceDB → TF-IDF fallback chain.
     """
+    _verify_strike_token(authorization)
     global council_vector_store
     if not council_vector_store:
-        from ..councils.shared.vector_store import CouncilVectorStore
-        council_vector_store = CouncilVectorStore(data_dir=config.data_dir)
-        await council_vector_store.init()
+        async with _council_vector_store_lock:
+            if not council_vector_store:
+                from ..councils.shared.vector_store import CouncilVectorStore
+                council_vector_store = CouncilVectorStore(data_dir=config.data_dir)
+                await council_vector_store.init()
 
     results = await council_vector_store.query(
         query_text=req.query,
@@ -1758,8 +1876,10 @@ async def knowledge_base_stats():
     """Return knowledge base statistics."""
     global council_knowledge_base
     if not council_knowledge_base:
-        from ..councils.shared.knowledge_base import KnowledgeBase
-        council_knowledge_base = KnowledgeBase()
+        async with _council_knowledge_base_lock:
+            if not council_knowledge_base:
+                from ..councils.shared.knowledge_base import KnowledgeBase
+                council_knowledge_base = KnowledgeBase()
 
     return council_knowledge_base.get_stats()
 
@@ -1769,9 +1889,11 @@ async def vector_store_stats():
     """Return vector store statistics."""
     global council_vector_store
     if not council_vector_store:
-        from ..councils.shared.vector_store import CouncilVectorStore
-        council_vector_store = CouncilVectorStore(data_dir=config.data_dir)
-        await council_vector_store.init()
+        async with _council_vector_store_lock:
+            if not council_vector_store:
+                from ..councils.shared.vector_store import CouncilVectorStore
+                council_vector_store = CouncilVectorStore(data_dir=config.data_dir)
+                await council_vector_store.init()
 
     return council_vector_store.get_stats()
 
@@ -1779,7 +1901,6 @@ async def vector_store_stats():
 @app.post("/councils/multi-agent")
 async def run_multi_agent_council(
     req: MultiAgentRequest,
-    background_tasks: BackgroundTasks,
 ):
     """
     Run multi-agent council analysis (Analyst → Researcher → Strategist → Synthesizer).
@@ -1814,12 +1935,14 @@ async def run_multi_agent_council(
                 },
             )
         except Exception as e:
+            log.exception(f"[/councils/multi-agent] background task failed: {e}")
             await brain._log_event(
                 "multi_agent_council_error",
                 f"Multi-agent council failed: {e}",
             )
 
-    background_tasks.add_task(run_orchestrator_background)
+    task = asyncio.create_task(run_orchestrator_background())
+    task.add_done_callback(lambda t: log.error(f"Multi-agent task died: {t.exception()!r}") if not t.cancelled() and t.exception() else None)
 
     return {
         "session_id": session_id,
@@ -1834,14 +1957,23 @@ async def run_multi_agent_council(
 # Global LDE engine instance + persistent results store
 _lde_engine = None
 _lde_results_file = Path(config.data_dir).expanduser() / "lde_results.jsonl"
+_lde_results_lock = asyncio.Lock()  # Guards concurrent appends to lde_results.jsonl
 
 
-def _save_lde_result(session_id: str, result: dict) -> None:
-    """Persist LDE result to disk (MWP intelligence-scan artifact)."""
+def _sync_save_lde_result(session_id: str, result: dict) -> None:
+    """Synchronous file-write helper for LDE results (run via asyncio.to_thread)."""
     import json as _json
     entry = {"session_id": session_id, "timestamp": datetime.now(timezone.utc).isoformat(), "result": result}
     with open(_lde_results_file, "a") as f:
         f.write(_json.dumps(entry) + "\n")
+
+
+async def _save_lde_result(session_id: str, result: dict) -> None:
+    """Persist LDE result to disk off the event loop.
+
+    Callers must hold _lde_results_lock before calling to prevent concurrent writes.
+    """
+    await asyncio.to_thread(_sync_save_lde_result, session_id, result)
 
 
 def _load_lde_result(session_id: str) -> dict | None:
@@ -1862,13 +1994,20 @@ def _load_lde_result(session_id: str) -> dict | None:
     return None
 
 
+_lde_init_lock = asyncio.Lock()
+
+
 async def _get_lde():
-    """Lazy-initialize the LDE engine."""
+    """Lazy-initialize the LDE engine (thread-safe with async lock)."""
     global _lde_engine
-    if _lde_engine is None:
-        from ..lde.engine import LivingDoctrineEngine
-        _lde_engine = LivingDoctrineEngine()
-        await _lde_engine.init()
+    if _lde_engine is not None:
+        return _lde_engine
+    async with _lde_init_lock:
+        # Double-check after acquiring lock
+        if _lde_engine is None:
+            from ..lde.engine import LivingDoctrineEngine
+            _lde_engine = LivingDoctrineEngine()
+            await _lde_engine.init()
     return _lde_engine
 
 
@@ -1887,7 +2026,6 @@ class LDESearchRequest(BaseModel):
 @app.post("/lde/process")
 async def lde_process_url(
     req: LDEProcessRequest,
-    background_tasks: BackgroundTasks,
     authorization: str = Header(default=""),
 ):
     """
@@ -1902,13 +2040,17 @@ async def lde_process_url(
     if not brain:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
+    # SSRF prevention: validate URL scheme and block private IPs
+    _validate_url(req.url)
+
     lde = await _get_lde()
     session_id = f"lde-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{str(uuid.uuid4())[:8]}"
 
     async def run_lde_background():
         try:
             result = await lde.process_url(req.url, source_type=req.source_type)
-            _save_lde_result(session_id, result)
+            async with _lde_results_lock:
+                await _save_lde_result(session_id, result)
 
             await brain._log_event(
                 "lde_pipeline_complete",
@@ -1925,14 +2067,16 @@ async def lde_process_url(
                 importance=75.0,
             )
         except Exception as e:
-            _save_lde_result(session_id, {"status": "failed", "error": str(e)})
+            async with _lde_results_lock:
+                await _save_lde_result(session_id, {"status": "failed", "error": str(e)})
             await brain._log_event(
                 "lde_pipeline_error",
                 f"LDE failed for {req.url}: {e}",
                 tags=["lde", "error"],
             )
 
-    background_tasks.add_task(run_lde_background)
+    task = asyncio.create_task(run_lde_background())
+    task.add_done_callback(lambda t: log.error(f"LDE task died: {t.exception()!r}") if not t.cancelled() and t.exception() else None)
 
     return {
         "session_id": session_id,
@@ -2051,12 +2195,24 @@ async def get_shortcuts_config(
         ncl_port=config.port,
         strike_token=STRIKE_TOKEN,
     )
+    # Mask tokens in shortcut definitions before returning
+    sanitized_shortcuts = []
+    for s in shortcuts:
+        s_copy = dict(s)
+        if s_copy.get("auth_header"):
+            raw = s_copy["auth_header"]
+            if "Bearer " in raw:
+                token_part = raw.replace("Bearer ", "").strip()
+                s_copy["auth_header"] = f"Bearer {_mask_token(token_part)}"
+            else:
+                s_copy["auth_header"] = _mask_token(raw)
+        sanitized_shortcuts.append(s_copy)
     return {
         "pack_version": "1.0",
         "ncl_host": ncl_host,
         "ncl_port": config.port,
-        "total_shortcuts": len(shortcuts),
-        "shortcuts": shortcuts,
+        "total_shortcuts": len(sanitized_shortcuts),
+        "shortcuts": sanitized_shortcuts,
         "setup_instructions": {
             "step_1": "Open this URL on your iPhone to see shortcut definitions",
             "step_2": "Create each shortcut in the Shortcuts app using the 'actions' array",
@@ -2080,13 +2236,23 @@ async def test_shortcut(shortcut_id: str):
     if not shortcut:
         raise HTTPException(status_code=404, detail=f"Shortcut '{shortcut_id}' not found")
 
+    # Mask auth header in test output
+    masked_shortcut = dict(shortcut)
+    if masked_shortcut.get("auth_header"):
+        raw = masked_shortcut["auth_header"]
+        if "Bearer " in raw:
+            token_part = raw.replace("Bearer ", "").strip()
+            masked_shortcut["auth_header"] = f"Bearer {_mask_token(token_part)}"
+        else:
+            masked_shortcut["auth_header"] = _mask_token(raw)
+
     return {
-        "shortcut": shortcut["name"],
-        "endpoint": shortcut["endpoint"],
-        "method": shortcut["method"],
+        "shortcut": masked_shortcut["name"],
+        "endpoint": masked_shortcut["endpoint"],
+        "method": masked_shortcut["method"],
         "requires_auth": shortcut["auth_header"] is not None,
-        "input_fields": shortcut["input_fields"],
-        "test_curl": _build_test_curl(shortcut),
+        "input_fields": masked_shortcut["input_fields"],
+        "test_curl": _build_test_curl(masked_shortcut),
     }
 
 
@@ -2120,6 +2286,8 @@ async def shortcuts_setup_page(
     ncl_host = host or config.host
     if ncl_host in ("0.0.0.0", "127.0.0.1", "localhost"):
         ncl_host = "localhost"
+    # Escape for safe HTML embedding (XSS prevention on user-supplied host param)
+    ncl_host = html_mod.escape(ncl_host)
 
     shortcuts = get_shortcut_definitions(
         ncl_host=ncl_host,
@@ -2129,29 +2297,44 @@ async def shortcuts_setup_page(
 
     shortcut_cards = ""
     for s in shortcuts:
-        actions_json = json.dumps(s["actions"], indent=2)
-        test_endpoint = s["endpoint"]
-        method = s["method"]
-        auth = f'Authorization: {s["auth_header"]}' if s.get("auth_header") else "None required"
+        actions_json = html_mod.escape(json.dumps(s["actions"], indent=2))
+        test_endpoint = html_mod.escape(s["endpoint"])
+        method = html_mod.escape(s["method"])
+        # Mask the actual token — copy STRIKE_AUTH_TOKEN from your .env file
+        _raw_auth = s.get("auth_header") or ""
+        if _raw_auth and "Bearer " in _raw_auth:
+            _masked_auth = "Bearer ****  (copy STRIKE_AUTH_TOKEN from your .env)"
+        elif _raw_auth:
+            _masked_auth = "****  (copy STRIKE_AUTH_TOKEN from your .env)"
+        else:
+            _masked_auth = None
+        auth = html_mod.escape(f'Authorization: {_masked_auth}' if _masked_auth else "None required")
+        # Escape all user-controllable fields for XSS prevention
+        s_name = html_mod.escape(s.get('name', ''))
+        s_color = html_mod.escape(s.get('color', '#888'))
+        s_icon = html_mod.escape(s.get('icon', '⚡'))
+        s_siri = html_mod.escape(s.get('siri_phrase', ''))
+        s_desc = html_mod.escape(s.get('description', ''))
+        s_trigger = html_mod.escape(s.get('trigger_phrase', ''))
 
         shortcut_cards += f"""
         <div class="card">
-          <div class="card-header" style="border-left: 4px solid {s['color']}">
-            <span class="icon">{s.get('icon', '⚡')}</span>
+          <div class="card-header" style="border-left: 4px solid {s_color}">
+            <span class="icon">{s_icon}</span>
             <div>
-              <h3>{s['name']}</h3>
-              <p class="siri-phrase">"{s['siri_phrase']}"</p>
+              <h3>{s_name}</h3>
+              <p class="siri-phrase">"{s_siri}"</p>
             </div>
           </div>
-          <p class="desc">{s['description']}</p>
+          <p class="desc">{s_desc}</p>
           <details>
             <summary>Setup Instructions</summary>
             <div class="steps">
               <ol>
                 <li>Open <b>Shortcuts</b> app → tap <b>+</b></li>
-                <li>Name it: <b>{s['name']}</b></li>
+                <li>Name it: <b>{s_name}</b></li>
                 <li>Add actions per the flow below</li>
-                <li>Tap <b>ⓘ</b> → set Siri phrase: <code>{s['trigger_phrase']}</code></li>
+                <li>Tap <b>ⓘ</b> → set Siri phrase: <code>{s_trigger}</code></li>
               </ol>
               <h4>Actions Flow:</h4>
               <pre>{actions_json}</pre>
@@ -2504,7 +2687,7 @@ async def update_telemetry_config(level: str = Query(default="standard")) -> dic
 
 
 @app.get("/telemetry/stats")
-async def get_telemetry_stats(hours_back: int = Query(default=24)) -> dict:
+async def get_telemetry_stats(hours_back: int = Query(default=24, ge=1, le=8760)) -> dict:
     """Get aggregated telemetry stats per workflow."""
     if not _telemetry:
         raise HTTPException(status_code=503, detail="Telemetry not initialized")
@@ -2735,7 +2918,6 @@ async def get_emergency_stop_ledger(n: int = Query(default=100, le=1000)) -> dic
 
 @app.post("/evaluation/run")
 async def run_golden_task_suite(
-    background_tasks: BackgroundTasks,
     authorization: str = Header(default=""),
 ) -> dict:
     """Run the full Golden Task Suite (50 deterministic tasks)."""
@@ -2744,10 +2926,14 @@ async def run_golden_task_suite(
         raise HTTPException(status_code=503, detail="EvalRunner not initialized")
 
     async def _run():
-        result = await _eval_runner.run_suite()
-        _eval_runner.save_results(result)
+        try:
+            result = await _eval_runner.run_suite()
+            _eval_runner.save_results(result)
+        except Exception as e:
+            log.exception(f"[/evaluation/run] Golden Task Suite failed: {e}")
 
-    background_tasks.add_task(_run)
+    task = asyncio.create_task(_run())
+    task.add_done_callback(lambda t: log.error(f"Eval task died: {t.exception()!r}") if not t.cancelled() and t.exception() else None)
     return {"status": "started", "message": "Golden Task Suite running in background. Check /evaluation/results for output."}
 
 
@@ -2934,7 +3120,6 @@ async def run_council_runner(
     request: Request,
     topic: str,
     prompt: str,
-    background_tasks: BackgroundTasks,
     authorization: str = Header(default=""),
 ) -> dict:
     """Run the Planner/Skeptic/Risk parallel council on a topic."""
@@ -2946,17 +3131,21 @@ async def run_council_runner(
     run_id = str(uuid.uuid4())
 
     async def _run():
-        record = await run_parallel_council(topic=topic, prompt=prompt)
-        await _council_store.save_run(record)
+        try:
+            record = await run_parallel_council(topic=topic, prompt=prompt)
+            await _council_store.save_run(record)
+        except Exception as e:
+            log.exception(f"[/council-runner/run] council run failed: {e}")
 
-    background_tasks.add_task(_run)
+    task = asyncio.create_task(_run())
+    task.add_done_callback(lambda t: log.error(f"Council runner task died: {t.exception()!r}") if not t.cancelled() and t.exception() else None)
     return {"status": "started", "run_id": run_id, "message": "Council running in background. Check /council-runner/runs for results."}
 
 
 @app.get("/council-runner/runs")
 async def list_council_runs(
-    limit: int = Query(default=50, le=200),
-    offset: int = Query(default=0),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
 ) -> dict:
     """List council runner runs."""
     if not _council_store:
@@ -2991,20 +3180,23 @@ async def get_council_run_provenance(run_id: str) -> dict:
 async def replay_council_run(
     run_id: str,
     temperature_override: float = Query(default=None),
-    background_tasks: BackgroundTasks = None,
 ) -> dict:
     """Replay a previous council run for deterministic comparison."""
     if not _replay_engine:
         raise HTTPException(status_code=503, detail="ReplayEngine not initialized")
 
     async def _replay():
-        record = await _replay_engine.replay(
-            run_id=run_id, temperature_override=temperature_override,
-        )
-        if _council_store:
-            await _council_store.save_run(record)
+        try:
+            record = await _replay_engine.replay(
+                run_id=run_id, temperature_override=temperature_override,
+            )
+            if _council_store:
+                await _council_store.save_run(record)
+        except Exception as e:
+            log.exception(f"[/council-runner/replay] replay failed: {e}")
 
-    background_tasks.add_task(_replay)
+    task = asyncio.create_task(_replay())
+    task.add_done_callback(lambda t: log.error(f"Replay task died: {t.exception()!r}") if not t.cancelled() and t.exception() else None)
     return {"status": "replay_started", "original_run_id": run_id}
 
 
@@ -3047,7 +3239,6 @@ async def run_research(
     query: str,
     depth: str = Query(default="standard"),
     priority: int = Query(default=5, ge=1, le=10),
-    background_tasks: BackgroundTasks = None,
     authorization: str = Header(default=""),
 ) -> dict:
     """Run a deep research task via the UNI Research Cortex."""
@@ -3063,9 +3254,13 @@ async def run_research(
     task_id = str(uuid.uuid4())
 
     async def _run():
-        await _research_cortex.research(query=query, depth=rd, priority=priority)
+        try:
+            await _research_cortex.research(query=query, depth=rd, priority=priority)
+        except Exception as e:
+            log.exception(f"[/uni/research] research task failed: {e}")
 
-    background_tasks.add_task(_run)
+    bg_task = asyncio.create_task(_run())
+    bg_task.add_done_callback(lambda t: log.error(f"Research task died: {t.exception()!r}") if not t.cancelled() and t.exception() else None)
     return {"status": "started", "task_id": task_id, "query": query, "depth": depth}
 
 
@@ -3523,7 +3718,6 @@ async def get_brief_by_id(brief_id: str) -> dict:
 async def escalate_intelligence_to_strike_point(
     brief_id: str = Query(default="", description="Brief ID to escalate (empty = latest)"),
     signal_ids: str = Query(default="", description="Comma-separated signal IDs to focus on"),
-    background_tasks: BackgroundTasks = BackgroundTasks(),
     authorization: str = Header(default=""),
 ) -> dict:
     """
@@ -3634,14 +3828,20 @@ async def escalate_intelligence_to_strike_point(
 
     # Notify NATRIX that escalation was sent
     from ..strike_point_orchestrator import notify_natrix
-    background_tasks.add_task(
-        notify_natrix,
-        "Intel Escalated to STRIKE-POINT",
-        f"Brief: {brief.brief_type} | Signals: {len(escalation_signals)}\n"
-        f"Pump: {pump_id}\n"
-        f"Top: {escalation_signals[0].title if escalation_signals else 'N/A'}",
-        priority=0,
-    )
+
+    async def _notify_escalation():
+        try:
+            await notify_natrix(
+                "Intel Escalated to STRIKE-POINT",
+                f"Brief: {brief.brief_type} | Signals: {len(escalation_signals)}\n"
+                f"Pump: {pump_id}\n"
+                f"Top: {escalation_signals[0].title if escalation_signals else 'N/A'}",
+                priority=0,
+            )
+        except Exception as e:
+            log.warning(f"Escalation notification failed: {e}")
+
+    asyncio.create_task(_notify_escalation())
 
     return {
         "status": "escalated",
@@ -3659,7 +3859,6 @@ async def escalate_intelligence_to_strike_point(
 @app.post("/intelligence/escalate/{signal_id}")
 async def escalate_single_signal(
     signal_id: str,
-    background_tasks: BackgroundTasks = BackgroundTasks(),
     authorization: str = Header(default=""),
 ) -> dict:
     """
@@ -3734,11 +3933,17 @@ async def escalate_single_signal(
             logging.getLogger("ncl.api").warning("intelligence escalation failed: %s", e)
 
     from ..strike_point_orchestrator import notify_natrix
-    background_tasks.add_task(
-        notify_natrix,
-        "Signal Escalated",
-        f"{target_signal.title}\n→ STRIKE-POINT pump: {pump_id}",
-    )
+
+    async def _notify_signal():
+        try:
+            await notify_natrix(
+                "Signal Escalated",
+                f"{target_signal.title}\n→ STRIKE-POINT pump: {pump_id}",
+            )
+        except Exception as e:
+            log.warning(f"Signal escalation notification failed: {e}")
+
+    asyncio.create_task(_notify_signal())
 
     return {
         "status": "escalated",
@@ -3842,7 +4047,6 @@ async def send_test_notification():
 @app.post("/intelligence/push-brief")
 async def push_brief_to_phone(
     brief_type: str = Query(default="daily"),
-    background_tasks: BackgroundTasks = BackgroundTasks(),
     authorization: str = Header(default=""),
 ) -> dict:
     """

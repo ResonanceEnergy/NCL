@@ -20,6 +20,7 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -137,72 +138,86 @@ class SearchIndexer:
         self._df: dict[str, int] = defaultdict(int)  # token → num docs containing it
 
         self._loaded = False
+        self._load_lock = asyncio.Lock()  # Prevents double-initialization under concurrency
         self._cache_file = self.index_dir / "index_cache.json"
 
     async def load(self) -> None:
-        """Load index from cache if available, otherwise rebuild from source files."""
+        """Load index from cache if available, otherwise rebuild from source files.
+
+        The check-and-load pattern is wrapped in _load_lock so that concurrent
+        callers (e.g., simultaneous search requests on startup) cannot both see
+        _loaded=False and trigger two full index rebuilds in parallel.
+        """
+        # Fast path: already loaded (no lock needed — bool read is atomic in CPython)
         if self._loaded:
             return
 
-        # Try loading from serialized cache first (fast path)
-        if await self._load_cache():
+        async with self._load_lock:
+            # Re-check inside the lock: a concurrent caller may have finished loading
+            # while we were waiting to acquire it.
+            if self._loaded:
+                return
+
+            # Try loading from serialized cache first (fast path)
+            if await self._load_cache():
+                self._loaded = True
+                return
+
+            # Cache miss — rebuild from source NDJSON files (still inside the lock
+            # so only one coroutine performs the rebuild)
+            events_file = self.data_dir / "events.ndjson"
+            memory_file = self.data_dir / "memory" / "units.jsonl"
+            mandates_file = self.data_dir / "mandates.json"
+
+            indexed = 0
+
+            # Index events
+            if events_file.exists():
+                async with aiofiles.open(events_file, "r") as f:
+                    async for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            raw = json.loads(line)
+                            self._index_event_dict(raw)
+                            indexed += 1
+                        except (json.JSONDecodeError, KeyError):
+                            continue
+
+            # Index memory units
+            if memory_file.exists():
+                async with aiofiles.open(memory_file, "r") as f:
+                    async for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            raw = json.loads(line)
+                            self._index_memory_dict(raw)
+                            indexed += 1
+                        except (json.JSONDecodeError, KeyError):
+                            continue
+
+            # Index mandates
+            if mandates_file.exists():
+                try:
+                    async with aiofiles.open(mandates_file, "r") as f:
+                        content = await f.read()
+                    mandates = json.loads(content)
+                    if isinstance(mandates, list):
+                        for m in mandates:
+                            self._index_mandate_dict(m)
+                            indexed += 1
+                    elif isinstance(mandates, dict):
+                        for m in mandates.values():
+                            self._index_mandate_dict(m)
+                            indexed += 1
+                except (json.JSONDecodeError, KeyError):
+                    pass
+
             self._loaded = True
-            return
-
-        # Cache miss — rebuild from source NDJSON files
-        events_file = self.data_dir / "events.ndjson"
-        memory_file = self.data_dir / "memory" / "units.jsonl"
-        mandates_file = self.data_dir / "mandates.json"
-
-        indexed = 0
-
-        # Index events
-        if events_file.exists():
-            async with aiofiles.open(events_file, "r") as f:
-                async for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        raw = json.loads(line)
-                        self._index_event_dict(raw)
-                        indexed += 1
-                    except (json.JSONDecodeError, KeyError):
-                        continue
-
-        # Index memory units
-        if memory_file.exists():
-            async with aiofiles.open(memory_file, "r") as f:
-                async for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        raw = json.loads(line)
-                        self._index_memory_dict(raw)
-                        indexed += 1
-                    except (json.JSONDecodeError, KeyError):
-                        continue
-
-        # Index mandates
-        if mandates_file.exists():
-            try:
-                async with aiofiles.open(mandates_file, "r") as f:
-                    content = await f.read()
-                mandates = json.loads(content)
-                if isinstance(mandates, list):
-                    for m in mandates:
-                        self._index_mandate_dict(m)
-                        indexed += 1
-                elif isinstance(mandates, dict):
-                    for m in mandates.values():
-                        self._index_mandate_dict(m)
-                        indexed += 1
-            except (json.JSONDecodeError, KeyError):
-                pass
-
-        self._loaded = True
-        log.info(f"Search index rebuilt: {indexed} documents, {len(self._inverted)} unique tokens")
+            log.info(f"Search index rebuilt: {indexed} documents, {len(self._inverted)} unique tokens")
 
         # Save cache for next startup
         await self._save_cache()
@@ -412,6 +427,9 @@ class SearchIndexer:
             except Exception as e:
                 log.error("search: index load failed: %s", e)
                 return []
+
+        if self._doc_count == 0:
+            return []
 
         tokens = tokenize(query)
         if not tokens:

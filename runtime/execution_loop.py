@@ -19,7 +19,10 @@ import logging
 import logging.handlers
 import os
 import shutil
+import signal as signal_mod
 import subprocess
+import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -38,6 +41,55 @@ MAX_REVIEW_ROUNDS = 2
 
 # Claude Code CLI bridge mode: "auto" (try claude CLI), "manual" (write prompt file only)
 EXECUTION_MODE = os.getenv("NCL_EXECUTION_MODE", "auto")
+
+# --- Circuit Breaker ---
+
+# Controls the Claude Code CLI bridge. If the bridge fails
+# CIRCUIT_FAIL_THRESHOLD times in a row, the breaker opens and backs off
+# exponentially, up to CIRCUIT_MAX_BACKOFF_SECONDS.
+CIRCUIT_FAIL_THRESHOLD = int(os.getenv("NCL_CIRCUIT_FAIL_THRESHOLD", "3"))
+CIRCUIT_MAX_BACKOFF_SECONDS = int(os.getenv("NCL_CIRCUIT_MAX_BACKOFF", "120"))
+
+
+class _CircuitBreaker:
+    """Simple closed/open circuit breaker with exponential backoff."""
+
+    def __init__(self, threshold: int = CIRCUIT_FAIL_THRESHOLD,
+                 max_backoff: float = CIRCUIT_MAX_BACKOFF_SECONDS) -> None:
+        self.threshold = threshold
+        self.max_backoff = max_backoff
+        self._failures = 0
+        self._open_until: float = 0.0
+
+    @property
+    def is_open(self) -> bool:
+        """True when the circuit is open (calls should be skipped)."""
+        if self._failures >= self.threshold:
+            if time.monotonic() < self._open_until:
+                return True
+            # Cool-down period expired — allow one probe
+        return False
+
+    def record_success(self) -> None:
+        self._failures = 0
+        self._open_until = 0.0
+
+    def record_failure(self) -> None:
+        self._failures += 1
+        backoff = min(2 ** (self._failures - 1), self.max_backoff)
+        self._open_until = time.monotonic() + backoff
+        log.warning(
+            "CircuitBreaker: failure #%d — bridge open for %.0fs",
+            self._failures, backoff,
+        )
+
+    def __repr__(self) -> str:
+        state = "OPEN" if self.is_open else "CLOSED"
+        return f"<CircuitBreaker {state} failures={self._failures}>"
+
+
+# Module-level circuit breaker for the Claude Code CLI bridge
+_claude_code_breaker = _CircuitBreaker()
 
 
 def _ensure_exec_dirs() -> None:
@@ -75,6 +127,20 @@ logging.basicConfig(
 log = logging.getLogger("ncl.execution-loop")
 
 
+def _sanitize_council_text(text: str) -> str:
+    """Sanitize council output to prevent prompt injection.
+
+    Wraps text in XML boundary tags and escapes any existing XML-like
+    boundary markers so the LLM treats council output as data, not instructions.
+    """
+    if not text:
+        return ""
+    # Escape any attempt to close the boundary tags within the content
+    sanitized = text.replace("</council_data>", "&lt;/council_data&gt;")
+    sanitized = sanitized.replace("<council_data>", "&lt;council_data&gt;")
+    return f"<council_data>\n{sanitized}\n</council_data>"
+
+
 def build_copilot_prompt(
     task_plan: dict,
     council_output: dict,
@@ -88,8 +154,10 @@ def build_copilot_prompt(
     raw_intent = task_plan.get("raw_intent", "")
     target_pillar = task_plan.get("target_pillar", "NCL")
     priority = task_plan.get("priority", "P2")
-    council_decision = council_output.get("decision", "")
-    council_plan = council_output.get("implementation_plan", "")
+    # Sanitize council output to prevent prompt injection — wrap in XML
+    # boundaries so the LLM treats it as data, not instructions.
+    council_decision = _sanitize_council_text(council_output.get("decision", ""))
+    council_plan = _sanitize_council_text(council_output.get("implementation_plan", ""))
     acceptance_criteria = council_output.get("acceptance_criteria", [])
 
     prompt_parts = []
@@ -338,6 +406,15 @@ def _try_claude_code_bridge(prompt: str, pump_id: str, iteration: int) -> bool:
         log.info("Execution mode is 'manual' — skipping Claude Code bridge")
         return False
 
+    # Circuit breaker guard
+    if _claude_code_breaker.is_open:
+        log.warning(
+            "CircuitBreaker OPEN — skipping Claude Code bridge for %s (failures=%d). "
+            "Will retry after cool-down.",
+            pump_id, _claude_code_breaker._failures,
+        )
+        return False
+
     # Check if claude CLI is available
     claude_path = shutil.which("claude")
     if not claude_path:
@@ -346,13 +423,27 @@ def _try_claude_code_bridge(prompt: str, pump_id: str, iteration: int) -> bool:
 
     log.info(f"Claude Code CLI found at {claude_path} — attempting automated execution")
 
-    # Build the prompt for Claude Code with working directory context
+    # Fix #9: Isolate each execution in its own temp directory to prevent
+    # cross-pump file contamination
+    exec_tmpdir = tempfile.mkdtemp(prefix=f"ncl-exec-{pump_id}-v{iteration}-", dir=str(EXECUTION_DIR))
+    exec_working = Path(exec_tmpdir)
+
+    # Fix #5: Clear stale working files from previous executions that could
+    # cause false "work is done" signals
+    if WORKING_FILES.exists():
+        for old_file in WORKING_FILES.iterdir():
+            if old_file.is_file():
+                old_file.unlink()
+            elif old_file.is_dir():
+                shutil.rmtree(str(old_file), ignore_errors=True)
+
+    # Build the prompt for Claude Code with isolated working directory context
     claude_prompt = (
         f"You are executing a NARTIX coding task.\n\n"
         f"Pump ID: {pump_id}\n"
         f"Iteration: {iteration}/{MAX_CODING_ITERATIONS}\n"
-        f"Working directory: {WORKING_FILES}\n\n"
-        f"Write all output files to: {WORKING_FILES}/\n\n"
+        f"Working directory: {exec_working}\n\n"
+        f"Write all output files to: {exec_working}/\n\n"
         f"--- TASK ---\n{prompt}\n--- END TASK ---\n\n"
         f"Execute this task. Write code files to the working directory. "
         f"Do not ask questions — just implement based on the specification above."
@@ -362,8 +453,12 @@ def _try_claude_code_bridge(prompt: str, pump_id: str, iteration: int) -> bool:
     prompt_file = EXECUTION_DIR / f"claude-code-prompt-{pump_id}-v{iteration}.md"
     prompt_file.write_text(claude_prompt)
 
+    # Fix #8: Start timer before subprocess
+    t0 = time.monotonic()
+
     try:
-        result = subprocess.run(
+        # Fix #6: Use Popen + process group so we can kill entire child tree on timeout
+        proc = subprocess.Popen(
             [
                 claude_path,
                 "--print",  # Non-interactive: print output and exit
@@ -371,37 +466,96 @@ def _try_claude_code_bridge(prompt: str, pump_id: str, iteration: int) -> bool:
                 "--output-format", "text",
                 "-p", claude_prompt,
             ],
-            cwd=str(WORKING_FILES),
-            capture_output=True,
+            cwd=str(exec_working),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=300,  # 5 minute timeout per iteration
+            preexec_fn=os.setsid,
         )
+        try:
+            stdout, stderr = proc.communicate(timeout=300)  # 5 minute timeout
+        except subprocess.TimeoutExpired:
+            # Kill entire process group (setsid makes proc the group leader)
+            try:
+                os.killpg(os.getpgid(proc.pid), signal_mod.SIGKILL)
+            except (ProcessLookupError, OSError):
+                proc.kill()
+            proc.wait()
+            log.warning(f"Claude Code timed out after 300s for {pump_id} — killed process group")
+            _claude_code_breaker.record_failure()
+            return False
+
+        # Build a result-like namespace for downstream code
+        class _Result:
+            pass
+        result = _Result()
+        result.returncode = proc.returncode
+        result.stdout = stdout
+        result.stderr = stderr
+
+        # Fix #8: Record elapsed time
+        elapsed = time.monotonic() - t0
 
         # Save Claude Code output
         output_file = EXECUTION_DIR / f"claude-code-output-{pump_id}-v{iteration}.md"
         output_file.write_text(
             f"# Claude Code Output — {pump_id} (iteration {iteration})\n\n"
-            f"## Exit Code: {result.returncode}\n\n"
+            f"## Exit Code: {result.returncode}\n"
+            f"## Elapsed: {elapsed:.1f}s\n\n"
             f"## stdout\n```\n{result.stdout[-5000:] if result.stdout else '(empty)'}\n```\n\n"
             f"## stderr\n```\n{result.stderr[-2000:] if result.stderr else '(empty)'}\n```\n"
         )
 
         if result.returncode == 0:
-            log.info(f"Claude Code executed successfully for {pump_id} iteration {iteration}")
-            # Check if files were created in working directory
-            created_files = list(WORKING_FILES.glob("*"))
+            log.info(f"Claude Code executed successfully for {pump_id} iteration {iteration} ({elapsed:.1f}s)")
+            # Copy files from isolated temp dir to WORKING_FILES for downstream
+            created_files = list(exec_working.glob("*"))
+            for f in created_files:
+                dest = WORKING_FILES / f.name
+                if f.is_file():
+                    shutil.copy2(str(f), str(dest))
+                elif f.is_dir():
+                    shutil.copytree(str(f), str(dest), dirs_exist_ok=True)
             log.info(f"Files in working directory: {[f.name for f in created_files]}")
+            _claude_code_breaker.record_success()
             return True
         else:
-            log.warning(f"Claude Code exited with code {result.returncode}")
+            log.warning(f"Claude Code exited with code {result.returncode} ({elapsed:.1f}s)")
+            _claude_code_breaker.record_failure()
             return False
 
-    except subprocess.TimeoutExpired:
-        log.warning(f"Claude Code timed out after 300s for {pump_id}")
-        return False
     except Exception as e:
         log.error(f"Claude Code bridge failed: {e}")
+        _claude_code_breaker.record_failure()
         return False
+    finally:
+        # Clean up isolated temp dir
+        try:
+            shutil.rmtree(exec_tmpdir, ignore_errors=True)
+        except Exception:
+            pass
+
+
+def get_health() -> dict:
+    """
+    Return a health/status snapshot for the execution loop.
+
+    Useful for launchd watchdogs, monitoring scripts, or the Brain /health endpoint.
+    """
+    return {
+        "status": "ok",
+        "circuit_breaker": {
+            "state": "open" if _claude_code_breaker.is_open else "closed",
+            "consecutive_failures": _claude_code_breaker._failures,
+            "open_until": (
+                datetime.fromtimestamp(_claude_code_breaker._open_until, tz=timezone.utc).isoformat()
+                if _claude_code_breaker._open_until > 0 else None
+            ),
+        },
+        "execution_mode": EXECUTION_MODE,
+        "max_coding_iterations": MAX_CODING_ITERATIONS,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 def run_execution_loop(pump_id: str, start_iteration: int = 1) -> dict:
@@ -412,8 +566,59 @@ def run_execution_loop(pump_id: str, start_iteration: int = 1) -> dict:
     manual Copilot prompt mode if Claude Code is unavailable.
 
     Returns a feedback payload dict suitable for iPhone pump-back.
+    The function never raises — all unhandled exceptions are caught,
+    logged with full traceback, and returned as an 'error' feedback payload.
     """
+    # Validate pump_id — must be a non-empty alphanumeric slug
+    if not pump_id or not all(c.isalnum() or c in "-_." for c in pump_id):
+        err = f"Invalid pump_id: '{pump_id}' — must be alphanumeric with hyphens/underscores/dots"
+        log.error(err)
+        return create_feedback_payload(
+            pump_id=pump_id or "unknown",
+            status="error",
+            summary=err,
+            artifacts=[],
+            iterations=0,
+            review_rounds=0,
+        )
+
+    # Validate iteration range
+    if not (1 <= start_iteration <= MAX_CODING_ITERATIONS):
+        err = f"Invalid start_iteration={start_iteration}, must be 1..{MAX_CODING_ITERATIONS}"
+        log.error(err)
+        return create_feedback_payload(
+            pump_id=pump_id,
+            status="error",
+            summary=err,
+            artifacts=[],
+            iterations=0,
+            review_rounds=0,
+        )
+
     log.info(f"Execution loop started for pump: {pump_id}")
+
+    try:
+        return _run_execution_loop_inner(pump_id, start_iteration)
+    except Exception as e:
+        log.exception(
+            "Execution loop for pump '%s' crashed unexpectedly: %s",
+            pump_id,
+            e,
+        )
+        return create_feedback_payload(
+            pump_id=pump_id,
+            status="error",
+            summary=f"Execution loop crashed: {e}",
+            artifacts=[],
+            iterations=start_iteration,
+            review_rounds=0,
+        )
+
+
+def _run_execution_loop_inner(pump_id: str, start_iteration: int = 1) -> dict:
+    """Inner implementation — called by run_execution_loop with outer try/except."""
+    # Fix #8: Start timing at the beginning of execution
+    loop_start_time = time.monotonic()
 
     task_plan = load_task_plan(pump_id)
     council_output = load_council_output(pump_id)
@@ -441,7 +646,10 @@ def run_execution_loop(pump_id: str, start_iteration: int = 1) -> dict:
             if created:
                 log.info(f"Auto-execution produced {len(created)} files — proceeding to sign-off")
                 summary = f"Auto-executed via Claude Code CLI (iteration {iteration}, {len(created)} files)"
-                return run_sign_off(pump_id, summary, iterations=iteration)
+                feedback = run_sign_off(pump_id, summary, iterations=iteration)
+                # Fix #8: Record actual execution time
+                feedback["metrics"]["total_time_seconds"] = round(time.monotonic() - loop_start_time, 1)
+                return feedback
             else:
                 log.warning("Claude Code ran but produced no files — retrying")
                 issues.append("Claude Code produced no output files")

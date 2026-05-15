@@ -285,6 +285,7 @@ class Mandate(BaseModel):
         default_factory=dict, description="Allocated resources"
     )
     status: MandateStatus = Field(default=MandateStatus.DRAFT)
+    version: int = Field(default=0, description="Optimistic lock version; incremented on every transition")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     source_pump_id: Optional[str] = Field(
@@ -294,16 +295,35 @@ class Mandate(BaseModel):
         default_factory=list, description="Audit trail of status transitions"
     )
 
-    def transition_to(self, new_status: MandateStatus, reason: str = "") -> None:
+    def transition_to(
+        self,
+        new_status: MandateStatus,
+        reason: str = "",
+        expected_version: Optional[int] = None,
+    ) -> None:
         """
         Transition mandate to new status with validation and audit trail.
 
         Follows MWP governance: only valid transitions allowed.
-        Logged through Paperclip activity tracking.
+        Supports optimistic locking via expected_version: if provided, the
+        transition fails with a ConflictError if the mandate was modified
+        (version incremented) between the caller's last read and now.
+
+        Args:
+            new_status: Target status.
+            reason: Human-readable reason for the transition.
+            expected_version: If not None, must equal self.version or the
+                transition is rejected with ValueError to signal a conflict.
 
         Raises:
-            ValueError: If transition is not allowed
+            ValueError: If transition is not allowed or version conflicts.
         """
+        if expected_version is not None and expected_version != self.version:
+            raise ValueError(
+                f"Mandate {self.mandate_id} optimistic lock conflict: "
+                f"expected version {expected_version}, current version {self.version}. "
+                f"Re-fetch the mandate and retry the transition."
+            )
         if not self.status.can_transition_to(new_status):
             allowed = [s.value for s in MandateStatus.valid_transitions().get(self.status, [])]
             raise ValueError(
@@ -315,8 +335,13 @@ class Mandate(BaseModel):
             "to": new_status.value,
             "reason": reason,
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            "version": self.version,
         })
+        # Cap status_history to last 50 entries to prevent unbounded growth
+        if len(self.status_history) > 50:
+            self.status_history = self.status_history[-50:]
         self.status = new_status
+        self.version += 1
         self.updated_at = datetime.now(timezone.utc)
 
 

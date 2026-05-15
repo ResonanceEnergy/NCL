@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+logs/
+data/
+*.pyc
+__pycache__/
+.git/
+tests/
+*.md
+node_modules/
+.vscode/

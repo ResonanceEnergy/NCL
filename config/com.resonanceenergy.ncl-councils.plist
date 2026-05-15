@@ -4,8 +4,8 @@
 <dict>
     <!-- NCL Intelligence Council Sweep — runs every 6 hours -->
     <!-- Install: cp config/com.resonanceenergy.ncl-councils.plist ~/Library/LaunchAgents/ -->
-    <!-- Load:    launchctl load ~/Library/LaunchAgents/com.resonanceenergy.ncl-councils.plist -->
-    <!-- Unload:  launchctl unload ~/Library/LaunchAgents/com.resonanceenergy.ncl-councils.plist -->
+    <!-- Load:    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.resonanceenergy.ncl-councils.plist -->
+    <!-- Unload:  launchctl bootout gui/$(id -u)/com.resonanceenergy.ncl-councils -->
     <!-- Status:  launchctl list | grep ncl-councils -->
 
     <key>Label</key>
@@ -22,21 +22,21 @@
     <integer>21600</integer><!-- 6 hours = 21600 seconds -->
 
     <key>WorkingDirectory</key>
-    <string>/Users/natrix/dev/NCL</string>
+    <string>__HOME__/dev/NCL</string>
 
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/Users/natrix/.pyenv/shims</string>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:__HOME__/.pyenv/shims</string>
         <key>HOME</key>
-        <string>/Users/natrix</string>
+        <string>__HOME__</string>
     </dict>
 
     <key>StandardOutPath</key>
-    <string>/Users/natrix/dev/NCL/logs/council-sweep-stdout.log</string>
+    <string>__HOME__/dev/NCL/logs/council-sweep-stdout.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/Users/natrix/dev/NCL/logs/council-sweep-stderr.log</string>
+    <string>__HOME__/dev/NCL/logs/council-sweep-stderr.log</string>
 
     <key>RunAtLoad</key>
     <false/>

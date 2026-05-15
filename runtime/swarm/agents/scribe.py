@@ -13,7 +13,7 @@ import traceback
 
 from . import register_agent
 from ..agent_base import SwarmAgent
-from ..models import SubtaskNode, TaskResult
+from ..models import SubtaskNode, TaskResult, TaskStatus
 
 logger = logging.getLogger("ncl.swarm.scribe")
 
@@ -25,6 +25,11 @@ class ScribeAgent(SwarmAgent):
     strategy documents, and communications using local LLM for bulk
     writing and Claude for editorial refinement.
     """
+
+    DESCRIPTION = "Scribe — document drafting, report writing, editorial polish (Qwen3 + Claude)"
+
+    def __str__(self) -> str:
+        return f"ScribeAgent(id={self.agent_id}, state={self.state.value})"
 
     async def execute(self, task: SubtaskNode) -> TaskResult:
         start_ms = int(time.time() * 1000)
@@ -131,6 +136,7 @@ class ScribeAgent(SwarmAgent):
                 subtask_id=task.subtask_id,
                 agent_id=self.agent_id,
                 output=f"ERROR: {exc}\n{traceback.format_exc()}",
+                status=TaskStatus.FAILED,
                 confidence=0.0,
                 cost_cents=total_cost,
                 duration_ms=duration_ms,

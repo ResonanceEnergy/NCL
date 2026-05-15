@@ -13,7 +13,7 @@ import traceback
 
 from . import register_agent
 from ..agent_base import SwarmAgent
-from ..models import SubtaskNode, TaskResult
+from ..models import SubtaskNode, TaskResult, TaskStatus
 
 logger = logging.getLogger("ncl.swarm.scout")
 
@@ -25,6 +25,11 @@ class ScoutAgent(SwarmAgent):
     detects trends, and correlates market signals using Grok's live
     data access and Perplexity for verification.
     """
+
+    DESCRIPTION = "Scout — real-time intelligence, trend detection, breaking news (Grok + Perplexity verification)"
+
+    def __str__(self) -> str:
+        return f"ScoutAgent(id={self.agent_id}, state={self.state.value})"
 
     async def execute(self, task: SubtaskNode) -> TaskResult:
         start_ms = int(time.time() * 1000)
@@ -135,6 +140,7 @@ class ScoutAgent(SwarmAgent):
                 subtask_id=task.subtask_id,
                 agent_id=self.agent_id,
                 output=f"ERROR: {exc}\n{traceback.format_exc()}",
+                status=TaskStatus.FAILED,
                 confidence=0.0,
                 cost_cents=total_cost,
                 duration_ms=duration_ms,

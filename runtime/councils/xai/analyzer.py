@@ -10,6 +10,7 @@ structured insights. Handles three signal vectors:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -150,34 +151,54 @@ async def analyze_posts(
     return report
 
 
+_analyzer_client: "httpx.AsyncClient | None" = None
+_analyzer_client_lock: "asyncio.Lock | None" = None
+
+
+def _get_analyzer_lock():
+    global _analyzer_client_lock
+    if _analyzer_client_lock is None:
+        import asyncio
+        _analyzer_client_lock = asyncio.Lock()
+    return _analyzer_client_lock
+
+
+async def _get_analyzer_client():
+    """Shared HTTP client for X analyzer — avoids connection pool exhaustion."""
+    global _analyzer_client
+    import httpx
+    import asyncio
+    if _analyzer_client is None or _analyzer_client.is_closed:
+        async with _get_analyzer_lock():
+            if _analyzer_client is None or _analyzer_client.is_closed:
+                _analyzer_client = httpx.AsyncClient(timeout=300.0)
+    return _analyzer_client
+
+
 async def _call_model(user_prompt: str) -> str:
     """Call configured AI model for X analysis."""
-    try:
-        import httpx
-    except ImportError:
-        log.error("httpx not installed")
-        return ""
+    client = await _get_analyzer_client()
 
     # Anthropic Claude
     if ANTHROPIC_API_KEY and "claude" in ANALYSIS_MODEL.lower():
         try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                resp = await client.post(
-                    "https://api.anthropic.com/v1/messages",
-                    headers={
-                        "x-api-key": ANTHROPIC_API_KEY,
-                        "anthropic-version": "2023-06-01",
-                        "content-type": "application/json",
-                    },
-                    json={
-                        "model": ANALYSIS_MODEL,
-                        "max_tokens": 4096,
-                        "system": X_ANALYSIS_SYSTEM_PROMPT,
-                        "messages": [{"role": "user", "content": user_prompt}],
-                    },
-                )
-                resp.raise_for_status()
-                return resp.json()["content"][0]["text"]
+            resp = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": ANTHROPIC_API_KEY,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": ANALYSIS_MODEL,
+                    "max_tokens": 4096,
+                    "system": X_ANALYSIS_SYSTEM_PROMPT,
+                    "messages": [{"role": "user", "content": user_prompt}],
+                },
+                timeout=120.0,
+            )
+            resp.raise_for_status()
+            return resp.json()["content"][0]["text"]
         except Exception as e:
             log.warning(f"Anthropic failed: {e}")
 
@@ -185,44 +206,43 @@ async def _call_model(user_prompt: str) -> str:
     if XAI_API_KEY:
         try:
             model = ANALYSIS_MODEL if "grok" in ANALYSIS_MODEL.lower() else "grok-4"
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                resp = await client.post(
-                    "https://api.x.ai/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {XAI_API_KEY}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": model,
-                        "messages": [
-                            {"role": "system", "content": X_ANALYSIS_SYSTEM_PROMPT},
-                            {"role": "user", "content": user_prompt},
-                        ],
-                        "max_tokens": 4096,
-                    },
-                )
-                resp.raise_for_status()
-                return resp.json()["choices"][0]["message"]["content"]
-        except Exception as e:
-            log.warning(f"xAI failed: {e}")
-
-    # Ollama fallback
-    try:
-        model = os.getenv("OLLAMA_COUNCIL_MODEL", "qwen3:32b")
-        async with httpx.AsyncClient(timeout=300.0) as client:
             resp = await client.post(
-                f"{OLLAMA_HOST}/api/chat",
+                "https://api.x.ai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {XAI_API_KEY}",
+                    "Content-Type": "application/json",
+                },
                 json={
                     "model": model,
                     "messages": [
                         {"role": "system", "content": X_ANALYSIS_SYSTEM_PROMPT},
                         {"role": "user", "content": user_prompt},
                     ],
-                    "stream": False,
+                    "max_tokens": 4096,
                 },
+                timeout=120.0,
             )
             resp.raise_for_status()
-            return resp.json().get("message", {}).get("content", "")
+            return resp.json()["choices"][0]["message"]["content"]
+        except Exception as e:
+            log.warning(f"xAI failed: {e}")
+
+    # Ollama fallback
+    try:
+        model = os.getenv("OLLAMA_COUNCIL_MODEL", "qwen3:32b")
+        resp = await client.post(
+            f"{OLLAMA_HOST}/api/chat",
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": X_ANALYSIS_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt},
+                ],
+                "stream": False,
+            },
+        )
+        resp.raise_for_status()
+        return resp.json().get("message", {}).get("content", "")
     except Exception as e:
         log.error(f"All models failed: {e}")
         return ""

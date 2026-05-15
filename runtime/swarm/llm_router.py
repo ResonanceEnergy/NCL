@@ -17,6 +17,13 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+# Timeout (seconds) applied to all cloud LLM HTTP calls.
+_CLOUD_TIMEOUT = 30.0
+
+# Retry config for per-backend retries (3 attempts: 1s, 2s, 4s delays).
+_MAX_RETRIES = 3
+_RETRY_BASE_DELAY = 1.0
+
 # ---------------------------------------------------------------------------
 # Response model
 # ---------------------------------------------------------------------------
@@ -91,6 +98,9 @@ class LLMRouter:
         perplexity_api_key, ollama_host
     """
 
+    # HTTP status codes that are safe to retry (transient server/rate errors).
+    _RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
+
     def __init__(self, config: dict[str, Any]) -> None:
         self._config = config
         self._cloud_semaphore = asyncio.Semaphore(4)
@@ -98,11 +108,91 @@ class LLMRouter:
         self._total_cost_cents: float = 0.0
         self._call_count: int = 0
         self._client: httpx.AsyncClient | None = None
+        self._client_lock = asyncio.Lock()  # Prevents double-creation (Gap 28)
+        self._stats_lock = asyncio.Lock()  # Guards cost/count increments (Gap 16)
 
     async def _get_client(self) -> httpx.AsyncClient:
-        if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(timeout=120.0)
+        # Fast path: client already exists and is open.
+        if self._client is not None and not self._client.is_closed:
+            return self._client
+        # Slow path: acquire lock and double-check to avoid two coroutines each
+        # creating a separate httpx.AsyncClient instance.
+        async with self._client_lock:
+            if self._client is None or self._client.is_closed:
+                # Ollama may be slow locally (large model inference), so keep a
+                # generous top-level timeout here.  Cloud backends enforce their
+                # own 30-second limit via the per-request timeout parameter.
+                self._client = httpx.AsyncClient(timeout=120.0)
         return self._client
+
+    async def _dispatch_with_retry(
+        self,
+        model_id: str,
+        prompt: str,
+        max_tokens: int,
+        temperature: float,
+        system_prompt: str | None,
+    ) -> LLMResponse:
+        """Dispatch to a backend with exponential backoff retry.
+
+        Only retries on transient HTTP errors (429, 5xx). Client errors
+        such as 400, 401, 403, 404 are raised immediately (Gap 17).
+        """
+        last_error: Exception | None = None
+        for attempt in range(_MAX_RETRIES):
+            try:
+                return await self._dispatch(
+                    model_id=model_id,
+                    prompt=prompt,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    system_prompt=system_prompt,
+                )
+            except httpx.HTTPStatusError as exc:
+                last_error = exc
+                # Only retry on transient status codes (Gap 17)
+                if exc.response.status_code not in self._RETRYABLE_STATUS_CODES:
+                    raise
+                if attempt < _MAX_RETRIES - 1:
+                    delay = _RETRY_BASE_DELAY * (2 ** attempt)
+                    logger.warning(
+                        "Backend %s attempt %d/%d failed (HTTP %d): %s — retrying in %.1fs",
+                        model_id,
+                        attempt + 1,
+                        _MAX_RETRIES,
+                        exc.response.status_code,
+                        str(exc)[:200],
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    logger.warning(
+                        "Backend %s failed after %d attempts: %s",
+                        model_id,
+                        _MAX_RETRIES,
+                        str(exc)[:200],
+                    )
+            except Exception as exc:
+                last_error = exc
+                if attempt < _MAX_RETRIES - 1:
+                    delay = _RETRY_BASE_DELAY * (2 ** attempt)
+                    logger.warning(
+                        "Backend %s attempt %d/%d failed: %s — retrying in %.1fs",
+                        model_id,
+                        attempt + 1,
+                        _MAX_RETRIES,
+                        str(exc)[:200],
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    logger.warning(
+                        "Backend %s failed after %d attempts: %s",
+                        model_id,
+                        _MAX_RETRIES,
+                        str(exc)[:200],
+                    )
+        raise last_error  # type: ignore[misc]
 
     @property
     def total_cost_cents(self) -> float:
@@ -141,20 +231,21 @@ class LLMRouter:
 
         for model_id in chain:
             try:
-                response = await self._dispatch(
+                response = await self._dispatch_with_retry(
                     model_id=model_id,
                     prompt=prompt,
                     max_tokens=max_tokens,
                     temperature=temperature,
                     system_prompt=system_prompt,
                 )
-                self._total_cost_cents += response.cost_cents
-                self._call_count += 1
+                async with self._stats_lock:
+                    self._total_cost_cents += response.cost_cents
+                    self._call_count += 1
                 return response
             except Exception as exc:
                 last_error = exc
                 logger.warning(
-                    "LLM call failed for %s: %s — trying next in chain",
+                    "LLM call failed for %s (all retries exhausted): %s — trying next in chain",
                     model_id,
                     str(exc)[:200],
                 )
@@ -227,6 +318,7 @@ class LLMRouter:
                     "content-type": "application/json",
                 },
                 json=body,
+                timeout=_CLOUD_TIMEOUT,
             )
             latency_ms = (time.perf_counter_ns() - start) // 1_000_000
 
@@ -284,11 +376,14 @@ class LLMRouter:
                     "max_tokens": max_tokens,
                     "temperature": temperature,
                 },
+                timeout=_CLOUD_TIMEOUT,
             )
             latency_ms = (time.perf_counter_ns() - start) // 1_000_000
 
         resp.raise_for_status()
         data = resp.json()
+        if not data.get("choices"):
+            raise ValueError(f"Empty choices in response from xAI model '{model}'")
         content = data["choices"][0]["message"]["content"]
         usage = data.get("usage", {})
         tokens_in = usage.get("prompt_tokens", 0)
@@ -330,24 +425,55 @@ class LLMRouter:
         if system_prompt:
             body["systemInstruction"] = {"parts": [{"text": system_prompt}]}
 
+        # API key goes in a request header — never in URL params (avoids
+        # logging / server-log leakage of credentials).
         url = (
             f"https://generativelanguage.googleapis.com/v1beta/models/{model}"
-            f":generateContent?key={api_key}"
+            f":generateContent"
         )
 
         async with self._cloud_semaphore:
             client = await self._get_client()
             start = time.perf_counter_ns()
-            resp = await client.post(url, json=body)
+            resp = await client.post(
+                url,
+                json=body,
+                headers={"x-goog-api-key": api_key},
+                timeout=_CLOUD_TIMEOUT,
+            )
             latency_ms = (time.perf_counter_ns() - start) // 1_000_000
 
         resp.raise_for_status()
         data = resp.json()
-        candidates = data.get("candidates", [{}])
+        candidates = data.get("candidates", [])
+
+        # Detect Gemini safety blocks — the API returns candidates with a
+        # finishReason of "SAFETY" and no content (Gap 18).
+        if not candidates:
+            block_reason = data.get("promptFeedback", {}).get("blockReason", "UNKNOWN")
+            raise ValueError(
+                f"Gemini safety block: prompt blocked with reason '{block_reason}' "
+                f"(model={model})"
+            )
+
+        first_candidate = candidates[0]
+        finish_reason = first_candidate.get("finishReason", "")
+        if finish_reason == "SAFETY":
+            safety_ratings = first_candidate.get("safetyRatings", [])
+            raise ValueError(
+                f"Gemini safety block: response blocked (finishReason=SAFETY, "
+                f"model={model}, ratings={safety_ratings})"
+            )
+
         content = ""
-        if candidates:
-            parts = candidates[0].get("content", {}).get("parts", [])
-            content = "".join(p.get("text", "") for p in parts)
+        parts = first_candidate.get("content", {}).get("parts", [])
+        content = "".join(p.get("text", "") for p in parts)
+
+        if not content and finish_reason not in ("STOP", "MAX_TOKENS", ""):
+            raise ValueError(
+                f"Gemini returned empty content with finishReason='{finish_reason}' "
+                f"(model={model})"
+            )
 
         usage_meta = data.get("usageMetadata", {})
         tokens_in = usage_meta.get("promptTokenCount", 0)
@@ -398,11 +524,14 @@ class LLMRouter:
                     "max_tokens": max_tokens,
                     "temperature": temperature,
                 },
+                timeout=_CLOUD_TIMEOUT,
             )
             latency_ms = (time.perf_counter_ns() - start) // 1_000_000
 
         resp.raise_for_status()
         data = resp.json()
+        if not data.get("choices"):
+            raise ValueError(f"Empty choices in response from OpenAI model '{model}'")
         content = data["choices"][0]["message"]["content"]
         usage = data.get("usage", {})
         tokens_in = usage.get("prompt_tokens", 0)
@@ -453,11 +582,14 @@ class LLMRouter:
                     "max_tokens": max_tokens,
                     "temperature": temperature,
                 },
+                timeout=_CLOUD_TIMEOUT,
             )
             latency_ms = (time.perf_counter_ns() - start) // 1_000_000
 
         resp.raise_for_status()
         data = resp.json()
+        if not data.get("choices"):
+            raise ValueError(f"Empty choices in response from Perplexity model '{model}'")
         content = data["choices"][0]["message"]["content"]
         usage = data.get("usage", {})
         tokens_in = usage.get("prompt_tokens", 0)

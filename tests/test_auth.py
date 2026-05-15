@@ -61,14 +61,9 @@ def test_client():
     return TestClient(app)
 
 
-# A subset of these tests assume API contracts (request schemas, auth-vs-validation
-# ordering, and which endpoints enforce auth) that have drifted from the current
-# routes.py. They need to be rewritten against the live OpenAPI surface; until
-# then they are skipped to keep the suite honest.
-_OBSOLETE = pytest.mark.skip(
-    reason="Out of sync with current routes.py contract — needs rewrite against "
-    "live OpenAPI surface (request schemas + actual auth boundaries)."
-)
+# All previously _OBSOLETE markers have been removed.  Tests below are now
+# written against the live routes.py API surface (query-param mandates, dict
+# body for /pump, etc.).
 
 
 @pytest.fixture
@@ -147,146 +142,94 @@ def test_pump_requires_auth_invalid_token(test_client, invalid_token):
     assert "Invalid strike token" in data["detail"]
 
 
-@_OBSOLETE
 def test_pump_valid_auth(test_client, valid_token, monkeypatch):
     """
-    Test: POST /pump with valid bearer token succeeds (or returns expected error).
+    Test: POST /pump with valid bearer token passes auth.
 
-    A valid token should pass authentication. The endpoint may fail for other reasons
-    (e.g., service not initialized), but authentication should succeed.
+    /pump accepts a dict body with at least an 'intent' key.
     """
-    # Set the strike token in the environment
     monkeypatch.setenv("STRIKE_AUTH_TOKEN", valid_token)
 
-    pump_payload = {
-        "prompt_id": "P-001",
-        "source": "grok-iphone",
-        "intent": "Test intent",
-        "context": {},
-        "urgency": "normal",
-    }
-
+    pump_payload = {"intent": "Test intent"}
     headers = {"Authorization": f"Bearer {valid_token}"}
 
     response = test_client.post("/pump", json=pump_payload, headers=headers)
 
-    # Should pass auth check (may fail for other reasons like service initialization)
-    # So we check that it's NOT a 401/403 auth error
     assert response.status_code != 401, "Should pass auth check (not 401)"
     assert response.status_code != 403, "Should pass auth check (not 403)"
-
-    # 503 (service not ready) or 200 (success) are both acceptable
     assert response.status_code in [200, 503]
 
 
-@_OBSOLETE
 def test_council_spawn_requires_auth(test_client):
     """
-    Test: POST /council/spawn without token returns 401/403.
-
-    Council spawn is a critical endpoint that should require authentication.
+    Test: POST /council/spawn without token returns 401.
     """
-    payload = {
-        "topic": "Test debate",
-        "prompt": "Test prompt",
-        "members": ["claude", "grok", "gemini"],
-    }
-
-    # No auth header
-    response = test_client.post("/council/spawn", json=payload)
-
+    response = test_client.post("/council/spawn", json={"topic": "test"})
     assert response.status_code == 401
-    data = response.json()
-    assert "detail" in data
+    assert "detail" in response.json()
 
 
-@_OBSOLETE
 def test_council_spawn_valid_auth(test_client, valid_token, monkeypatch):
     """
-    Test: POST /council/spawn with valid bearer token succeeds (auth-wise).
-
-    Authentication should pass for valid token.
+    Test: POST /council/spawn with valid bearer token passes auth.
     """
     monkeypatch.setenv("STRIKE_AUTH_TOKEN", valid_token)
-
-    payload = {
-        "topic": "Test debate",
-        "prompt": "Test prompt",
-        "members": ["claude", "grok", "gemini"],
-    }
-
     headers = {"Authorization": f"Bearer {valid_token}"}
-
-    response = test_client.post("/council/spawn", json=payload, headers=headers)
-
-    # Should pass auth (not 401/403)
+    response = test_client.post("/council/spawn", json={"topic": "test"}, headers=headers)
     assert response.status_code != 401
     assert response.status_code != 403
-    assert response.status_code in [200, 503]
+    assert response.status_code in [200, 422, 503]
 
 
-@_OBSOLETE
 def test_mandates_create_requires_auth(test_client):
     """
-    Test: POST /mandates without token returns 401/403.
+    Test: POST /mandates without token returns 401.
 
-    Mandate creation is restricted to authenticated requests.
+    /mandates uses query params — pass them as params, not JSON body.
     """
-    payload = {
-        "pillar": "ncc",
-        "priority": 5,
-        "title": "Test mandate",
-        "objective": "Test objective",
-        "success_criteria": ["criteria1"],
-    }
-
-    # No auth header
-    response = test_client.post("/mandates", json=payload)
-
+    response = test_client.post(
+        "/mandates",
+        params={
+            "pillar": "ncc",
+            "priority": 5,
+            "title": "Test mandate",
+            "objective": "Test objective",
+            "success_criteria": ["criteria1"],
+        },
+    )
     assert response.status_code == 401
-    data = response.json()
-    assert "detail" in data
+    assert "detail" in response.json()
 
 
-@_OBSOLETE
 def test_mandates_create_valid_auth(test_client, valid_token, monkeypatch):
     """
-    Test: POST /mandates with valid bearer token succeeds (auth-wise).
-
-    Valid token should pass authentication.
+    Test: POST /mandates with valid bearer token passes auth.
     """
     monkeypatch.setenv("STRIKE_AUTH_TOKEN", valid_token)
-
-    payload = {
-        "pillar": "ncc",
-        "priority": 5,
-        "title": "Test mandate",
-        "objective": "Test objective",
-        "success_criteria": ["criteria1"],
-    }
-
     headers = {"Authorization": f"Bearer {valid_token}"}
-
-    response = test_client.post("/mandates", json=payload, headers=headers)
-
-    # Should pass auth
+    response = test_client.post(
+        "/mandates",
+        params={
+            "pillar": "ncc",
+            "priority": 5,
+            "title": "Test mandate",
+            "objective": "Test objective",
+            "success_criteria": ["criteria1"],
+        },
+        headers=headers,
+    )
     assert response.status_code != 401
     assert response.status_code != 403
-    assert response.status_code in [200, 503]
+    assert response.status_code in [200, 422, 503]
 
 
-@_OBSOLETE
 def test_mandates_list_requires_auth(test_client):
     """
-    Test: GET /mandates without token returns 401/403.
-
-    List mandates requires authentication.
+    Test: GET /mandates without token returns 401.
     """
     response = test_client.get("/mandates")
-
     assert response.status_code == 401
-    data = response.json()
-    assert "detail" in data
+    assert "detail" in response.json()
 
 
 def test_mandates_list_valid_auth(test_client, valid_token, monkeypatch):
@@ -307,7 +250,7 @@ def test_mandates_list_valid_auth(test_client, valid_token, monkeypatch):
     assert response.status_code in [200, 503]
 
 
-@_OBSOLETE
+
 def test_mandates_get_requires_auth(test_client):
     """
     Test: GET /mandates/{mandate_id} without token returns 401/403.
@@ -321,7 +264,7 @@ def test_mandates_get_requires_auth(test_client):
     assert "detail" in data
 
 
-@_OBSOLETE
+
 def test_mandates_get_valid_auth(test_client, valid_token, monkeypatch):
     """
     Test: GET /mandates/{mandate_id} with valid token succeeds (auth-wise).
@@ -340,7 +283,7 @@ def test_mandates_get_valid_auth(test_client, valid_token, monkeypatch):
     assert response.status_code in [200, 404, 503]
 
 
-@_OBSOLETE
+
 def test_memory_query_requires_auth(test_client):
     """
     Test: GET /memory/query without token returns 401/403.
@@ -354,7 +297,7 @@ def test_memory_query_requires_auth(test_client):
     assert "detail" in data
 
 
-@_OBSOLETE
+
 def test_memory_query_valid_auth(test_client, valid_token, monkeypatch):
     """
     Test: GET /memory/query with valid token succeeds (auth-wise).
@@ -373,7 +316,7 @@ def test_memory_query_valid_auth(test_client, valid_token, monkeypatch):
     assert response.status_code in [200, 503]
 
 
-@_OBSOLETE
+
 def test_feedback_requires_auth(test_client):
     """
     Test: POST /feedback without token returns 401/403.
@@ -419,24 +362,18 @@ def test_feedback_valid_auth(test_client, valid_token, monkeypatch):
     assert response.status_code in [200, 503]
 
 
-@_OBSOLETE
+
 def test_auth_token_format_bearer(test_client, valid_token, monkeypatch):
     """
     Test: Bearer token format is properly parsed.
 
     The token should be extracted from "Bearer <token>" format.
+    /pump accepts a dict body with at least an 'intent' key.
     """
     monkeypatch.setenv("STRIKE_AUTH_TOKEN", valid_token)
 
-    pump_payload = {
-        "prompt_id": "P-001",
-        "source": "grok-iphone",
-        "intent": "Test intent",
-        "context": {},
-        "urgency": "normal",
-    }
+    pump_payload = {"intent": "Test intent"}
 
-    # Test various header formats
     # Valid: "Bearer <token>"
     headers = {"Authorization": f"Bearer {valid_token}"}
     response = test_client.post("/pump", json=pump_payload, headers=headers)
@@ -461,13 +398,7 @@ def test_auth_case_sensitivity(test_client, valid_token, monkeypatch):
     """
     monkeypatch.setenv("STRIKE_AUTH_TOKEN", valid_token)
 
-    pump_payload = {
-        "prompt_id": "P-001",
-        "source": "grok-iphone",
-        "intent": "Test intent",
-        "context": {},
-        "urgency": "normal",
-    }
+    pump_payload = {"intent": "Test intent"}
 
     # Valid token should work
     headers = {"Authorization": f"Bearer {valid_token}"}
@@ -495,7 +426,7 @@ def test_pump_approval_requires_auth(test_client):
     assert "detail" in data
 
 
-@_OBSOLETE
+
 def test_pump_approval_valid_auth(test_client, valid_token, monkeypatch):
     """
     Test: POST /pump/approve/{pump_id} with valid token succeeds (auth-wise).
@@ -527,7 +458,7 @@ def test_pump_reject_requires_auth(test_client):
     assert "detail" in data
 
 
-@_OBSOLETE
+
 def test_pump_reject_valid_auth(test_client, valid_token, monkeypatch):
     """
     Test: POST /pump/reject/{pump_id} with valid token succeeds (auth-wise).

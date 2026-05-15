@@ -14,7 +14,7 @@ import traceback
 
 from . import register_agent
 from ..agent_base import SwarmAgent
-from ..models import SubtaskNode, TaskResult
+from ..models import SubtaskNode, TaskResult, TaskStatus
 
 logger = logging.getLogger("ncl.swarm.sentinel")
 
@@ -26,6 +26,11 @@ class SentinelAgent(SwarmAgent):
     completeness, consistency, and actionability. Returns confidence < 0.7
     when quality issues are found, triggering the Foreman to retry.
     """
+
+    DESCRIPTION = "Sentinel — quality review, accuracy check, QA scoring (Claude)"
+
+    def __str__(self) -> str:
+        return f"SentinelAgent(id={self.agent_id}, state={self.state.value})"
 
     # Quality dimensions and their weights for scoring
     DIMENSIONS = {
@@ -114,7 +119,19 @@ class SentinelAgent(SwarmAgent):
 
             # Determine confidence (maps to quality verdict)
             # Below 0.7 triggers Foreman retry
-            is_pass = "PASS" in review_response.content.upper().split("VERDICT")[-1][:50] if "VERDICT" in review_response.content.upper() else weighted_score >= 0.7
+            # Robust PASS detection: look for "VERDICT: PASS" on its own line
+            # (case-insensitive, tolerates surrounding whitespace).
+            import re as _re
+            _verdict_match = _re.search(
+                r'^\s*VERDICT\s*:\s*(PASS|FAIL)\s*$',
+                review_response.content,
+                _re.IGNORECASE | _re.MULTILINE,
+            )
+            if _verdict_match:
+                is_pass = _verdict_match.group(1).upper() == "PASS"
+            else:
+                # No structured verdict line found — fall back to score threshold
+                is_pass = weighted_score >= 0.7
 
             if is_pass and weighted_score >= 0.7:
                 confidence = max(0.7, min(0.95, weighted_score))
@@ -163,6 +180,7 @@ class SentinelAgent(SwarmAgent):
                 subtask_id=task.subtask_id,
                 agent_id=self.agent_id,
                 output=f"ERROR: {exc}\n{traceback.format_exc()}",
+                status=TaskStatus.FAILED,
                 confidence=0.0,
                 cost_cents=total_cost,
                 duration_ms=duration_ms,

@@ -19,23 +19,25 @@ logger = logging.getLogger(__name__)
 
 
 class _RateLimiter:
-    """Simple token-bucket rate limiter per platform."""
+    """Simple token-bucket rate limiter per platform (thread-safe with asyncio.Lock)."""
 
     def __init__(self, calls_per_minute: int = 10):
         self.calls_per_minute = calls_per_minute
         self._timestamps: list[float] = []
+        self._lock = asyncio.Lock()
 
     async def acquire(self) -> None:
         """Wait until a request slot is available."""
-        now = time.monotonic()
-        # Purge timestamps older than 60 seconds
-        self._timestamps = [t for t in self._timestamps if now - t < 60]
-        if len(self._timestamps) >= self.calls_per_minute:
-            wait = 60 - (now - self._timestamps[0])
-            if wait > 0:
-                logger.debug(f"Rate limit reached, waiting {wait:.1f}s")
-                await asyncio.sleep(wait)
-        self._timestamps.append(time.monotonic())
+        async with self._lock:
+            now = time.monotonic()
+            # Purge timestamps older than 60 seconds
+            self._timestamps = [t for t in self._timestamps if now - t < 60]
+            if len(self._timestamps) >= self.calls_per_minute:
+                wait = 60 - (now - self._timestamps[0])
+                if wait > 0:
+                    logger.debug(f"Rate limit reached, waiting {wait:.1f}s")
+                    await asyncio.sleep(wait)
+            self._timestamps.append(time.monotonic())
 
 
 class Scanner:
@@ -89,6 +91,10 @@ class Scanner:
             "youtube": _RateLimiter(calls_per_minute=30),
             "reddit": _RateLimiter(calls_per_minute=10),
         }
+
+        # Reddit OAuth token cache
+        self._reddit_token: Optional[str] = None
+        self._reddit_token_expires: float = 0.0  # monotonic time
 
         # Retry config
         self._max_retries = 3
@@ -217,12 +223,14 @@ class Scanner:
                 platform="youtube",
                 params={
                     "q": query,
-                    "key": self.youtube_api_key,
                     "maxResults": min(max_results, 50),
                     "part": "snippet",
                     "type": "video",
                     "order": "relevance",
                 },
+                # API key in header — keeps it out of URLs, server logs, and
+                # browser history (Google also accepts X-Goog-Api-Key).
+                headers={"X-Goog-Api-Key": self.youtube_api_key},
             )
             data = response.json()
 
@@ -265,17 +273,8 @@ class Scanner:
 
         signals = []
         try:
-            # Get Reddit auth token (with retry)
-            auth = (self.reddit_client_id, self.reddit_client_secret)
-            token_response = await self._request_with_retry(
-                "POST",
-                "https://www.reddit.com/api/v1/access_token",
-                platform="reddit",
-                auth=auth,
-                data={"grant_type": "client_credentials"},
-                headers={"User-Agent": self.reddit_user_agent},
-            )
-            token = token_response.json()["access_token"]
+            # Get Reddit auth token (cached with expiry)
+            token = await self._get_reddit_token()
 
             # Fetch subreddit posts (with retry)
             posts_response = await self._request_with_retry(
@@ -312,6 +311,28 @@ class Scanner:
             logger.warning(f"Failed to scan Reddit subreddit '{subreddit}': {e}")
 
         return signals
+
+    async def _get_reddit_token(self) -> str:
+        """Get a Reddit OAuth token, returning cached token if still valid."""
+        now = time.monotonic()
+        if self._reddit_token and now < self._reddit_token_expires:
+            return self._reddit_token
+
+        auth = (self.reddit_client_id, self.reddit_client_secret)
+        token_response = await self._request_with_retry(
+            "POST",
+            "https://www.reddit.com/api/v1/access_token",
+            platform="reddit",
+            auth=auth,
+            data={"grant_type": "client_credentials"},
+            headers={"User-Agent": self.reddit_user_agent},
+        )
+        data = token_response.json()
+        self._reddit_token = data["access_token"]
+        # Reddit tokens last 3600s; expire 60s early to avoid edge cases
+        expires_in = data.get("expires_in", 3600)
+        self._reddit_token_expires = time.monotonic() + max(0, expires_in - 60)
+        return self._reddit_token
 
     def _compute_importance(self, signal: InsightSignal) -> float:
         """

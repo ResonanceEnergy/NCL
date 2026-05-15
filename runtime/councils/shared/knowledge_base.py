@@ -23,6 +23,7 @@ Directory structure:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -64,6 +65,10 @@ class KnowledgeBase:
                   self.war_room_dir, self.indices_dir]:
             d.mkdir(parents=True, exist_ok=True)
 
+        # Tracks the mtime of each .md file at the time it was last indexed.
+        # Key: absolute path string, Value: mtime float.
+        self._index_mtimes: dict[str, float] = {}
+
     async def ingest_report(
         self,
         report: CouncilReport,
@@ -104,7 +109,7 @@ class KnowledgeBase:
                 index=i + 1,
                 total=len(report.insights),
             )
-            note_path.write_text(content, encoding="utf-8")
+            await asyncio.to_thread(note_path.write_text, content, "utf-8")
             insight_links.append(f"[[{note_name}|{insight.title}]]")
             stats["insights"] += 1
             stats["notes_created"] += 1
@@ -140,7 +145,7 @@ class KnowledgeBase:
                 note_path = self.transcripts_dir / f"{note_name}.md"
 
                 content = _render_video_reference_note(video, source, session, date_str)
-                note_path.write_text(content, encoding="utf-8")
+                await asyncio.to_thread(note_path.write_text, content, "utf-8")
                 stats["transcripts"] += 1
                 stats["notes_created"] += 1
 
@@ -152,7 +157,7 @@ class KnowledgeBase:
             date=date_str,
             insight_links=insight_links,
         )
-        session_note_path.write_text(session_content, encoding="utf-8")
+        await asyncio.to_thread(session_note_path.write_text, session_content, "utf-8")
         stats["notes_created"] += 1
 
         # Index session summary
@@ -197,16 +202,43 @@ class KnowledgeBase:
         })
 
         content = f"{frontmatter}\n{briefing_text}\n"
-        note_path.write_text(content, encoding="utf-8")
+        await asyncio.to_thread(note_path.write_text, content, "utf-8")
         log.info(f"War Room briefing saved to KB → {note_path.name}")
         return note_path
 
+    def _has_new_or_modified_files(self) -> bool:
+        """Return True if any .md file in tracked dirs is new or modified since last index."""
+        for directory in [self.insights_dir, self.sessions_dir, self.war_room_dir]:
+            for note in directory.glob("*.md"):
+                key = str(note)
+                try:
+                    mtime = note.stat().st_mtime
+                except OSError:
+                    continue
+                if self._index_mtimes.get(key) != mtime:
+                    return True
+        return False
+
+    def _update_index_mtimes(self) -> None:
+        """Snapshot current mtimes for all tracked .md files."""
+        for directory in [self.insights_dir, self.sessions_dir, self.war_room_dir]:
+            for note in directory.glob("*.md"):
+                key = str(note)
+                try:
+                    self._index_mtimes[key] = note.stat().st_mtime
+                except OSError:
+                    pass
+
     def _rebuild_indices(self) -> None:
-        """Rebuild auto-generated index pages."""
+        """Rebuild auto-generated index pages (incremental — skips if nothing changed)."""
+        if not self._has_new_or_modified_files():
+            log.debug("Index rebuild skipped — no new or modified files since last build.")
+            return
         try:
             self._build_category_index()
             self._build_date_index()
             self._build_source_index()
+            self._update_index_mtimes()
         except Exception as e:
             log.warning(f"Index rebuild failed: {e}")
 
@@ -314,20 +346,32 @@ class KnowledgeBase:
 # ── Rendering helpers ────────────────────────────────────────────────────
 
 
+def _yaml_escape(value: str) -> str:
+    """Escape a string value for safe YAML frontmatter embedding."""
+    # If value contains characters that would break YAML, quote and escape it
+    if any(ch in value for ch in (':', '"', "'", '\n', '#', '{', '}', '[', ']', '&', '*', '?', '|', '>', '!', '%', '@', '`')):
+        escaped = value.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+        return f'"{escaped}"'
+    return f'"{value}"'
+
+
 def _yaml_frontmatter(data: dict) -> str:
-    """Render YAML frontmatter block."""
+    """Render YAML frontmatter block with proper escaping."""
     lines = ["---"]
     for key, value in data.items():
         if isinstance(value, list):
             lines.append(f"{key}:")
             for item in value:
-                lines.append(f"  - {item}")
+                if isinstance(item, str):
+                    lines.append(f"  - {_yaml_escape(item)}")
+                else:
+                    lines.append(f"  - {item}")
         elif isinstance(value, bool):
             lines.append(f"{key}: {'true' if value else 'false'}")
         elif isinstance(value, (int, float)):
             lines.append(f"{key}: {value}")
         else:
-            lines.append(f'{key}: "{value}"')
+            lines.append(f"{key}: {_yaml_escape(str(value))}")
     lines.append("---\n")
     return "\n".join(lines)
 
@@ -457,19 +501,45 @@ def _slugify(text: str) -> str:
 
 
 def _extract_frontmatter(note_path: Path) -> dict:
-    """Quick extraction of YAML frontmatter from a note."""
+    """
+    Quick extraction of YAML frontmatter from a note.
+
+    Handles scalar values and list values (lines starting with '  - ').
+    Example YAML handled:
+
+        tags:
+          - insight
+          - youtube
+        category: "ai_tech"
+    """
     try:
         text = note_path.read_text(encoding="utf-8")
         if not text.startswith("---"):
             return {}
         end = text.index("---", 3)
         yaml_block = text[4:end]
-        result = {}
-        for line in yaml_block.strip().split("\n"):
-            if ":" in line and not line.startswith("  "):
+        result: dict = {}
+        current_key: str | None = None
+        for line in yaml_block.split("\n"):
+            # List item under the current key
+            if line.startswith("  - ") and current_key is not None:
+                item = line[4:].strip().strip('"')
+                if isinstance(result.get(current_key), list):
+                    result[current_key].append(item)
+                else:
+                    result[current_key] = [item]
+                continue
+            # Scalar key: value (not indented)
+            if ":" in line and not line.startswith(" "):
                 key, val = line.split(":", 1)
+                key = key.strip()
                 val = val.strip().strip('"')
-                result[key.strip()] = val
+                current_key = key
+                if val:
+                    result[key] = val
+                else:
+                    # No inline value — expect list items on following lines
+                    result[key] = []
         return result
     except Exception:
         return {}

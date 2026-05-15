@@ -68,9 +68,15 @@ if [ "$OPEN_BROWSER" = true ] && [[ "$OSTYPE" == "darwin"* ]]; then
     (sleep 2 && open "http://localhost:$PORT/dashboard") &
 fi
 
+# Only use --reload in development mode
+RELOAD_FLAG=""
+if [ "$NCL_ENV" = "development" ]; then
+  RELOAD_FLAG="--reload"
+fi
+
 # Run
 exec python3 -m uvicorn runtime.api.routes:app \
     --host 0.0.0.0 \
     --port $PORT \
-    --reload \
+    $RELOAD_FLAG \
     $DEBUG

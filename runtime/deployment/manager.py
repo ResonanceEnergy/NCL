@@ -154,8 +154,10 @@ class DeploymentManager:
                 "label": service.plist_label,
             }
 
-        # Load service with launchctl
-        returncode, stdout, stderr = await self._run_command(["launchctl", "load", dest_path])
+        # Bootout any existing instance, then bootstrap the new plist
+        uid = os.getuid()
+        await self._run_command(["launchctl", "bootout", f"gui/{uid}/{service.plist_label}"])
+        returncode, stdout, stderr = await self._run_command(["launchctl", "bootstrap", f"gui/{uid}", dest_path])
 
         if returncode == 0:
             return {
@@ -167,7 +169,7 @@ class DeploymentManager:
             # In sandbox, launchctl may fail; still report success if plist was copied
             return {
                 "success": True,
-                "message": f"Plist copied to {dest_path}. (launchctl load in sandbox: {stderr.strip() if stderr else 'OK'})",
+                "message": f"Plist copied to {dest_path}. (launchctl bootstrap in sandbox: {stderr.strip() if stderr else 'OK'})",
                 "label": service.plist_label,
             }
 
@@ -192,8 +194,9 @@ class DeploymentManager:
         launch_agents = os.path.expanduser("~/Library/LaunchAgents")
         plist_path = os.path.join(launch_agents, f"{service.plist_label}.plist")
 
-        # Unload service
-        await self._run_command(["launchctl", "unload", plist_path])
+        # Bootout service (modern replacement for launchctl unload)
+        uid = os.getuid()
+        await self._run_command(["launchctl", "bootout", f"gui/{uid}/{service.plist_label}"])
 
         # Remove plist file
         try:
@@ -437,7 +440,8 @@ class DeploymentManager:
                 f"# Install {service.name.value}",
                 f"echo 'Installing {label}...'",
                 f"cp \"{service.plist_path}\" \"$LAUNCH_AGENTS/{label}.plist\"",
-                f"launchctl load \"$LAUNCH_AGENTS/{label}.plist\" || true",
+                f"launchctl bootout \"gui/$(id -u)/{label}\" 2>/dev/null || true",
+                f"launchctl bootstrap \"gui/$(id -u)\" \"$LAUNCH_AGENTS/{label}.plist\" || true",
                 "",
             ])
 

@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Test & Syntax Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ruff mypy
+
+      - name: Lint with ruff
+        run: |
+          ruff check runtime/ tests/
+
+      - name: Type check with mypy
+        continue-on-error: true
+        run: |
+          mypy runtime/ --ignore-missing-imports --no-strict-optional
+
+      - name: Run tests
+        run: |
+          python -m pytest tests/ -v
+
+      - name: Syntax check — key runtime files
+        run: |
+          python -m py_compile runtime/__init__.py
+          python -m py_compile runtime/api/routes.py
+          python -m py_compile runtime/api/config.py
+          python -m py_compile runtime/pump_watcher.py
+          python -m py_compile runtime/execution_loop.py
+          python -m py_compile runtime/strike_point_orchestrator.py
+          python -m py_compile runtime/mwp_processor.py
+
+      - name: AST syntax check — full runtime tree
+        run: |
+          python - <<'EOF'
+          import ast, sys
+          from pathlib import Path
+          passed = failed = 0
+          for f in sorted(Path("runtime").rglob("*.py")):
+              try:
+                  ast.parse(f.read_text(), filename=str(f))
+                  passed += 1
+              except SyntaxError as e:
+                  failed += 1
+                  print(f"FAIL: {f}: {e}", file=sys.stderr)
+          print(f"{passed} files OK, {failed} failed")
+          sys.exit(1 if failed else 0)
+          EOF
