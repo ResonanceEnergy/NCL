@@ -72,10 +72,12 @@ pump-ingestion path.
 - [ ] Wire structured stderr logging into the watcher (it already uses
       `logging`, but ReadTimeout was logged at ERROR with empty message —
       include the URL and elapsed seconds).
-- [ ] Decommission `~/Projects/NCL`: archive then delete. Maintain a single
-      canonical NCL repo at `~/dev/NCL`.
-- [ ] Configure at least one paid LLM key (Anthropic / xAI / Google) so the
+- [x] Decommission `~/Projects/NCL`: all references migrated to `~/dev/NCL`
+      (commit 24c2123). No code references remain. Archive and delete at operator
+      convenience.
+- [x] Configure at least one paid LLM key (Anthropic / xAI / Google) so the
       degraded Ollama-only path is not the steady state for council runs.
+      Council now logs key availability at init and warns about missing keys.
 
 ---
 
