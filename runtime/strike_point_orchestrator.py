@@ -42,10 +42,10 @@ from typing import Optional
 # ── Config ────────────────────────────────────────────────────────────────
 
 NCL_BASE = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
-NCC_BASE = Path.home() / "Projects" / "ncc-server"
-AAC_BASE = Path.home() / "Projects" / "AAC-v2"
-BRS_BASE = Path.home() / "Projects" / "BRS-v2"
-FIRST_STRIKE_BASE = Path.home() / "Projects" / "FirstStrike"
+NCC_BASE = Path(os.getenv("NCL_NCC_BASE", str(Path.home() / "Projects" / "ncc-server")))
+AAC_BASE = Path(os.getenv("NCL_AAC_BASE", str(Path.home() / "Projects" / "AAC-v2")))
+BRS_BASE = Path(os.getenv("NCL_BRS_BASE", str(Path.home() / "Projects" / "BRS-v2")))
+FIRST_STRIKE_BASE = Path(os.getenv("NCL_FIRST_STRIKE_BASE", str(Path.home() / "Projects" / "FirstStrike")))
 
 # Pipeline paths
 MANDATE_INPUT = NCL_BASE / "mandate-generation" / "input"
