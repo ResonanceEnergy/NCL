@@ -86,7 +86,7 @@ iPhone (NATRIX + Grok) → PumpPrompt → NCL Brain (Port 8800)
 - `consolidate()` - Merge related units
 
 ### 6. Paperclip Integration (`runtime/paperclip_adapter/client.py`)
-- REST client to Paperclip at `localhost:8765` (configurable)
+- REST client to Paperclip at `localhost:3100` (configurable)
 - NCL registers as company; sub-divisions as agents
 - Mandates → Issues with approval gates
 - Activities → Audit log
@@ -152,7 +152,7 @@ reddit_client_secret: "..."
 # Infrastructure
 ollama_host: "localhost:11434"
 paperclip_host: "localhost"
-paperclip_port: 8765
+paperclip_port: 3100
 
 # Scan Intervals (seconds)
 x_scan_interval: 300
@@ -255,7 +255,7 @@ memory_importance_threshold: 20.0
 - Python 3.12+
 - macOS 15.7 (Sequoia) or Linux
 - Ollama running at localhost:11434 (for fallback models)
-- Paperclip at localhost:8765 (for orchestration)
+- Paperclip at localhost:3100 (for orchestration)
 - API keys for Anthropic, xAI, Google, Perplexity, OpenAI (as needed)
 
 ### Setup
@@ -277,7 +277,7 @@ cp runtime/api/config.py config_template.py  # Reference
 export NCL_ANTHROPIC_API_KEY="sk-ant-..."
 export NCL_OLLAMA_HOST="localhost:11434"
 export NCL_PAPERCLIP_HOST="localhost"
-export NCL_PAPERCLIP_PORT="8765"
+export NCL_PAPERCLIP_PORT="3100"
 
 # Run
 python -m runtime.api.routes

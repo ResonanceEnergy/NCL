@@ -1,7 +1,7 @@
 # NARTIX Agents
 
 ## Claude-Chair
-Permanent council moderator. Uses advanced multi-LLM collaboration strategies (debate tournament, meta-reasoning, simulated annealing, etc.). Spawns councils, runs hybrid Copilot coding loop with Claude Opus 4.6, and enforces MWP folder structure. Has Computer Use for VS Code automation.
+Permanent council moderator. Uses advanced multi-LLM collaboration strategies (debate tournament, meta-reasoning, simulated annealing, etc.). Spawns councils, runs hybrid Copilot coding loop with Claude Opus 4, and enforces MWP folder structure. Has Computer Use for VS Code automation.
 
 ## Researcher
 Perplexity-powered investigation agent. Sources claims, fact-checks council assertions, provides cited research briefs. Primary agent for research_investigation workflows.

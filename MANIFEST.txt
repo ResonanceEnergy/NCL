@@ -191,7 +191,7 @@ Social Media APIs (3):
 - Reddit OAuth
 
 Infrastructure (2):
-- Paperclip (localhost:8765) - Orchestration
+- Paperclip (localhost:3100) - Orchestration
 - Ollama (localhost:11434) - Local LLM fallback
 
 Enterprise Integration:
@@ -277,7 +277,7 @@ Prerequisites:
 - Mac Mini M4 Pro with 64GB RAM (or equivalent)
 - macOS 15.7+ or Linux
 - Ollama running (localhost:11434)
-- Paperclip running (localhost:8765)
+- Paperclip running (localhost:3100)
 
 Installation:
 1. cd /sessions/gallant-happy-pascal/mnt/NCL
@@ -292,7 +292,7 @@ Configuration:
 4. export NCL_OPENAI_API_KEY="..."
 5. export NCL_OLLAMA_HOST="localhost:11434"
 6. export NCL_PAPERCLIP_HOST="localhost"
-7. export NCL_PAPERCLIP_PORT="8765"
+7. export NCL_PAPERCLIP_PORT="3100"
 
 Run:
 - uvicorn runtime.api.routes:app --host 0.0.0.0 --port 8787

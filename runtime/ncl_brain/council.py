@@ -732,7 +732,7 @@ class CouncilEngine:
                     "content-type": "application/json",
                 },
                 json={
-                    "model": "claude-sonnet-4-6",
+                    "model": "claude-sonnet-4-20250514",
                     "max_tokens": 2048,
                     "messages": [{"role": "user", "content": prompt}],
                 },

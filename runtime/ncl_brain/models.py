@@ -91,7 +91,7 @@ class ProvenanceEnvelope(BaseModel):
         default=None, description="Related mandate ID (if traceable)"
     )
     model_used: Optional[str] = Field(
-        default=None, description="AI model invoked (e.g., 'claude-sonnet-4-6', 'grok-3')"
+        default=None, description="AI model invoked (e.g., 'claude-sonnet-4-20250514', 'grok-3')"
     )
     cost_usd: Optional[float] = Field(
         default=None, ge=0.0, description="Estimated API cost in USD for this event"

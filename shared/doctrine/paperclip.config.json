@@ -1,6 +1,6 @@
 {
   "company": "NARTIX",
-  "description": "Mobile Grok command to Paperclip orchestration to Claude council chair and hybrid Copilot execution with Claude Opus 4.6",
+  "description": "Mobile Grok command to Paperclip orchestration to Claude council chair and hybrid Copilot execution with Claude Opus 4",
   "version": "2.0.0",
 
   "adapters": {
@@ -8,7 +8,7 @@
       "type": "claude_desktop",
       "command": "claude",
       "features": ["code", "computer_use", "cowork"],
-      "model": "claude-opus-4-6",
+      "model": "claude-opus-4-20250514",
       "notes": "Permanent council chair. Runs on Mac Mini M4 Pro via Claude Desktop Max."
     },
     "grok": {
@@ -39,7 +39,7 @@
     "copilot_vscode": {
       "type": "ide_integration",
       "provider": "github_copilot",
-      "model": "claude-opus-4-6",
+      "model": "claude-opus-4-20250514",
       "mode": "agent_mode",
       "notes": "Receives coding prompts from Claude Desktop Max in 03-Execution hybrid loop."
     },

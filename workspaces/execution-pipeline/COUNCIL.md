@@ -78,7 +78,7 @@ When council cannot reach 70%+ confidence or detects unresolvable disagreement, 
 ### 03-Execution (Hybrid Claude→Copilot Loop)
 - Claude reads council output + task plan
 - Builds precise coding prompt using advanced techniques
-- Sends to Copilot (Claude Opus 4.6) via Computer Use or `current-copilot-prompt.md`
+- Sends to Copilot (Claude Opus 4) via Computer Use or `current-copilot-prompt.md`
 - Copilot generates code in `working-files/`
 - Claude reviews, tests, iterates (max 3 rounds)
 - Signs off in `signed-off.md`

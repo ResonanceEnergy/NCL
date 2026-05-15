@@ -31,7 +31,7 @@ memory_decay_rate: 0.95
 
 # Council
 council_timeout: 120
-council_model: "claude-sonnet-4-6"
+council_model: "claude-sonnet-4-20250514"
 
 # War Room
 aac_war_room_url: ""

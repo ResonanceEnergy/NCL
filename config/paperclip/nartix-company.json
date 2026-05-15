@@ -1,6 +1,6 @@
 {
   "company": "NARTIX",
-  "mission": "Mobile Grok command to Paperclip orchestration to Claude council chair and hybrid Copilot execution with Claude Opus 4.6",
+  "mission": "Mobile Grok command to Paperclip orchestration to Claude council chair and hybrid Copilot execution with Claude Opus 4",
   "adapters": {
     "claude_local": {
       "type": "claude_desktop",
@@ -45,7 +45,7 @@
       "name": "Claude-Chair",
       "role": "council_moderator",
       "adapter": "claude_local",
-      "system_prompt": "You are the permanent chair of NARTIX councils. Moderate debate using advanced multi-LLM collaboration strategies, synthesize, enforce MWP folders, and run the Claude-to-Copilot hybrid coding loop with Claude Opus 4.6 in VS Code using the full prompt-building framework."
+      "system_prompt": "You are the permanent chair of NARTIX councils. Moderate debate using advanced multi-LLM collaboration strategies, synthesize, enforce MWP folders, and run the Claude-to-Copilot hybrid coding loop with Claude Opus 4 in VS Code using the full prompt-building framework."
     },
     {
       "name": "Researcher",

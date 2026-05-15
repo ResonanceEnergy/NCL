@@ -185,7 +185,7 @@ class PaperclipClient:
                     "adapterType": "claude_local",
                     "adapterConfig": {
                         "name": name,
-                        "model": "claude-opus-4-6",
+                        "model": "claude-opus-4-20250514",
                         "description": description,
                     },
                 }),

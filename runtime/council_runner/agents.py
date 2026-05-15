@@ -138,7 +138,7 @@ async def _call_model(
             response = await _call_claude(
                 http_client, prompt, system_prompt, temperature, max_tokens
             )
-            return response, "claude-sonnet-4-6"
+            return response, "claude-sonnet-4-20250514"
         except Exception as e:
             log.warning(f"Claude call failed, trying Grok: {e}")
 
@@ -183,7 +183,7 @@ async def _call_claude(
             "content-type": "application/json",
         },
         json={
-            "model": "claude-sonnet-4-6",
+            "model": "claude-sonnet-4-20250514",
             "max_tokens": max_tokens,
             "temperature": temperature,
             "system": system_prompt,

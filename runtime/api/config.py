@@ -222,7 +222,7 @@ class Settings(BaseSettings):
 
     # ── Council settings ──────────────────────────────────────────────────────
     council_timeout: int = 120  # seconds
-    council_model: str = "claude-sonnet-4-6"
+    council_model: str = "claude-sonnet-4-20250514"
 
     # ── WAR Room integration ──────────────────────────────────────────────────
     aac_war_room_url: Optional[str] = None
@@ -420,7 +420,7 @@ memory_decay_rate: 0.95
 
 # Council
 council_timeout: 120
-council_model: "claude-sonnet-4-6"
+council_model: "claude-sonnet-4-20250514"
 
 # War Room
 aac_war_room_url: ""

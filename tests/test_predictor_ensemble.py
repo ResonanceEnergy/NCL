@@ -196,7 +196,7 @@ async def test_claude_prediction_call(predictor, sample_signals):
         mock_post.assert_called_once()
         call_args = mock_post.call_args
         assert "api.anthropic.com/v1/messages" in str(call_args)
-        assert call_args.kwargs["json"]["model"] == "claude-sonnet-4-6"
+        assert call_args.kwargs["json"]["model"] == "claude-sonnet-4-20250514"
         assert call_args.kwargs["json"]["max_tokens"] == 512
 
         # Verify result

@@ -275,7 +275,7 @@ async def _call_claude(system: str, prompt: str, temperature: float = 0.3, max_t
                 "content-type": "application/json",
             },
             json={
-                "model": os.getenv("COUNCIL_CLAUDE_MODEL", "claude-sonnet-4-6"),
+                "model": os.getenv("COUNCIL_CLAUDE_MODEL", "claude-sonnet-4-20250514"),
                 "max_tokens": max_tokens,
                 "system": system,
                 "messages": [{"role": "user", "content": prompt}],

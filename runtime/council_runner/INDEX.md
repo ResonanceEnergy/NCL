@@ -125,7 +125,7 @@ async run_parallel_council(
 
 ### LLM Fallback Chain
 
-- **Primary**: Claude (claude-sonnet-4-6)
+- **Primary**: Claude (claude-sonnet-4-20250514)
 - **Secondary**: Grok (grok-3)
 - **Fallback**: Ollama (qwen3:32b local)
 

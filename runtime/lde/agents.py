@@ -230,7 +230,7 @@ async def _call_claude(system: str, prompt: str, temp: float, max_tok: int) -> s
                 "content-type": "application/json",
             },
             json={
-                "model": os.getenv("LDE_CLAUDE_MODEL", "claude-sonnet-4-6"),
+                "model": os.getenv("LDE_CLAUDE_MODEL", "claude-sonnet-4-20250514"),
                 "max_tokens": max_tok,
                 "system": system,
                 "messages": [{"role": "user", "content": prompt}],

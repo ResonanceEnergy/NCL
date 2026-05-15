@@ -26,7 +26,7 @@ log = logging.getLogger("ncl.councils.xai.analyzer")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 XAI_API_KEY = os.getenv("XAI_API_KEY", "")
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-ANALYSIS_MODEL = os.getenv("X_COUNCIL_MODEL", "claude-sonnet-4-6")
+ANALYSIS_MODEL = os.getenv("X_COUNCIL_MODEL", "claude-sonnet-4-20250514")
 
 
 X_ANALYSIS_SYSTEM_PROMPT = """You are the X (Twitter) Intelligence Analyst for NARTIX — Resonance Energy studio.
