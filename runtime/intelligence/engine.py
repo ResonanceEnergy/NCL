@@ -44,6 +44,7 @@ from .collectors import (
     PolymarketCollector,
     NewsCollector,
     CryptoMarketCollector,
+    UnusualWhalesCollector,
     RedditCollector,
 )
 
@@ -332,6 +333,9 @@ class IntelligenceEngine:
             newsapi_key=getattr(config, "newsapi_key", None) if config else None,
         )
         self._crypto = CryptoMarketCollector()
+        self._unusual_whales = UnusualWhalesCollector(
+            api_key=getattr(config, "unusual_whales_api_key", None) if config else None,
+        )
         self._reddit = RedditCollector(
             client_id=getattr(config, "reddit_client_id", None) if config else None,
             client_secret=getattr(config, "reddit_client_secret", None) if config else None,
@@ -420,12 +424,13 @@ class IntelligenceEngine:
             self._collect_polymarket(),
             self._collect_news(),
             self._collect_crypto(),
+            self._collect_options_flow(),
             self._collect_reddit(),
             return_exceptions=True,
         )
 
         all_signals: list[IntelSignal] = []
-        source_names = ["trends", "polymarket", "news", "crypto", "reddit"]
+        source_names = ["trends", "polymarket", "news", "crypto", "options_flow", "reddit"]
 
         for i, result in enumerate(results):
             if isinstance(result, Exception):
@@ -519,6 +524,23 @@ class IntelligenceEngine:
         except Exception as e:
             log.warning(f"Crypto global failed: {e}")
 
+        return signals
+
+    async def _collect_options_flow(self) -> list[IntelSignal]:
+        """Collect options flow + market tide from Unusual Whales."""
+        signals: list[IntelSignal] = []
+        if not self._unusual_whales.enabled:
+            return signals
+        try:
+            tide = await self._unusual_whales.collect_market_tide()
+            signals.extend(tide)
+        except Exception as e:
+            log.warning(f"UW market-tide failed: {e}")
+        try:
+            flow = await self._unusual_whales.collect_flow_alerts(limit=50)
+            signals.extend(flow)
+        except Exception as e:
+            log.warning(f"UW flow-alerts failed: {e}")
         return signals
 
     async def _collect_reddit(self) -> list[IntelSignal]:
@@ -934,6 +956,7 @@ EXECUTIVE SUMMARY:"""
             self._polymarket.close(),
             self._news.close(),
             self._crypto.close(),
+            self._unusual_whales.close(),
             self._reddit.close(),
             self._llm_client.aclose(),
             return_exceptions=True,

@@ -1182,6 +1182,177 @@ def compute_macd(prices: list[float]) -> Optional[tuple[float, float, float]]:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# 4b. UNUSUAL WHALES COLLECTOR (options flow + market tide)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class UnusualWhalesCollector:
+    """
+    Fetch options flow + index/market data from Unusual Whales.
+
+    Endpoints used:
+      - /api/market/market-tide          → SPY/index sentiment (call vs put premium)
+      - /api/option-trades/flow-alerts   → unusual options activity
+    """
+
+    BASE_URL = "https://api.unusualwhales.com/api"
+
+    def __init__(self, api_key: Optional[str] = None):
+        self._api_key = api_key or ""
+        self._client = httpx.AsyncClient(timeout=30.0)
+        # UW publishes a 120 req/min plan-dependent limit; stay well under.
+        self._limiter = _RateLimiter(calls=60, window_seconds=60)
+        self._headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "Accept": "application/json",
+        }
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self._api_key)
+
+    async def collect_market_tide(self) -> list[MarketSignal]:
+        """
+        Latest market-tide point: net call premium vs net put premium for the
+        broad index. Strong negative net = bearish flow; strong positive = bullish.
+        """
+        signals: list[MarketSignal] = []
+        if not self.enabled:
+            return signals
+        try:
+            data = await _fetch_json(
+                self._client,
+                f"{self.BASE_URL}/market/market-tide",
+                headers=self._headers,
+                limiter=self._limiter,
+            )
+            rows = (data or {}).get("data") if isinstance(data, dict) else None
+            if not rows:
+                return signals
+            latest = rows[-1]
+            net_call = float(latest.get("net_call_premium", 0) or 0)
+            net_put = float(latest.get("net_put_premium", 0) or 0)
+            net_volume = float(latest.get("net_volume", 0) or 0)
+            net_premium = net_call - net_put
+
+            if net_premium > 50_000_000:
+                direction = SignalDirection.BULLISH
+            elif net_premium < -50_000_000:
+                direction = SignalDirection.BEARISH
+            elif net_premium > 10_000_000:
+                direction = SignalDirection.EXPANDING
+            elif net_premium < -10_000_000:
+                direction = SignalDirection.CONTRACTING
+            else:
+                direction = SignalDirection.NEUTRAL
+
+            signals.append(MarketSignal(
+                source=SourceType.OPTIONS_FLOW,
+                category="index_flow",
+                title=f"Market Tide: net premium ${net_premium:+,.0f}",
+                content=(
+                    f"Net call premium: ${net_call:+,.0f} | "
+                    f"Net put premium: ${net_put:+,.0f} | "
+                    f"Net volume: {net_volume:+,.0f}"
+                ),
+                symbol="SPY",
+                value=net_premium,
+                volume=abs(net_volume),
+                direction=direction,
+                confidence=0.80,
+                tags=["options_flow", "market_tide", "spy", "index"],
+                metadata={
+                    "net_call_premium": net_call,
+                    "net_put_premium": net_put,
+                    "net_volume": net_volume,
+                    "timestamp_uw": latest.get("timestamp"),
+                },
+            ))
+        except Exception as e:
+            log.warning(f"UW market-tide failed: {e}")
+        return signals
+
+    async def collect_flow_alerts(self, limit: int = 50) -> list[MarketSignal]:
+        """
+        Recent unusual options flow alerts (single-leg + multi-leg).
+        """
+        signals: list[MarketSignal] = []
+        if not self.enabled:
+            return signals
+        try:
+            data = await _fetch_json(
+                self._client,
+                f"{self.BASE_URL}/option-trades/flow-alerts",
+                params={"limit": limit},
+                headers=self._headers,
+                limiter=self._limiter,
+            )
+            rows = (data or {}).get("data") if isinstance(data, dict) else None
+            if not rows:
+                return signals
+            for alert in rows[:limit]:
+                ticker = alert.get("ticker", "")
+                if not ticker:
+                    continue
+                ask_prem = float(alert.get("total_ask_side_prem", 0) or 0)
+                bid_prem = float(alert.get("total_bid_side_prem", 0) or 0)
+                size = float(alert.get("total_size", 0) or 0)
+                oi = float(alert.get("open_interest", 0) or 0)
+                iv_end = alert.get("iv_end")
+                sector = alert.get("sector") or ""
+                has_multileg = bool(alert.get("has_multileg", False))
+
+                # Side bias: more ask-side premium = aggressive buying (bullish on calls,
+                # bearish on puts depending on contract type — flow-alerts mixes both,
+                # so use raw premium ratio as signal magnitude).
+                total_prem = ask_prem + bid_prem
+                if total_prem == 0:
+                    continue
+                ask_ratio = ask_prem / total_prem if total_prem > 0 else 0.5
+                if ask_ratio > 0.7:
+                    direction = SignalDirection.BULLISH
+                elif ask_ratio < 0.3:
+                    direction = SignalDirection.BEARISH
+                else:
+                    direction = SignalDirection.NEUTRAL
+
+                # Confidence scales with premium size + OI penetration.
+                conf = min(0.95, 0.5 + (total_prem / 1_000_000) * 0.1)
+
+                signals.append(MarketSignal(
+                    source=SourceType.OPTIONS_FLOW,
+                    category="options_flow",
+                    title=f"{ticker} flow alert: ${total_prem:,.0f} ({size:.0f} contracts)",
+                    content=(
+                        f"{ticker} — ask ${ask_prem:,.0f} / bid ${bid_prem:,.0f} | "
+                        f"size {size:.0f} | OI {oi:.0f} | sector {sector}"
+                        + (" | multileg" if has_multileg else "")
+                    ),
+                    symbol=ticker,
+                    value=total_prem,
+                    volume=size,
+                    direction=direction,
+                    confidence=conf,
+                    tags=["options_flow", ticker.lower(), sector.lower().replace(" ", "_") or "unknown"],
+                    metadata={
+                        "ask_premium": ask_prem,
+                        "bid_premium": bid_prem,
+                        "open_interest": oi,
+                        "iv_end": iv_end,
+                        "has_multileg": has_multileg,
+                        "rule_id": alert.get("rule_id"),
+                    },
+                ))
+        except Exception as e:
+            log.warning(f"UW flow-alerts failed: {e}")
+        return signals
+
+    async def close(self) -> None:
+        if not self._client.is_closed:
+            await self._client.aclose()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # 5. REDDIT COLLECTOR (Public JSON API — no key needed)
 # ═══════════════════════════════════════════════════════════════════════════
 
