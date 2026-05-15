@@ -22,10 +22,14 @@ mkdir -p ~/Projects/FirstStrike/logs
 mkdir -p ~/dev/NCL/logs
 mkdir -p ~/dev/NCL/mandate-generation/{input,processed,failed}
 
-# Install deps if needed
+# Install deps if needed (prefer venv; never --break-system-packages)
 $PYTHON -c "import fastapi, uvicorn, pydantic, httpx" 2>/dev/null || {
     echo -e "${YELLOW}  Installing dependencies...${NC}"
-    /opt/homebrew/bin/pip3 install fastapi uvicorn pydantic httpx pydantic-settings pyyaml aiofiles --break-system-packages -q 2>/dev/null
+    if [ -d ~/dev/NCL/.venv ]; then
+        # shellcheck source=/dev/null
+        source ~/dev/NCL/.venv/bin/activate
+    fi
+    pip3 install -r ~/dev/NCL/requirements.txt -q 2>/dev/null || true
 }
 
 # Kill old relay if running (to pick up new code)

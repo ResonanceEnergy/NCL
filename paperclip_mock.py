@@ -1,7 +1,7 @@
 """
 Minimal Paperclip mock server for local development.
 
-Listens on port 3102 and returns stub responses for all endpoints
+Listens on port 3100 and returns stub responses for all endpoints
 so NCL Brain can start without a real Paperclip instance.
 """
 
@@ -11,7 +11,7 @@ import json
 import logging
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-PORT = 3102
+PORT = 3100
 log = logging.getLogger("paperclip-mock")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -31,7 +31,7 @@ class PaperclipMockHandler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def do_GET(self) -> None:  # noqa: N802
-        if self.path in ("/health", "/healthz"):
+        if self.path in ("/health", "/healthz", "/api/health"):
             self._send_json(200, {"status": "ok", "mock": True})
         else:
             self._send_json(200, {"mock": True, "path": self.path, "data": []})

@@ -205,6 +205,24 @@ async def lifespan(app: FastAPI):
     brain.policy_kernel = _policy_kernel
     brain.emergency_stop = _emergency_stop
 
+    # Cross-register subsystems so EmergencyStop.activate() actually freezes
+    # the kernel/scheduler/swarm/intelligence engine instead of silently
+    # no-op'ing through None handles. PolicyKernel also learns about the
+    # stop so its own evaluate() sees a consistent flag.
+    try:
+        _policy_kernel.register_emergency_stop(_emergency_stop)
+    except Exception as _exc:
+        log.warning(f"[lifespan] PolicyKernel.register_emergency_stop failed: {_exc}")
+    try:
+        _emergency_stop.register_subsystems(
+            policy_kernel=_policy_kernel,
+            scheduler=getattr(brain, "_scheduler", None),
+            swarm_orchestrator=getattr(brain, "swarm", None),
+            intelligence_engine=getattr(brain, "intelligence_engine", None),
+        )
+    except Exception as _exc:
+        log.warning(f"[lifespan] EmergencyStop.register_subsystems failed: {_exc}")
+
     # Sprint 2 — Evaluation
     global _eval_runner
     _eval_runner = GoldenTaskRunner(data_dir=config.data_dir)
@@ -767,22 +785,28 @@ async def reject_pump(
     return result
 
 
+class CouncilSpawnBody(BaseModel):
+    topic: str = ""
+    prompt: str = ""
+    members: list[str] | None = None
+    priority: str = "P2"
+
+
 # Council endpoints
 @app.post("/council/spawn")
 async def spawn_council_session(
     request: Request,
-    topic: str,
-    prompt: str,
-    members: list[str] | None = None,
+    body: CouncilSpawnBody | None = None,
+    topic: str = Query(default=""),
+    prompt: str = Query(default=""),
+    members: str = Query(default=""),
     authorization: str = Header(default=""),
 ) -> dict:
     """
     Spawn a new council debate session.
 
-    Args:
-        topic: Debate topic
-        prompt: Chair's prompt to members
-        members: Optional list of member names
+    Accepts topic/prompt/members as query params OR as JSON body.
+    JSON body takes precedence when present.
 
     Returns:
         Dict with session details
@@ -792,13 +816,43 @@ async def spawn_council_session(
     if not brain:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
-    session = await brain.spawn_council_session(topic, prompt, members)
+    # Merge: body fields override query params
+    _topic = (body.topic if body and body.topic else topic) or "General council session"
+    _prompt = (body.prompt if body and body.prompt else prompt) or _topic
+    _members = (body.members if body and body.members else
+                ([m.strip() for m in members.split(",") if m.strip()] if members else None))
+
+    # Generate a session ID upfront so we can return immediately
+    session_id = f"council-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{str(uuid.uuid4())[:8]}"
+
+    async def _run_council():
+        try:
+            session = await brain.spawn_council_session(_topic, _prompt, _members)
+            await brain._log_event(
+                "council_spawn_complete",
+                f"Council session complete: {session.session_id} — {session.topic}",
+                metadata={
+                    "session_id": session.session_id,
+                    "consensus": session.consensus,
+                },
+            )
+        except Exception as e:
+            log.exception(f"[/council/spawn] background council failed: {e}")
+            await brain._log_event(
+                "council_spawn_error",
+                f"Council session failed: {e}",
+            )
+
+    task = asyncio.create_task(_run_council())
+    task.add_done_callback(lambda t: log.error(f"Council spawn task died: {t.exception()!r}") if not t.cancelled() and t.exception() else None)
+
     return {
-        "session_id": session.session_id,
-        "topic": session.topic,
-        "status": session.status.value,
-        "consensus": session.consensus,
-        "recommendations": session.recommendations,
+        "session_id": session_id,
+        "topic": _topic,
+        "status": "queued",
+        "consensus": None,
+        "recommendations": [],
+        "message": "Council session queued — running in background. Poll /council/session/{session_id} for results.",
     }
 
 
@@ -847,22 +901,17 @@ async def create_mandate(
     success_criteria: list[str],
     deadline: str | None = None,
     source_pump_id: str | None = None,
+    status: str | None = None,
+    force: bool = False,
     authorization: str = Header(default=""),
 ) -> dict:
     """
     Create a new mandate.
 
-    Args:
-        pillar: Target pillar (ncl, ncc, brs, aac)
-        priority: Priority 1-10
-        title: Mandate title
-        objective: Strategic objective
-        success_criteria: List of success criteria
-        deadline: Optional ISO8601 deadline
-        source_pump_id: Optional source pump ID
-
-    Returns:
-        Created mandate dict
+    By default, mandates land in PENDING_APPROVAL and require explicit
+    NATRIX approval before dispatch. Setting status='active' requires
+    force=true, which is audit-logged. Any other status passes through
+    the normal MWP state machine via brain.create_mandate.
     """
     _verify_strike_token(authorization)
     if not brain:
@@ -875,6 +924,27 @@ async def create_mandate(
         pillar_enum = PillarType(pillar)
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Invalid pillar: {pillar}")
+
+    # Resolve and validate status (default PENDING_APPROVAL post 2026-05-15 audit)
+    if status is None:
+        status_enum = MandateStatus.PENDING_APPROVAL
+    else:
+        try:
+            status_enum = MandateStatus(status)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
+
+    if status_enum == MandateStatus.ACTIVE and not force:
+        raise HTTPException(
+            status_code=400,
+            detail="status=active requires force=true; default is pending_approval",
+        )
+
+    if status_enum == MandateStatus.ACTIVE and force:
+        log.warning(
+            f"[mandates] force-active create requested: pillar={pillar} title={title!r} "
+            f"source_pump_id={source_pump_id} — audit"
+        )
 
     from datetime import datetime
 
@@ -893,6 +963,7 @@ async def create_mandate(
         success_criteria=success_criteria,
         deadline=deadline_dt,
         source_pump_id=source_pump_id,
+        status=status_enum,
     )
 
     return {
@@ -1040,6 +1111,18 @@ async def approve_mandate(
         mandate = brain.mandates.get(mandate_id)
         if not mandate:
             raise HTTPException(status_code=404, detail=f"Mandate not found: {mandate_id}")
+
+        # Governance gates — emergency stop + policy kernel before activation
+        if await brain._emergency_stop_engaged():
+            raise HTTPException(status_code=423, detail="Emergency stop engaged; approval blocked")
+        try:
+            allowed = await brain._policy_allows_dispatch(mandate)
+        except Exception as exc:
+            log.error(f"[approve] PolicyKernel raised; FAIL CLOSED: {exc}")
+            allowed = False
+        if not allowed:
+            raise HTTPException(status_code=403, detail="PolicyKernel blocked approval")
+
         try:
             mandate.transition_to(MandateStatus.ACTIVE, reason=reason)
         except ValueError as e:
@@ -1299,28 +1382,30 @@ async def feedback_scan_now(authorization: str = Header(default="")) -> dict:
     }
 
 
+class AwarebotScanRequest(BaseModel):
+    queries: list[str] = Field(..., min_length=1)
+
+
 # Awarebot endpoints
 @app.post("/awarebot/scan")
 async def run_awarebot_scan(
-    queries: list[str],
+    body: AwarebotScanRequest,
     authorization: str = Header(default=""),
 ) -> dict:
     """
     Run Awarebot intelligence scan.
 
     Args:
-        queries: List of search queries
+        body: JSON with "queries" list of search strings
 
     Returns:
         Scan results
     """
     _verify_strike_token(authorization)
-    if not queries:
-        raise HTTPException(status_code=400, detail="Missing required field: queries (must be non-empty list)")
     if not brain:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
-    return await brain.run_awarebot_scan(queries)
+    return await brain.run_awarebot_scan(body.queries)
 
 
 # Prediction endpoint
@@ -3387,7 +3472,20 @@ async def get_deployment_status() -> dict:
     if not _deployment_monitor:
         raise HTTPException(status_code=503, detail="DeploymentMonitor not initialized")
     states = await _deployment_monitor.check_all_health()
-    return {"services": [s.model_dump() for s in states], "count": len(states)}
+    from dataclasses import asdict
+    from enum import Enum as _Enum
+
+    def _serialize(s):
+        d = asdict(s)
+        # Convert enums to their .value and datetime to ISO string
+        for k, v in d.items():
+            if isinstance(v, _Enum):
+                d[k] = v.value
+            elif isinstance(v, datetime):
+                d[k] = v.isoformat()
+        return d
+
+    return {"services": [_serialize(s) for s in states], "count": len(states)}
 
 
 @app.get("/deployment/service/{service_name}")
@@ -3804,24 +3902,29 @@ async def escalate_intelligence_to_strike_point(
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
 
-    # Submit to brain's pump intake
+    # Submit to brain's pump intake (fire-and-forget to avoid blocking)
     if brain:
-        try:
-            pump = PumpPrompt(
-                prompt_id=pump_id,
-                source="intelligence-engine",
-                intent=pump_intent,
-                urgency="high",
-            )
-            result = await brain.receive_pump_prompt(pump)
-            mandates_generated = len(result.get("mandates", [])) if isinstance(result, dict) else 0
-        except Exception as e:
-            logging.getLogger("ncl.api").warning(f"Pump submission failed: {e}")
-            mandates_generated = 0
-            # Fallback: write to file
-            pump_file = Path(config.data_dir) / "intelligence" / "escalations" / f"{pump_id}.json"
-            pump_file.parent.mkdir(parents=True, exist_ok=True)
-            pump_file.write_text(json.dumps(pump_prompt, indent=2, default=str))
+        async def _submit_pump():
+            try:
+                pump = PumpPrompt(
+                    prompt_id=pump_id,
+                    source="intelligence-engine",
+                    intent=pump_intent,
+                    urgency="high",
+                )
+                result = await brain.receive_pump_prompt(pump)
+                mandates = len(result.get("mandates", [])) if isinstance(result, dict) else 0
+                log.info(f"Escalation pump {pump_id} submitted — {mandates} mandates generated")
+            except Exception as e:
+                logging.getLogger("ncl.api").warning(f"Pump submission failed: {e}")
+                # Fallback: write to file
+                pump_file = Path(config.data_dir) / "intelligence" / "escalations" / f"{pump_id}.json"
+                pump_file.parent.mkdir(parents=True, exist_ok=True)
+                pump_file.write_text(json.dumps(pump_prompt, indent=2, default=str))
+
+        task = asyncio.create_task(_submit_pump())
+        task.add_done_callback(lambda t: log.error(f"Pump submit task died: {t.exception()!r}") if not t.cancelled() and t.exception() else None)
+        mandates_generated = -1  # Pending — running in background
     else:
         mandates_generated = 0
         pump_file = Path(config.data_dir) / "intelligence" / "escalations" / f"{pump_id}.json"

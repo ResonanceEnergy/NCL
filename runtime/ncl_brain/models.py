@@ -1,7 +1,7 @@
 """Pydantic models for NCL brain service."""
 
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Optional, Literal
 from enum import Enum
 import uuid as _uuid
 
@@ -217,6 +217,7 @@ class MandateStatus(str, Enum):
     COMPLETED = "completed"
     SUPERSEDED = "superseded"
     CANCELLED = "cancelled"
+    FAILED = "failed"  # Terminal: dispatch or execution failed irrecoverably
 
     @staticmethod
     def valid_transitions() -> dict["MandateStatus", list["MandateStatus"]]:
@@ -231,11 +232,12 @@ class MandateStatus(str, Enum):
         return {
             S.DRAFT: [S.PENDING_APPROVAL, S.CANCELLED],
             S.PENDING_APPROVAL: [S.ACTIVE, S.CANCELLED],
-            S.ACTIVE: [S.IN_PROGRESS, S.SUPERSEDED, S.CANCELLED],
-            S.IN_PROGRESS: [S.COMPLETED, S.SUPERSEDED, S.CANCELLED],
+            S.ACTIVE: [S.IN_PROGRESS, S.SUPERSEDED, S.CANCELLED, S.FAILED],
+            S.IN_PROGRESS: [S.COMPLETED, S.SUPERSEDED, S.CANCELLED, S.FAILED],
             S.COMPLETED: [],  # Terminal
             S.SUPERSEDED: [],  # Terminal
             S.CANCELLED: [],  # Terminal
+            S.FAILED: [],  # Terminal
         }
 
     def can_transition_to(self, target: "MandateStatus") -> bool:
@@ -263,7 +265,7 @@ class PumpPrompt(BaseModel):
     context: dict[str, Any] = Field(
         default_factory=dict, description="Rich context data from Grok"
     )
-    urgency: str = Field(
+    urgency: Literal["low", "normal", "high", "critical"] = Field(
         default="normal", description="Urgency level (low, normal, high, critical)"
     )
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

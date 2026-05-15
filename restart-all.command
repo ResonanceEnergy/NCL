@@ -21,10 +21,13 @@ mkdir -p ~/dev/NCL/mandate-generation/{input,processed,failed}
 mkdir -p ~/dev/NCL/data
 mkdir -p ~/dev/NCL/config
 
-# Install dependencies
+# Install dependencies (prefer active venv, never --break-system-packages)
 echo -e "${YELLOW}Checking dependencies...${NC}"
-pip3 install fastapi uvicorn pydantic httpx pydantic-settings pyyaml aiofiles --break-system-packages -q 2>/dev/null || \
-pip3 install fastapi uvicorn pydantic httpx pydantic-settings pyyaml aiofiles -q
+if [ -d ~/dev/NCL/.venv ]; then
+    # shellcheck source=/dev/null
+    source ~/dev/NCL/.venv/bin/activate
+fi
+pip3 install -r ~/dev/NCL/requirements.txt -q 2>/dev/null || true
 echo -e "${GREEN}  ✓ Dependencies OK${NC}"
 
 # Kill ALL old relay/brain/watcher processes

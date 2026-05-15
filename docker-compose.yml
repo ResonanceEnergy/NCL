@@ -25,7 +25,7 @@ services:
       - NCL_REDDIT_CLIENT_SECRET=${NCL_REDDIT_CLIENT_SECRET}
       - NCL_OLLAMA_HOST=ollama:11434
       - NCL_PAPERCLIP_HOST=paperclip
-      - NCL_PAPERCLIP_PORT=3102
+      - NCL_PAPERCLIP_PORT=3100
       - NCL_DEBUG=false
     depends_on:
       ollama:
@@ -56,7 +56,7 @@ services:
       - resonance-energy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/"]
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -72,13 +72,13 @@ services:
     volumes:
       - ./paperclip_mock.py:/app/main.py
     ports:
-      - "3102:3102"
+      - "3100:3100"
     command: python /app/main.py
     networks:
       - resonance-energy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3102/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:3100/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3

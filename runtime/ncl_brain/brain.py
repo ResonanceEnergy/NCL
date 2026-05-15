@@ -209,6 +209,7 @@ class NCLBrain:
         self.mandates_file = self.data_dir / "mandates.json"
         self.state_file = self.data_dir / "state.json"
         self._pending_dispatches_file = self.data_dir / "pending_dispatches.json"
+        self._council_sessions_file = self.data_dir / "council_sessions.json"
 
         # Event log rotation: rotate events.ndjson when it exceeds 100 MB
         self._events_file_max_bytes = 100 * 1024 * 1024  # 100 MB
@@ -296,6 +297,7 @@ class NCLBrain:
         # Load existing state
         await self._load_state()
         await self._load_pending_dispatches()
+        await self._load_council_sessions()
 
         # Start periodic cleanup for zombie council sessions (every 15 min)
         self._cleanup_task = asyncio.create_task(self._periodic_council_cleanup())
@@ -1027,11 +1029,12 @@ class NCLBrain:
                         MandateStatus.FAILED,
                         reason=f"Dispatch failed: {reason}",
                     )
-                except (ValueError, AttributeError):
-                    # If FAILED status doesn't exist or transition not allowed,
-                    # mark updated_at so it's visible in state
+                except ValueError as exc:
+                    # Transition not allowed from current state — audit and bump timestamp
+                    log.warning(
+                        f"[dispatch] Cannot transition {mandate_id} ({mandate.status.value}) → FAILED: {exc}"
+                    )
                     mandate.updated_at = datetime.now(timezone.utc)
-                    log.warning(f"[dispatch] Could not transition {mandate_id} to FAILED")
                 await self._persist_mandates_unlocked()
 
     async def spawn_council_session(
@@ -1064,6 +1067,7 @@ class NCLBrain:
             if len(self.council_sessions) >= self._COUNCIL_SESSIONS_MAX:
                 self._evict_oldest_council_sessions()
             self.council_sessions[session.session_id] = session
+            await self._persist_council_sessions_unlocked()
 
         await self._log_event(
             "council_spawned",
@@ -1102,7 +1106,7 @@ class NCLBrain:
         success_criteria: list[str],
         deadline: Optional[datetime] = None,
         source_pump_id: Optional[str] = None,
-        status: MandateStatus = MandateStatus.ACTIVE,
+        status: MandateStatus = MandateStatus.PENDING_APPROVAL,
     ) -> Mandate:
         """
         Create a new mandate for a pillar.
@@ -1133,13 +1137,17 @@ class NCLBrain:
         )
 
         # Governance gate — direct programmatic mandate creation also goes
-        # through the policy kernel (graceful degradation when unset).
+        # through the policy kernel. FAIL CLOSED on any error to prevent
+        # silent governance bypass (was fail-open prior to 2026-05-15 audit).
         if status == MandateStatus.ACTIVE and self.policy_kernel is not None:
             try:
                 allowed = await self._policy_allows_dispatch(mandate)
             except Exception as exc:
-                log.warning(f"[create_mandate] Policy kernel check raised: {exc}")
-                allowed = True
+                log.error(
+                    f"[create_mandate] PolicyKernel raised; FAIL CLOSED for mandate "
+                    f"{mandate.mandate_id}: {exc}"
+                )
+                allowed = False
             if not allowed:
                 log.warning(
                     f"[create_mandate] PolicyKernel BLOCKED mandate {mandate.mandate_id}; "
@@ -1250,8 +1258,8 @@ class NCLBrain:
                 log.warning(f"[governance] PolicyKernel blocked mandate {mandate.mandate_id}: {reason}")
             return allowed
         except Exception as e:
-            log.warning(f"[governance] Policy check error: {e}")
-            return True  # Fail-open on errors
+            log.error(f"[governance] Policy check error; FAIL CLOSED: {e}")
+            return False  # Fail-closed on errors (audit 2026-05-15)
 
     async def _emergency_stop_engaged(self) -> bool:
         """
@@ -1266,8 +1274,8 @@ class NCLBrain:
         try:
             return self.emergency_stop.is_active
         except Exception as e:
-            log.warning(f"[governance] Emergency stop check error: {e}")
-            return False  # Fail-open on errors
+            log.error(f"[governance] Emergency stop check error; FAIL CLOSED (treat as engaged): {e}")
+            return True  # Fail-closed on errors (audit 2026-05-15)
 
     async def complete_mandate(self, mandate_id: str, notes: Optional[str] = None) -> None:
         """
@@ -1892,6 +1900,57 @@ class NCLBrain:
             )
         except Exception as exc:
             log.error(f"[persist] Failed to save pending_dispatches: {exc}")
+
+    def get_pending_dispatches(self) -> dict:
+        """Public snapshot of pending-dispatch state.
+
+        Returns a shallow copy so callers cannot mutate brain state directly.
+        Acquires no async lock (read-only snapshot of an OrderedDict reference);
+        for write operations callers must go through approve/reject helpers.
+        """
+        return dict(self._pending_dispatches)
+
+    # -------------------------------------------------------------------
+    # Council Sessions Persistence
+    # -------------------------------------------------------------------
+
+    async def _load_council_sessions(self) -> None:
+        """Load council sessions from disk on startup."""
+        if not self._council_sessions_file.exists():
+            return
+        try:
+            async with aiofiles.open(self._council_sessions_file) as f:
+                content = await f.read()
+            if not content:
+                return
+            try:
+                data = json.loads(content)
+            except (json.JSONDecodeError, ValueError) as exc:
+                log.error(f"[load_state] Corrupt council_sessions file — skipping: {exc}")
+                return
+            if isinstance(data, dict):
+                for sid, sess_dict in data.items():
+                    try:
+                        self.council_sessions[sid] = CouncilSession(**sess_dict)
+                    except Exception as exc:
+                        log.error(f"[load_state] Skipping malformed council session {sid}: {exc}")
+                while len(self.council_sessions) > self._COUNCIL_SESSIONS_MAX:
+                    self.council_sessions.popitem(last=False)
+                log.info(f"[load_state] Loaded {len(self.council_sessions)} council sessions")
+        except OSError as exc:
+            log.error(f"[load_state] Could not read council_sessions file: {exc}")
+
+    async def _persist_council_sessions_unlocked(self) -> None:
+        """Persist council sessions to disk. Caller must hold _council_sessions_lock."""
+        try:
+            snapshot = {sid: sess.model_dump() for sid, sess in self.council_sessions.items()}
+            payload = json.dumps(snapshot, default=str, indent=2)
+            tmp_path = self._council_sessions_file.with_suffix(".json.tmp")
+            await asyncio.to_thread(
+                self._atomic_write_json, tmp_path, self._council_sessions_file, payload
+            )
+        except Exception as exc:
+            log.error(f"[persist] Failed to save council_sessions: {exc}")
 
     # -------------------------------------------------------------------
     # Periodic Council Session Cleanup

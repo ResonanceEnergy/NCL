@@ -34,9 +34,13 @@ for pid in $(lsof -ti :8800 2>/dev/null); do
 done
 sleep 2
 
-# Install new deps
+# Install new deps (prefer venv; never --break-system-packages)
 echo -e "${YELLOW}Installing intelligence engine deps...${NC}"
-$PYTHON -m pip install httpx pytrends --break-system-packages -q 2>/dev/null || true
+if [ -d "$NCL_DIR/.venv" ]; then
+    # shellcheck source=/dev/null
+    source "$NCL_DIR/.venv/bin/activate"
+fi
+$PYTHON -m pip install httpx pytrends -q 2>/dev/null || true
 
 # Start brain
 echo -e "${YELLOW}Starting NCL Brain...${NC}"

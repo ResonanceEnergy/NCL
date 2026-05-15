@@ -25,7 +25,22 @@ log = logging.getLogger("ncl.councils.xai.analyzer")
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 XAI_API_KEY = os.getenv("XAI_API_KEY", "")
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+
+
+def _normalize_ollama_host(raw: str) -> str:
+    """Accept '11434', ':11434', 'localhost:11434', or full URL; return scheme'd URL."""
+    raw = (raw or "").strip()
+    if not raw:
+        return "http://localhost:11434"
+    if raw.startswith(("http://", "https://")):
+        return raw.rstrip("/")
+    raw = raw.lstrip(":/")
+    if ":" not in raw and raw.isdigit():
+        raw = f"localhost:{raw}"
+    return f"http://{raw}".rstrip("/")
+
+
+OLLAMA_HOST = _normalize_ollama_host(os.getenv("OLLAMA_HOST", "http://localhost:11434"))
 ANALYSIS_MODEL = os.getenv("X_COUNCIL_MODEL", "claude-sonnet-4-20250514")
 
 

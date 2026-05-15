@@ -31,4 +31,4 @@ fi
 
 # Start the brain
 echo "Starting NCL Brain on port 8800..."
-python3 -m runtime.api.main
+exec uvicorn runtime.api.routes:app --host 127.0.0.1 --port 8800 --reload

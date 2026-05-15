@@ -111,7 +111,13 @@ class FuturePredictor:
         """
         self.claude_api_key = claude_api_key
         self.anthropic_base_url = anthropic_base_url
-        self.ollama_host = ollama_host
+        # Normalize: strip scheme + trailing slash so f"http://{host}/..." stays valid
+        _h = (ollama_host or "localhost:11434").strip().rstrip("/")
+        if _h.startswith("http://"):
+            _h = _h[len("http://"):]
+        elif _h.startswith("https://"):
+            _h = _h[len("https://"):]
+        self.ollama_host = _h or "localhost:11434"
         self.aac_war_room_url = aac_war_room_url
         self.http_client = httpx.AsyncClient(timeout=60.0)
 
@@ -157,12 +163,14 @@ class FuturePredictor:
         predictions["claude"] = claude_pred
 
         # Local model (qwen3:32b) - technical/data analysis
-        qwen_pred = await self._predict_ollama(high_importance, topic, "qwen3:32b")
+        qwen_model = os.getenv("NCL_PREDICTOR_REASONING_MODEL", "qwen3:32b")
+        qwen_pred = await self._predict_ollama(high_importance, topic, qwen_model)
         predictions["qwen"] = qwen_pred
 
         # Local model (deepseek-coder) - edge case detection
+        deepseek_model = os.getenv("NCL_PREDICTOR_CODE_MODEL", "deepseek-coder-v2:16b")
         deepseek_pred = await self._predict_ollama(
-            high_importance, topic, "deepseek-coder-v2:16b"
+            high_importance, topic, deepseek_model
         )
         predictions["deepseek"] = deepseek_pred
 
@@ -217,7 +225,7 @@ Format your response as JSON with keys: prediction, confidence (0-1), reasoning.
                     "anthropic-version": "2023-06-01",
                 },
                 json={
-                    "model": "claude-sonnet-4-20250514",
+                    "model": os.getenv("NCL_PREDICTOR_SUMMARY_MODEL", "claude-sonnet-4-20250514"),
                     "max_tokens": 512,
                     "messages": [{"role": "user", "content": prompt}],
                 },

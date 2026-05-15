@@ -46,7 +46,22 @@ async def _get_lde_client() -> httpx.AsyncClient:
             if _lde_client is None or _lde_client.is_closed:
                 _lde_client = httpx.AsyncClient(timeout=300.0)
     return _lde_client
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+
+
+def _normalize_ollama_host(raw: str) -> str:
+    """Accept '11434', ':11434', 'localhost:11434', or full URL; return scheme'd URL."""
+    raw = (raw or "").strip()
+    if not raw:
+        return "http://localhost:11434"
+    if raw.startswith(("http://", "https://")):
+        return raw.rstrip("/")
+    raw = raw.lstrip(":/")
+    if ":" not in raw and raw.isdigit():
+        raw = f"localhost:{raw}"
+    return f"http://{raw}".rstrip("/")
+
+
+OLLAMA_HOST = _normalize_ollama_host(os.getenv("OLLAMA_HOST", "http://localhost:11434"))
 
 
 # ── System Prompts ────────────────────────────────────────────────────────

@@ -1,5 +1,9 @@
-# NCL Brain Service — Full Dependencies
-# Install: pip install -r requirements.txt
+# NCL Brain Service — Base runtime dependencies (kept lean per 2026-05-15 audit).
+# For councils stack: pip install -e .[councils]
+# For vector search: pip install -e .[vector]
+# For dev tools:     pip install -e .[dev]
+#
+# Install (base): pip install -r requirements.txt
 
 # ── Core Framework ──────────────────────────────────────────────────────────
 fastapi==0.115.0
@@ -25,28 +29,12 @@ pyyaml~=6.0
 python-dotenv~=1.0.0
 numpy~=1.26.0
 
-# ── Social Media APIs ──────────────────────────────────────────────────────
+# ── Social Media APIs (light) ──────────────────────────────────────────────
 praw~=7.7.0
 tweepy~=4.14.0
-twscrape~=0.12.0
-
-# ── Content Extraction (LDE + Councils) ────────────────────────────────────
-yt-dlp~=2024.10.0
-trafilatura~=1.12.0
-newspaper3k~=0.2.8
-
-# ── Transcription ──────────────────────────────────────────────────────────
-faster-whisper~=1.0.0
-# mlx-whisper>=0.1.0          # Uncomment on Apple Silicon for native perf
-
-# lancedb>=0.4.0              # Uncomment for LanceDB fallback
 
 # ── Rate Limiting ──────────────────────────────────────────────────────────
 slowapi~=0.1.9
-
-# ── Vector Search ──────────────────────────────────────────────────────────
-chromadb~=0.5.0
-sentence-transformers~=3.1.0
 
 # ── MCP Protocol ──────────────────────────────────────────────────────────
 mcp~=1.0.0
@@ -59,3 +47,10 @@ tenacity~=9.0.0
 pytest>=7.4.0
 pytest-asyncio>=0.21.0
 pytest-cov>=4.1.0
+
+# Heavy / optional groups (install via extras only):
+#   chromadb, sentence-transformers      → .[vector]
+#   yt-dlp, faster-whisper, twscrape,    → .[councils]
+#   trafilatura, newspaper3k,
+#   google-api-python-client,
+#   youtube-transcript-api

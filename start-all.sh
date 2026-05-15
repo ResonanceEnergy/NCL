@@ -24,9 +24,13 @@ echo -e "${CYAN}  NCL — Start All Services${NC}"
 echo -e "${CYAN}============================================${NC}"
 echo ""
 
-# Install shared deps
+# Install shared deps (uses active venv — do NOT use --break-system-packages)
 echo -e "${YELLOW}Installing dependencies...${NC}"
-$PYTHON -m pip install fastapi uvicorn pydantic httpx pydantic-settings pyyaml aiofiles psutil aiohttp --break-system-packages -q 2>/dev/null || true
+if [ -d ".venv" ]; then
+    # shellcheck source=/dev/null
+    source .venv/bin/activate
+fi
+$PYTHON -m pip install -r requirements.txt -q 2>/dev/null || true
 echo -e "${GREEN}  ✓ Dependencies OK${NC}"
 echo ""
 

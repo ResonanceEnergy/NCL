@@ -356,7 +356,13 @@ class IntelligenceEngine:
         self._llm_client = httpx.AsyncClient(timeout=60.0)
         self._anthropic_key = getattr(config, "anthropic_api_key", "") if config else ""
         self._anthropic_base = getattr(config, "anthropic_base_url", "https://api.anthropic.com") if config else "https://api.anthropic.com"
-        self._ollama_host = getattr(config, "ollama_host", "localhost:11434") if config else "localhost:11434"
+        _ih = getattr(config, "ollama_host", "localhost:11434") if config else "localhost:11434"
+        _ih = (_ih or "localhost:11434").strip().rstrip("/")
+        if _ih.startswith("http://"):
+            _ih = _ih[len("http://"):]
+        elif _ih.startswith("https://"):
+            _ih = _ih[len("https://"):]
+        self._ollama_host = _ih or "localhost:11434"
 
         # Watch queries (what NCL cares about)
         self._watch_topics = [
@@ -975,7 +981,7 @@ EXECUTIVE SUMMARY:"""
                         "anthropic-version": "2023-06-01",
                     },
                     json={
-                        "model": "claude-sonnet-4-20250514",
+                        "model": os.getenv("NCL_INTEL_SUMMARY_MODEL", "claude-sonnet-4-20250514"),
                         "max_tokens": 300,
                         "messages": [{"role": "user", "content": prompt}],
                     },
@@ -990,7 +996,7 @@ EXECUTIVE SUMMARY:"""
         try:
             resp = await self._llm_client.post(
                 f"http://{self._ollama_host}/api/generate",
-                json={"model": "qwen3:32b", "prompt": prompt, "stream": False},
+                json={"model": os.getenv("NCL_INTEL_REASONING_MODEL", "qwen3:32b"), "prompt": prompt, "stream": False},
             )
             resp.raise_for_status()
             return resp.json().get("response", "")[:500].strip()

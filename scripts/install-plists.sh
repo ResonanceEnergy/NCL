@@ -24,6 +24,7 @@ PLISTS=(
     "com.resonanceenergy.ncl-watcher.plist"
     "config/com.resonanceenergy.ncl-councils.plist"
     "config/com.resonanceenergy.ncl-orchestrator.plist"
+    "config/com.resonanceenergy.ncl-logrotate.plist"
 )
 
 for TEMPLATE in "${PLISTS[@]}"; do
