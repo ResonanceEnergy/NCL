@@ -11,7 +11,7 @@ Architecture:
     - In-memory index rebuilt on startup, incrementally updated on writes
 
 Usage:
-    indexer = SearchIndexer(data_dir="~/NCL/data")
+    indexer = SearchIndexer(data_dir="~/dev/NCL/data")
     await indexer.load()
     await indexer.index_event(ncl_event)
     results = await indexer.search("geopolitical risk Asia", limit=20)
@@ -56,6 +56,10 @@ from pydantic import ValidationError
 from ..ncl_brain.models import NCLEvent, EventType, MemUnit
 
 log = logging.getLogger("ncl.search")
+
+# Index size limits
+MAX_INDEX_DOCS = 100_000       # Max number of documents in the in-memory index
+MAX_DOC_TEXT_CHARS = 10_000    # Max characters of text stored per document
 
 # Common stop words to exclude from indexing
 STOP_WORDS = frozenset(
@@ -252,16 +256,32 @@ class SearchIndexer:
         timestamp: datetime,
         data: dict[str, Any],
     ) -> None:
-        """Add a document to all indices."""
+        """Add a document to all indices, enforcing size limits."""
+        # Skip if already indexed (idempotent re-index)
+        if doc_id in self._docs:
+            return
+
+        # Enforce index size cap: evict no-op (log and skip) to keep memory bounded
+        if len(self._docs) >= MAX_INDEX_DOCS:
+            log.warning(
+                "Search index at capacity (%d docs). Skipping doc_id=%s type=%s. "
+                "Consider running a reindex after pruning old data.",
+                MAX_INDEX_DOCS, doc_id, doc_type,
+            )
+            return
+
+        # Truncate text to keep memory footprint bounded
+        truncated_text = text[:MAX_DOC_TEXT_CHARS] if len(text) > MAX_DOC_TEXT_CHARS else text
+
         self._docs[doc_id] = {
             "type": doc_type,
-            "text": text,
+            "text": truncated_text,
             "timestamp": timestamp,
             "data": data,
         }
         self._doc_count += 1
 
-        tokens = set(tokenize(text))
+        tokens = set(tokenize(truncated_text))
         for token in tokens:
             self._inverted[token].add(doc_id)
             self._df[token] += 1
@@ -353,13 +373,19 @@ class SearchIndexer:
 
     async def index_event(self, event: NCLEvent) -> None:
         """Index a new NCLEvent (call after persisting to NDJSON)."""
-        raw = json.loads(event.to_ndjson())
-        self._index_event_dict(raw)
+        try:
+            raw = json.loads(event.to_ndjson())
+            self._index_event_dict(raw)
+        except Exception as e:
+            log.warning("index_event failed for event_id=%s: %s", getattr(event, "event_id", "?"), e)
 
     async def index_memory(self, unit: MemUnit) -> None:
         """Index a new MemUnit."""
-        raw = json.loads(unit.model_dump_json())
-        self._index_memory_dict(raw)
+        try:
+            raw = json.loads(unit.model_dump_json())
+            self._index_memory_dict(raw)
+        except Exception as e:
+            log.warning("index_memory failed for unit_id=%s: %s", getattr(unit, "unit_id", "?"), e)
 
     async def search(
         self,
@@ -381,7 +407,11 @@ class SearchIndexer:
             List of SearchResult sorted by relevance score descending
         """
         if not self._loaded:
-            await self.load()
+            try:
+                await self.load()
+            except Exception as e:
+                log.error("search: index load failed: %s", e)
+                return []
 
         tokens = tokenize(query)
         if not tokens:

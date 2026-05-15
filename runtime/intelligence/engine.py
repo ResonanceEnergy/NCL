@@ -15,6 +15,7 @@ with real analysis that produces decision-quality intelligence.
 import asyncio
 import json
 import logging
+import time
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,6 +23,11 @@ from typing import Any, Optional
 
 import aiofiles
 import httpx
+
+# File rotation limits for append-only intelligence JSONL files
+_MAX_SIGNALS_FILE_BYTES = 100 * 1024 * 1024   # 100 MB
+_MAX_BRIEFS_FILE_BYTES = 50 * 1024 * 1024     # 50 MB
+_ROTATE_BACKUP_COUNT = 3                        # Keep last N rotated backups
 
 from .models import (
     IntelBrief,
@@ -40,6 +46,36 @@ from .collectors import (
 )
 
 log = logging.getLogger("ncl.intelligence.engine")
+
+# ═══════════════════════════════════════════════════════════════════════════
+# QUERY CACHE
+# ═══════════════════════════════════════════════════════════════════════════
+
+_CACHE_TTL_SECONDS = 300  # 5 minutes
+_CACHE_MAX_ENTRIES = 500
+
+_query_cache: dict[str, tuple[Any, float]] = {}  # key → (value, expires_at)
+
+
+def _cache_get(key: str) -> Optional[Any]:
+    """Return cached value if present and not expired."""
+    entry = _query_cache.get(key)
+    if entry is None:
+        return None
+    value, expires_at = entry
+    if time.monotonic() > expires_at:
+        _query_cache.pop(key, None)
+        return None
+    return value
+
+
+def _cache_set(key: str, value: Any) -> None:
+    """Store value in cache, evicting oldest entry if at capacity."""
+    if len(_query_cache) >= _CACHE_MAX_ENTRIES:
+        # Evict the entry with the soonest expiry
+        oldest_key = min(_query_cache, key=lambda k: _query_cache[k][1])
+        _query_cache.pop(oldest_key, None)
+    _query_cache[key] = (value, time.monotonic() + _CACHE_TTL_SECONDS)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -227,7 +263,7 @@ class IntelligenceEngine:
         self._correlator = SignalCorrelator()
 
         # Persistence
-        self._data_dir = Path(getattr(config, "data_dir", "~/NCL/data")).expanduser()
+        self._data_dir = Path(getattr(config, "data_dir", "~/dev/NCL/data")).expanduser()
         self._briefs_dir = self._data_dir / "intelligence"
         self._briefs_dir.mkdir(parents=True, exist_ok=True)
         self._briefs_file = self._briefs_dir / "briefs.jsonl"
@@ -261,11 +297,11 @@ class IntelligenceEngine:
     async def initialize(self) -> None:
         """Initialize engine and load watch topics from config."""
         # Load custom watch topics if available
-        topics_file = Path(getattr(self.config, "config_dir", "~/NCL/config")).expanduser() / "watch_topics.json"
+        topics_file = Path(getattr(self.config, "config_dir", "~/dev/NCL/config")).expanduser() / "watch_topics.json"
         if topics_file.exists():
             try:
-                with open(topics_file) as f:
-                    data = json.load(f)
+                async with aiofiles.open(topics_file) as f:
+                    data = json.loads(await f.read())
                     self._watch_topics = data.get("topics", self._watch_topics)
             except Exception:
                 pass
@@ -435,6 +471,21 @@ class IntelligenceEngine:
 
     # ─── ANALYSIS & SYNTHESIS ───────────────────────────────────────────
 
+    # ─── FILE ROTATION ──────────────────────────────────────────────────
+
+    _MAX_FILE_BYTES = 10 * 1024 * 1024  # 10 MB
+
+    async def _rotate_if_needed(self, path: Path) -> None:
+        """Rename <file>.jsonl → <file>_<timestamp>.jsonl when it exceeds 10 MB."""
+        try:
+            if path.exists() and path.stat().st_size > self._MAX_FILE_BYTES:
+                stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+                rotated = path.with_name(f"{path.stem}_{stamp}{path.suffix}")
+                path.rename(rotated)
+                log.info(f"Rotated {path.name} → {rotated.name} (exceeded 10 MB)")
+        except Exception as e:
+            log.warning(f"File rotation failed for {path}: {e}")
+
     async def generate_brief(self, brief_type: str = "daily") -> IntelBrief:
         """
         Full intelligence pipeline:
@@ -445,6 +496,13 @@ class IntelligenceEngine:
         5. Package into IntelBrief
         """
         log.info(f"Generating {brief_type} intelligence brief...")
+
+        # Check cache for a recent brief of this type
+        cache_key = f"brief:{brief_type}"
+        cached = _cache_get(cache_key)
+        if cached is not None:
+            log.info(f"Returning cached {brief_type} brief (TTL={_CACHE_TTL_SECONDS}s)")
+            return cached
 
         # 1. Collect
         signals = await self.collect_all_signals()
@@ -548,6 +606,9 @@ class IntelligenceEngine:
 
         self._stats["briefs_generated"] += 1
         self._stats["last_brief"] = datetime.now(timezone.utc).isoformat()
+
+        # Store in cache
+        _cache_set(cache_key, brief)
 
         log.info(f"Brief generated: {len(signals)} signals → {len(sectors)} sectors, "
                  f"{len(predictions)} predictions, {len(risk_alerts)} risk alerts")
@@ -682,8 +743,9 @@ EXECUTIVE SUMMARY:"""
     # ─── PERSISTENCE ────────────────────────────────────────────────────
 
     async def _persist_signals(self, signals: list[IntelSignal]) -> None:
-        """Append signals to JSONL file."""
+        """Append signals to JSONL file, rotating when file exceeds 10 MB."""
         try:
+            await self._rotate_if_needed(self._signals_file)
             async with aiofiles.open(self._signals_file, "a") as f:
                 for sig in signals:
                     await f.write(sig.model_dump_json() + "\n")
@@ -693,6 +755,8 @@ EXECUTIVE SUMMARY:"""
     async def _persist_brief(self, brief: IntelBrief) -> None:
         """Persist brief to JSONL and save latest as standalone JSON."""
         try:
+            # Rotate history file if it has grown too large
+            await self._rotate_if_needed(self._briefs_file)
             # Append to history
             async with aiofiles.open(self._briefs_file, "a") as f:
                 await f.write(brief.model_dump_json() + "\n")
@@ -741,6 +805,8 @@ EXECUTIVE SUMMARY:"""
             self._polymarket.close(),
             self._news.close(),
             self._crypto.close(),
+            self._reddit.close(),
             self._llm_client.aclose(),
             return_exceptions=True,
         )
+        log.info("IntelligenceEngine shut down cleanly")

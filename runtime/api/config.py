@@ -1,5 +1,6 @@
 """Configuration management for NCL brain service."""
 
+import logging
 import os
 from pathlib import Path
 from typing import Optional
@@ -7,6 +8,39 @@ from typing import Optional
 import yaml
 from pydantic import ConfigDict
 from pydantic_settings import BaseSettings
+
+logger = logging.getLogger(__name__)
+
+# ── Required vars — startup fails without these ───────────────────────────────
+_REQUIRED_VARS: list[tuple[str, str]] = [
+    ("ANTHROPIC_API_KEY", "Claude API key — get from https://console.anthropic.com/settings/keys"),
+    ("STRIKE_AUTH_TOKEN", "Strike Point auth token — must match iOS Shortcuts config"),
+]
+
+# ── Recommended vars — degraded but functional without them ───────────────────
+_RECOMMENDED_VARS: list[tuple[str, str]] = [
+    ("XAI_API_KEY", "xAI Grok — Council Strategist + X Intelligence (get from https://console.x.ai)"),
+    ("GOOGLE_API_KEY", "Google Gemini — Council Analyst (get from https://aistudio.google.com)"),
+    ("OPENAI_API_KEY", "OpenAI GPT — Council Creative + Whisper fallback"),
+    ("PERPLEXITY_API_KEY", "Perplexity — Council Researcher (fact-checking)"),
+]
+
+# ── Optional vars — specific features only ────────────────────────────────────
+_OPTIONAL_VARS: list[tuple[str, str]] = [
+    ("X_BEARER_TOKEN", "X/Twitter API — tweet scanning for X Council"),
+    ("YOUTUBE_API_KEY", "YouTube Data API — video search for YouTube Council"),
+    ("REDDIT_CLIENT_ID", "Reddit — subreddit scanning"),
+    ("REDDIT_CLIENT_SECRET", "Reddit — subreddit scanning (pair with REDDIT_CLIENT_ID)"),
+    ("NTFY_TOPIC", "ntfy.sh — push notifications to iPhone"),
+    ("PUSHOVER_APP_TOKEN", "Pushover — iPhone push notification fallback"),
+    ("PUSHOVER_USER_KEY", "Pushover — user key (pair with PUSHOVER_APP_TOKEN)"),
+    ("UNUSUAL_WHALES_API_KEY", "Unusual Whales — options flow / dark pool intelligence"),
+    ("SNAPTRADE_CLIENT_ID", "SnapTrade — brokerage data"),
+    ("DISCORD_BOT_TOKEN", "Discord bot — push notifications to Discord channels"),
+    ("GNEWS_API_KEY", "GNews — news intelligence (at least one news key recommended)"),
+    ("NEWSAPI_KEY", "NewsAPI — news intelligence"),
+    ("COPILOT_API_KEY", "GitHub Copilot / engineering council (falls back to OPENAI_API_KEY)"),
+]
 
 
 class Settings(BaseSettings):
@@ -19,67 +53,81 @@ class Settings(BaseSettings):
     port: int = 8800
     debug: bool = False
 
-    # Data storage — paths auto-expanded in validator
-    data_dir: str = "~/NCL/data"
-    config_dir: str = "~/NCL/config"
+    # Data storage — paths auto-expanded in model_post_init
+    data_dir: str = "~/dev/NCL/data"
+    config_dir: str = "~/dev/NCL/config"
 
-    def model_post_init(self, __context) -> None:
+    def model_post_init(self, __context: object) -> None:
         """Expand ~ in all path fields after init."""
         self.data_dir = os.path.expanduser(self.data_dir)
         self.config_dir = os.path.expanduser(self.config_dir)
 
-    # API keys
+    # ── Required API keys ─────────────────────────────────────────────────────
     anthropic_api_key: str = ""
     anthropic_base_url: str = "https://api.anthropic.com"
+    strike_auth_token: str = ""
 
+    # ── Recommended API keys ──────────────────────────────────────────────────
     xai_api_key: Optional[str] = None
     google_api_key: Optional[str] = None
     perplexity_api_key: Optional[str] = None
     openai_api_key: Optional[str] = None
-    copilot_api_key: Optional[str] = None  # GitHub Copilot / separate OpenAI key for engineering role
+    copilot_api_key: Optional[str] = None  # Falls back to openai_api_key if unset
 
-    # News APIs (for Intelligence Engine)
+    # ── News APIs ─────────────────────────────────────────────────────────────
     gnews_api_key: Optional[str] = None
     newsapi_key: Optional[str] = None
 
-    # Intelligence Engine
+    # ── Intelligence Engine ───────────────────────────────────────────────────
     intelligence_brief_interval: int = 14400  # 4 hours between full briefs
-    intelligence_collection_interval: int = 1800  # 30 min between signal collection sweeps
+    intelligence_collection_interval: int = 1800  # 30 min between signal sweeps
 
-    # Social media APIs
+    # ── Social media APIs ─────────────────────────────────────────────────────
     x_bearer_token: Optional[str] = None
     youtube_api_key: Optional[str] = None
     reddit_client_id: Optional[str] = None
     reddit_client_secret: Optional[str] = None
 
-    # Local models
+    # ── Local models ──────────────────────────────────────────────────────────
     ollama_host: str = "localhost:11434"
 
-    # Paperclip integration
+    # ── Paperclip integration ─────────────────────────────────────────────────
     paperclip_host: str = "localhost"
     paperclip_port: int = 3100
     paperclip_api_key: Optional[str] = None
 
-    # Scan intervals (seconds)
+    # ── Notifications ─────────────────────────────────────────────────────────
+    ntfy_topic: Optional[str] = None
+    ntfy_server: str = "https://ntfy.sh"
+    pushover_app_token: Optional[str] = None
+    pushover_user_key: Optional[str] = None
+    discord_bot_token: Optional[str] = None
+
+    # ── Market intelligence ───────────────────────────────────────────────────
+    unusual_whales_api_key: Optional[str] = None
+    snaptrade_client_id: Optional[str] = None
+    snaptrade_consumer_key: Optional[str] = None
+
+    # ── Scan intervals (seconds) ──────────────────────────────────────────────
     x_scan_interval: int = 300  # 5 minutes
     youtube_scan_interval: int = 600  # 10 minutes
     reddit_scan_interval: int = 600  # 10 minutes
     prediction_interval: int = 1800  # 30 minutes
     memory_consolidation_interval: int = 3600  # 1 hour
 
-    # Memory parameters
+    # ── Memory parameters ─────────────────────────────────────────────────────
     memory_importance_threshold: float = 20.0
     memory_decay_rate: float = 0.95
     memory_consolidation_batch_size: int = 50
 
-    # Council settings
+    # ── Council settings ──────────────────────────────────────────────────────
     council_timeout: int = 120  # seconds
     council_model: str = "claude-sonnet-4-6"
 
-    # WAR Room integration
+    # ── WAR Room integration ──────────────────────────────────────────────────
     aac_war_room_url: Optional[str] = None
 
-    # Autonomous scheduler
+    # ── Autonomous scheduler ──────────────────────────────────────────────────
     autonomous_enabled: bool = True
     council_trigger_threshold: float = 75.0  # importance score to auto-spawn council
     council_min_signals: int = 3  # minimum signals before council auto-spawn
@@ -87,8 +135,8 @@ class Settings(BaseSettings):
     aac_sync_interval: int = 900  # 15 minutes between pillar syncs
     workspace_health_interval: int = 1800  # 30 minutes between workspace checks
 
-    # Strike-Point pipeline auth
-    strike_auth_token: str = ""
+    # ── Execution mode ────────────────────────────────────────────────────────
+    ncl_execution_mode: str = "auto"  # "auto" | "manual"
 
     model_config = ConfigDict(
         env_file=".env",
@@ -98,47 +146,109 @@ class Settings(BaseSettings):
     )
 
 
+def validate_config(settings: Settings) -> None:
+    """
+    Validate configuration on startup.
+
+    Raises RuntimeError for missing required variables.
+    Logs warnings for missing recommended variables.
+    Logs debug notices for missing optional variables.
+
+    Args:
+        settings: Loaded Settings instance.
+
+    Raises:
+        RuntimeError: If any required environment variable is absent or empty.
+    """
+    missing_required: list[str] = []
+
+    for env_name, description in _REQUIRED_VARS:
+        # Check both bare name and NCL_ prefixed form
+        value = (
+            os.environ.get(env_name)
+            or os.environ.get(f"NCL_{env_name}")
+            or getattr(settings, env_name.lower(), None)
+        )
+        if not value:
+            missing_required.append(f"  {env_name}: {description}")
+
+    if missing_required:
+        joined = "\n".join(missing_required)
+        raise RuntimeError(
+            f"NCL Brain cannot start — missing required environment variables:\n{joined}"
+        )
+
+    for env_name, description in _RECOMMENDED_VARS:
+        value = (
+            os.environ.get(env_name)
+            or os.environ.get(f"NCL_{env_name}")
+            or getattr(settings, env_name.lower(), None)
+        )
+        if not value:
+            logger.warning(
+                "Optional but recommended env var not set — feature degraded: %s (%s)",
+                env_name,
+                description,
+            )
+
+    for env_name, description in _OPTIONAL_VARS:
+        value = (
+            os.environ.get(env_name)
+            or os.environ.get(f"NCL_{env_name}")
+            or getattr(settings, env_name.lower(), None)
+        )
+        if not value:
+            logger.debug("Optional env var not set — feature disabled: %s (%s)", env_name, description)
+
+
 def load_config() -> Settings:
     """
     Load configuration from environment and YAML file.
 
     Priority:
-    1. Environment variables
-    2. ~/NCL/config/ncl.yaml
-    3. Defaults
+    1. NCL_* prefixed environment variables (Docker / production)
+    2. Bare environment variables / .env file (local dev)
+    3. ~/dev/NCL/config/ncl.yaml
+    4. Defaults
 
     Returns:
-        Settings object
+        Populated Settings instance.
     """
     settings = Settings()
 
-    # Try to load YAML config
+    # Try to load YAML config (lower priority than env vars)
     config_file = Path(settings.config_dir).expanduser() / "ncl.yaml"
     if config_file.exists():
         with open(config_file) as f:
             yaml_config = yaml.safe_load(f) or {}
             for key, value in yaml_config.items():
-                if hasattr(settings, key):
+                if hasattr(settings, key) and value not in (None, ""):
                     setattr(settings, key, value)
 
-    # Override with environment variables
-    for field_name, field in settings.model_fields.items():
+    # Override with NCL_* prefixed environment variables (Docker)
+    for field_name, field_info in settings.model_fields.items():
         env_var = f"NCL_{field_name.upper()}"
         if env_var in os.environ:
             env_value = os.environ[env_var]
-            # Type conversion
-            if field.annotation in (int, float, bool):
-                if field.annotation == bool:
+            annotation = field_info.annotation
+            # Unwrap Optional[X] → X for type conversion
+            origin = getattr(annotation, "__origin__", None)
+            args = getattr(annotation, "__args__", ())
+            base_type = args[0] if origin is type(Optional[int].__origin__) and args else annotation  # type: ignore[attr-defined]
+            try:
+                if base_type is bool:
                     setattr(settings, field_name, env_value.lower() in ("true", "1", "yes"))
+                elif base_type in (int, float):
+                    setattr(settings, field_name, base_type(env_value))
                 else:
-                    setattr(settings, field_name, field.annotation(env_value))
-            else:
-                setattr(settings, field_name, env_value)
+                    setattr(settings, field_name, env_value)
+            except (ValueError, TypeError) as exc:
+                logger.warning("Could not coerce %s=%r to %s: %s", env_var, env_value, base_type, exc)
 
     return settings
 
 
-def create_config_file(config_dir: str | Path = "~/NCL/config") -> Path:
+def create_config_file(config_dir: str | Path = "~/dev/NCL/config") -> Path:
     """
     Create a template config file if it doesn't exist.
 
@@ -161,8 +271,8 @@ port: 8800
 debug: false
 
 # Storage
-data_dir: ~/NCL/data
-config_dir: ~/NCL/config
+data_dir: ~/dev/NCL/data
+config_dir: ~/dev/NCL/config
 
 # API Keys (set via environment or here)
 anthropic_api_key: ""

@@ -11,7 +11,7 @@ Fallback chain:
     3. In-memory TF-IDF (zero-dependency fallback — always works)
 
 Usage:
-    store = CouncilVectorStore(data_dir="~/NCL/data")
+    store = CouncilVectorStore(data_dir="~/dev/NCL/data")
     await store.init()
     await store.index_insight(insight, session_id, source="youtube")
     results = await store.query("geopolitical risk Asia supply chain", top_k=10)

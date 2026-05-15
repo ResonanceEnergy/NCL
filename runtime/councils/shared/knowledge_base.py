@@ -27,7 +27,7 @@ import json
 import logging
 import os
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -45,6 +45,12 @@ class KnowledgeBase:
 
     Call ingest_report() after each council session to update the KB.
     """
+
+    # Size and staleness limits
+    MAX_INSIGHTS = 5_000          # Hard cap on insight notes
+    MAX_TRANSCRIPTS = 1_000       # Hard cap on transcript notes
+    MAX_WAR_ROOM = 500            # Hard cap on war-room notes
+    STALE_AFTER_DAYS = 90         # Notes older than this are candidates for pruning
 
     def __init__(self, base_dir: Path | str | None = None) -> None:
         self.base = Path(base_dir) if base_dir else KB_DIR
@@ -76,9 +82,16 @@ class KnowledgeBase:
         session = report.session_id
         date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-        # 1. Create insight notes
+        # 1. Create insight notes (enforce size cap)
+        current_insight_count = len(list(self.insights_dir.glob("*.md")))
         insight_links: list[str] = []
         for i, insight in enumerate(report.insights):
+            if current_insight_count + stats["insights"] >= self.MAX_INSIGHTS:
+                log.warning(
+                    f"Insight cap ({self.MAX_INSIGHTS}) reached — skipping remaining insights. "
+                    "Run cleanup_stale() to free space."
+                )
+                break
             slug = _slugify(insight.title)
             note_name = f"{date_str}-{source}-{slug}"
             note_path = self.insights_dir / f"{note_name}.md"
@@ -111,9 +124,15 @@ class KnowledgeBase:
                 except Exception as e:
                     log.warning(f"Vector index failed for insight: {e}")
 
-        # 2. Create transcript notes (YouTube only)
+        # 2. Create transcript notes (YouTube only, enforce size cap)
+        current_transcript_count = len(list(self.transcripts_dir.glob("*.md")))
         if report.videos:
             for video in report.videos:
+                if current_transcript_count + stats["transcripts"] >= self.MAX_TRANSCRIPTS:
+                    log.warning(
+                        f"Transcript cap ({self.MAX_TRANSCRIPTS}) reached — run cleanup_stale()."
+                    )
+                    break
                 # We don't have the transcript text in the report, but we create
                 # a reference note linking to the video
                 slug = _slugify(video.title)
@@ -239,13 +258,55 @@ class KnowledgeBase:
 
         (self.indices_dir / "by-source.md").write_text("\n".join(lines))
 
+    def cleanup_stale(self, older_than_days: Optional[int] = None) -> dict[str, int]:
+        """
+        Delete notes older than `older_than_days` (default: STALE_AFTER_DAYS).
+
+        Only removes insight, transcript, and session notes — war-room briefings
+        are kept (they're historical records).
+
+        Returns counts of deleted notes per directory.
+        """
+        max_age = older_than_days if older_than_days is not None else self.STALE_AFTER_DAYS
+        cutoff = datetime.now(timezone.utc) - timedelta(days=max_age)
+        deleted: dict[str, int] = {"insights": 0, "transcripts": 0, "sessions": 0}
+
+        dirs = [
+            (self.insights_dir, "insights"),
+            (self.transcripts_dir, "transcripts"),
+            (self.sessions_dir, "sessions"),
+        ]
+        for directory, key in dirs:
+            for note in directory.glob("*.md"):
+                try:
+                    mtime = datetime.fromtimestamp(note.stat().st_mtime, tz=timezone.utc)
+                    if mtime < cutoff:
+                        note.unlink()
+                        deleted[key] += 1
+                except Exception as e:
+                    log.warning(f"Failed to evaluate/delete stale note {note.name}: {e}")
+
+        total = sum(deleted.values())
+        if total:
+            log.info(f"Cleaned up {total} stale notes (>{max_age}d): {deleted}")
+            self._rebuild_indices()
+        return deleted
+
     def get_stats(self) -> dict[str, Any]:
         """Return knowledge base statistics."""
+        insight_count = len(list(self.insights_dir.glob("*.md")))
+        transcript_count = len(list(self.transcripts_dir.glob("*.md")))
+        war_room_count = len(list(self.war_room_dir.glob("*.md")))
         return {
-            "insights": len(list(self.insights_dir.glob("*.md"))),
+            "insights": insight_count,
+            "insights_cap": self.MAX_INSIGHTS,
+            "insights_pct_full": round(insight_count / self.MAX_INSIGHTS * 100, 1),
             "sessions": len(list(self.sessions_dir.glob("*.md"))),
-            "transcripts": len(list(self.transcripts_dir.glob("*.md"))),
-            "war_room_briefings": len(list(self.war_room_dir.glob("*.md"))),
+            "transcripts": transcript_count,
+            "transcripts_cap": self.MAX_TRANSCRIPTS,
+            "war_room_briefings": war_room_count,
+            "war_room_cap": self.MAX_WAR_ROOM,
+            "stale_after_days": self.STALE_AFTER_DAYS,
             "base_dir": str(self.base),
         }
 

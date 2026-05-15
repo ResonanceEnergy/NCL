@@ -16,13 +16,13 @@ mkdir -p "$ARCHIVE"
 
 cd "$LOGS_DIR"
 
-# 1) Truncate huge active logs (keep last ~10MB so tail is intact)
+# 1) Truncate active logs > 20MB to last 5MB (keeps tail intact for forensics)
 for f in *.log; do
     [ -f "$f" ] || continue
     sz=$(stat -f%z "$f" 2>/dev/null || echo 0)
-    if [ "$sz" -gt 104857600 ]; then  # 100MB
-        tail -c 10485760 "$f" > "$f.tmp" && mv "$f.tmp" "$f"
-        echo "truncated $f (was $((sz/1024/1024))MB → 10MB)"
+    if [ "$sz" -gt 20971520 ]; then  # 20MB
+        tail -c 5242880 "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+        echo "truncated $f (was $((sz/1024/1024))MB → 5MB)"
     fi
 done
 

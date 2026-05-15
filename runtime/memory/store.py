@@ -15,8 +15,9 @@ log = logging.getLogger("ncl.memory")
 from ..ncl_brain.models import MemUnit
 
 # Memory system constraints
-MAX_CONTENT_LENGTH = 50_000  # Max characters per memory unit
-MAX_TOTAL_UNITS = 10_000    # Max total memory units in store
+MAX_CONTENT_LENGTH = 50_000     # Max characters per memory unit
+MAX_TOTAL_UNITS = 10_000        # Max total memory units in store
+MAX_MEMORY_FILE_BYTES = 200 * 1024 * 1024  # 200 MB — trigger compaction above this
 
 
 class MemoryStore:
@@ -31,7 +32,7 @@ class MemoryStore:
         Initialize memory store.
 
         Args:
-            data_dir: Directory for memory storage (~/NCL/data/memory/)
+            data_dir: Directory for memory storage (~/dev/NCL/data/memory/)
         """
         self.data_dir = Path(data_dir).expanduser() / "memory"
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -389,11 +390,51 @@ class MemoryStore:
         """
         Persist a memory unit to NDJSON file.
 
+        Checks file size before appending; if the file exceeds
+        MAX_MEMORY_FILE_BYTES it is compacted (rewritten with only the
+        current live units) before the new entry is appended.
+
         Args:
             unit: MemUnit to persist
         """
+        # File-size guard — compact before we grow beyond the limit
+        try:
+            if (
+                self.memory_file.exists()
+                and self.memory_file.stat().st_size >= MAX_MEMORY_FILE_BYTES
+            ):
+                log.warning(
+                    "Memory file size %d bytes exceeds limit %d — compacting",
+                    self.memory_file.stat().st_size,
+                    MAX_MEMORY_FILE_BYTES,
+                )
+                await self._compact_memory_file()
+        except OSError:
+            pass
+
         async with aiofiles.open(self.memory_file, "a") as f:
             await f.write(unit.model_dump_json() + "\n")
+
+    async def _compact_memory_file(self) -> None:
+        """
+        Rewrite the memory NDJSON file to eliminate duplicate/stale entries.
+
+        Loads all units, applies decay, drops units below importance threshold,
+        and rewrites the file — effectively removing tombstoned/updated entries
+        that accumulate via append-only writes.
+        """
+        try:
+            units = await self._load_all_units()
+            # Apply decay and filter out very low-importance units
+            surviving = [u for u in units if self._apply_decay(u) >= 1.0]
+            await self._rewrite_units(surviving)
+            log.info(
+                "Memory file compacted: %d → %d units",
+                len(units),
+                len(surviving),
+            )
+        except Exception as e:
+            log.error("Memory file compaction failed: %s", e)
 
     async def _load_unit(self, unit_id: str) -> Optional[MemUnit]:
         """
@@ -575,6 +616,37 @@ class MemoryStore:
             await self.index_unit(unit)
             indexed += 1
         return {"status": "ok", "indexed": indexed}
+
+    async def store(self, data: dict) -> MemUnit:
+        """
+        Convenience alias used by the autonomous scheduler.
+
+        Accepts a raw dict with optional fields:
+          - content (str): text to store; falls back to JSON-encoding data
+          - source  (str): origin label
+          - importance (float): 0-100
+          - tags (list[str])
+
+        All other keys are ignored (they are scheduler-specific metadata).
+        """
+        content = data.get("content") or json.dumps(
+            {k: v for k, v in data.items() if k not in ("importance", "tags", "source")},
+            default=str,
+        )
+        # Truncate to store limit before passing to create_unit
+        if len(content) > MAX_CONTENT_LENGTH:
+            content = content[:MAX_CONTENT_LENGTH] + "[TRUNCATED]"
+
+        source = str(data.get("source", "scheduler"))
+        importance = float(data.get("importance", 50.0))
+        tags: list[str] = [str(t) for t in data.get("tags", [])]
+
+        return await self.create_unit(
+            content=content,
+            source=source,
+            importance=importance,
+            tags=tags,
+        )
 
     async def close(self) -> None:
         """Cleanup resources."""
