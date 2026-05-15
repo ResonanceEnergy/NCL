@@ -982,11 +982,16 @@ def get_pipeline_status() -> dict:
 # ── Mandate Watcher (Service Mode) ───────────────────────────────────────
 
 class _BoundedSet:
-    """Set with a maximum size — evicts oldest entries when full."""
+    """Set with a maximum size — evicts oldest entries when full.
+
+    Eviction is logged at WARNING so re-dispatch of an aged-out mandate is
+    surfaced rather than silently happening when the watcher next sees it.
+    """
 
     def __init__(self, maxlen: int = 10_000) -> None:
         self._data: OrderedDict[str, None] = OrderedDict()
         self._maxlen = maxlen
+        self._evicted_total: int = 0
 
     def __contains__(self, item: str) -> bool:
         return item in self._data
@@ -997,7 +1002,13 @@ class _BoundedSet:
             return
         self._data[item] = None
         while len(self._data) > self._maxlen:
-            self._data.popitem(last=False)
+            evicted, _ = self._data.popitem(last=False)
+            self._evicted_total += 1
+            log.warning(
+                "[orchestrator] _BoundedSet evicted oldest entry %r (maxlen=%d, total_evicted=%d) — "
+                "that mandate may be re-processed if it reappears",
+                evicted, self._maxlen, self._evicted_total,
+            )
 
 
 _MAX_DISPATCH_RETRIES = 5

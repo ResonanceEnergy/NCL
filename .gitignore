@@ -173,3 +173,8 @@ workspaces/mandate-generation/stages/*/input/
 data/
 intelligence-sweeps/
 accounts.db
+
+# Local secrets — never commit
+.env
+.env.*
+!.env.example

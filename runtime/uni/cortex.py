@@ -300,6 +300,16 @@ class ResearchCortex:
             await f.write(result.model_dump_json(indent=2))
 
         # Append to NDJSON log
+        # Rotate results.ndjson when it grows past 50MB so it cannot fill the
+        # disk over weeks of continuous research. Keeps last rotation as .1.
+        try:
+            if self.results_file.exists() and self.results_file.stat().st_size > 50 * 1024 * 1024:
+                rotated = self.results_file.with_suffix(".ndjson.1")
+                if rotated.exists():
+                    rotated.unlink()
+                self.results_file.rename(rotated)
+        except OSError as _exc:
+            log.warning(f"[uni] results.ndjson rotation failed: {_exc}")
         async with aiofiles.open(self.results_file, "a") as f:
             await f.write(result.model_dump_json() + "\n")
 

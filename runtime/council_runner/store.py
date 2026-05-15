@@ -29,23 +29,32 @@ class CouncilRunStore:
         self.runs_file = self.store_dir / "runs.jsonl"
         self.runs_detail_dir = self.store_dir / "runs"
         self.runs_detail_dir.mkdir(exist_ok=True)
+        # Serialize concurrent save_run() calls so the JSONL index cannot
+        # interleave partial lines and the per-run JSON write is atomic.
+        self._write_lock: asyncio.Lock = asyncio.Lock()
 
     async def save_run(self, record: CouncilRunRecord) -> None:
         """
         Save a council run.
 
-        Appends to runs.jsonl (lightweight index) and saves full record to runs/{run_id}.json
+        Appends to runs.jsonl (lightweight index, lock-serialized) and writes
+        the full record to runs/{run_id}.json via temp-file + atomic rename.
         """
         record_dict = record.model_dump(mode="json")
-
-        # Append to JSONL index
-        with open(self.runs_file, "a") as f:
-            f.write(json.dumps(record_dict, default=str) + "\n")
-
-        # Save full record
+        line = json.dumps(record_dict, default=str) + "\n"
         run_detail_file = self.runs_detail_dir / f"{record.run_id}.json"
-        with open(run_detail_file, "w") as f:
-            json.dump(record_dict, f, indent=2, default=str)
+        tmp_detail = run_detail_file.with_suffix(".json.tmp")
+
+        async with self._write_lock:
+            # JSONL append (single open, single write — atomic per POSIX for <PIPE_BUF)
+            with open(self.runs_file, "a") as f:
+                f.write(line)
+                f.flush()
+            # Atomic JSON write: temp file + os.replace()
+            with open(tmp_detail, "w") as f:
+                json.dump(record_dict, f, indent=2, default=str)
+                f.flush()
+            tmp_detail.replace(run_detail_file)
 
         log.info(f"Saved run {record.run_id} to store")
 

@@ -44,15 +44,20 @@ def write_report(
     slug = report.council_type.value
     base_name = f"{slug}-council-{date_str}-{report.session_id}"
 
-    # Write markdown
+    # Write markdown atomically (temp + rename)
     md_path = out / f"{base_name}.md"
     md_content = _render_markdown(report)
-    md_path.write_text(md_content, encoding="utf-8")
+    md_tmp = md_path.with_suffix(".md.tmp")
+    md_tmp.write_text(md_content, encoding="utf-8")
+    md_tmp.replace(md_path)
     log.info(f"Report written → {md_path}")
 
-    # Write JSON
+    # Write JSON atomically (temp + rename) so a mid-write crash cannot
+    # leave a half-formed report on disk for downstream consumers.
     json_path = out / f"{base_name}.json"
-    report.save_json(json_path)
+    json_tmp = json_path.with_suffix(".json.tmp")
+    report.save_json(json_tmp)
+    json_tmp.replace(json_path)
     log.info(f"Report data → {json_path}")
 
     # Write signals for Awarebot-FPC pipeline

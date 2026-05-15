@@ -268,6 +268,11 @@ async def lifespan(app: FastAPI):
     _intelligence = IntelligenceEngine(config=config)
     await _intelligence.initialize()
 
+    # Bridge: connect intelligence engine to brain's MemoryStore
+    # so intelligence signals get written for the predictor to consume
+    if hasattr(brain, 'memory_store') and brain.memory_store is not None:
+        _intelligence.set_memory_store(brain.memory_store)
+
     # Autonomous Scheduler — makes NCL a true second brain
     global _autonomous
     _autonomous = AutonomousScheduler(brain=brain, config=config, intelligence_engine=_intelligence)
@@ -346,20 +351,22 @@ _RATE_LIMIT_MAX = 30     # requests per window
 def _check_rate_limit(request: Request, limit: int = _RATE_LIMIT_MAX) -> None:
     """Raise HTTP 429 if the calling IP exceeds `limit` requests per minute.
 
-    Uses a sliding window approach with non-blocking lock acquisition to avoid
-    blocking under contention. If lock cannot be acquired, request is allowed
-    through (fail-open for availability).
+    Uses a short-held blocking lock (microsecond critical section) so the
+    sliding-window bookkeeping cannot be bypassed under contention.  Eviction
+    of stale per-IP buckets is performed on every call to bound memory growth.
     """
     client_ip = request.client.host if request.client else "unknown"
     now = _time.monotonic()
-    acquired = _rate_limit_lock.acquire(blocking=False)
-    if not acquired:
-        # Fail open under contention rather than blocking the event loop thread
-        return
-    try:
+    window_start = now - _RATE_LIMIT_WINDOW
+    with _rate_limit_lock:
+        # Periodic GC: drop IPs that haven't been seen this window so the
+        # store cannot grow unbounded under sustained probe traffic.
+        if len(_rate_limit_store) > 4096:
+            _stale = [ip for ip, dq in _rate_limit_store.items() if not dq or dq[-1] < window_start]
+            for ip in _stale:
+                _rate_limit_store.pop(ip, None)
         bucket = _rate_limit_store[client_ip]
         # Sliding window: remove timestamps outside the window
-        window_start = now - _RATE_LIMIT_WINDOW
         while bucket and bucket[0] < window_start:
             bucket.popleft()
         if len(bucket) >= limit:
@@ -368,8 +375,6 @@ def _check_rate_limit(request: Request, limit: int = _RATE_LIMIT_MAX) -> None:
                 detail=f"Rate limit exceeded: max {limit} requests per {_RATE_LIMIT_WINDOW}s",
             )
         bucket.append(now)
-    finally:
-        _rate_limit_lock.release()
 
 
 # ---------------------------------------------------------------------------
@@ -2765,11 +2770,29 @@ async def search_stats():
 # Error handlers
 @app.exception_handler(Exception)
 async def exception_handler(request, exc: Exception):
-    """Global exception handler."""
+    """Global exception handler.
+
+    Logs the full traceback server-side (with a short correlation ID) and
+    returns a sanitized JSON envelope to the client.  In production mode the
+    raw exception detail is suppressed to avoid leaking internals.
+    """
+    import uuid as _uuid
+    err_id = _uuid.uuid4().hex[:12]
+    try:
+        log.error(
+            "[%s] unhandled exception on %s %s",
+            err_id,
+            getattr(getattr(request, "method", None), "upper", lambda: "?")() if request else "?",
+            getattr(getattr(request, "url", None), "path", "?") if request else "?",
+            exc_info=True,
+        )
+    except Exception:  # pragma: no cover — never let logging crash the handler
+        pass
     return JSONResponse(
         status_code=500,
         content={
             "error": "Internal server error",
+            "error_id": err_id,
             "detail": str(exc) if config.debug else "An error occurred",
         },
     )
@@ -3647,18 +3670,37 @@ async def autonomous_scan_now(authorization: str = Header(default="")) -> dict:
         raise HTTPException(status_code=503, detail="Brain not initialized")
     try:
         signals = []
+        platform_status = {}
         for platform in ["x", "youtube", "reddit"]:
             method = getattr(brain.scanner, f"scan_{platform}", None)
             if not method:
+                platform_status[platform] = "no_method"
+                continue
+            # Check if credentials are configured
+            cred_check = {
+                "x": bool(getattr(brain.scanner, "x_bearer_token", None)),
+                "youtube": bool(getattr(brain.scanner, "youtube_api_key", None)),
+                "reddit": bool(getattr(brain.scanner, "reddit_client_id", None) and getattr(brain.scanner, "reddit_client_secret", None)),
+            }
+            if not cred_check.get(platform, False):
+                platform_status[platform] = "missing_credentials"
                 continue
             queries = _autonomous._get_watch_queries(platform) if _autonomous else []
+            platform_signals = 0
             for q in queries:
                 try:
                     result = await method(q, max_results=10)
                     signals.extend(result)
+                    platform_signals += len(result)
                 except Exception as e:
-                    signals.append({"platform": platform, "query": q, "error": str(e)})
-        return {"status": "complete", "signals": len(signals)}
+                    platform_status[platform] = f"error: {str(e)[:100]}"
+            if platform not in platform_status:
+                platform_status[platform] = f"ok ({platform_signals} signals)"
+        return {
+            "status": "complete",
+            "signals": len(signals),
+            "platforms": platform_status,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
