@@ -10,6 +10,7 @@ Optimized for Mac Mini M4 Pro — no CUDA dependencies.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import tempfile
@@ -21,11 +22,15 @@ from typing import Optional
 log = logging.getLogger("ncl.councils.youtube.scraper")
 
 
-# Default channels — extend via config or env
+# Default channels — extend via config file or env
 DEFAULT_CHANNELS: list[str] = [
     "https://www.youtube.com/@NathansMRE",
     "https://www.youtube.com/@substandard5858",
 ]
+
+# Path to runtime-editable channel config (no code change required to add/remove)
+NCL_BASE_DIR = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
+CHANNEL_CONFIG_PATH = NCL_BASE_DIR / "config" / "youtube_channels.json"
 
 # How far back to look (hours)
 DEFAULT_LOOKBACK_HOURS = 24
@@ -59,10 +64,29 @@ _MAX_RETRIES_PER_CHANNEL = 2          # retry once on transient failure
 
 
 def get_channel_list() -> list[str]:
-    """Get YouTube channel URLs from env or defaults."""
+    """Resolve YouTube channel URLs.
+
+    Resolution order (first match wins):
+      1. ``YOUTUBE_COUNCIL_CHANNELS`` env var (comma-separated)
+      2. ``config/youtube_channels.json`` (`{"channels": [...]}` shape)
+      3. ``DEFAULT_CHANNELS`` constant
+    """
     env_channels = os.getenv("YOUTUBE_COUNCIL_CHANNELS", "")
     if env_channels:
         return [c.strip() for c in env_channels.split(",") if c.strip()]
+
+    if CHANNEL_CONFIG_PATH.exists():
+        try:
+            data = json.loads(CHANNEL_CONFIG_PATH.read_text())
+            channels = data.get("channels") if isinstance(data, dict) else data
+            if isinstance(channels, list):
+                cleaned = [str(c).strip() for c in channels if str(c).strip()]
+                if cleaned:
+                    return cleaned
+            log.warning(f"{CHANNEL_CONFIG_PATH} present but has no usable 'channels' list")
+        except (json.JSONDecodeError, OSError) as e:
+            log.warning(f"Failed to read {CHANNEL_CONFIG_PATH}: {e}")
+
     return DEFAULT_CHANNELS
 
 

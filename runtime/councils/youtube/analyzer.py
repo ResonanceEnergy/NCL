@@ -27,8 +27,36 @@ log = logging.getLogger("ncl.councils.youtube.analyzer")
 # API config
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 XAI_API_KEY = os.getenv("XAI_API_KEY", "")
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-ANALYSIS_MODEL = os.getenv("YT_COUNCIL_MODEL", "claude-sonnet-4-6")  # or grok-4, qwen3:32b
+
+# Normalise OLLAMA_HOST: accept '11434', ':11434', '/11434', 'localhost:11434',
+# 'http://localhost:11434' or full URLs and always end up with a scheme.
+def _normalize_ollama_host(raw: str) -> str:
+    raw = (raw or "").strip()
+    if not raw:
+        return "http://localhost:11434"
+    if raw.startswith(("http://", "https://")):
+        return raw.rstrip("/")
+    raw = raw.lstrip(":/")  # strip leading ':' or '/'
+    if ":" not in raw and raw.isdigit():
+        # Bare port number
+        raw = f"localhost:{raw}"
+    return f"http://{raw}".rstrip("/")
+
+
+OLLAMA_HOST = _normalize_ollama_host(os.getenv("OLLAMA_HOST", "http://localhost:11434"))
+
+# Per-provider model names (separate so a Claude model name doesn't get sent to Grok).
+# Override via env per provider.
+CLAUDE_MODEL = os.getenv(
+    "YT_COUNCIL_CLAUDE_MODEL",
+    os.getenv("COUNCIL_CLAUDE_MODEL", "claude-sonnet-4-20250514"),
+)
+GROK_MODEL = os.getenv("YT_COUNCIL_GROK_MODEL", "grok-3")
+OLLAMA_MODEL = os.getenv("OLLAMA_COUNCIL_MODEL", "qwen3:32b")
+
+# Legacy single-model knob (kept for backwards-compat; routes to the right provider
+# based on substring match).
+ANALYSIS_MODEL = os.getenv("YT_COUNCIL_MODEL", CLAUDE_MODEL)
 
 
 ANALYSIS_SYSTEM_PROMPT = """You are the YouTube Council Analyst for NARTIX — Resonance Energy studio.
@@ -151,18 +179,45 @@ async def analyze_videos(
 
 
 async def _call_model(user_prompt: str) -> str:
-    """Call the configured AI model for analysis."""
+    """Call AI model(s) with provider fallback chain.
 
-    # Try Anthropic Claude first
-    if ANTHROPIC_API_KEY and ("claude" in ANALYSIS_MODEL.lower() or "sonnet" in ANALYSIS_MODEL.lower()):
-        return await _call_anthropic(user_prompt)
+    Order: Anthropic Claude → xAI Grok → local Ollama. Each provider is only
+    attempted if its credential is present. Returns the first non-empty
+    response. Empty string only if every provider fails.
+    """
+    last_error: Optional[Exception] = None
 
-    # Try xAI Grok
-    if XAI_API_KEY and "grok" in ANALYSIS_MODEL.lower():
-        return await _call_xai(user_prompt)
+    if ANTHROPIC_API_KEY:
+        try:
+            text = await _call_anthropic(user_prompt)
+            if text:
+                return text
+        except Exception as e:
+            last_error = e
+            log.warning(f"Anthropic provider failed, falling through: {e}")
 
-    # Fallback to Ollama (local)
-    return await _call_ollama(user_prompt)
+    if XAI_API_KEY:
+        try:
+            text = await _call_xai(user_prompt)
+            if text:
+                return text
+        except Exception as e:
+            last_error = e
+            log.warning(f"xAI provider failed, falling through: {e}")
+
+    try:
+        text = await _call_ollama(user_prompt)
+        if text:
+            return text
+    except Exception as e:
+        last_error = e
+        log.error(f"Ollama provider failed: {e}")
+
+    log.error(
+        f"All YouTube council providers failed (last error: {last_error}). "
+        f"Check ANTHROPIC_API_KEY/XAI_API_KEY/OLLAMA_HOST=({OLLAMA_HOST})."
+    )
+    return ""
 
 
 # Shared HTTP client for YouTube analyzer — avoids connection pool exhaustion
@@ -201,7 +256,7 @@ async def _call_anthropic(prompt: str) -> str:
                 "content-type": "application/json",
             },
             json={
-                "model": ANALYSIS_MODEL,
+                "model": CLAUDE_MODEL,
                 "max_tokens": 4096,
                 "system": ANALYSIS_SYSTEM_PROMPT,
                 "messages": [{"role": "user", "content": prompt}],
@@ -211,11 +266,11 @@ async def _call_anthropic(prompt: str) -> str:
         response.raise_for_status()
         data = response.json()
         text = data["content"][0]["text"]
-        log.info(f"Anthropic response: {len(text)} chars")
+        log.info(f"Anthropic ({CLAUDE_MODEL}) response: {len(text)} chars")
         return text
     except Exception as e:
-        log.error(f"Anthropic API failed: {e}")
-        return ""
+        log.error(f"Anthropic API ({CLAUDE_MODEL}) failed: {e}")
+        raise
 
 
 async def _call_xai(prompt: str) -> str:
@@ -229,7 +284,7 @@ async def _call_xai(prompt: str) -> str:
                 "Content-Type": "application/json",
             },
             json={
-                "model": ANALYSIS_MODEL,
+                "model": GROK_MODEL,
                 "messages": [
                     {"role": "system", "content": ANALYSIS_SYSTEM_PROMPT},
                     {"role": "user", "content": prompt},
@@ -241,16 +296,16 @@ async def _call_xai(prompt: str) -> str:
         response.raise_for_status()
         data = response.json()
         text = data["choices"][0]["message"]["content"]
-        log.info(f"xAI response: {len(text)} chars")
+        log.info(f"xAI ({GROK_MODEL}) response: {len(text)} chars")
         return text
     except Exception as e:
-        log.error(f"xAI API failed: {e}")
-        return ""
+        log.error(f"xAI API ({GROK_MODEL}) failed: {e}")
+        raise
 
 
 async def _call_ollama(prompt: str) -> str:
     """Call Ollama local model."""
-    model = os.getenv("OLLAMA_COUNCIL_MODEL", "qwen3:32b")
+    model = OLLAMA_MODEL
     try:
         client = await _get_yt_client()
         response = await client.post(
@@ -263,15 +318,16 @@ async def _call_ollama(prompt: str) -> str:
                 ],
                 "stream": False,
             },
+            timeout=300.0,
         )
         response.raise_for_status()
         data = response.json()
         text = data.get("message", {}).get("content", "")
-        log.info(f"Ollama ({model}) response: {len(text)} chars")
+        log.info(f"Ollama ({model} @ {OLLAMA_HOST}) response: {len(text)} chars")
         return text
     except Exception as e:
-        log.error(f"Ollama failed: {e}")
-        return ""
+        log.error(f"Ollama ({model} @ {OLLAMA_HOST}) failed: {e}")
+        raise
 
 
 def _parse_analysis(raw: str) -> tuple[list[Insight], str, str]:

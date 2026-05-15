@@ -1,0 +1,7 @@
+{
+  "_comment": "Edit this file at runtime to add/remove channels for the YouTube Council. No code reload required — picked up on next council run. Set env var YOUTUBE_COUNCIL_CHANNELS to override entirely.",
+  "channels": [
+    "https://www.youtube.com/@NathansMRE",
+    "https://www.youtube.com/@substandard5858"
+  ]
+}
