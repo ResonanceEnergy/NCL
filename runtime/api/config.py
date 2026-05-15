@@ -2,6 +2,7 @@
 
 import logging
 import os
+import subprocess
 from pathlib import Path
 from typing import Optional
 
@@ -10,6 +11,89 @@ from pydantic import ConfigDict
 from pydantic_settings import BaseSettings
 
 logger = logging.getLogger(__name__)
+
+
+# ── macOS keychain helper (single source of truth for secrets) ────────────────
+def keychain_get(service: str, account: str = "natrix") -> Optional[str]:
+    """Read a secret from the macOS login keychain.
+
+    Returns None if the entry doesn't exist or `security` isn't available
+    (e.g. running in Docker/Linux). Never raises.
+    """
+    try:
+        r = subprocess.run(
+            ["security", "find-generic-password", "-s", service, "-a", account, "-w"],
+            capture_output=True, text=True, timeout=2,
+        )
+        if r.returncode == 0:
+            return r.stdout.strip() or None
+    except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+        pass
+    return None
+
+
+# Mapping of Settings field name → keychain service name
+_KEYCHAIN_FIELDS: dict[str, str] = {
+    "anthropic_api_key": "ncl-anthropic",
+    "strike_auth_token": "ncl-strike-auth-token",
+    "xai_api_key": "ncl-xai",
+    "google_api_key": "ncl-google",
+    "openai_api_key": "ncl-openai",
+    "perplexity_api_key": "ncl-perplexity",
+    "copilot_api_key": "ncl-copilot",
+    "x_bearer_token": "ncl-x-bearer",
+    "youtube_api_key": "ncl-youtube",
+    "unusual_whales_api_key": "ncl-unusual-whales",
+    "paperclip_api_key": "ncl-paperclip",
+    "gnews_api_key": "ncl-gnews",
+    "newsapi_key": "ncl-newsapi",
+    "reddit_client_id": "ncl-reddit-client-id",
+    "reddit_client_secret": "ncl-reddit-client-secret",
+    "pushover_app_token": "ncl-pushover-app-token",
+    "pushover_user_key": "ncl-pushover-user-key",
+    "discord_bot_token": "ncl-discord-bot",
+    "snaptrade_client_id": "ncl-snaptrade-client-id",
+    "snaptrade_consumer_key": "ncl-snaptrade-consumer-key",
+    "ntfy_topic": "ncl-ntfy-topic",
+}
+
+# Mapping of raw ENV var name → keychain service name.
+# These are populated into os.environ at process start so that legacy
+# `os.getenv(...)` call sites keep working without code changes.
+_KEYCHAIN_ENV: dict[str, str] = {
+    "ANTHROPIC_API_KEY": "ncl-anthropic",
+    "STRIKE_AUTH_TOKEN": "ncl-strike-auth-token",
+    "XAI_API_KEY": "ncl-xai",
+    "GOOGLE_API_KEY": "ncl-google",
+    "GEMINI_API_KEY": "ncl-gemini",
+    "OPENAI_API_KEY": "ncl-openai",
+    "PERPLEXITY_API_KEY": "ncl-perplexity",
+    "YOUTUBE_API_KEY": "ncl-youtube",
+    "UNUSUAL_WHALES_API_KEY": "ncl-unusual-whales",
+    "UNUSUAL_WHALES_TOKEN": "ncl-unusual-whales",
+    "PAPERCLIP_AGENT_KEY": "ncl-paperclip-agent",
+    "PAPERCLIP_API_KEY": "ncl-paperclip-agent",
+    "PAPERCLIP_COMPANY_ID": "ncl-paperclip-company",
+}
+
+
+def bootstrap_env_from_keychain() -> int:
+    """Populate os.environ from macOS keychain for legacy os.getenv() consumers.
+
+    Idempotent: if an env var is already set (from launchd plist, .env, or shell),
+    it's left alone. Returns the number of vars hydrated from keychain.
+    """
+    hydrated = 0
+    for env_name, service in _KEYCHAIN_ENV.items():
+        if os.environ.get(env_name):
+            continue
+        value = keychain_get(service)
+        if value:
+            os.environ[env_name] = value
+            hydrated += 1
+    if hydrated:
+        logger.info(f"keychain: hydrated {hydrated} env vars from macOS keychain")
+    return hydrated
 
 # ── Required vars — startup fails without these ───────────────────────────────
 _REQUIRED_VARS: list[tuple[str, str]] = [
@@ -58,10 +142,21 @@ class Settings(BaseSettings):
     config_dir: str = "~/dev/NCL/config"
 
     def model_post_init(self, __context: object) -> None:
-        """Expand ~ in all path fields after init."""
+        """Expand ~ in path fields and pull missing secrets from macOS keychain."""
         self.data_dir = os.path.expanduser(self.data_dir)
         self.config_dir = os.path.expanduser(self.config_dir)
         self.digital_labour_path = os.path.expanduser(self.digital_labour_path)
+
+        # Keychain fallback: any secret field that's empty/None gets pulled
+        # from the macOS keychain. Env vars still win (loaded by pydantic first).
+        for field, service in _KEYCHAIN_FIELDS.items():
+            current = getattr(self, field, None)
+            if current:
+                continue
+            value = keychain_get(service)
+            if value:
+                setattr(self, field, value)
+                logger.debug(f"loaded {field} from keychain ({service})")
 
     # ── Required API keys ─────────────────────────────────────────────────────
     anthropic_api_key: str = ""
@@ -219,6 +314,11 @@ def load_config() -> Settings:
     Returns:
         Populated Settings instance.
     """
+    # Hydrate os.environ from macOS keychain BEFORE Settings is constructed
+    # so pydantic-settings sees keychain-sourced values. Plist/.env still wins
+    # because we only fill vars that are missing.
+    bootstrap_env_from_keychain()
+
     settings = Settings()
 
     # Try to load YAML config (lower priority than env vars).

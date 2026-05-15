@@ -90,6 +90,21 @@ class _TimeWindowedBloomFilter:
 
 # --- Config ---
 
+# Hydrate STRIKE_AUTH_TOKEN from macOS keychain if not already in env.
+# Allows the launchd plist to omit secrets entirely.
+if not os.getenv("STRIKE_AUTH_TOKEN"):
+    try:
+        import subprocess as _sp
+        _r = _sp.run(
+            ["security", "find-generic-password", "-s", "ncl-strike-auth-token",
+             "-a", "natrix", "-w"],
+            capture_output=True, text=True, timeout=2,
+        )
+        if _r.returncode == 0 and _r.stdout.strip():
+            os.environ["STRIKE_AUTH_TOKEN"] = _r.stdout.strip()
+    except Exception:
+        pass
+
 NCL_BASE = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
 INPUT_DIR = NCL_BASE / "mandate-generation" / "input"
 PROCESSED_DIR = NCL_BASE / "mandate-generation" / "processed"
