@@ -352,6 +352,26 @@ class IntelligenceEngine:
         self._briefs_file = self._briefs_dir / "briefs.jsonl"
         self._signals_file = self._briefs_dir / "signals.jsonl"
 
+        # Cross-batch anomaly dedup: persisted set of (category, title) hashes.
+        # Bounded to last N entries to prevent unbounded growth.
+        self._anomaly_fingerprints_file = self._briefs_dir / "anomaly_fingerprints.json"
+        self._anomaly_fingerprints: set[str] = set()
+        self._anomaly_fingerprints_max = 5000
+        try:
+            if self._anomaly_fingerprints_file.exists():
+                _fps = json.loads(self._anomaly_fingerprints_file.read_text() or "[]")
+                if isinstance(_fps, list):
+                    self._anomaly_fingerprints = set(_fps[-self._anomaly_fingerprints_max:])
+        except (OSError, ValueError, json.JSONDecodeError) as _exc:
+            log.warning(f"[anomaly] Could not load fingerprints: {_exc}")
+
+        # Snapshots directory for sector snapshots (was missing — caused stat fails)
+        _snap_root = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL"))) / "intelligence-scan" / "snapshots"
+        try:
+            _snap_root.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
+
         # LLM client for synthesis
         self._llm_client = httpx.AsyncClient(timeout=60.0)
         self._anthropic_key = getattr(config, "anthropic_api_key", "") if config else ""
@@ -467,28 +487,47 @@ class IntelligenceEngine:
     async def _write_anomalies(self, signals: list[IntelSignal]) -> None:
         """Append HIGH-confidence directional signals to shared/intelligence/anomaly-log.md.
 
-        Threshold: confidence > 0.85 AND direction in {BULLISH, BEARISH, EMERGING}.
-        Dedupes within a single batch by (category, title) to avoid spam.
+        Threshold: per-source floor (noisy sources like polymarket need ≥0.92).
+        Default floor: confidence > 0.85 AND direction in {BULLISH, BEARISH, EMERGING}.
+        Dedupes within a single batch AND across batches via persistent fingerprint set.
         """
-        threshold = 0.85
+        # Per-source confidence floor (noisier sources need higher bar)
+        SOURCE_FLOORS = {
+            "polymarket": 0.92,
+            "reddit": 0.90,
+            "x": 0.88,
+            "twitter": 0.88,
+        }
+        DEFAULT_FLOOR = 0.85
+
         from .models import SignalDirection as _Dir
 
         directional = {_Dir.BULLISH, _Dir.BEARISH, _Dir.EMERGING}
+
+        def _passes_floor(s) -> bool:
+            src_v = getattr(getattr(s, "source", None), "value", str(getattr(s, "source", ""))).lower()
+            floor = SOURCE_FLOORS.get(src_v, DEFAULT_FLOOR)
+            return getattr(s, "confidence", 0) > floor
+
         candidates = [
             s for s in signals
-            if getattr(s, "confidence", 0) > threshold
-            and getattr(s, "direction", None) in directional
+            if _passes_floor(s) and getattr(s, "direction", None) in directional
         ]
         if not candidates:
             return
-        # Dedupe within this batch
-        seen: set[tuple[str, str]] = set()
+        # Dedupe within this batch + across batches via persistent fingerprint set
+        import hashlib
+        seen: set[str] = set()
         unique: list[IntelSignal] = []
+        new_fps: list[str] = []
         for s in candidates:
-            key = (getattr(s, "category", ""), getattr(s, "title", ""))
-            if key in seen:
+            cat = getattr(s, "category", "")
+            title = getattr(s, "title", "")
+            fp = hashlib.sha1(f"{cat}|{title}".encode("utf-8", "ignore")).hexdigest()[:16]
+            if fp in seen or fp in self._anomaly_fingerprints:
                 continue
-            seen.add(key)
+            seen.add(fp)
+            new_fps.append(fp)
             unique.append(s)
         if not unique:
             return
@@ -517,6 +556,17 @@ class IntelligenceEngine:
             async with aiofiles.open(log_path, "a", encoding="utf-8") as f:
                 await f.write("".join(lines))
             log.info(f"[anomaly-log] Appended {len(unique)} HIGH-confidence anomalies → {log_path.name}")
+            # Persist new fingerprints (bounded)
+            self._anomaly_fingerprints.update(new_fps)
+            if len(self._anomaly_fingerprints) > self._anomaly_fingerprints_max:
+                # Trim oldest by re-saving last N (set has no order; just cap to max via list slice of update order)
+                self._anomaly_fingerprints = set(list(self._anomaly_fingerprints)[-self._anomaly_fingerprints_max:])
+            try:
+                self._anomaly_fingerprints_file.write_text(
+                    json.dumps(list(self._anomaly_fingerprints))
+                )
+            except OSError as _exc:
+                log.warning(f"[anomaly] Could not persist fingerprints: {_exc}")
         except OSError as e:
             log.warning(f"[anomaly-log] Could not append: {e}")
 

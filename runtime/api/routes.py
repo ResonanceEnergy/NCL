@@ -1318,11 +1318,38 @@ async def receive_synthesis(
                 tags=["contradiction", c.get("severity", "unknown"), "alert"],
             )
 
+    # Create PENDING_APPROVAL mandates from suggested adjustments so they
+    # actually surface in the review queue instead of being silently dropped.
+    created_mandates: list[str] = []
+    for adj in mandate_adjustments:
+        if not isinstance(adj, dict):
+            continue
+        pillar_str = (adj.get("pillar") or "").lower()
+        try:
+            pillar_enum = PillarType(pillar_str)
+        except ValueError:
+            log.warning(f"[/feedback/synthesis] skipping adjustment with invalid pillar: {pillar_str!r}")
+            continue
+        try:
+            new_mandate = await brain.create_mandate(
+                pillar=pillar_enum,
+                priority=int(adj.get("priority", 5)),
+                title=str(adj.get("title") or f"Adjustment from synthesis {synthesis_id}")[:200],
+                objective=str(adj.get("objective") or adj.get("rationale") or narrative[:500]),
+                success_criteria=list(adj.get("success_criteria") or []),
+                source_pump_id=f"synthesis:{synthesis_id}",
+                # Default PENDING_APPROVAL — NATRIX must approve before dispatch
+            )
+            created_mandates.append(new_mandate.mandate_id)
+        except Exception as exc:
+            log.error(f"[/feedback/synthesis] mandate creation failed: {exc}")
+
     return {
         "status": "accepted",
         "synthesis_id": synthesis_id,
         "contradictions_flagged": len(contradictions),
         "adjustments_queued": len(mandate_adjustments),
+        "mandates_created": created_mandates,
     }
 
 

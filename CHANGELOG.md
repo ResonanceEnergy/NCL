@@ -6,6 +6,12 @@ versioning: [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed (Wave 2)
+- `/feedback/synthesis` now creates `PENDING_APPROVAL` mandates from `mandate_adjustments` instead of silently dropping them.
+- Intelligence engine: cross-batch anomaly fingerprint dedup (sha1 of `category|title`, persisted to `data/intelligence/anomaly_fingerprints.json`, bounded to 5000 entries).
+- Intelligence engine: per-source confidence floors (polymarket ≥ 0.92, reddit ≥ 0.90, x ≥ 0.88, default ≥ 0.85).
+- Intelligence engine: `intelligence-scan/snapshots/` ensured at startup.
+
 ### Fixed (Critical)
 - `MandateStatus.FAILED` enum added; `_mark_dispatch_failed` no longer leaves mandates stuck in ACTIVE after NCC dispatch failure.
 - `POST /mandates` now defaults to `PENDING_APPROVAL`; setting `ACTIVE` requires explicit `force=true` and is audit-logged.
