@@ -312,6 +312,27 @@ async def copy_pump_to_mwp(pump_file: Path, envelope: dict) -> Path | None:
         return None
 
 
+def _extract_prompt(envelope: dict) -> dict:
+    """Normalise the multiple pump envelope shapes into a single prompt dict.
+
+    Supported shapes:
+      1. Nested:   {"prompt": {"id": ..., "rawIntent": ..., ...}}
+      2. iOS flat: {"id": ..., "rawIntent": ..., "formattedPrompt": ..., "metadata": {...}}
+      3. Legacy:   {"prompt": "some plain string", ...}
+         → wrapped as {"raw_intent": <string>}
+      4. Anything else → returns the envelope itself so .get() never crashes.
+    """
+    p = envelope.get("prompt")
+    if isinstance(p, dict):
+        return p
+    if isinstance(p, str) and p:
+        return {"raw_intent": p, "rawIntent": p}
+    # iOS Shortcuts shape: rawIntent/formattedPrompt at top level
+    if any(k in envelope for k in ("rawIntent", "raw_intent", "formattedPrompt", "formatted_prompt")):
+        return envelope
+    return {}
+
+
 async def forward_pump_to_brain(pump_file: Path) -> bool:
     """
     Read pump file and forward to NCL Brain API.
@@ -322,7 +343,7 @@ async def forward_pump_to_brain(pump_file: Path) -> bool:
             lambda: json.loads(pump_file.read_bytes())
         )
 
-        prompt = envelope.get("prompt", {})
+        prompt = _extract_prompt(envelope)
         pump_id = envelope.get("pump_id", pump_file.stem)
         relay_id = envelope.get("relay_id", "WATCHER")
 
@@ -331,9 +352,14 @@ async def forward_pump_to_brain(pump_file: Path) -> bool:
             log.info(f"Skipping {pump_file.name} — already processed by brain")
             return True
 
+        # Defensive: metadata may be missing or wrong type in legacy/iOS shapes
+        _meta = prompt.get("metadata") if isinstance(prompt, dict) else None
+        if not isinstance(_meta, dict):
+            _meta = envelope.get("metadata") if isinstance(envelope.get("metadata"), dict) else {}
+
         brain_payload = {
             "prompt_id": prompt.get("id", pump_id),
-            "source": f"pump-watcher:{prompt.get('metadata', {}).get('source', 'file')}",
+            "source": f"pump-watcher:{_meta.get('source', 'file')}",
             "intent": prompt.get("raw_intent", prompt.get("rawIntent", "")),
             "context": {
                 "formatted_prompt": prompt.get("formatted_prompt", prompt.get("formattedPrompt")),
@@ -490,9 +516,11 @@ async def process_pending_pumps():
         # Copy to MWP execution pipeline
         await copy_pump_to_mwp(pump_file, envelope)
 
-        # Extract session ID for response push
-        session_id = envelope.get("prompt", {}).get("metadata", {}).get("session_id", "")
-        prompt_id = envelope.get("prompt", {}).get("id")
+        # Extract session ID for response push (defensive: prompt may be str or absent)
+        prompt_dict = _extract_prompt(envelope)
+        metadata = prompt_dict.get("metadata") if isinstance(prompt_dict.get("metadata"), dict) else {}
+        session_id = metadata.get("session_id", "") if isinstance(metadata, dict) else ""
+        prompt_id = prompt_dict.get("id") or envelope.get("id")
 
         success = await forward_pump_to_brain(pump_file)
 
