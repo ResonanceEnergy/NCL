@@ -1863,6 +1863,459 @@ class UnusualWhalesCollector:
             log.warning(f"UW insider-clusters failed: {e}")
         return signals
 
+    # ──────────────────────────────────────────────────────────────────
+    # TIER 3 — Calendars, screeners, seasonality, news, earnings
+    # All use SafeAPIError-protected _fetch_json. Per-method exceptions
+    # are caught and logged so a single failing endpoint can't sink a
+    # whole collection cycle.
+    # ──────────────────────────────────────────────────────────────────
+
+    async def collect_economic_calendar(self) -> list[IntelSignal]:
+        """Upcoming Fed/CPI/NFP/macro releases — context for macro positioning."""
+        signals: list[IntelSignal] = []
+        if not self.enabled:
+            return signals
+        try:
+            data = await _fetch_json(
+                self._client,
+                f"{self.BASE_URL}/market/economic-calendar",
+                headers=self._headers,
+                limiter=self._limiter,
+            )
+            rows = (data or {}).get("data") if isinstance(data, dict) else None
+            if not rows:
+                return signals
+            now = datetime.now(timezone.utc)
+            for ev in rows:
+                event = ev.get("event") or ""
+                t_iso = ev.get("time") or ""
+                forecast = ev.get("forecast")
+                prev = ev.get("prev")
+                # Tier importance from event keywords
+                ev_lower = event.lower()
+                high_impact = any(k in ev_lower for k in (
+                    "cpi", "ppi", "fomc", "non-farm", "nonfarm", "payroll",
+                    "unemployment", "gdp", "fed funds", "interest rate",
+                    "powell", "jobless", "retail sales",
+                ))
+                conf = 0.85 if high_impact else 0.55
+                signals.append(IntelSignal(
+                    source=SourceType.MARKET_DATA,
+                    category="economic_calendar",
+                    title=f"{event} ({ev.get('reported_period','')}) @ {t_iso}",
+                    content=f"{event} | period={ev.get('reported_period')} | forecast={forecast} | prev={prev}",
+                    direction=SignalDirection.NEUTRAL,
+                    confidence=conf,
+                    tags=["macro", "calendar", "high_impact" if high_impact else "low_impact"],
+                    metadata={
+                        "event": event,
+                        "time": t_iso,
+                        "forecast": forecast,
+                        "prev": prev,
+                        "period": ev.get("reported_period"),
+                        "type": ev.get("type"),
+                    },
+                ))
+        except Exception as e:
+            log.warning(f"UW economic-calendar failed: {e}")
+        return signals
+
+    async def collect_fda_calendar(self, days_ahead: int = 30) -> list[IntelSignal]:
+        """Upcoming PDUFA dates, AdCom, Phase trial readouts — biotech catalysts."""
+        signals: list[IntelSignal] = []
+        if not self.enabled:
+            return signals
+        try:
+            data = await _fetch_json(
+                self._client,
+                f"{self.BASE_URL}/market/fda-calendar",
+                headers=self._headers,
+                limiter=self._limiter,
+            )
+            rows = (data or {}).get("data") if isinstance(data, dict) else None
+            if not rows:
+                return signals
+            cutoff = datetime.now(timezone.utc) + timedelta(days=days_ahead)
+            now = datetime.now(timezone.utc)
+            for ev in rows:
+                ticker = ev.get("ticker") or ""
+                target = ev.get("target_date") or ev.get("end_date") or ev.get("start_date")
+                if not ticker or not target:
+                    continue
+                # Try to filter to forward-looking; accept non-parseable dates
+                # (UW returns soft strings like "2025-MID") so we don't drop them.
+                is_forward = True
+                try:
+                    tdate = datetime.fromisoformat(str(target).replace("Z", "+00:00"))
+                    if tdate.tzinfo is None:
+                        tdate = tdate.replace(tzinfo=timezone.utc)
+                    is_forward = (now - timedelta(days=1)) <= tdate <= cutoff
+                except Exception:
+                    pass  # keep ambiguous-dated catalyst, downgrade confidence below
+                etype = ev.get("event_type") or ev.get("status") or ""
+                has_options = bool(ev.get("has_options"))
+                base = 0.55 if has_options else 0.40
+                conf = base + (0.20 if is_forward else 0.0)
+                signals.append(IntelSignal(
+                    source=SourceType.MARKET_DATA,
+                    category="fda_catalyst",
+                    title=f"{ticker} FDA: {etype} on {target}",
+                    content=(ev.get("description") or "")[:400],
+                    direction=SignalDirection.NEUTRAL,
+                    confidence=conf,
+                    tags=["biotech", "fda", ticker.lower(), "options" if has_options else "no_options"],
+                    metadata={
+                        "ticker": ticker,
+                        "target_date": target,
+                        "event_type": etype,
+                        "drug": ev.get("drug"),
+                        "indication": ev.get("indication"),
+                        "outcome": ev.get("outcome"),
+                        "has_options": has_options,
+                        "marketcap": ev.get("marketcap"),
+                    },
+                ))
+        except Exception as e:
+            log.warning(f"UW fda-calendar failed: {e}")
+        return signals
+
+    async def collect_oi_change(
+        self, tickers: list[str], top_n: int = 10
+    ) -> list[IntelSignal]:
+        """Largest day-over-day OI deltas per ticker (positioning shifts)."""
+        signals: list[IntelSignal] = []
+        if not self.enabled or not tickers:
+            return signals
+        for t in tickers:
+            try:
+                data = await _fetch_json(
+                    self._client,
+                    f"{self.BASE_URL}/stock/{t}/oi-change",
+                    headers=self._headers,
+                    limiter=self._limiter,
+                )
+                rows = (data or {}).get("data") if isinstance(data, dict) else None
+                if not rows:
+                    continue
+                # Sort by absolute oi_change descending
+                ranked = sorted(
+                    rows,
+                    key=lambda r: abs(float(r.get("oi_change") or 0)),
+                    reverse=True,
+                )[:top_n]
+                for row in ranked:
+                    sym = row.get("option_symbol") or ""
+                    delta = float(row.get("oi_change") or 0)
+                    if abs(delta) < 1000:
+                        continue
+                    is_call = "C" in sym[-9:-8] if len(sym) >= 9 else False
+                    direction = (
+                        SignalDirection.BULLISH if (is_call and delta > 0) or (not is_call and delta < 0)
+                        else SignalDirection.BEARISH if (is_call and delta < 0) or (not is_call and delta > 0)
+                        else SignalDirection.NEUTRAL
+                    )
+                    signals.append(IntelSignal(
+                        source=SourceType.MARKET_DATA,
+                        category="oi_change",
+                        title=f"{t} {sym} OI Δ {delta:+,.0f}",
+                        content=(
+                            f"{t} {sym} | oi_change={delta:+,.0f} | "
+                            f"curr_oi={row.get('curr_oi')} | volume={row.get('volume')} | "
+                            f"prev_premium=${row.get('prev_total_premium')}"
+                        ),
+                        value=abs(delta),
+                        direction=direction,
+                        confidence=min(0.85, 0.5 + abs(delta) / 100000),
+                        tags=["oi_change", t.lower(), "calls" if is_call else "puts"],
+                        metadata={
+                            "ticker": t,
+                            "option_symbol": sym,
+                            "oi_change": delta,
+                            "curr_oi": row.get("curr_oi"),
+                            "volume": row.get("volume"),
+                            "prev_total_premium": row.get("prev_total_premium"),
+                            "days_of_oi_increases": row.get("days_of_oi_increases"),
+                        },
+                    ))
+            except Exception as e:
+                log.warning(f"UW oi-change failed for {t}: {e}")
+        return signals
+
+    async def collect_expiry_breakdown(self, tickers: list[str]) -> list[IntelSignal]:
+        """OI/volume distribution across expiries — gamma cliff / pin detection."""
+        signals: list[IntelSignal] = []
+        if not self.enabled or not tickers:
+            return signals
+        for t in tickers:
+            try:
+                data = await _fetch_json(
+                    self._client,
+                    f"{self.BASE_URL}/stock/{t}/expiry-breakdown",
+                    headers=self._headers,
+                    limiter=self._limiter,
+                )
+                rows = (data or {}).get("data") if isinstance(data, dict) else None
+                if not rows:
+                    continue
+                total_oi = sum(int(r.get("open_interest") or 0) for r in rows)
+                total_vol = sum(int(r.get("volume") or 0) for r in rows)
+                if total_oi == 0:
+                    continue
+                # Find dominant expiry (largest concentration = gamma cliff)
+                top = max(rows, key=lambda r: int(r.get("open_interest") or 0))
+                top_pct = int(top.get("open_interest") or 0) / total_oi
+                conf = 0.55 + min(0.35, top_pct)
+                signals.append(IntelSignal(
+                    source=SourceType.MARKET_DATA,
+                    category="expiry_breakdown",
+                    title=f"{t} top expiry {top.get('expires')} = {top_pct:.0%} OI",
+                    content=(
+                        f"{t} | total_oi={total_oi:,} | total_vol={total_vol:,} | "
+                        f"top_expiry={top.get('expires')} ({top_pct:.0%} OI, {top.get('chains')} chains)"
+                    ),
+                    value=float(top_pct),
+                    direction=SignalDirection.NEUTRAL,
+                    confidence=conf,
+                    tags=["expiry", "gamma", t.lower()],
+                    metadata={
+                        "ticker": t,
+                        "total_oi": total_oi,
+                        "total_volume": total_vol,
+                        "top_expiry": top.get("expires"),
+                        "top_concentration_pct": round(top_pct, 4),
+                        "expiry_count": len(rows),
+                    },
+                ))
+            except Exception as e:
+                log.warning(f"UW expiry-breakdown failed for {t}: {e}")
+        return signals
+
+    async def collect_screener_stocks(self, limit: int = 25) -> list[IntelSignal]:
+        """Top tickers by unusual options activity / flow imbalance."""
+        signals: list[IntelSignal] = []
+        if not self.enabled:
+            return signals
+        try:
+            data = await _fetch_json(
+                self._client,
+                f"{self.BASE_URL}/screener/stocks",
+                params={"limit": limit, "order": "net_call_premium", "order_direction": "desc"},
+                headers=self._headers,
+                limiter=self._limiter,
+            )
+            rows = (data or {}).get("data") if isinstance(data, dict) else None
+            if not rows:
+                return signals
+            for row in rows:
+                ticker = row.get("ticker") or ""
+                if not ticker:
+                    continue
+                bull = float(row.get("bullish_premium") or 0)
+                bear = float(row.get("bearish_premium") or 0)
+                net = bull - bear
+                if abs(net) < 1_000_000:  # $1M floor
+                    continue
+                direction = (
+                    SignalDirection.BULLISH if net > 0
+                    else SignalDirection.BEARISH if net < 0
+                    else SignalDirection.NEUTRAL
+                )
+                conf = min(0.85, 0.5 + abs(net) / 50_000_000)
+                signals.append(IntelSignal(
+                    source=SourceType.MARKET_DATA,
+                    category="screener_unusual",
+                    title=f"{ticker} flow imbalance ${net:+,.0f}",
+                    content=(
+                        f"{ticker} ({row.get('full_name')}) | "
+                        f"bullish ${bull:,.0f} / bearish ${bear:,.0f} | net ${net:+,.0f} | "
+                        f"iv30d={row.get('iv30d')} | iv_rank={row.get('iv_rank')} | "
+                        f"sector={row.get('sector')}"
+                    ),
+                    value=abs(net),
+                    direction=direction,
+                    confidence=conf,
+                    tags=["screener", "unusual_flow", ticker.lower()],
+                    metadata={
+                        "ticker": ticker,
+                        "bullish_premium": bull,
+                        "bearish_premium": bear,
+                        "net_premium": net,
+                        "iv30d": row.get("iv30d"),
+                        "iv_rank": row.get("iv_rank"),
+                        "sector": row.get("sector"),
+                        "marketcap": row.get("marketcap"),
+                        "next_earnings_date": row.get("next_earnings_date"),
+                    },
+                ))
+        except Exception as e:
+            log.warning(f"UW screener-stocks failed: {e}")
+        return signals
+
+    async def collect_seasonality(self, tickers: list[str]) -> list[IntelSignal]:
+        """Monthly seasonality edge — historical month-of-year performance."""
+        signals: list[IntelSignal] = []
+        if not self.enabled or not tickers:
+            return signals
+        current_month = datetime.now(timezone.utc).month
+        next_month = (current_month % 12) + 1
+        for t in tickers:
+            try:
+                data = await _fetch_json(
+                    self._client,
+                    f"{self.BASE_URL}/seasonality/{t}/monthly",
+                    headers=self._headers,
+                    limiter=self._limiter,
+                )
+                rows = (data or {}).get("data") if isinstance(data, dict) else None
+                if not rows:
+                    continue
+                for row in rows:
+                    m = int(row.get("month") or 0)
+                    if m not in (current_month, next_month):
+                        continue
+                    avg = float(row.get("avg_change") or 0)
+                    pos_perc = float(row.get("positive_months_perc") or 0)
+                    years = int(row.get("years") or 0)
+                    if years < 5:
+                        continue
+                    direction = (
+                        SignalDirection.BULLISH if avg > 0.005 and pos_perc > 0.6
+                        else SignalDirection.BEARISH if avg < -0.005 and pos_perc < 0.4
+                        else SignalDirection.NEUTRAL
+                    )
+                    horizon = "current" if m == current_month else "next"
+                    signals.append(IntelSignal(
+                        source=SourceType.MARKET_DATA,
+                        category="seasonality",
+                        title=f"{t} M{m} ({horizon}): avg {avg:+.2%}, {pos_perc:.0%} positive ({years}y)",
+                        content=(
+                            f"{t} month {m} | avg_change={avg:+.2%} | "
+                            f"median={row.get('median_change')} | "
+                            f"positive_months={pos_perc:.0%} ({row.get('positive_closes')}/{years}) | "
+                            f"max={row.get('max_change')} | min={row.get('min_change')}"
+                        ),
+                        value=avg,
+                        direction=direction,
+                        confidence=min(0.75, 0.4 + abs(pos_perc - 0.5) + years * 0.005),
+                        tags=["seasonality", t.lower(), horizon],
+                        metadata={
+                            "ticker": t,
+                            "month": m,
+                            "horizon": horizon,
+                            "avg_change": avg,
+                            "median_change": row.get("median_change"),
+                            "positive_months_perc": pos_perc,
+                            "years": years,
+                        },
+                    ))
+            except Exception as e:
+                log.warning(f"UW seasonality failed for {t}: {e}")
+        return signals
+
+    async def collect_earnings_afterhours(self) -> list[IntelSignal]:
+        """Today's after-hours earnings reports — catalyst plays."""
+        signals: list[IntelSignal] = []
+        if not self.enabled:
+            return signals
+        try:
+            data = await _fetch_json(
+                self._client,
+                f"{self.BASE_URL}/earnings/afterhours",
+                headers=self._headers,
+                limiter=self._limiter,
+            )
+            rows = (data or {}).get("data") if isinstance(data, dict) else None
+            if not rows:
+                return signals
+            for row in rows:
+                ticker = row.get("symbol") or ""
+                if not ticker:
+                    continue
+                expected_move = row.get("expected_move_perc")
+                has_options = bool(row.get("has_options"))
+                is_sp500 = bool(row.get("is_s_p_500"))
+                conf = 0.55 + (0.15 if is_sp500 else 0) + (0.1 if has_options else 0)
+                signals.append(IntelSignal(
+                    source=SourceType.MARKET_DATA,
+                    category="earnings_afterhours",
+                    title=f"{ticker} earnings AH — expected move {expected_move or 'n/a'}",
+                    content=(
+                        f"{ticker} ({row.get('full_name')}) | "
+                        f"sector={row.get('sector')} | report_time={row.get('report_time')} | "
+                        f"street_est={row.get('street_mean_est')} | "
+                        f"expected_move={expected_move} | sp500={is_sp500}"
+                    ),
+                    direction=SignalDirection.NEUTRAL,
+                    confidence=min(0.85, conf),
+                    tags=["earnings", "afterhours", ticker.lower()] + (["sp500"] if is_sp500 else []),
+                    metadata={
+                        "ticker": ticker,
+                        "report_time": row.get("report_time"),
+                        "expected_move_perc": expected_move,
+                        "street_mean_est": row.get("street_mean_est"),
+                        "sector": row.get("sector"),
+                        "is_sp500": is_sp500,
+                        "has_options": has_options,
+                        "marketcap": row.get("marketcap"),
+                    },
+                ))
+        except Exception as e:
+            log.warning(f"UW earnings-afterhours failed: {e}")
+        return signals
+
+    async def collect_news_headlines(self, limit: int = 50) -> list[IntelSignal]:
+        """Real-time market news headlines (Benzinga feed via UW)."""
+        signals: list[IntelSignal] = []
+        if not self.enabled:
+            return signals
+        try:
+            data = await _fetch_json(
+                self._client,
+                f"{self.BASE_URL}/news/headlines",
+                params={"limit": limit},
+                headers=self._headers,
+                limiter=self._limiter,
+            )
+            rows = (data or {}).get("data") if isinstance(data, dict) else None
+            if not rows:
+                return signals
+            for row in rows:
+                headline = row.get("headline") or ""
+                if not headline:
+                    continue
+                tickers = row.get("tickers") or []
+                sentiment = (row.get("sentiment") or "neutral").lower()
+                is_major = bool(row.get("is_major"))
+                direction = (
+                    SignalDirection.BULLISH if sentiment in ("positive", "bullish")
+                    else SignalDirection.BEARISH if sentiment in ("negative", "bearish")
+                    else SignalDirection.NEUTRAL
+                )
+                conf = 0.55 + (0.25 if is_major else 0) + (0.1 if tickers else 0)
+                signals.append(IntelSignal(
+                    source=SourceType.NEWS,
+                    category="news_headline",
+                    title=headline[:200],
+                    content=f"{headline} | tickers={tickers} | sentiment={sentiment} | source={row.get('source')}",
+                    direction=direction,
+                    confidence=min(0.9, conf),
+                    tags=["news", row.get("source", "").lower()] + (
+                        ["major"] if is_major else []
+                    ) + [t.lower() for t in tickers[:3]],
+                    metadata={
+                        "headline": headline,
+                        "tickers": tickers,
+                        "sentiment": sentiment,
+                        "is_major": is_major,
+                        "source": row.get("source"),
+                        "created_at": row.get("created_at"),
+                        "tags": row.get("tags"),
+                    },
+                ))
+        except Exception as e:
+            log.warning(f"UW news-headlines failed: {e}")
+        return signals
+
     async def close(self) -> None:
         if not self._client.is_closed:
             await self._client.aclose()

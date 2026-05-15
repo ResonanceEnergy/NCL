@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import logging.handlers
 import os
@@ -159,6 +160,40 @@ async def run_x_council(
     return report
 
 
+async def _snapshot_intel_state(session_id: str) -> None:
+    """Persist a snapshot of the latest intelligence brief at council spawn-time.
+
+    Reads from NCL/data/intelligence/latest_brief.json (canonical location used
+    by IntelligenceEngine) and writes a stable copy to
+    NCL/intelligence-scan/snapshots/<session_id>.json so War Room synthesis can
+    cite what was known at council launch.
+    """
+    candidate_paths = [
+        NCL_BASE / "data" / "intelligence" / "latest_brief.json",
+        NCL_BASE / "intelligence-scan" / "latest_brief.json",
+    ]
+    src = next((p for p in candidate_paths if p.exists()), None)
+    if not src:
+        log.info("[snapshot] No latest_brief.json on disk — councils will spawn without prior brief")
+        return
+    try:
+        data = json.loads(src.read_text(encoding="utf-8"))
+    except Exception as e:
+        log.warning(f"[snapshot] Failed to parse {src}: {e}")
+        return
+    snapshot_dir = NCL_BASE / "intelligence-scan" / "snapshots"
+    snapshot_dir.mkdir(parents=True, exist_ok=True)
+    out = snapshot_dir / f"{session_id}.json"
+    payload = {
+        "session_id": session_id,
+        "snapshot_at": datetime.now(timezone.utc).isoformat(),
+        "source": str(src),
+        "brief": data,
+    }
+    out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    log.info(f"[snapshot] Pre-brief snapshot saved → {out.name}")
+
+
 async def run_both(session_id: str, dry_run: bool = False) -> None:
     """Run YouTube and X councils in parallel, then War Room synthesis."""
     from .shared.models import CouncilReport
@@ -166,6 +201,15 @@ async def run_both(session_id: str, dry_run: bool = False) -> None:
 
     yt_session = f"yt-{session_id}"
     x_session = f"x-{session_id}"
+
+    # Pre-brief snapshot — capture latest IntelBrief so the War Room synthesis
+    # can reference what the brain "knew" at council spawn-time. Best-effort:
+    # we read the on-disk latest_brief.json directly to avoid coupling to a
+    # live engine instance.
+    try:
+        await _snapshot_intel_state(session_id)
+    except Exception as e:
+        log.warning(f"Pre-brief snapshot failed (non-fatal): {e}")
 
     log.info("Running YouTube and X councils in parallel...")
 

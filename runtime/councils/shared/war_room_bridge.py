@@ -311,6 +311,10 @@ def _extract_and_route_directives(
     Extract binding directives from War Room briefing and save as
     a pump-prompt-formatted JSON in mandate-generation/input/ for
     NCL processing on the next mandate cycle.
+
+    Also POSTs each parsed directive line to the brain `/mandates` endpoint
+    when STRIKE_AUTH_TOKEN + brain are reachable, creating a tracked,
+    approval-gated mandate per directive.
     """
     # Look for the directives section
     directives_text = ""
@@ -344,6 +348,72 @@ def _extract_and_route_directives(
     }
     input_file.write_text(json.dumps(mandate_input, indent=2))
     log.info(f"War Room directives routed to mandate input → {input_file.name}")
+
+    # Best-effort: also fire-and-forget mandates to brain /mandates
+    try:
+        directive_lines = [
+            ln.lstrip("-*0123456789. ").strip()
+            for ln in directives_text.split("\n")
+            if ln.strip() and not ln.strip().startswith("#")
+        ]
+        directive_lines = [d for d in directive_lines if len(d) > 12][:5]
+        if directive_lines:
+            asyncio.create_task(
+                _post_directives_as_mandates(directive_lines, session_id, date_str)
+            )
+    except Exception as e:
+        log.warning(f"Could not schedule mandate POSTs: {e}")
+
+
+async def _post_directives_as_mandates(
+    directives: list[str],
+    session_id: str,
+    date_str: str,
+) -> None:
+    """POST each directive to brain /mandates as a pillar=aac, priority=6 mandate.
+
+    Silent no-op if brain unreachable or token missing — this is a best-effort
+    integration; the file-based pump pipeline remains the primary path.
+    """
+    import httpx as _httpx
+
+    token = os.getenv("STRIKE_AUTH_TOKEN", "")
+    brain_url = os.getenv("NCL_BRAIN_URL", "http://localhost:8800").rstrip("/")
+    if not token:
+        log.info("[war_room→mandates] STRIKE_AUTH_TOKEN missing — skipping POST")
+        return
+
+    headers = {"Authorization": f"Bearer {token}"}
+    created = 0
+    async with _httpx.AsyncClient(timeout=10.0) as client:
+        for i, directive in enumerate(directives):
+            params = {
+                "pillar": "aac",
+                "priority": 6,
+                "title": f"WarRoom {date_str} #{i + 1}",
+                "objective": directive[:500],
+                "success_criteria": [
+                    "Directive executed or formal go/no-go documented",
+                ],
+                "source_pump_id": f"war-room-{session_id}",
+            }
+            try:
+                resp = await client.post(
+                    f"{brain_url}/mandates", params=params, headers=headers
+                )
+                if resp.status_code in (200, 201):
+                    created += 1
+                else:
+                    log.warning(
+                        f"[war_room→mandates] {resp.status_code} for #{i + 1}: "
+                        f"{resp.text[:120]}"
+                    )
+            except Exception as e:
+                log.warning(f"[war_room→mandates] POST #{i + 1} failed: {e}")
+    log.info(
+        f"[war_room→mandates] Created {created}/{len(directives)} mandates "
+        f"for session {session_id}"
+    )
 
 
 def _route_to_aac_war_room(

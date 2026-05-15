@@ -16,6 +16,7 @@ import asyncio
 import atexit
 import json
 import logging
+import os
 import time
 import unicodedata
 from collections import defaultdict
@@ -448,7 +449,70 @@ class IntelligenceEngine:
         # Persist raw signals
         await self._persist_signals(all_signals)
 
+        # Auto-write high-confidence anomalies to the doctrine anomaly log.
+        # Best-effort: never let a logging failure sink the collection pipeline.
+        try:
+            await self._write_anomalies(all_signals)
+        except Exception as e:
+            log.warning(f"Anomaly auto-writer failed (non-fatal): {e}")
+
         return all_signals
+
+    async def _write_anomalies(self, signals: list[IntelSignal]) -> None:
+        """Append HIGH-confidence directional signals to shared/intelligence/anomaly-log.md.
+
+        Threshold: confidence > 0.85 AND direction in {BULLISH, BEARISH, EMERGING}.
+        Dedupes within a single batch by (category, title) to avoid spam.
+        """
+        threshold = 0.85
+        from .models import SignalDirection as _Dir
+
+        directional = {_Dir.BULLISH, _Dir.BEARISH, _Dir.EMERGING}
+        candidates = [
+            s for s in signals
+            if getattr(s, "confidence", 0) > threshold
+            and getattr(s, "direction", None) in directional
+        ]
+        if not candidates:
+            return
+        # Dedupe within this batch
+        seen: set[tuple[str, str]] = set()
+        unique: list[IntelSignal] = []
+        for s in candidates:
+            key = (getattr(s, "category", ""), getattr(s, "title", ""))
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(s)
+        if not unique:
+            return
+
+        log_path = Path(os.getenv(
+            "NCL_BASE", str(Path.home() / "dev" / "NCL")
+        )) / "shared" / "intelligence" / "anomaly-log.md"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
+
+        lines: list[str] = []
+        if not log_path.exists():
+            lines.append("# NCL Anomaly Log\n")
+            lines.append("> Auto-appended by IntelligenceEngine. Threshold: confidence > 0.85, directional.\n\n")
+        lines.append(f"## {ts} — {len(unique)} anomalies\n")
+        for s in unique[:25]:  # cap per batch to keep file sane
+            cat = getattr(s, "category", "?")
+            src = getattr(getattr(s, "source", None), "value", str(getattr(s, "source", "?")))
+            dir_v = getattr(getattr(s, "direction", None), "value", str(getattr(s, "direction", "?")))
+            conf = getattr(s, "confidence", 0)
+            title = getattr(s, "title", "")[:200]
+            lines.append(f"- **[{src}/{cat}/{dir_v}]** ({conf:.0%}) {title}\n")
+        lines.append("\n")
+
+        try:
+            async with aiofiles.open(log_path, "a", encoding="utf-8") as f:
+                await f.write("".join(lines))
+            log.info(f"[anomaly-log] Appended {len(unique)} HIGH-confidence anomalies → {log_path.name}")
+        except OSError as e:
+            log.warning(f"[anomaly-log] Could not append: {e}")
 
     async def _collect_trends(self) -> list[IntelSignal]:
         """Collect from Google Trends."""
@@ -578,6 +642,47 @@ class IntelligenceEngine:
             signals.extend(ins)
         except Exception as e:
             log.warning(f"UW insider-clusters failed: {e}")
+        # ── Tier 3 ───────────────────────────────────────────────────────
+        try:
+            econ = await self._unusual_whales.collect_economic_calendar()
+            signals.extend(econ)
+        except Exception as e:
+            log.warning(f"UW economic-calendar failed: {e}")
+        try:
+            fda = await self._unusual_whales.collect_fda_calendar(days_ahead=30)
+            signals.extend(fda)
+        except Exception as e:
+            log.warning(f"UW fda-calendar failed: {e}")
+        try:
+            oi = await self._unusual_whales.collect_oi_change(macro_tickers, top_n=8)
+            signals.extend(oi)
+        except Exception as e:
+            log.warning(f"UW oi-change failed: {e}")
+        try:
+            exp = await self._unusual_whales.collect_expiry_breakdown(macro_tickers)
+            signals.extend(exp)
+        except Exception as e:
+            log.warning(f"UW expiry-breakdown failed: {e}")
+        try:
+            scr = await self._unusual_whales.collect_screener_stocks(limit=25)
+            signals.extend(scr)
+        except Exception as e:
+            log.warning(f"UW screener-stocks failed: {e}")
+        try:
+            seas = await self._unusual_whales.collect_seasonality(macro_tickers)
+            signals.extend(seas)
+        except Exception as e:
+            log.warning(f"UW seasonality failed: {e}")
+        try:
+            er = await self._unusual_whales.collect_earnings_afterhours()
+            signals.extend(er)
+        except Exception as e:
+            log.warning(f"UW earnings-afterhours failed: {e}")
+        try:
+            news = await self._unusual_whales.collect_news_headlines(limit=50)
+            signals.extend(news)
+        except Exception as e:
+            log.warning(f"UW news-headlines failed: {e}")
         return signals
 
     async def _collect_reddit(self) -> list[IntelSignal]:

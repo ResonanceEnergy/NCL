@@ -87,3 +87,7 @@ related_mandates: [MANDATE-2026-008]
 ## Archive
 
 Resolved anomalies older than 30 days are moved to `/NCL/shared/intelligence/archive/anomalies/` with quarterly rollups for pattern analysis.
+## 2026-05-15 17:55:51Z — 2 anomalies
+- **[market_data/test_anom/bullish]** (93%) SPY whale call sweep $50M
+- **[news/test_anom/bearish]** (91%) Major macro event: rate cut
+

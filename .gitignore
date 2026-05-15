@@ -172,3 +172,4 @@ workspaces/mandate-generation/stages/*/input/
 # Local data store
 data/
 intelligence-sweeps/
+accounts.db
