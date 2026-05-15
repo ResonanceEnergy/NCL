@@ -217,7 +217,7 @@ Format your response as JSON with keys: prediction, confidence (0-1), reasoning.
                     "anthropic-version": "2023-06-01",
                 },
                 json={
-                    "model": "claude-sonnet-4-6",
+                    "model": "claude-sonnet-4-20250514",
                     "max_tokens": 512,
                     "messages": [{"role": "user", "content": prompt}],
                 },

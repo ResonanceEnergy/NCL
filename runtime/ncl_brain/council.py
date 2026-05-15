@@ -264,7 +264,7 @@ class CouncilEngine:
         return COST_CONFIG
 
     MODEL_NAMES: dict[str, str] = {
-        "claude": "claude-sonnet-4-6",
+        "claude": "claude-sonnet-4-20250514",
         "grok": "grok-3",
         "gemini": "gemini-2.5-flash",
         "perplexity": "sonar-pro",
