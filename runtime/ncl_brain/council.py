@@ -239,7 +239,7 @@ class CouncilEngine:
     MODEL_NAMES: dict[str, str] = {
         "claude": "claude-sonnet-4-6",
         "grok": "grok-3",
-        "gemini": "gemini-2.0-flash",
+        "gemini": "gemini-2.5-flash",
         "perplexity": "sonar-pro",
         "gpt": "gpt-4o",
         "copilot": "gpt-4o-azure",
@@ -618,7 +618,7 @@ class CouncilEngine:
         if not self.google_api_key:
             raise ValueError("Google API key not configured")
         resp = await self.http_client.post(
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
             params={"key": self.google_api_key},
             json={"contents": [{"parts": [{"text": prompt}]}]},
         )
