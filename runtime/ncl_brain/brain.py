@@ -307,18 +307,27 @@ class NCLBrain:
             await self._log_event("startup", "NCL brain initialized, Paperclip disabled by config")
             return
         try:
-            company_id = await self.paperclip.register_company()
-            await self.paperclip.register_agent("NCL", "Think, Research, Plan, Decide", "brain")
-            await self.paperclip.register_agent("UNI", "Research cortex", "research")
-            await self.paperclip.register_agent("Awarebot-FPC", "Scanner + predictor", "intelligence")
-            await self.paperclip.register_agent("Strategy", "Mandate generation", "strategy")
-            await self.paperclip.register_agent("Memory", "Living context", "memory")
-
-            # Set per-agent budget policies (from NCL contract: $1,070/month total)
-            # NCL: 10% ($107), NCC: 30% ($321), BRS: 40% ($428), AAC: 20% ($214)
-            await self._set_budget_policies()
-
-            self._paperclip_connected = True
+            # If company ID is already configured, skip registration — just verify connectivity
+            if self.paperclip.company_id:
+                healthy = await self.paperclip.health_check()
+                if healthy:
+                    self._paperclip_connected = True
+                    log.info(
+                        "Paperclip connected (pre-configured company: %s)",
+                        self.paperclip.company_id,
+                    )
+                else:
+                    log.warning("Paperclip health check failed at startup")
+            else:
+                # No company configured — register fresh
+                company_id = await self.paperclip.register_company()
+                await self.paperclip.register_agent("NCL", "Think, Research, Plan, Decide", "brain")
+                await self.paperclip.register_agent("UNI", "Research cortex", "research")
+                await self.paperclip.register_agent("Awarebot-FPC", "Scanner + predictor", "intelligence")
+                await self.paperclip.register_agent("Strategy", "Mandate generation", "strategy")
+                await self.paperclip.register_agent("Memory", "Living context", "memory")
+                await self._set_budget_policies()
+                self._paperclip_connected = True
             log.info("NCL brain initialized — Paperclip connected, budgets set")
             await self._log_event("startup", "NCL brain initialized, Paperclip connected, budgets configured")
         except Exception as e:

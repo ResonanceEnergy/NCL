@@ -34,8 +34,8 @@ _live = pytest.mark.skipif(
 # Config
 RELAY_URL = os.getenv("RELAY_URL", "https://localhost:8787")
 BRAIN_URL = os.getenv("BRAIN_URL", "http://localhost:8800")
-NCL_INPUT_DIR = Path.home() / "Projects" / "NCL" / "mandate-generation" / "input"
-NCL_PROCESSED_DIR = Path.home() / "Projects" / "NCL" / "mandate-generation" / "processed"
+NCL_INPUT_DIR = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL"))) / "mandate-generation" / "input"
+NCL_PROCESSED_DIR = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL"))) / "mandate-generation" / "processed"
 
 GREEN = "\033[92m"
 RED = "\033[91m"
