@@ -33,6 +33,7 @@ import json
 import logging
 import logging.handlers
 import os
+import random
 import re
 import subprocess
 import sys
@@ -1064,7 +1065,10 @@ async def watch_mandates(poll_interval: int = 30) -> None:
                             retry_counts.pop(mf.name, None)
                         except Exception as e:
                             retry_counts[mf.name] = retries + 1
-                            backoff = min(_BACKOFF_MAX, _BACKOFF_BASE * (2 ** retries))
+                            # Exponential backoff with full jitter to avoid thundering-herd
+                            # retries when many mandates fail at once (e.g. brain restart).
+                            _exp = min(_BACKOFF_MAX, _BACKOFF_BASE * (2 ** retries))
+                            backoff = random.uniform(_BACKOFF_BASE, _exp)
                             log.error(
                                 "dispatch_mandate failed for %s: %s — retry %d/%d, backoff %.1fs",
                                 mf.name,

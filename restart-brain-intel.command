@@ -23,6 +23,8 @@ echo ""
 # Kill existing brain on port 8800 (aggressive — kill parent reloader too)
 echo -e "${YELLOW}Stopping existing brain on :8800...${NC}"
 for pid in $(lsof -ti :8800 2>/dev/null); do
+    kill -9 "$pid" 2>/dev/null || true
+done
     echo -e "  ${YELLOW}Killing PID $pid${NC}"
     kill -9 $pid 2>/dev/null || true
 done

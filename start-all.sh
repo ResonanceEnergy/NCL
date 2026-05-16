@@ -164,7 +164,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn, json, os
-from datetime import datetime
+from datetime import datetime, timezone
 app = FastAPI(title='AAC War Room Monitor')
 app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'], allow_headers=['*'])
 _regime = {'regime': 'neutral', 'confidence': 0.5, 'signals': [], 'updated': None}
@@ -174,7 +174,7 @@ async def health():
     return JSONResponse({'status': 'ok', 'service': 'aac-war-room', 'regime': _regime['regime']})
 @app.get('/regime')
 async def regime():
-    return JSONResponse({**_regime, 'updated': datetime.utcnow().isoformat()})
+    return JSONResponse({**_regime, 'updated': datetime.now(timezone.utc).isoformat()})
 @app.post('/regime')
 async def update_regime(data: dict):
     _regime.update(data)

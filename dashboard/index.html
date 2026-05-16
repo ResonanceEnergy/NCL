@@ -592,10 +592,17 @@ async function updateServices() {
       for (const svc of services) {
         const row = document.createElement('div');
         row.className = 'service-row';
-        row.innerHTML = `
-          <span><span class="status-dot ${svc.online ? 'dot-green' : 'dot-red'}"></span>${svc.name}</span>
-          <span class="port">:${svc.port}</span>
-        `;
+        // Build via safe DOM ops (avoid innerHTML with API-controlled fields).
+        const left = document.createElement('span');
+        const dot = document.createElement('span');
+        dot.className = 'status-dot ' + (svc.online ? 'dot-green' : 'dot-red');
+        left.appendChild(dot);
+        left.appendChild(document.createTextNode(String(svc.name ?? '')));
+        const right = document.createElement('span');
+        right.className = 'port';
+        right.textContent = ':' + String(svc.port ?? '');
+        row.appendChild(left);
+        row.appendChild(right);
         servicesList.appendChild(row);
       }
 

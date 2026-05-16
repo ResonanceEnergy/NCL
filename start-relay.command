@@ -9,7 +9,7 @@ mkdir -p "$LOGS"
 echo "Clearing port 8787..."
 for pid in $(lsof -ti :8787 2>/dev/null); do
     echo "  killing PID $pid"
-    kill -9 $pid 2>/dev/null || true
+    kill -9 "$pid" 2>/dev/null || true
 done
 sleep 2
 

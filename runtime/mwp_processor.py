@@ -200,11 +200,15 @@ class WorkspaceProcessor:
         return state
 
     def update_state_file(self) -> None:
-        """Update the shared state JSON file with current status."""
+        """Update the shared state JSON file with current status (atomic write)."""
         try:
             self.shared_dir.mkdir(parents=True, exist_ok=True)
             state = self.get_status()
-            self.state_file.write_text(json.dumps(state, indent=2))
+            # Atomic write: stage to .tmp then os.replace so concurrent readers
+            # never see a half-written JSON document.
+            tmp = self.state_file.with_suffix(".json.tmp")
+            tmp.write_text(json.dumps(state, indent=2))
+            tmp.replace(self.state_file)
             log.debug(f"Updated state file for {self.name}: {self.state_file}")
         except Exception as e:
             log.error(f"Failed to update state file for {self.name}: {e}")
