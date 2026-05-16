@@ -30,13 +30,36 @@ import logging.config
 # stderr file (`logs/ncl-brain-stderr.log`). Honor NCL_LOG_LEVEL for overrides.
 # ---------------------------------------------------------------------------
 _NCL_LOG_LEVEL = os.environ.get("NCL_LOG_LEVEL", "INFO").upper()
+
+# When NCL_LOG_FORMAT=json, emit JSON-structured logs (for log-aggregation
+# pipelines and structured-search). Otherwise fall back to the human-readable
+# text format. python-json-logger is a hard dependency in pyproject.toml so
+# the import should always succeed; we still guard against ImportError so the
+# brain can boot in a stripped-down env.
+_NCL_LOG_FORMAT = os.environ.get("NCL_LOG_FORMAT", "text").lower()
+_log_formatter: dict
+if _NCL_LOG_FORMAT == "json":
+    try:
+        from pythonjsonlogger import jsonlogger  # noqa: F401  (importability check)
+        _log_formatter = {
+            "()": "pythonjsonlogger.jsonlogger.JsonFormatter",
+            "format": "%(asctime)s %(name)s %(levelname)s %(message)s",
+            "rename_fields": {"asctime": "ts", "levelname": "level", "name": "logger"},
+        }
+    except ImportError:
+        _log_formatter = {
+            "format": "%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+        }
+else:
+    _log_formatter = {
+        "format": "%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+    }
+
 logging.config.dictConfig({
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {
-        "ncl": {
-            "format": "%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-        },
+        "ncl": _log_formatter,
     },
     "handlers": {
         "stderr": {
@@ -900,6 +923,262 @@ async def get_council_session(
         "recommendations": session.recommendations,
         "created_at": session.created_at.isoformat(),
         "completed_at": session.completed_at.isoformat() if session.completed_at else None,
+    }
+
+
+# ── YouTube Council endpoints ─────────────────────────────────────────────
+# Channel subscription management + report access for FirstStrike YTC tab.
+
+_YTC_CHANNEL_CONFIG = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL"))) / "config" / "youtube_channels.json"
+
+
+def _load_ytc_channels() -> list[dict]:
+    """Load youtube_channels.json → list of channel dicts."""
+    if not _YTC_CHANNEL_CONFIG.exists():
+        return []
+    try:
+        data = json.loads(_YTC_CHANNEL_CONFIG.read_text())
+        channels = data.get("channels", []) if isinstance(data, dict) else data
+        # Normalise: accept both plain strings and {"url": ..., "name": ...} dicts
+        result = []
+        for ch in channels:
+            if isinstance(ch, str):
+                result.append({"url": ch, "name": ch.rstrip("/").split("@")[-1] if "@" in ch else ch})
+            elif isinstance(ch, dict):
+                result.append(ch)
+        return result
+    except Exception:
+        return []
+
+
+def _save_ytc_channels(channels: list[dict]) -> None:
+    """Persist channel list to youtube_channels.json."""
+    _YTC_CHANNEL_CONFIG.parent.mkdir(parents=True, exist_ok=True)
+    # Keep backwards-compat: write both "channels" (url strings) and "channel_details"
+    payload = {
+        "_comment": "Managed by YouTube Council API — follow/unfollow from FirstStrike.",
+        "channels": [ch["url"] for ch in channels],
+        "channel_details": channels,
+    }
+    _YTC_CHANNEL_CONFIG.write_text(json.dumps(payload, indent=2))
+
+
+@app.get("/council/youtube/channels")
+async def list_youtube_channels(
+    authorization: str = Header(default=""),
+) -> dict:
+    """List all followed YouTube channels."""
+    _verify_strike_token(authorization)
+    channels = _load_ytc_channels()
+    return {"channels": channels, "count": len(channels)}
+
+
+class YouTubeChannelBody(BaseModel):
+    url: str
+    name: str = ""
+
+
+@app.post("/council/youtube/channels")
+async def follow_youtube_channel(
+    body: YouTubeChannelBody,
+    authorization: str = Header(default=""),
+) -> dict:
+    """Follow a new YouTube channel."""
+    _verify_strike_token(authorization)
+
+    url = body.url.strip()
+    if not url:
+        raise HTTPException(status_code=422, detail="Channel URL required")
+
+    # Normalise: ensure it looks like a YouTube channel URL
+    if not url.startswith("http"):
+        # Could be "@handle" or "handle" format
+        handle = url.lstrip("@")
+        url = f"https://www.youtube.com/@{handle}"
+
+    channels = _load_ytc_channels()
+
+    # Check for duplicates
+    existing_urls = {ch["url"].lower().rstrip("/") for ch in channels}
+    if url.lower().rstrip("/") in existing_urls:
+        return {"status": "already_following", "channel": url}
+
+    name = body.name.strip() or (url.rstrip("/").split("@")[-1] if "@" in url else url)
+    new_channel = {
+        "url": url,
+        "name": name,
+        "added_at": datetime.now(timezone.utc).isoformat(),
+    }
+    channels.append(new_channel)
+    _save_ytc_channels(channels)
+
+    log.info(f"[YTC] Followed channel: {name} ({url})")
+    return {"status": "followed", "channel": new_channel, "total": len(channels)}
+
+
+@app.delete("/council/youtube/channels")
+async def unfollow_youtube_channel(
+    url: str = Query(..., description="Channel URL or handle to unfollow"),
+    authorization: str = Header(default=""),
+) -> dict:
+    """Unfollow a YouTube channel."""
+    _verify_strike_token(authorization)
+
+    url_clean = url.strip().lower().rstrip("/")
+    if not url_clean:
+        raise HTTPException(status_code=422, detail="Channel URL required")
+
+    channels = _load_ytc_channels()
+    before = len(channels)
+    channels = [ch for ch in channels if ch["url"].lower().rstrip("/") != url_clean]
+    after = len(channels)
+
+    if before == after:
+        raise HTTPException(status_code=404, detail=f"Channel not found: {url}")
+
+    _save_ytc_channels(channels)
+    log.info(f"[YTC] Unfollowed channel: {url}")
+    return {"status": "unfollowed", "url": url, "remaining": after}
+
+
+@app.get("/council/youtube/reports")
+async def list_youtube_reports(
+    limit: int = Query(default=50, ge=1, le=200),
+    authorization: str = Header(default=""),
+) -> dict:
+    """List YouTube Council reports from intelligence-scan/council-reports/."""
+    _verify_strike_token(authorization)
+
+    ncl_base = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
+    reports_dir = ncl_base / "intelligence-scan" / "council-reports"
+
+    reports: list[dict] = []
+    if reports_dir.exists():
+        for rpt_path in sorted(reports_dir.glob("*youtube*.md"), key=lambda p: p.stat().st_mtime, reverse=True):
+            try:
+                content = rpt_path.read_text(errors="replace")
+                # Extract title from first heading
+                title = rpt_path.stem.replace("-", " ").replace("_", " ").title()
+                for line in content.split("\n"):
+                    if line.startswith("# "):
+                        title = line[2:].strip()
+                        break
+
+                # Extract channel from content if present
+                channel = "Unknown"
+                for line in content.split("\n"):
+                    if "channel:" in line.lower() or "source:" in line.lower():
+                        channel = line.split(":", 1)[-1].strip()
+                        break
+
+                reports.append({
+                    "filename": rpt_path.name,
+                    "title": title,
+                    "channel": channel,
+                    "date": datetime.fromtimestamp(rpt_path.stat().st_mtime, tz=timezone.utc).isoformat(),
+                    "size_bytes": rpt_path.stat().st_size,
+                    "status": "complete",
+                })
+            except Exception as e:
+                log.warning(f"Failed to read report {rpt_path}: {e}")
+
+            if len(reports) >= limit:
+                break
+
+    # Also check for JSON reports (newer format)
+    json_reports_dir = ncl_base / "intelligence-scan" / "youtube-reports"
+    if json_reports_dir.exists():
+        for rpt_path in sorted(json_reports_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+            try:
+                data = json.loads(rpt_path.read_text())
+                reports.append({
+                    "filename": rpt_path.name,
+                    "title": data.get("title", data.get("video_title", rpt_path.stem)),
+                    "channel": data.get("channel", data.get("channel_name", "Unknown")),
+                    "video_url": data.get("video_url", data.get("url", "")),
+                    "date": data.get("published_at", data.get("date", datetime.fromtimestamp(
+                        rpt_path.stat().st_mtime, tz=timezone.utc).isoformat())),
+                    "transcript_summary": data.get("transcript_summary", data.get("summary", "")),
+                    "analysis": data.get("analysis", ""),
+                    "status": data.get("status", "complete"),
+                })
+            except Exception as e:
+                log.warning(f"Failed to read JSON report {rpt_path}: {e}")
+
+            if len(reports) >= limit:
+                break
+
+    # Sort all by date descending
+    reports.sort(key=lambda r: r.get("date", ""), reverse=True)
+    return {"reports": reports[:limit], "count": len(reports[:limit])}
+
+
+@app.get("/council/youtube/reports/{filename}")
+async def get_youtube_report(
+    filename: str,
+    authorization: str = Header(default=""),
+) -> dict:
+    """Get a specific YouTube Council report by filename."""
+    _verify_strike_token(authorization)
+
+    ncl_base = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
+
+    # Check both directories
+    for reports_dir in [
+        ncl_base / "intelligence-scan" / "council-reports",
+        ncl_base / "intelligence-scan" / "youtube-reports",
+    ]:
+        rpt_path = reports_dir / filename
+        if rpt_path.exists():
+            content = rpt_path.read_text(errors="replace")
+            if filename.endswith(".json"):
+                try:
+                    return {"report": json.loads(content), "filename": filename}
+                except json.JSONDecodeError:
+                    pass
+            return {"report": {"content": content, "filename": filename}, "filename": filename}
+
+    raise HTTPException(status_code=404, detail=f"Report not found: {filename}")
+
+
+@app.post("/council/youtube/run")
+async def trigger_youtube_council(
+    authorization: str = Header(default=""),
+) -> dict:
+    """Trigger a YouTube Council run (scrape → transcribe → analyze → report)."""
+    _verify_strike_token(authorization)
+
+    session_id = f"ytc-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{str(uuid.uuid4())[:8]}"
+
+    async def _run():
+        try:
+            from ..councils.runner import run_youtube_council
+            report = await run_youtube_council(session_id)
+            if report:
+                # Save report as JSON for the new format
+                ncl_base = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
+                json_dir = ncl_base / "intelligence-scan" / "youtube-reports"
+                json_dir.mkdir(parents=True, exist_ok=True)
+                out_path = json_dir / f"{session_id}.json"
+                out_path.write_text(json.dumps({
+                    "session_id": session_id,
+                    "title": getattr(report, "title", "YouTube Council Report"),
+                    "status": "complete",
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                }, default=str, indent=2))
+                log.info(f"[YTC] Council run complete: {session_id}")
+            else:
+                log.info(f"[YTC] Council run produced no report: {session_id}")
+        except Exception as e:
+            log.exception(f"[YTC] Council run failed: {e}")
+
+    task = asyncio.create_task(_run())
+    task.add_done_callback(lambda t: log.error(f"YTC run died: {t.exception()!r}") if not t.cancelled() and t.exception() else None)
+
+    return {
+        "session_id": session_id,
+        "status": "running",
+        "message": "YouTube Council pipeline started. Poll /council/youtube/reports for results.",
     }
 
 

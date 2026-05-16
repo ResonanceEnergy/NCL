@@ -13,7 +13,7 @@ import os
 import sys
 import json
 import logging
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 import asyncio
 
@@ -129,7 +129,7 @@ async def ncl_health() -> dict[str, Any]:
 async def ncl_council_spawn(
     topic: str,
     question: str,
-    council_type: str = "cloud",
+    council_type: Literal["cloud", "youtube", "x"] = "cloud",
 ) -> dict[str, Any]:
     """
     Spawn a new council (deliberation) session on a topic.
@@ -171,8 +171,8 @@ async def ncl_mandate_list() -> dict[str, Any]:
 async def ncl_mandate_create(
     title: str,
     description: str,
-    pillar: str,
-    priority: str = "medium",
+    pillar: Literal["NCC", "BRS", "AAC"],
+    priority: Literal["low", "medium", "high", "critical"] = "medium",
 ) -> dict[str, Any]:
     """
     Create a new mandate for downstream pillars.
