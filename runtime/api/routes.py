@@ -500,7 +500,14 @@ async def services_status() -> dict:
         return await asyncio.to_thread(_check_sync, svc)
 
     checks = [_check(svc) for svc in MONITORED_SERVICES]
-    results = await asyncio.gather(*checks)
+    try:
+        # Outer 5s safety net: each per-service check already has 3s urllib
+        # timeout, but wrap gather() so the endpoint is bounded even if
+        # asyncio.to_thread + urllib misbehaves.
+        results = await asyncio.wait_for(asyncio.gather(*checks), timeout=5.0)
+    except asyncio.TimeoutError:
+        log.warning("/services/status gather exceeded 5s budget")
+        results = [{**svc, "online": False, "error": "timeout"} for svc in MONITORED_SERVICES]
     online = sum(1 for r in results if r["online"])
     return {"services": list(results), "online": online, "total": len(MONITORED_SERVICES)}
 
@@ -2897,8 +2904,9 @@ async def acknowledge_availability_alert(alert_id: str) -> dict:
 
 
 @app.get("/governance/policy/rules")
-async def list_policy_rules() -> dict:
+async def list_policy_rules(authorization: str = Header(default="")) -> dict:
     """List all policy rules."""
+    _verify_strike_token(authorization)
     if not _policy_kernel:
         raise HTTPException(status_code=503, detail="PolicyKernel not initialized")
     rules = _policy_kernel.get_rules()
@@ -2910,8 +2918,10 @@ async def create_suggest_action(
     name: str,
     source_agent: str = "ncl-brain",
     description: str = "",
+    authorization: str = Header(default=""),
 ) -> dict:
     """Create a Suggest-tier action (informational only, always allowed)."""
+    _verify_strike_token(authorization)
     if not _action_router:
         raise HTTPException(status_code=503, detail="ActionRouter not initialized")
     action = _action_router.suggest(name=name, source_agent=source_agent, description=description)
@@ -2923,8 +2933,10 @@ async def create_draft_action(
     name: str,
     source_agent: str = "ncl-brain",
     description: str = "",
+    authorization: str = Header(default=""),
 ) -> dict:
     """Create a Draft-tier action (creates artifacts, no side effects)."""
+    _verify_strike_token(authorization)
     if not _action_router:
         raise HTTPException(status_code=503, detail="ActionRouter not initialized")
     action = _action_router.draft(name=name, source_agent=source_agent, description=description)
@@ -2938,8 +2950,10 @@ async def create_execute_action(
     description: str = "",
     pump_id: str = None,
     mandate_id: str = None,
+    authorization: str = Header(default=""),
 ) -> dict:
     """Create an Execute-tier action (requires NATRIX consent)."""
+    _verify_strike_token(authorization)
     if not _action_router:
         raise HTTPException(status_code=503, detail="ActionRouter not initialized")
     action = _action_router.execute(
@@ -2950,8 +2964,9 @@ async def create_execute_action(
 
 
 @app.get("/governance/actions/pending")
-async def list_pending_actions() -> dict:
+async def list_pending_actions(authorization: str = Header(default="")) -> dict:
     """List Execute-tier actions awaiting NATRIX consent."""
+    _verify_strike_token(authorization)
     if not _action_router:
         raise HTTPException(status_code=503, detail="ActionRouter not initialized")
     pending = _action_router.get_pending()
@@ -2992,8 +3007,12 @@ async def reject_action(
 
 
 @app.get("/governance/audit")
-async def get_governance_audit(n: int = Query(default=100, le=1000)) -> dict:
+async def get_governance_audit(
+    n: int = Query(default=100, le=1000),
+    authorization: str = Header(default=""),
+) -> dict:
     """Get governance audit log."""
+    _verify_strike_token(authorization)
     if not _policy_kernel:
         raise HTTPException(status_code=503, detail="PolicyKernel not initialized")
     entries = _policy_kernel.get_audit_log(n=n)
@@ -3040,8 +3059,12 @@ async def deactivate_emergency_stop(
 
 
 @app.get("/governance/emergency-stop/ledger")
-async def get_emergency_stop_ledger(n: int = Query(default=100, le=1000)) -> dict:
+async def get_emergency_stop_ledger(
+    n: int = Query(default=100, le=1000),
+    authorization: str = Header(default=""),
+) -> dict:
     """Get emergency stop audit ledger."""
+    _verify_strike_token(authorization)
     if not _emergency_stop:
         raise HTTPException(status_code=503, detail="EmergencyStop not initialized")
     entries = await _emergency_stop.get_ledger(n=n)
@@ -4015,7 +4038,12 @@ async def escalate_intelligence_to_strike_point(
         except Exception as e:
             log.warning(f"Escalation notification failed: {e}")
 
-    asyncio.create_task(_notify_escalation())
+    _esc_task = asyncio.create_task(_notify_escalation())
+    _esc_task.add_done_callback(
+        lambda t: log.error(f"escalation notify task died: {t.exception()!r}")
+        if not t.cancelled() and t.exception() is not None
+        else None
+    )
 
     return {
         "status": "escalated",
@@ -4117,7 +4145,12 @@ async def escalate_single_signal(
         except Exception as e:
             log.warning(f"Signal escalation notification failed: {e}")
 
-    asyncio.create_task(_notify_signal())
+    _sig_task = asyncio.create_task(_notify_signal())
+    _sig_task.add_done_callback(
+        lambda t: log.error(f"signal notify task died: {t.exception()!r}")
+        if not t.cancelled() and t.exception() is not None
+        else None
+    )
 
     return {
         "status": "escalated",
