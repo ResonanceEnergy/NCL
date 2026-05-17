@@ -317,7 +317,7 @@ Use pytest + pytest-asyncio for async test support.
 
 1. Install dependencies: `pip install -e ".[dev]"`
 2. Set API keys in `~/NCL/config/ncl.yaml` or env
-3. Run service: `ncl` or `uvicorn runtime.api.routes:app`
+3. Run service: `ncl` or `uvicorn runtime.api.routes:versioned_app`
 4. Test endpoints via curl or Postman
 5. Integrate with NCC for mandate delivery
 6. Set up launchd for 24/7 daemon on Mac Mini

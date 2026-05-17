@@ -80,6 +80,7 @@ from ..paperclip_adapter import PaperclipClient
 from ..swarm.orchestrator import SwarmOrchestrator
 from ..swarm.llm_router import LLMRouter
 from ..swarm.blackboard import Blackboard
+from ..governance.emergency_stop import EMERGENCY_STOP_EVENT
 
 
 # Keys/values redacted from log payloads and persisted events.
@@ -592,10 +593,10 @@ class NCLBrain:
                         try:
                             allowed = await self._policy_allows_dispatch(mandate)
                         except Exception as exc:
-                            log.warning(
-                                f"[approve] Policy kernel check raised for {mandate_id}: {exc}"
+                            log.error(
+                                f"Policy evaluation failed — fail-closed: {exc}"
                             )
-                            allowed = True  # Fail-open on kernel errors
+                            allowed = False
                         if not allowed:
                             log.warning(
                                 f"[approve] PolicyKernel BLOCKED dispatch for mandate {mandate_id}"
@@ -1038,7 +1039,8 @@ class NCLBrain:
                 await self._persist_mandates_unlocked()
 
     async def spawn_council_session(
-        self, topic: str, prompt: str, members: Optional[list[str]] = None
+        self, topic: str, prompt: str, members: Optional[list[str]] = None,
+        session_id: Optional[str] = None,
     ) -> CouncilSession:
         """
         Spawn a new council debate session.
@@ -1047,6 +1049,8 @@ class NCLBrain:
             topic: Debate topic
             prompt: Chair's prompt
             members: Council member names (strings converted to CouncilMember enums)
+            session_id: Optional pre-generated session ID (used by API to guarantee
+                        the returned ID matches the one stored in council_sessions)
 
         Returns:
             CouncilSession
@@ -1061,7 +1065,7 @@ class NCLBrain:
                 except ValueError:
                     log.warning(f"Unknown council member '{m}', skipping")
 
-        session = await self.council_engine.spawn_session(topic, prompt, member_enums)
+        session = await self.council_engine.spawn_session(topic, prompt, member_enums, session_id=session_id)
         async with self._council_sessions_lock:
             # Evict oldest sessions when at capacity
             if len(self.council_sessions) >= self._COUNCIL_SESSIONS_MAX:
@@ -1449,11 +1453,12 @@ class NCLBrain:
         Returns:
             Dict with prediction results
         """
-        # Gather signals from memory
+        # Gather signals from memory — lowered threshold from 50.0 to 25.0
+        # so intelligence-hydrated signals and council results aren't filtered out
         memory_results = await self.query_memory(
             tags=[topic.lower()],
-            importance_threshold=50.0,
-            days_back=7,
+            importance_threshold=25.0,
+            days_back=14,  # Extended from 7 to 14 days for more signal accumulation
         )
 
         # Build real InsightSignal objects from memory results
@@ -1479,14 +1484,49 @@ class NCLBrain:
                 )
             )
 
+        # Fallback: if no tag-matched signals, try semantic search
+        if not signals and hasattr(self.memory_store, 'semantic_search'):
+            try:
+                semantic_results = await self.memory_store.semantic_search(
+                    query=topic,
+                    limit=10,
+                )
+                for unit in (semantic_results if isinstance(semantic_results, list) else []):
+                    content = unit.get("content", "") if isinstance(unit, dict) else ""
+                    importance = float(unit.get("importance", 40.0)) if isinstance(unit, dict) else 40.0
+                    if not content:
+                        continue
+                    signals.append(
+                        InsightSignal(
+                            signal_id=str(uuid.uuid4()),
+                            source_platform="memory_semantic",
+                            content=content[:500],
+                            importance_score=importance,
+                            relevance=min(1.0, importance / 100.0),
+                            novelty=0.5,
+                            actionability=0.5,
+                            source_authority=0.6,
+                            time_sensitivity=0.4,
+                            timestamp=datetime.now(timezone.utc),
+                            tags=[topic.lower()],
+                        )
+                    )
+                if signals:
+                    log.info(f"[prediction] Tag search empty, semantic fallback found {len(signals)} signals for '{topic}'")
+            except Exception as e:
+                log.warning(f"[prediction] Semantic search fallback failed: {e}")
+
         if not signals:
             return {
                 "prediction_id": str(uuid.uuid4()),
                 "topic": topic,
-                "consensus": "no data — no memory signals found for this topic",
+                "consensus": "no data — no memory signals found for this topic. Run an intelligence brief first to populate signals.",
                 "confidence": 0.0,
                 "convergence": [],
-                "warnings": [f"No memory units found for topic '{topic}' in the past 7 days"],
+                "warnings": [
+                    f"No memory units found for topic '{topic}' in the past 14 days",
+                    "Tip: Run POST /v1/intelligence/brief to collect signals, then retry prediction",
+                ],
             }
 
         prediction_output = await self.predictor.predict(signals, topic)
@@ -1644,11 +1684,12 @@ class NCLBrain:
             # Auto-reset so the next degradation re-alarms
             self._health_alarm_sent = False
 
+        uptime_seconds = (datetime.now(timezone.utc) - self._started_at).total_seconds() if self._started_at else 0
         return {
             "status": status,
             "service": "ncl-brain",
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "uptime_pct": 100.0,
+            "uptime_hours": round(uptime_seconds / 3600, 1),
             # MATRIX MONITOR fields
             "active_mandates": len(active_mandates),
             "mandates_total": total,
@@ -1959,6 +2000,9 @@ class NCLBrain:
     async def _periodic_council_cleanup(self) -> None:
         """Background task: clean up zombie council sessions every 15 minutes."""
         while True:
+            if EMERGENCY_STOP_EVENT.is_set():
+                log.critical("[COUNCIL-CLEANUP] Emergency stop active — halting loop")
+                break
             try:
                 await asyncio.sleep(900)  # 15 minutes
                 await self.cleanup_council_sessions(max_age_hours=1)

@@ -493,6 +493,10 @@ class InsightSignal(BaseModel):
     )
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     tags: list[str] = Field(default_factory=list, description="Signal tags")
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Platform-specific engagement metrics (retweets, upvotes, etc.)"
+    )
 
 
 class CouncilOutput(BaseModel):

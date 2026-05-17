@@ -690,7 +690,7 @@ class GoldenTaskRunner:
 
     async def save_results(self, result: SuiteResult) -> Path:
         """
-        Save suite results to JSON file.
+        Save suite results to JSON file (offloaded to thread).
 
         Args:
             result: The SuiteResult to save.
@@ -700,15 +700,18 @@ class GoldenTaskRunner:
         """
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d_%H-%M-%S")
         filepath = self.results_dir / f"{timestamp}.json"
+        data = result.model_dump(mode="json")
 
-        with open(filepath, "w") as f:
-            json.dump(result.model_dump(mode="json"), f, indent=2, default=str)
+        def _write() -> None:
+            with open(filepath, "w") as f:
+                json.dump(data, f, indent=2, default=str)
 
+        await asyncio.to_thread(_write)
         return filepath
 
     async def load_previous_results(self) -> Optional[SuiteResult]:
         """
-        Load the most recent previous suite results.
+        Load the most recent previous suite results (offloaded to thread).
 
         Returns:
             SuiteResult or None if no previous results exist.
@@ -723,9 +726,14 @@ class GoldenTaskRunner:
 
         latest = json_files[-1]
 
-        try:
-            with open(latest, "r") as f:
-                data = json.load(f)
-            return SuiteResult.model_validate(data)
-        except Exception:
+        def _read() -> Optional[dict]:
+            try:
+                with open(latest, "r") as f:
+                    return json.load(f)
+            except Exception:
+                return None
+
+        data = await asyncio.to_thread(_read)
+        if data is None:
             return None
+        return SuiteResult.model_validate(data)

@@ -1,7 +1,91 @@
 {
-  "_comment": "Edit this file at runtime to add/remove channels for the YouTube Council. No code reload required — picked up on next council run. Set env var YOUTUBE_COUNCIL_CHANNELS to override entirely.",
+  "_comment": "Managed by YouTube Council API — follow/unfollow from FirstStrike.",
   "channels": [
-    "https://www.youtube.com/@NathansMRE",
-    "https://www.youtube.com/@substandard5858"
+    "https://www.youtube.com/@J_Bravo",
+    "https://www.youtube.com/@eurodollaruniversity",
+    "https://www.youtube.com/@brighterwithherbert",
+    "https://www.youtube.com/@cryptosenseii",
+    "https://www.youtube.com/@bullrunners",
+    "https://www.youtube.com/@felixfriends",
+    "https://www.youtube.com/@stockmoe",
+    "https://www.youtube.com/@tombilyeu",
+    "https://www.youtube.com/@andreijikh",
+    "https://www.youtube.com/@thediaryofaceo",
+    "https://www.youtube.com/@following-the-money",
+    "https://www.youtube.com/@chriswillx",
+    "https://www.youtube.com/@theicedcoffeehour",
+    "https://www.youtube.com/@dumbmoneylive"
+  ],
+  "channel_details": [
+    {
+      "url": "https://www.youtube.com/@J_Bravo",
+      "name": "J Bravo",
+      "added_at": "2026-05-16T03:37:17.130825+00:00"
+    },
+    {
+      "url": "https://www.youtube.com/@eurodollaruniversity",
+      "name": "Eurodollar University",
+      "added_at": "2026-05-17T00:00:00+00:00"
+    },
+    {
+      "url": "https://www.youtube.com/@brighterwithherbert",
+      "name": "Brighter with Herbert",
+      "added_at": "2026-05-17T00:00:00+00:00"
+    },
+    {
+      "url": "https://www.youtube.com/@cryptosenseii",
+      "name": "CryptoSenseII",
+      "added_at": "2026-05-17T00:00:00+00:00"
+    },
+    {
+      "url": "https://www.youtube.com/@bullrunners",
+      "name": "Bull Runners",
+      "added_at": "2026-05-17T00:00:00+00:00"
+    },
+    {
+      "url": "https://www.youtube.com/@felixfriends",
+      "name": "Felix & Friends",
+      "added_at": "2026-05-17T00:00:00+00:00"
+    },
+    {
+      "url": "https://www.youtube.com/@stockmoe",
+      "name": "Stock Moe",
+      "added_at": "2026-05-17T00:00:00+00:00"
+    },
+    {
+      "url": "https://www.youtube.com/@tombilyeu",
+      "name": "Tom Bilyeu",
+      "added_at": "2026-05-17T00:00:00+00:00"
+    },
+    {
+      "url": "https://www.youtube.com/@andreijikh",
+      "name": "Andrei Jikh",
+      "added_at": "2026-05-17T00:00:00+00:00"
+    },
+    {
+      "url": "https://www.youtube.com/@thediaryofaceo",
+      "name": "The Diary of a CEO",
+      "added_at": "2026-05-17T00:00:00+00:00"
+    },
+    {
+      "url": "https://www.youtube.com/@following-the-money",
+      "name": "Following the Money",
+      "added_at": "2026-05-17T00:00:00+00:00"
+    },
+    {
+      "url": "https://www.youtube.com/@chriswillx",
+      "name": "Chris Williamson",
+      "added_at": "2026-05-17T00:00:00+00:00"
+    },
+    {
+      "url": "https://www.youtube.com/@theicedcoffeehour",
+      "name": "The Iced Coffee Hour",
+      "added_at": "2026-05-17T00:00:00+00:00"
+    },
+    {
+      "url": "https://www.youtube.com/@dumbmoneylive",
+      "name": "Dumb Money Live",
+      "added_at": "2026-05-17T00:00:00+00:00"
+    }
   ]
 }

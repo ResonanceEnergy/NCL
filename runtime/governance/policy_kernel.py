@@ -78,8 +78,8 @@ class PolicyKernel:
         self._emergency_stop = False
         self._emergency_stop_controller = None  # Optional EmergencyStop instance
         self._pending_actions_file = self.governance_dir / "pending_actions.json"
-        # Lock protecting pending_actions, audit_log, rules, and _emergency_stop
-        self._lock = threading.Lock()
+        # Reentrant lock protecting pending_actions, audit_log, rules, and _emergency_stop
+        self._lock = threading.RLock()
 
     def register_emergency_stop(self, emergency_stop) -> None:
         """Register an EmergencyStop controller for check_action logging."""
@@ -230,7 +230,8 @@ class PolicyKernel:
                 del self.pending_actions[action_id]
                 self._persist_pending_actions()
                 raise ValueError(
-                    f"Action {action_id} consent window has expired "                    f"(expired at {action.consent_expires_at.isoformat()})"
+                    f"Action {action_id} consent window has expired "
+                    f"(expired at {action.consent_expires_at.isoformat()})"
                 )
             action.consent_status = ConsentStatus.GRANTED
             action.consent_granted_by = granted_by
@@ -382,11 +383,13 @@ class PolicyKernel:
 
     def get_pending_actions(self) -> list[Action]:
         """Return all actions awaiting consent (unexpired only)."""
-        return list(self.pending_actions.values())
+        with self._lock:
+            return list(self.pending_actions.values())
 
     def get_audit_log(self, n: int = 100) -> list[AuditEntry]:
         """Return the last n audit log entries."""
-        entries = list(self.audit_log)
+        with self._lock:
+            entries = list(self.audit_log)
         return entries[-n:]
 
     def _log_audit(self, action: Action, verdict: PolicyVerdict, reason: str) -> None:
@@ -405,7 +408,8 @@ class PolicyKernel:
                 "mandate_id": action.mandate_id,
             },
         )
-        self.audit_log.append(entry)
+        with self._lock:
+            self.audit_log.append(entry)
         self._persist_audit(entry)
 
     def _sync_persist_audit(self, entry: AuditEntry) -> None:

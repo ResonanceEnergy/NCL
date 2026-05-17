@@ -393,7 +393,8 @@ class CouncilEngine:
             self._rate_limit_timestamps.append(now)
 
     async def spawn_session(
-        self, topic: str, prompt: str, members: Optional[list[CouncilMember]] = None
+        self, topic: str, prompt: str, members: Optional[list[CouncilMember]] = None,
+        session_id: Optional[str] = None,
     ) -> CouncilSession:
         """Spawn a new council debate session with role assignments."""
         await self._check_rate_limit()
@@ -408,7 +409,7 @@ class CouncilEngine:
             role_assignments[member.value] = role.value
 
         session = CouncilSession(
-            session_id=str(uuid.uuid4()),
+            session_id=session_id or str(uuid.uuid4()),
             topic=topic,
             chair="claude",
             members=members,

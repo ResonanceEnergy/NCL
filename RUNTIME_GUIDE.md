@@ -282,7 +282,7 @@ export NCL_PAPERCLIP_PORT="3100"
 # Run
 python -m runtime.api.routes
 # or
-uvicorn runtime.api.routes:app --host 0.0.0.0 --port 8800
+uvicorn runtime.api.routes:versioned_app --host 0.0.0.0 --port 8800
 ```
 
 ## Docker

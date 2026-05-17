@@ -284,7 +284,7 @@ docker run -p 8787:8787 -e NCL_ANTHROPIC_API_KEY="..." ncl-brain
 
 1. **Install dependencies**: `pip install -e .`
 2. **Configure**: Set `NCL_*` environment variables
-3. **Run**: `uvicorn runtime.api.routes:app --host 0.0.0.0 --port 8787`
+3. **Run**: `uvicorn runtime.api.routes:versioned_app --host 0.0.0.0 --port 8787`
 4. **Test**: `curl http://localhost:8787/health`
 5. **Integrate**: Connect with Paperclip, NCC, BRS, AAC
 

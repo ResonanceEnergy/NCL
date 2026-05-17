@@ -2,7 +2,7 @@
 
 import asyncio
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional
 import json
 
@@ -62,8 +62,9 @@ class ServiceMonitor:
         health = ServiceHealth.DOWN
 
         try:
-            # Get launchctl list
-            result = subprocess.run(
+            # Get launchctl list (offloaded to thread to avoid blocking the event loop)
+            result = await asyncio.to_thread(
+                subprocess.run,
                 ["launchctl", "list"],
                 capture_output=True,
                 text=True,
@@ -114,7 +115,7 @@ class ServiceMonitor:
             status=status,
             health=health,
             pid=pid,
-            last_check=datetime.now(),
+            last_check=datetime.now(timezone.utc),
         )
 
     async def check_all_health(self) -> List[ServiceState]:
@@ -133,7 +134,7 @@ class ServiceMonitor:
             Dict with per-service uptime metrics.
         """
         report = {
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "period_hours": 24,
             "services": {},
         }
@@ -224,7 +225,7 @@ class ServiceMonitor:
                             restarts.append({
                                 "type": "error",
                                 "message": line.strip()[:100],
-                                "timestamp": datetime.now().isoformat(),
+                                "timestamp": datetime.now(timezone.utc).isoformat(),
                             })
             except Exception:
                 pass
@@ -273,7 +274,7 @@ class ServiceMonitor:
                 })
 
         return {
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "summary": {
                 "total_services": total,
                 "healthy": healthy,

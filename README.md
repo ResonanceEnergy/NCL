@@ -315,7 +315,7 @@ cat > ~/Library/LaunchAgents/com.resonance-energy.ncl.plist << 'EOF'
       <string>/usr/local/bin/python3.12</string>
       <string>-m</string>
       <string>uvicorn</string>
-      <string>runtime.api.routes:app</string>
+      <string>runtime.api.routes:versioned_app</string>
       <string>--host</string>
       <string>0.0.0.0</string>
       <string>--port</string>

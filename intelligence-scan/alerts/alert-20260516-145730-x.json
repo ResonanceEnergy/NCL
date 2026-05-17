@@ -1,0 +1,11 @@
+{
+  "alert_id": "alert-20260516-145730-x",
+  "source": "x",
+  "severity": "MEDIUM",
+  "category": "market",
+  "title": "SpaceX IPO Timeline and Musk Control Structure",
+  "summary": "SpaceX reportedly set to trade under ticker $SPCX as early as June 12. Elon Musk confirming plans to make it impossible to fire him, stating focus on multiplanetary mission over quarterly earnings. Significant corporate governance implications.",
+  "recommended_action": "Monitor SpaceX IPO for potential investment opportunity and governance precedent implications",
+  "created_at": "2026-05-16T14:57:30.195441+00:00",
+  "acknowledged": false
+}

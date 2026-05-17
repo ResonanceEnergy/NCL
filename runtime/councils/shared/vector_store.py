@@ -146,20 +146,26 @@ class CouncilVectorStore:
 
     async def _load_tfidf_from_disk(self) -> None:
         """Load persisted TF-IDF documents from JSONL backup."""
+        import asyncio
         backup = self.vector_dir / "tfidf_docs.jsonl"
         if not backup.exists():
             return
         try:
-            with open(backup, "r") as f:
-                for line in f:
-                    if not line.strip():
-                        continue
-                    raw = json.loads(line)
-                    self._add_tfidf_doc(
-                        doc_id=raw["doc_id"],
-                        text=raw["text"],
-                        metadata=raw.get("metadata", {}),
-                    )
+            def _read_lines():
+                entries = []
+                with open(backup, "r") as f:
+                    for line in f:
+                        if not line.strip():
+                            continue
+                        entries.append(json.loads(line))
+                return entries
+            entries = await asyncio.to_thread(_read_lines)
+            for raw in entries:
+                self._add_tfidf_doc(
+                    doc_id=raw["doc_id"],
+                    text=raw["text"],
+                    metadata=raw.get("metadata", {}),
+                )
         except Exception as e:
             log.warning(f"Failed to load TF-IDF backup: {e}")
 
@@ -173,10 +179,14 @@ class CouncilVectorStore:
             self._df[token] += 1
 
     async def _persist_tfidf_doc(self, doc_id: str, text: str, metadata: dict) -> None:
-        """Append document to JSONL backup."""
+        """Append document to JSONL backup (sync I/O delegated to thread pool)."""
+        import asyncio
         backup = self.vector_dir / "tfidf_docs.jsonl"
-        with open(backup, "a") as f:
-            f.write(json.dumps({"doc_id": doc_id, "text": text, "metadata": metadata}) + "\n")
+        line = json.dumps({"doc_id": doc_id, "text": text, "metadata": metadata}) + "\n"
+        def _write():
+            with open(backup, "a") as f:
+                f.write(line)
+        await asyncio.to_thread(_write)
 
     # ── Public API ─────────────────────────────────────────────────────
 

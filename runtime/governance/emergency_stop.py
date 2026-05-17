@@ -8,6 +8,7 @@ Global EMERGENCY_STOP_EVENT (threading.Event) is set on activation so that
 all subsystem loops can check `if EMERGENCY_STOP_EVENT.is_set(): break`.
 """
 import asyncio
+import os
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -360,16 +361,22 @@ class EmergencyStop:
 
     async def _persist_state(self):
         """Persist state using atomic write-to-temp-then-rename pattern."""
+        self.gov_dir.mkdir(parents=True, exist_ok=True)
         state_path = self.gov_dir / self.STATE_FILE
         tmp_path = state_path.with_suffix(".tmp")
         async with aiofiles.open(tmp_path, 'w') as f:
             await f.write(self._state.model_dump_json(indent=2))
-        tmp_path.rename(state_path)
+            await f.flush()
+            os.fsync(f.fileno())
+        os.replace(str(tmp_path), str(state_path))
 
     async def _log_ledger(self, entry: AuditLedgerEntry):
+        self.gov_dir.mkdir(parents=True, exist_ok=True)
         ledger_path = self.gov_dir / self.LEDGER_FILE
         async with aiofiles.open(ledger_path, 'a') as f:
             await f.write(entry.model_dump_json() + "\n")
+            await f.flush()
+            os.fsync(f.fileno())
 
     async def _emit_notification(self, event: str, actor: str, reason: str) -> None:
         """Write a notification entry so external consumers can detect state changes."""

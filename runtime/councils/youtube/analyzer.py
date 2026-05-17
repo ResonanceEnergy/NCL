@@ -24,9 +24,13 @@ from ..shared.models import (
 
 log = logging.getLogger("ncl.councils.youtube.analyzer")
 
-# API config
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-XAI_API_KEY = os.getenv("XAI_API_KEY", "")
+# API config — lazy-read functions so keys set after import (e.g. by
+# keychain helper) are picked up.
+def _get_anthropic_key() -> str:
+    return os.getenv("ANTHROPIC_API_KEY", "")
+
+def _get_xai_key() -> str:
+    return os.getenv("XAI_API_KEY", "")
 
 # Normalise OLLAMA_HOST: accept '11434', ':11434', '/11434', 'localhost:11434',
 # 'http://localhost:11434' or full URLs and always end up with a scheme.
@@ -187,7 +191,7 @@ async def _call_model(user_prompt: str) -> str:
     """
     last_error: Optional[Exception] = None
 
-    if ANTHROPIC_API_KEY:
+    if _get_anthropic_key():
         try:
             text = await _call_anthropic(user_prompt)
             if text:
@@ -196,7 +200,7 @@ async def _call_model(user_prompt: str) -> str:
             last_error = e
             log.warning(f"Anthropic provider failed, falling through: {e}")
 
-    if XAI_API_KEY:
+    if _get_xai_key():
         try:
             text = await _call_xai(user_prompt)
             if text:
@@ -215,7 +219,7 @@ async def _call_model(user_prompt: str) -> str:
 
     log.error(
         f"All YouTube council providers failed (last error: {last_error}). "
-        f"Check ANTHROPIC_API_KEY/XAI_API_KEY/OLLAMA_HOST=({OLLAMA_HOST})."
+        f"Check ANTHROPIC_API_KEY/XAI_API_KEY/OLLAMA_HOST."
     )
     return ""
 
@@ -251,7 +255,7 @@ async def _call_anthropic(prompt: str) -> str:
         response = await client.post(
             "https://api.anthropic.com/v1/messages",
             headers={
-                "x-api-key": ANTHROPIC_API_KEY,
+                "x-api-key": _get_anthropic_key(),
                 "anthropic-version": "2023-06-01",
                 "content-type": "application/json",
             },
@@ -280,7 +284,7 @@ async def _call_xai(prompt: str) -> str:
         response = await client.post(
             "https://api.x.ai/v1/chat/completions",
             headers={
-                "Authorization": f"Bearer {XAI_API_KEY}",
+                "Authorization": f"Bearer {_get_xai_key()}",
                 "Content-Type": "application/json",
             },
             json={
@@ -355,11 +359,12 @@ def _parse_analysis(raw: str) -> tuple[list[Insight], str, str]:
         except ValueError:
             cat = SignalCategory.CONTENT
 
+        raw_conf = float(item.get("confidence", 0.5))
         insights.append(Insight(
             title=item.get("title", "Untitled"),
             description=item.get("description", ""),
             category=cat,
-            confidence=float(item.get("confidence", 0.5)),
+            confidence=max(0.0, min(1.0, raw_conf)),
             tags=item.get("tags", []),
             actionable=bool(item.get("actionable", False)),
             action_suggestion=item.get("action_suggestion", ""),

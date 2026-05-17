@@ -60,7 +60,7 @@ class ServiceState:
     health: ServiceHealth
     pid: Optional[int] = None
     uptime_seconds: Optional[float] = None
-    last_check: datetime = field(default_factory=datetime.now)
+    last_check: datetime = field(default_factory=lambda: datetime.now())
     error_message: Optional[str] = None
     restart_count: int = 0
 

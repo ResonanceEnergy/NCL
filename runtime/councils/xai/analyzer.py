@@ -23,8 +23,13 @@ from ..shared.models import (
 
 log = logging.getLogger("ncl.councils.xai.analyzer")
 
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-XAI_API_KEY = os.getenv("XAI_API_KEY", "")
+def _get_anthropic_key() -> str:
+    """Lazy-read Anthropic API key so keys set after import are picked up."""
+    return os.getenv("ANTHROPIC_API_KEY", "")
+
+def _get_xai_key() -> str:
+    """Lazy-read xAI API key so keys set after import are picked up."""
+    return os.getenv("XAI_API_KEY", "")
 
 
 def _normalize_ollama_host(raw: str) -> str:
@@ -40,8 +45,10 @@ def _normalize_ollama_host(raw: str) -> str:
     return f"http://{raw}".rstrip("/")
 
 
-OLLAMA_HOST = _normalize_ollama_host(os.getenv("OLLAMA_HOST", "http://localhost:11434"))
-ANALYSIS_MODEL = os.getenv("X_COUNCIL_MODEL", "claude-sonnet-4-20250514")
+def _get_ollama_host() -> str:
+    return _normalize_ollama_host(os.getenv("OLLAMA_HOST", "http://localhost:11434"))
+
+ANALYSIS_MODEL = os.getenv("X_COUNCIL_MODEL", "claude-sonnet-4-6")
 
 
 X_ANALYSIS_SYSTEM_PROMPT = """You are the X (Twitter) Intelligence Analyst for NARTIX — Resonance Energy studio.
@@ -102,6 +109,15 @@ async def analyze_posts(
     for posts in sweep_results.values():
         all_posts.extend(posts)
 
+    # Count synthetic (Grok-generated) posts for confidence adjustment
+    synthetic_count = sum(1 for p in all_posts if p.synthetic)
+    real_count = len(all_posts) - synthetic_count
+    if synthetic_count > 0:
+        log.info(
+            f"Post mix: {real_count} real + {synthetic_count} synthetic (Grok-generated). "
+            f"Synthetic data will reduce insight confidence scores."
+        )
+
     if not all_posts:
         log.warning("No posts to analyze")
         return CouncilReport(
@@ -152,6 +168,22 @@ async def analyze_posts(
     # Parse
     insights, summary, raw_analysis = _parse_analysis(raw_response)
 
+    # Penalize confidence when insights are derived from synthetic (Grok-generated) data.
+    # 100% synthetic => 0.6x confidence cap; mixed => proportional reduction.
+    if synthetic_count > 0 and all_posts:
+        synthetic_ratio = synthetic_count / len(all_posts)
+        confidence_penalty = 1.0 - (0.4 * synthetic_ratio)  # 0.6 at 100% synthetic
+        for insight in insights:
+            original = insight.confidence
+            insight.confidence = round(min(insight.confidence, insight.confidence * confidence_penalty), 2)
+            if insight.confidence != original:
+                if "synthetic_data" not in insight.tags:
+                    insight.tags.append("synthetic_data")
+        log.info(
+            f"Applied synthetic confidence penalty: {confidence_penalty:.2f}x "
+            f"({synthetic_ratio:.0%} synthetic ratio)"
+        )
+
     report = CouncilReport(
         council_type=CouncilSource.X_TWITTER,
         session_id=session_id,
@@ -195,12 +227,14 @@ async def _call_model(user_prompt: str) -> str:
     client = await _get_analyzer_client()
 
     # Anthropic Claude
-    if ANTHROPIC_API_KEY and "claude" in ANALYSIS_MODEL.lower():
+    anthropic_key = _get_anthropic_key()
+    xai_key = _get_xai_key()
+    if anthropic_key and "claude" in ANALYSIS_MODEL.lower():
         try:
             resp = await client.post(
                 "https://api.anthropic.com/v1/messages",
                 headers={
-                    "x-api-key": ANTHROPIC_API_KEY,
+                    "x-api-key": anthropic_key,
                     "anthropic-version": "2023-06-01",
                     "content-type": "application/json",
                 },
@@ -218,13 +252,13 @@ async def _call_model(user_prompt: str) -> str:
             log.warning(f"Anthropic failed: {e}")
 
     # xAI Grok
-    if XAI_API_KEY:
+    if xai_key:
         try:
             model = ANALYSIS_MODEL if "grok" in ANALYSIS_MODEL.lower() else "grok-4"
             resp = await client.post(
                 "https://api.x.ai/v1/chat/completions",
                 headers={
-                    "Authorization": f"Bearer {XAI_API_KEY}",
+                    "Authorization": f"Bearer {xai_key}",
                     "Content-Type": "application/json",
                 },
                 json={
@@ -246,7 +280,7 @@ async def _call_model(user_prompt: str) -> str:
     try:
         model = os.getenv("OLLAMA_COUNCIL_MODEL", "qwen3:32b")
         resp = await client.post(
-            f"{OLLAMA_HOST}/api/chat",
+            f"{_get_ollama_host()}/api/chat",
             json={
                 "model": model,
                 "messages": [
@@ -287,11 +321,12 @@ def _parse_analysis(raw: str) -> tuple[list[Insight], str, str]:
         except ValueError:
             cat = SignalCategory.CONTENT
 
+        raw_conf = float(item.get("confidence", 0.5))
         insights.append(Insight(
             title=item.get("title", "Untitled"),
             description=item.get("description", ""),
             category=cat,
-            confidence=float(item.get("confidence", 0.5)),
+            confidence=max(0.0, min(1.0, raw_conf)),
             tags=item.get("tags", []),
             actionable=bool(item.get("actionable", False)),
             action_suggestion=item.get("action_suggestion", ""),

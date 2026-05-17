@@ -172,8 +172,8 @@ class KnowledgeBase:
             except Exception as e:
                 log.warning(f"Vector index failed for session: {e}")
 
-        # 4. Rebuild indices
-        self._rebuild_indices()
+        # 4. Rebuild indices (sync I/O — run in thread pool)
+        await asyncio.to_thread(self._rebuild_indices)
 
         log.info(
             f"Knowledge base updated: {stats['insights']} insights, "
@@ -541,5 +541,6 @@ def _extract_frontmatter(note_path: Path) -> dict:
                     # No inline value — expect list items on following lines
                     result[key] = []
         return result
-    except Exception:
+    except (OSError, ValueError, IndexError) as e:
+        log.debug(f"Frontmatter extraction failed for {note_path.name}: {e}")
         return {}

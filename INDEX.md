@@ -318,7 +318,7 @@ export NCL_PAPERCLIP_PORT="8765"
 
 ### 3. Run
 ```bash
-uvicorn runtime.api.routes:app --host 0.0.0.0 --port 8800
+uvicorn runtime.api.routes:versioned_app --host 0.0.0.0 --port 8800
 ```
 
 ### 4. Test

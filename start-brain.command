@@ -21,6 +21,15 @@ else
     echo "No .venv found, using system Python"
 fi
 
+# Ensure chromadb is installed in venv
+if ! python3 -c "import chromadb" 2>/dev/null; then
+    echo "Installing chromadb into venv..."
+    pip install chromadb 2>&1 | tail -3
+    echo "✅ chromadb installed"
+else
+    echo "✅ chromadb OK"
+fi
+
 # Load .env
 if [ -f .env ]; then
     set -a
@@ -31,4 +40,4 @@ fi
 
 # Start the brain
 echo "Starting NCL Brain on port 8800..."
-exec uvicorn runtime.api.routes:app --host 127.0.0.1 --port 8800 --reload
+exec uvicorn runtime.api.routes:versioned_app --host 0.0.0.0 --port 8800 --reload

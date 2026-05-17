@@ -1,8 +1,10 @@
 """Future Predictor Council - ensemble forecast engine."""
 
+import asyncio
 import json
 import logging
 import math
+import os
 import uuid
 from collections import deque
 from datetime import datetime, timezone
@@ -155,24 +157,31 @@ class FuturePredictor:
         if not high_importance:
             high_importance = signals
 
-        # Run predictions across ensemble
-        predictions = {}
-
-        # Claude strategic analysis
-        claude_pred = await self._predict_claude(high_importance, topic)
-        predictions["claude"] = claude_pred
-
-        # Local model (qwen3:32b) - technical/data analysis
+        # Run all 3 model predictions in PARALLEL (not sequential)
         qwen_model = os.getenv("NCL_PREDICTOR_REASONING_MODEL", "qwen3:32b")
-        qwen_pred = await self._predict_ollama(high_importance, topic, qwen_model)
-        predictions["qwen"] = qwen_pred
-
-        # Local model (deepseek-coder) - edge case detection
         deepseek_model = os.getenv("NCL_PREDICTOR_CODE_MODEL", "deepseek-coder-v2:16b")
-        deepseek_pred = await self._predict_ollama(
-            high_importance, topic, deepseek_model
+
+        claude_task = self._predict_claude(high_importance, topic)
+        qwen_task = self._predict_ollama(high_importance, topic, qwen_model)
+        deepseek_task = self._predict_ollama(high_importance, topic, deepseek_model)
+
+        results = await asyncio.gather(
+            claude_task, qwen_task, deepseek_task,
+            return_exceptions=True,
         )
-        predictions["deepseek"] = deepseek_pred
+
+        predictions = {}
+        for name, result in zip(["claude", "qwen", "deepseek"], results):
+            if isinstance(result, Exception):
+                logger.warning(f"Prediction model {name} raised exception: {result}")
+                predictions[name] = {
+                    "model": name,
+                    "prediction": "Unable to generate prediction",
+                    "confidence": 0.0,
+                    "error": str(result),
+                }
+            else:
+                predictions[name] = result
 
         output.component_predictions = predictions
 
@@ -290,7 +299,7 @@ What is the most likely outcome? Provide 1-2 sentences."""
             response.raise_for_status()
             data = response.json()
 
-            response_text = data.get("response", "")[:200]
+            response_text = data.get("response", "")[:500]
             confidence = _compute_model_confidence(
                 signals=signals,
                 response_text=response_text,
@@ -312,25 +321,80 @@ What is the most likely outcome? Provide 1-2 sentences."""
 
     def _detect_convergence(self, predictions: dict[str, dict[str, str | float]]) -> list[str]:
         """
-        Detect convergence when multiple models agree.
+        Detect convergence using directional agreement + coefficient of variation.
 
-        Args:
-            predictions: Dict of model predictions
+        Previous version only checked confidence levels, meaning two models
+        confident in OPPOSITE directions would count as "convergence". Now
+        checks:
+        1. Directional agreement: do models predict the same outcome direction?
+        2. CV < 0.1: are confidence values tightly clustered?
+        3. Shared key terms: do predictions discuss the same topics?
 
         Returns:
-            List of convergence signals
+            List of convergence signals (empty = no convergence)
         """
         convergence_signals = []
 
-        # Simple heuristic: if multiple models have high confidence
-        high_confidence_count = sum(
-            1 for p in predictions.values()
-            if isinstance(p.get("confidence"), float) and p.get("confidence") >= 0.7
-        )
+        valid_preds = {
+            k: v for k, v in predictions.items()
+            if v.get("prediction") and "Unable to generate" not in str(v.get("prediction", ""))
+            and isinstance(v.get("confidence"), (int, float)) and v.get("confidence", 0) > 0
+        }
 
-        if high_confidence_count >= 2:
+        if len(valid_preds) < 2:
+            return convergence_signals
+
+        # 1. Coefficient of variation on confidence values
+        confidences = [v["confidence"] for v in valid_preds.values()]
+        mean_conf = sum(confidences) / len(confidences)
+        if mean_conf > 0:
+            variance = sum((c - mean_conf) ** 2 for c in confidences) / len(confidences)
+            cv = math.sqrt(variance) / mean_conf
+            if cv < 0.1 and mean_conf >= 0.5:
+                convergence_signals.append(
+                    f"Tight confidence clustering: CV={cv:.3f}, mean={mean_conf:.2f}"
+                )
+
+        # 2. Directional agreement via sentiment keywords
+        bullish_words = {"increase", "rise", "grow", "bull", "up", "gain", "positive", "higher", "surge"}
+        bearish_words = {"decrease", "fall", "drop", "bear", "down", "loss", "negative", "lower", "decline"}
+
+        directions = {}
+        for name, pred in valid_preds.items():
+            text_lower = str(pred.get("prediction", "")).lower()
+            bull_count = sum(1 for w in bullish_words if w in text_lower)
+            bear_count = sum(1 for w in bearish_words if w in text_lower)
+            if bull_count > bear_count:
+                directions[name] = "bullish"
+            elif bear_count > bull_count:
+                directions[name] = "bearish"
+            else:
+                directions[name] = "neutral"
+
+        if directions:
+            direction_values = list(directions.values())
+            # Check if majority agree on direction
+            from collections import Counter
+            dir_counts = Counter(direction_values)
+            majority_dir, majority_count = dir_counts.most_common(1)[0]
+            if majority_count >= 2 and majority_dir != "neutral":
+                convergence_signals.append(
+                    f"Directional agreement: {majority_count}/{len(directions)} models say {majority_dir}"
+                )
+
+        # 3. Shared key terms (>4 chars, appearing in 2+ predictions)
+        word_counts: dict[str, int] = {}
+        for pred in valid_preds.values():
+            seen: set[str] = set()
+            for word in str(pred.get("prediction", "")).lower().split():
+                word = word.strip(".,;:!?()[]{}\"'")
+                if len(word) > 4 and word not in seen:
+                    word_counts[word] = word_counts.get(word, 0) + 1
+                    seen.add(word)
+        shared = [w for w, c in word_counts.items() if c >= 2]
+        if len(shared) >= 3:
             convergence_signals.append(
-                f"Strong convergence: {high_confidence_count} models have high confidence"
+                f"Thematic convergence: {len(shared)} shared terms"
             )
 
         return convergence_signals
@@ -426,11 +490,15 @@ What is the most likely outcome? Provide 1-2 sentences."""
         self, predictions: dict[str, dict[str, str | float]], convergence: list[str]
     ) -> float:
         """
-        Compute overall confidence in prediction.
+        Compute overall confidence using IARPA extremized aggregation.
 
-        Args:
-            predictions: Dict of model predictions
-            convergence: List of convergence signals
+        Instead of simple averaging, uses the IARPA Good Judgment Project
+        formula: p_ext = p^a / (p^a + (1-p)^a) where a=2.5 (extremization
+        exponent). This pushes confident predictions further toward 0 or 1,
+        rewarding strong agreement and penalizing wishy-washy predictions.
+
+        Convergence detection further boosts confidence when models agree
+        on direction and have tight CV.
 
         Returns:
             Confidence score 0-1
@@ -438,16 +506,30 @@ What is the most likely outcome? Provide 1-2 sentences."""
         confidences = [
             p.get("confidence", 0.0)
             for p in predictions.values()
-            if isinstance(p.get("confidence"), float)
+            if isinstance(p.get("confidence"), (int, float))
         ]
 
-        base_confidence = sum(confidences) / len(confidences) if confidences else 0.0
+        if not confidences:
+            return 0.0
 
-        # Boost if convergence detected
+        # Step 1: Simple weighted average as base
+        avg = sum(confidences) / len(confidences)
+
+        # Step 2: IARPA extremization — pushes toward 0 or 1
+        # p_ext = p^a / (p^a + (1-p)^a), a = 2.5
+        a = 2.5
+        p = max(0.01, min(0.99, avg))  # Avoid division by zero
+        p_a = p ** a
+        q_a = (1.0 - p) ** a
+        extremized = p_a / (p_a + q_a)
+
+        # Step 3: Convergence boost
         if convergence:
-            base_confidence = min(1.0, base_confidence * 1.1)
+            # Each convergence signal adds a small boost
+            boost = min(0.15, len(convergence) * 0.05)
+            extremized = min(0.95, extremized + boost)
 
-        return base_confidence
+        return round(extremized, 4)
 
     async def _query_war_room(
         self, signals: list[InsightSignal], topic: str

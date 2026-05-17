@@ -19,9 +19,10 @@ import asyncio
 import fcntl
 import json
 import logging
+import os
 import urllib.request
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -29,6 +30,10 @@ import aiofiles
 
 from ..ncl_brain.models import InsightSignal
 from ..governance.emergency_stop import EMERGENCY_STOP_EVENT
+from .signal_processor import SignalProcessor
+from ..journal.store import JournalStore
+from ..journal.reflection_engine import ReflectionEngine, ContextAwareTips
+from ..awarebot.agent import Awarebot
 
 log = logging.getLogger("ncl.autonomous")
 
@@ -111,11 +116,29 @@ class AutonomousScheduler:
         # Capped at 1000 entries; oldest signals are dropped automatically
         self._signal_buffer: deque[dict] = deque(maxlen=1000)
         self._signal_lock = asyncio.Lock()
+        self._last_collected_signals: list | None = None  # Cached for brief loop (C3 fix)
+        self._working_context = None  # Initialized by _working_context_loop (W6 fix)
+        self._journal_store: Optional[JournalStore] = None  # Initialized in start()
+        self._reflection_engine = None
 
         # Council trigger threshold (importance score 0-100)
         self.council_trigger_threshold = 75.0
         # Minimum signals needed before auto-spawning a council
         self.council_min_signals = 3
+
+        # Unified Signal Processor — central routing hub for all loops
+        self.signal_processor = SignalProcessor(
+            memory_store=brain.memory_store,
+            working_context=None,  # Set later when WC loop initializes
+            signal_buffer=self._signal_buffer,
+            signal_lock=self._signal_lock,
+            data_dir=self.data_dir,
+        )
+
+        # ── Unified Awarebot Agent ─────────────────────────────────────
+        # Replaces: scanner_loop, intel_collection_loop, intel_brief_loop,
+        # prediction_loop, morning_brief_loop, weekly_strategy_loop
+        self.awarebot: Optional[Awarebot] = None
 
     @property
     def _running(self) -> bool:
@@ -135,20 +158,37 @@ class AutonomousScheduler:
         log.info("NCL AUTONOMOUS SCHEDULER — STARTING")
         log.info("=" * 60)
         log.info(f"  Scanner intervals: X={self.config.x_scan_interval}s, "
-                 f"YT={self.config.youtube_scan_interval}s, "
-                 f"Reddit={self.config.reddit_scan_interval}s")
+                 f"YT={self.config.youtube_scan_interval}s")
         log.info(f"  Prediction interval: {self.config.prediction_interval}s")
         log.info(f"  Memory consolidation: {self.config.memory_consolidation_interval}s")
         log.info(f"  Council trigger threshold: {self.council_trigger_threshold}")
         if self.intelligence_engine:
             log.info(f"  Intel brief interval: {self.config.intelligence_brief_interval}s")
             log.info(f"  Intel collection interval: {self.config.intelligence_collection_interval}s")
+        log.info(f"  Working context: 6am assembly, noon refresh, 11pm EOD")
+        log.info(f"  Journal reflection: 10pm ET daily")
         log.info("=" * 60)
+
+        # ── Initialize Awarebot Agent ─────────────────────────────────
+        # Awarebot unifies: scanner, collectors, signal processor,
+        # predictions, briefs, context management, journal processing.
+        try:
+            self.awarebot = Awarebot(
+                config=self.config,
+                scanner=getattr(self.brain, "scanner", None),
+                predictor=getattr(self.brain, "predictor", None),
+                intelligence_engine=self.intelligence_engine,
+                memory_store=self.brain.memory_store if self.brain else None,
+                working_context=None,  # Set later by _working_context_loop
+                journal_store=None,  # Set below after JournalStore init
+            )
+            log.info("  Awarebot agent: ACTIVE (unified intelligence pipeline)")
+        except Exception as e:
+            log.error(f"  Awarebot agent: FAILED to initialize: {e}")
+            self.awarebot = None
 
         # Spawn background tasks
         self._tasks = [
-            asyncio.create_task(self._scanner_loop(), name="ncl-scanner"),
-            asyncio.create_task(self._prediction_loop(), name="ncl-predictor"),
             asyncio.create_task(self._council_auto_loop(), name="ncl-council-auto"),
             asyncio.create_task(self._memory_consolidation_loop(), name="ncl-memory"),
             asyncio.create_task(self._aac_sync_loop(), name="ncl-aac-sync"),
@@ -156,16 +196,32 @@ class AutonomousScheduler:
             asyncio.create_task(self._mandate_purge_loop(), name="ncl-mandate-purge"),
             asyncio.create_task(self._feedback_synthesis_loop(), name="ncl-feedback-synth"),
             asyncio.create_task(self._heartbeat_loop(), name="ncl-heartbeat"),
+            asyncio.create_task(self._working_context_loop(), name="ncl-working-ctx"),
         ]
 
-        # Intelligence Engine loops (only if engine is provided)
-        if self.intelligence_engine:
+        # Awarebot runs its own event loop (replaces scanner, intel, brief, prediction loops)
+        if self.awarebot:
             self._tasks.append(
-                asyncio.create_task(self._intel_collection_loop(), name="ncl-intel-collect")
+                asyncio.create_task(self.awarebot.run(), name="ncl-awarebot-agent")
             )
+
+        # Journal system
+        try:
+            self._journal_store = JournalStore(
+                data_dir=str(self.data_dir),
+                memory_store=self.brain.memory_store if self.brain else None,
+                working_context=None,  # Set when WC loop initializes
+            )
+            self._reflection_engine = ReflectionEngine(self._journal_store)
+            # Wire journal store into Awarebot for cross-referencing
+            if self.awarebot:
+                self.awarebot.journal_store = self._journal_store
             self._tasks.append(
-                asyncio.create_task(self._intel_brief_loop(), name="ncl-intel-brief")
+                asyncio.create_task(self._journal_reflection_loop(), name="ncl-journal-reflection")
             )
+            log.info("  Journal reflection loop: 10pm ET daily")
+        except ImportError:
+            log.warning("Journal module not available — reflection loop disabled")
 
         # Attach a done-callback to every task so a silent crash (unobserved
         # task exception) gets logged instead of disappearing.
@@ -226,140 +282,118 @@ class AutonomousScheduler:
             "running": self._running,
             "active_tasks": [t.get_name() for t in self._tasks if not t.done()],
             "signal_buffer_size": len(self._signal_buffer),
+            "signal_processor": self.signal_processor.get_stats(),
         }
+        if self.awarebot:
+            stats["awarebot"] = self.awarebot.get_stats()
+        if self._journal_store:
+            stats["journal"] = self._journal_store.get_stats()
         return stats
 
-    # ─── LOOP 1: Intelligence Scanner ──────────────────────────
+    # ─── LOOP 1: Social Intelligence Scanner (X + YouTube) ─────
 
     async def _scanner_loop(self) -> None:
         """
-        Continuously scan X, YouTube, and Reddit for intelligence signals.
+        Scan X and YouTube for intelligence signals via Awarebot.
 
-        Runs Awarebot scanner at configured intervals, scores signals by
-        importance, and feeds high-value signals into the prediction buffer
-        and memory store.
+        UNIFIED PIPELINE: All signals flow through the same path as
+        Loop 8 (Intel Collection) — memory store, signals JSONL,
+        working context, and prediction buffer. No separate storage.
+
+        Reddit is handled exclusively by Loop 8's RedditCollector
+        to avoid duplicate scanning.
+
+        Per-platform intervals: X scans at x_scan_interval (5 min),
+        YouTube at youtube_scan_interval (10 min). Each platform
+        tracks its own last-run time independently.
         """
-        # Stagger startup so all loops don't fire simultaneously
         await asyncio.sleep(5)
 
+        last_x_scan = datetime.min.replace(tzinfo=timezone.utc)
+        last_yt_scan = datetime.min.replace(tzinfo=timezone.utc)
+        # Tick every 60s and check if each platform is due
+        tick_interval = 60
+
         while not self._stop_event.is_set():
-            # Break immediately on stop signal
-            if self._stop_event.is_set():
-                break
-            # Respect emergency stop — suspend action-taking loops
             if EMERGENCY_STOP_EVENT.is_set():
-                log.warning("[SCANNER] Emergency stop active — scanner suspended")
-                await asyncio.sleep(30)
-                continue
+                log.critical("[SCANNER] Emergency stop active — halting loop")
+                break
 
             try:
-                log.info("[SCANNER] Starting intelligence sweep...")
-
-                # Run scans for each platform
+                now = datetime.now(timezone.utc)
                 all_signals = []
+                platforms_scanned = []
 
-                # X (Twitter) scan — scanner.scan_x takes a single query, fan out
-                try:
-                    x_signals: list = []
-                    for q in self._get_watch_queries("x"):
-                        try:
-                            x_signals.extend(await self.brain.scanner.scan_x(q, max_results=25))
-                        except Exception as ie:
-                            log.warning(f"[SCANNER] X query '{q}' failed: {ie}")
-                    all_signals.extend(x_signals)
-                    log.info(f"[SCANNER] X: {len(x_signals)} signals")
-                except Exception as e:
-                    log.warning(f"[SCANNER] X scan failed: {e}")
+                # ── X (Twitter) ──────────────────────────────────
+                x_due = (now - last_x_scan).total_seconds() >= self.config.x_scan_interval
+                if x_due:
+                    try:
+                        x_signals: list = []
+                        for q in self._get_watch_queries("x"):
+                            try:
+                                x_signals.extend(await self.brain.scanner.scan_x(q, max_results=25))
+                            except Exception as ie:
+                                log.warning(f"[SCANNER] X query '{q}' failed: {ie}")
+                        all_signals.extend(x_signals)
+                        last_x_scan = now
+                        platforms_scanned.append(f"X:{len(x_signals)}")
+                    except Exception as e:
+                        log.warning(f"[SCANNER] X scan failed: {e}")
 
-                # YouTube scan
-                try:
-                    yt_signals: list = []
-                    for q in self._get_watch_queries("youtube"):
-                        try:
-                            yt_signals.extend(await self.brain.scanner.scan_youtube(q, max_results=10))
-                        except Exception as ie:
-                            log.warning(f"[SCANNER] YouTube query '{q}' failed: {ie}")
-                    all_signals.extend(yt_signals)
-                    log.info(f"[SCANNER] YouTube: {len(yt_signals)} signals")
-                except Exception as e:
-                    log.warning(f"[SCANNER] YouTube scan failed: {e}")
+                # ── YouTube ──────────────────────────────────────
+                yt_due = (now - last_yt_scan).total_seconds() >= self.config.youtube_scan_interval
+                if yt_due:
+                    try:
+                        yt_signals: list = []
+                        for q in self._get_watch_queries("youtube"):
+                            try:
+                                yt_signals.extend(await self.brain.scanner.scan_youtube(q, max_results=10))
+                            except Exception as ie:
+                                log.warning(f"[SCANNER] YouTube query '{q}' failed: {ie}")
+                        all_signals.extend(yt_signals)
+                        last_yt_scan = now
+                        platforms_scanned.append(f"YT:{len(yt_signals)}")
+                    except Exception as e:
+                        log.warning(f"[SCANNER] YouTube scan failed: {e}")
 
-                # Reddit scan — scanner.scan_reddit takes a subreddit name
-                try:
-                    reddit_signals: list = []
-                    for sub in self._get_watch_queries("reddit"):
-                        try:
-                            reddit_signals.extend(await self.brain.scanner.scan_reddit(sub, max_results=15))
-                        except Exception as ie:
-                            log.warning(f"[SCANNER] Reddit r/{sub} failed: {ie}")
-                    all_signals.extend(reddit_signals)
-                    log.info(f"[SCANNER] Reddit: {len(reddit_signals)} signals")
-                except Exception as e:
-                    log.warning(f"[SCANNER] Reddit scan failed: {e}")
-
-                # Process signals
+                # ── UNIFIED SIGNAL PROCESSING (via SignalProcessor) ─
                 if all_signals:
-                    high_signals = [s for s in all_signals if s.importance_score >= 50.0]
-                    critical_signals = [s for s in all_signals if s.importance_score >= self.council_trigger_threshold]
+                    result = await self.signal_processor.process_signals(
+                        signals=all_signals,
+                        source_label="scanner",
+                        push_alerts=True,
+                    )
 
-                    # Add to signal buffer for prediction (bounded to prevent leaks)
-                    async with self._signal_lock:
-                        for sig in all_signals:
-                            self._signal_buffer.append({
-                                "source": sig.source_platform,
-                                "content": sig.content[:500],
-                                "importance": sig.importance_score,
-                                "tags": sig.tags,
-                                "timestamp": datetime.now(timezone.utc).isoformat(),
-                            })
-                        # Deque is bounded by maxlen=5000 — oldest entries are
-                        # dropped automatically on append; no manual trim needed.
+                    self._stats["high_signals_detected"] += result.get("stored_memory", 0)
 
-                    # Store high-importance signals in memory
-                    for sig in high_signals:
-                        try:
-                            await self.brain.memory_store.create_unit(
-                                content=sig.content[:1000],
-                                source=f"awarebot:{sig.source_platform}",
-                                importance=sig.importance_score,
-                                tags=list(sig.tags) + ["intelligence_signal", "autonomous"],
-                            )
-                        except Exception:
-                            pass
-
-                    self._stats["high_signals_detected"] += len(high_signals)
-
-                    # Log signal summary
                     await self._log_autonomous_event("scan_complete", {
                         "total_signals": len(all_signals),
-                        "high_signals": len(high_signals),
-                        "critical_signals": len(critical_signals),
-                        "platforms": {
-                            "x": len([s for s in all_signals if s.source_platform == "x"]),
-                            "youtube": len([s for s in all_signals if s.source_platform == "youtube"]),
-                            "reddit": len([s for s in all_signals if s.source_platform == "reddit"]),
-                        },
+                        "stored_memory": result.get("stored_memory", 0),
+                        "injected_wc": result.get("injected_wc", 0),
+                        "fed_predictor": result.get("fed_predictor", 0),
+                        "platforms": ", ".join(platforms_scanned),
                     })
 
-                    log.info(f"[SCANNER] Complete: {len(all_signals)} total, "
-                             f"{len(high_signals)} high, {len(critical_signals)} critical")
+                    log.info(f"[SCANNER] {', '.join(platforms_scanned)} — "
+                             f"processed {result.get('processed', 0)} via SignalProcessor")
 
-                self._stats["scans_completed"] += 1
-                self._stats["last_scan"] = datetime.now(timezone.utc).isoformat()
+                if platforms_scanned:
+                    self._stats["scans_completed"] += 1
+                    self._stats["last_scan"] = now.isoformat()
 
             except asyncio.CancelledError:
                 raise
             except Exception as e:
                 log.error(f"[SCANNER] Loop error: {e}", exc_info=True)
 
-            # Sleep for shortest scan interval; break immediately if stop is signaled
+            # Tick every 60s; break immediately if stop is signaled
             try:
                 await asyncio.wait_for(
-                    self._stop_event.wait(), timeout=self.config.x_scan_interval
+                    self._stop_event.wait(), timeout=tick_interval
                 )
-                break  # stop_event was set
+                break
             except asyncio.TimeoutError:
-                pass  # normal wakeup — continue loop
+                pass
 
     # ─── LOOP 2: Future Prediction ─────────────────────────────
 
@@ -379,10 +413,10 @@ class AutonomousScheduler:
                 log.critical("[PREDICTOR] Emergency stop active — halting loop")
                 break
             try:
-                # Drain signal buffer
+                # Snapshot signal buffer WITHOUT clearing — only clear after success (#38)
                 async with self._signal_lock:
                     signals = list(self._signal_buffer)
-                    self._signal_buffer.clear()
+                    # DON'T clear yet — cleared below only on successful prediction
 
                 if not signals:
                     log.debug("[PREDICTOR] No signals to process, sleeping...")
@@ -443,6 +477,37 @@ class AutonomousScheduler:
                                  f"confidence={prediction.confidence:.2f}, "
                                  f"convergence={len(prediction.convergence_signals) > 0}")
 
+                        # Persist prediction to disk for FirstStrike access
+                        try:
+                            pred_dir = Path(os.getenv("NCL_DATA", str(Path.home() / "NCL" / "data"))) / "predictions"
+                            pred_dir.mkdir(parents=True, exist_ok=True)
+                            pred_file = pred_dir / f"pred-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.json"
+                            pred_data = {
+                                "topic": topic,
+                                "consensus": prediction.consensus_prediction,
+                                "confidence": prediction.confidence,
+                                "convergence": prediction.convergence_signals if prediction.convergence_signals else [],
+                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                                "signal_count": len(insight_signals),
+                            }
+                            pred_file.write_text(json.dumps(pred_data, indent=2, default=_json_safe))
+                        except Exception as disk_err:
+                            log.warning(f"[PREDICTOR] Disk persistence failed: {disk_err}")
+
+                        # Push high-confidence predictions to FirstStrike
+                        if prediction.confidence >= 0.6:
+                            try:
+                                from ..strike_point_orchestrator import notify_natrix
+                                await notify_natrix(
+                                    f"Prediction [{topic}]: {prediction.consensus_prediction or 'inconclusive'}\n"
+                                    f"Confidence: {prediction.confidence:.0%}\n"
+                                    f"Signals analyzed: {len(insight_signals)}",
+                                    title="NCL Prediction Alert",
+                                    priority=-1,
+                                )
+                            except Exception:
+                                pass
+
                         # If high-confidence convergence, flag for council consideration
                         if prediction.convergence_signals and prediction.confidence >= 0.8:
                             await self._flag_for_council(
@@ -456,8 +521,19 @@ class AutonomousScheduler:
                                 importance=prediction.confidence * 100,
                             )
 
+                    # Prediction succeeded — now safe to drain the signals we processed.
+                    # Use popleft() instead of clear() so any signals that arrived
+                    # during the prediction run (appended to the right of the deque)
+                    # are preserved for the next cycle. (#38)
+                    async with self._signal_lock:
+                        for _ in range(min(len(signals), len(self._signal_buffer))):
+                            self._signal_buffer.popleft()
+
                 except Exception as e:
-                    log.error(f"[PREDICTOR] Prediction failed: {e}", exc_info=True)
+                    log.error(
+                        f"[PREDICTOR] Prediction failed, signals preserved for retry: {e}",
+                        exc_info=True,
+                    )
 
                 self._stats["predictions_run"] += 1
                 self._stats["last_prediction"] = datetime.now(timezone.utc).isoformat()
@@ -491,11 +567,10 @@ class AutonomousScheduler:
         await asyncio.sleep(self.config.prediction_interval + 60)
 
         while self._running:
-            # Suspend council spawning while emergency stop is active
+            # Halt council spawning on emergency stop
             if EMERGENCY_STOP_EVENT.is_set():
-                log.warning("[COUNCIL-AUTO] Emergency stop active — council spawning suspended")
-                await asyncio.sleep(30)
-                continue
+                log.critical("[COUNCIL-AUTO] Emergency stop active — halting loop")
+                break
 
             try:
                 now = datetime.now(timezone.utc)
@@ -607,35 +682,25 @@ class AutonomousScheduler:
                 store = self.brain.memory_store
                 stats_before = await store.stats()
 
-                # Apply decay to all units
-                decayed = 0
-                pruned = 0
-                if hasattr(store, 'units'):
-                    for unit_id, unit in list(store.units.items()):
-                        # Decay is computed dynamically in store.py on access,
-                        # but we force a pass here to identify prunable units
-                        if hasattr(unit, 'importance') and unit.get('importance', 100) < self.config.memory_importance_threshold:
-                            pruned += 1
-
-                # Run consolidation (merging related units)
-                try:
-                    await store.consolidate()
-                except Exception as e:
-                    log.debug(f"[MEMORY] Consolidation not yet implemented: {e}")
+                # Run full consolidation: decay + prune + cluster + merge
+                consolidation_result = await store.consolidate()
 
                 stats_after = await store.stats()
 
                 self._stats["memory_consolidations"] += 1
                 self._stats["last_consolidation"] = datetime.now(timezone.utc).isoformat()
 
+                pruned = consolidation_result.get("pruned", 0)
+                merged = consolidation_result.get("merged", 0)
                 log.info(f"[MEMORY] Consolidation complete — "
-                         f"units: {stats_after.get('total', 0)}, "
-                         f"prunable: {pruned}")
+                         f"before: {consolidation_result.get('total_before', 0)}, "
+                         f"after: {consolidation_result.get('total_after', 0)}, "
+                         f"pruned: {pruned}, merged: {merged}")
 
                 await self._log_autonomous_event("memory_consolidation", {
                     "stats_before": stats_before,
                     "stats_after": stats_after,
-                    "pruned": pruned,
+                    "consolidation": consolidation_result,
                 })
 
             except asyncio.CancelledError:
@@ -1060,31 +1125,34 @@ class AutonomousScheduler:
                 log.info("[INTEL-COLLECT] Starting signal collection sweep...")
                 signals = await self.intelligence_engine.collect_all_signals()
 
+                # Cache for brief loop — avoids re-collecting from APIs (C3 fix)
+                self._last_collected_signals = signals
+
                 self._stats["intel_collections_run"] += 1
                 self._stats["last_intel_collection"] = datetime.now(timezone.utc).isoformat()
 
-                # Check for high-importance signals that need immediate alerts
-                alert_threshold = 80.0
-                hot_signals = [s for s in signals if s.importance_score() > alert_threshold]
+                # Route ALL signals through the unified SignalProcessor
+                # This handles: prediction buffer, memory, JSONL, WC, push alerts
+                result = await self.signal_processor.process_signals(
+                    signals=signals,
+                    source_label="intel",
+                    push_alerts=True,
+                )
 
-                if hot_signals:
-                    log.info(f"[INTEL-COLLECT] {len(hot_signals)} high-importance signals detected!")
-                    try:
-                        from ..strike_point_orchestrator import notify_intel_signal_alert
-                        for sig in hot_signals[:3]:  # Max 3 immediate alerts per sweep
-                            await notify_intel_signal_alert(sig.model_dump())
-                            self._stats["intel_alerts_pushed"] += 1
-                    except ImportError:
-                        log.warning("[INTEL-COLLECT] Could not import notification functions")
+                self._stats["intel_alerts_pushed"] += result.get("pushed_alerts", 0)
 
                 await self._log_autonomous_event("intel_collection", {
                     "total_signals": len(signals),
-                    "hot_signals": len(hot_signals),
+                    "processed": result.get("processed", 0),
+                    "fed_predictor": result.get("fed_predictor", 0),
+                    "stored_memory": result.get("stored_memory", 0),
+                    "injected_wc": result.get("injected_wc", 0),
+                    "pushed_alerts": result.get("pushed_alerts", 0),
                     "sources": {s.source.value for s in signals} if signals else set(),
                 })
 
-                log.info(f"[INTEL-COLLECT] Collected {len(signals)} signals "
-                         f"({len(hot_signals)} hot)")
+                log.info(f"[INTEL-COLLECT] {len(signals)} signals → "
+                         f"SignalProcessor routed {result.get('processed', 0)}")
 
             except asyncio.CancelledError:
                 raise
@@ -1111,7 +1179,12 @@ class AutonomousScheduler:
             try:
                 log.info("[INTEL-BRIEF] Generating scheduled intelligence brief...")
 
-                brief = await self.intelligence_engine.generate_brief(brief_type="daily")
+                # Pass cached signals from last collection (C3 fix: avoids
+                # redundant API calls — collection loop already gathered them)
+                cached_signals = getattr(self, "_last_collected_signals", None)
+                brief = await self.intelligence_engine.generate_brief(
+                    brief_type="daily", signals=cached_signals
+                )
 
                 self._stats["intel_briefs_generated"] += 1
                 self._stats["last_intel_brief"] = datetime.now(timezone.utc).isoformat()
@@ -1150,12 +1223,421 @@ class AutonomousScheduler:
                          f"{len(brief.sectors)} sectors, "
                          f"{len(brief.risk_alerts)} risk alerts")
 
+                # Trigger working context refresh so new signals surface immediately
+                if hasattr(self, "_working_context") and self._working_context:
+                    try:
+                        ctx = await self._working_context.refresh()
+                        log.info(f"[INTEL-BRIEF] Working context refreshed after brief: "
+                                 f"{len(ctx.items)} items")
+                    except Exception as wc_err:
+                        log.debug(f"[INTEL-BRIEF] Working context refresh skipped: {wc_err}")
+
             except asyncio.CancelledError:
                 raise
             except Exception as e:
                 log.error(f"[INTEL-BRIEF] Brief generation error: {e}", exc_info=True)
 
             await asyncio.sleep(self.config.intelligence_brief_interval)
+
+    # ─── LOOP 10: Morning Brief (6am daily) ─────────────────────────
+
+    async def _morning_brief_loop(self) -> None:
+        """
+        Daily morning brief at 6am ET.
+
+        Generates 3 research topics from current intelligence,
+        pushes to NATRIX's iPhone, and tracks research progress.
+        Runs once per day at the configured morning hour.
+        """
+        import pytz
+        from datetime import time as dt_time
+
+        morning_hour = int(os.environ.get("NCL_MORNING_BRIEF_HOUR", "6"))
+        tz = pytz.timezone(os.environ.get("NCL_TIMEZONE", "America/New_York"))
+        last_run_date = None
+
+        log.info(f"[MORNING-BRIEF] Loop started — will fire at {morning_hour}:00 {tz}")
+
+        while self._running:
+            if EMERGENCY_STOP_EVENT.is_set():
+                log.critical("[MORNING-BRIEF] Emergency stop active — halting loop")
+                break
+            try:
+                now = datetime.now(tz)
+                today = now.date()
+
+                # Only run once per day, at the morning hour
+                if now.hour >= morning_hour and last_run_date != today:
+                    last_run_date = today
+                    log.info(f"[MORNING-BRIEF] Generating morning brief for {today}")
+
+                    try:
+                        # Call the morning brief endpoint logic directly
+                        # Pass cached signals if available (C3 fix)
+                        cached_signals = getattr(self, "_last_collected_signals", None)
+                        brief = await self.intelligence_engine.generate_brief(
+                            brief_type="daily", signals=cached_signals
+                        )
+
+                        # Build topic context
+                        top_signals_ctx = "\n".join(
+                            f"- [{s.source.value}] {s.title}: {s.content[:150]}"
+                            for s in brief.top_signals[:15]
+                        )
+                        sectors_ctx = "\n".join(
+                            f"- {s.sector}: {s.direction.value}, {s.signal_count} signals"
+                            for s in brief.sectors[:8]
+                        )
+
+                        topics_text = (
+                            f"Morning Intelligence — {today}\n\n"
+                            f"EXECUTIVE SUMMARY:\n{brief.executive_summary or 'No summary available'}\n\n"
+                            f"TOP SIGNALS:\n{top_signals_ctx}\n\n"
+                            f"Sectors: {sectors_ctx}"
+                        )
+
+                        # Save morning brief file
+                        morning_dir = Path(os.getenv("NCL_DATA", str(Path.home() / "NCL" / "data"))) / "morning_briefs"
+                        morning_dir.mkdir(parents=True, exist_ok=True)
+                        date_str = today.isoformat()
+                        brief_data = {
+                            "date": date_str,
+                            "generated_at": datetime.now(timezone.utc).isoformat(),
+                            "brief_id": brief.brief_id,
+                            "total_signals": brief.total_signals_processed,
+                            "topics": topics_text,
+                            "executive_summary": brief.executive_summary,
+                            "risk_alerts": brief.risk_alerts,
+                            "status": "pending",
+                            "progress": [],
+                        }
+                        # Inject working context summary into morning brief
+                        working_ctx_summary = ""
+                        if hasattr(self, "_working_context") and self._working_context:
+                            try:
+                                wc = self._working_context.get_current()
+                                if wc and wc.items:
+                                    top_items = wc.items[:5]
+                                    working_ctx_summary = "\n\nWORKING CONTEXT (top items):\n" + "\n".join(
+                                        f"- [{i.category}] {i.content[:120]}" for i in top_items
+                                    )
+                                    brief_data["working_context"] = {
+                                        "items": len(wc.items),
+                                        "themes": wc.themes[:10],
+                                        "pinned": len(wc.pinned_ids),
+                                    }
+                            except Exception as wc_err:
+                                log.debug(f"[MORNING-BRIEF] Working context injection skipped: {wc_err}")
+
+                        brief_path = morning_dir / f"morning-{date_str}.json"
+                        brief_path.write_text(json.dumps(brief_data, indent=2, default=str))
+
+                        # Push notification (with working context if available)
+                        try:
+                            from ..strike_point_orchestrator import notify_natrix
+                            push_msg = (
+                                f"Good morning NATRIX.\n\n{brief.executive_summary or ''}\n\n"
+                                f"Signals processed: {brief.total_signals_processed}\n"
+                                f"Risk alerts: {len(brief.risk_alerts)}"
+                                f"{working_ctx_summary}"
+                            )
+                            await notify_natrix(
+                                push_msg,
+                                title="NCL Morning Brief",
+                                priority=0,
+                            )
+                            log.info(f"[MORNING-BRIEF] Pushed to iPhone")
+                        except Exception as push_err:
+                            log.warning(f"[MORNING-BRIEF] Push notification failed: {push_err}")
+
+                        self._stats["morning_briefs_generated"] = self._stats.get("morning_briefs_generated", 0) + 1
+                        self._stats["last_morning_brief"] = datetime.now(timezone.utc).isoformat()
+
+                        await self._log_autonomous_event("morning_brief_generated", {
+                            "date": date_str,
+                            "brief_id": brief.brief_id,
+                            "total_signals": brief.total_signals_processed,
+                        })
+
+                    except Exception as gen_err:
+                        log.error(f"[MORNING-BRIEF] Generation failed: {gen_err}", exc_info=True)
+
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.error(f"[MORNING-BRIEF] Loop error: {e}", exc_info=True)
+
+            # Check every 5 minutes
+            await asyncio.sleep(300)
+
+    # ─── LOOP: Journal Reflection (10pm ET daily) ────────────────────
+
+    async def _journal_reflection_loop(self) -> None:
+        """
+        Daily journal reflection — synthesizes the day's entries with intel
+        and working context into actionable patterns and research queues.
+
+        Runs at 10pm ET (22:00). Generates reflection, extracts tips,
+        detects cross-entry patterns, and pushes summary to iPhone.
+        """
+        try:
+            import pytz
+            tz = pytz.timezone("US/Eastern")
+        except ImportError:
+            from datetime import timezone as tz_mod
+            tz = tz_mod(timedelta(hours=-5))
+
+        reflection_hour = 22  # 10pm ET
+        last_run_date = None
+
+        # Initial delay — let other loops warm up
+        await asyncio.sleep(120)
+
+        log.info(f"[JOURNAL] Reflection loop started — will fire at {reflection_hour}:00 ET")
+
+        while self._running:
+            if EMERGENCY_STOP_EVENT.is_set():
+                log.critical("[JOURNAL] Emergency stop active — halting loop")
+                break
+            try:
+                now = datetime.now(tz)
+                today = now.date()
+
+                if now.hour >= reflection_hour and last_run_date != today:
+                    last_run_date = today
+                    log.info(f"[JOURNAL] Generating daily reflection for {today}")
+
+                    try:
+                        # Gather intel context
+                        intel_brief_data = None
+                        if self.intelligence_engine:
+                            try:
+                                latest = await self.intelligence_engine.get_latest_brief()
+                                if latest:
+                                    intel_brief_data = latest.model_dump()
+                            except Exception:
+                                pass
+
+                        # Gather working context
+                        wc_data = None
+                        if self._working_context:
+                            try:
+                                wc_data = self._working_context.get_current()
+                            except Exception:
+                                pass
+
+                        # Generate reflection
+                        reflection = await self._reflection_engine.generate_daily_reflection(
+                            intel_brief=intel_brief_data,
+                            working_context=wc_data,
+                        )
+
+                        self._stats["journal_reflections_generated"] = self._stats.get("journal_reflections_generated", 0) + 1
+                        self._stats["last_journal_reflection"] = datetime.now(timezone.utc).isoformat()
+
+                        # Push summary to iPhone
+                        try:
+                            from ..strike_point_orchestrator import notify_intelligence_brief
+                            summary_text = (
+                                f"Daily Reflection — {today}\n\n"
+                                f"{reflection.summary}\n\n"
+                            )
+                            if reflection.patterns_noticed:
+                                summary_text += "Patterns: " + ", ".join(reflection.patterns_noticed[:3]) + "\n"
+                            if reflection.tomorrow_focus:
+                                summary_text += "Tomorrow: " + ", ".join(reflection.tomorrow_focus[:3]) + "\n"
+
+                            await notify_intelligence_brief({
+                                "brief_type": "journal_reflection",
+                                "executive_summary": summary_text,
+                                "brief_id": reflection.reflection_id,
+                            })
+                            log.info(f"[JOURNAL] Reflection pushed to iPhone: {reflection.reflection_id}")
+                        except ImportError:
+                            log.debug("[JOURNAL] Push notification not available")
+                        except Exception as e:
+                            log.warning(f"[JOURNAL] Push failed: {e}")
+
+                        await self._log_autonomous_event("journal_reflection", {
+                            "entries_count": reflection.entries_count,
+                            "patterns": len(reflection.patterns_noticed),
+                            "research_topics": len(reflection.research_queue),
+                            "date": str(today),
+                        })
+
+                        log.info(f"[JOURNAL] Reflection complete: {reflection.entries_count} entries → "
+                                 f"{len(reflection.patterns_noticed)} patterns, "
+                                 f"{len(reflection.research_queue)} research topics")
+
+                    except Exception as e:
+                        log.error(f"[JOURNAL] Reflection generation failed: {e}", exc_info=True)
+
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.error(f"[JOURNAL] Loop error: {e}", exc_info=True)
+
+            await asyncio.sleep(300)  # Check every 5 minutes
+
+    # ─── LOOP 10: Working Context Window ─────────────────────────────
+
+    async def _working_context_loop(self) -> None:
+        """
+        Daily Working Context Window — assembles a curated high-salience
+        memory context each morning, refreshes mid-day, and runs EOD
+        promote/demote at midnight.
+
+        Schedule:
+          6am ET  → Full assembly (pull memory, councils, signals, mandates)
+          noon ET → Mid-day refresh (re-score, pull new high-priority items)
+          11pm ET → End-of-day promote/demote cycle
+        """
+        import pytz
+        from ..memory.working_context import DailyContextWindow
+
+        tz = pytz.timezone(os.environ.get("NCL_TIMEZONE", "America/New_York"))
+        morning_hour = int(os.environ.get("NCL_WORKING_CTX_HOUR", "6"))
+        midday_hour = 12
+        eod_hour = 23
+
+        # Initialize the working context window
+        self._working_context = DailyContextWindow(
+            data_dir=self.data_dir,
+            memory_store=self.brain.memory_store,
+        )
+        # Wire into the unified signal processor so all loops can inject
+        self.signal_processor.working_context = self._working_context
+        if self._journal_store:
+            self._journal_store.working_context = self._working_context
+
+        last_assembly_date = None
+        last_midday_date = None
+        last_eod_date = None
+
+        # Initial assembly on startup
+        await asyncio.sleep(30)
+        try:
+            ctx = await self._working_context.assemble()
+            last_assembly_date = datetime.now(tz).date()
+            log.info(f"[WORKING-CTX] Initial assembly: {len(ctx.items)} items")
+        except Exception as e:
+            log.error(f"[WORKING-CTX] Initial assembly failed: {e}", exc_info=True)
+
+        while self._running:
+            if EMERGENCY_STOP_EVENT.is_set():
+                log.critical("[WORKING-CTX] Emergency stop active — halting loop")
+                break
+
+            try:
+                now = datetime.now(tz)
+                today = now.date()
+
+                # Morning assembly (6am)
+                if now.hour >= morning_hour and last_assembly_date != today:
+                    last_assembly_date = today
+                    log.info(f"[WORKING-CTX] Morning assembly for {today}")
+                    try:
+                        ctx = await self._working_context.assemble()
+                        self._stats["working_ctx_assemblies"] = self._stats.get("working_ctx_assemblies", 0) + 1
+                        self._stats["last_working_ctx"] = datetime.now(timezone.utc).isoformat()
+
+                        await self._log_autonomous_event("working_context_assembled", {
+                            "date": str(today),
+                            "items": len(ctx.items),
+                            "themes": ctx.themes[:10],
+                            "stats": ctx.stats,
+                        })
+                    except Exception as e:
+                        log.error(f"[WORKING-CTX] Morning assembly failed: {e}", exc_info=True)
+
+                # Mid-day refresh (noon)
+                elif now.hour >= midday_hour and last_midday_date != today:
+                    last_midday_date = today
+                    log.info("[WORKING-CTX] Mid-day refresh")
+                    try:
+                        ctx = await self._working_context.refresh()
+                        log.info(f"[WORKING-CTX] Refreshed: {len(ctx.items)} items")
+                    except Exception as e:
+                        log.error(f"[WORKING-CTX] Mid-day refresh failed: {e}", exc_info=True)
+
+                # End-of-day promote/demote (11pm)
+                elif now.hour >= eod_hour and last_eod_date != today:
+                    last_eod_date = today
+                    log.info("[WORKING-CTX] End-of-day cycle")
+                    try:
+                        eod_stats = await self._working_context.end_of_day()
+                        log.info(f"[WORKING-CTX] EOD: {eod_stats}")
+                        await self._log_autonomous_event("working_context_eod", eod_stats)
+                    except Exception as e:
+                        log.error(f"[WORKING-CTX] EOD cycle failed: {e}", exc_info=True)
+
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.error(f"[WORKING-CTX] Loop error: {e}", exc_info=True)
+
+            # Check every 5 minutes
+            await asyncio.sleep(300)
+
+    # ─── LOOP 11: Weekly Strategy Review ────────────────────────────
+
+    async def _weekly_strategy_loop(self) -> None:
+        """
+        Weekly strategy review brief (#37).
+
+        Generates a weekly intelligence brief via the intelligence engine
+        and pushes it to iPhone via the same notify_intelligence_brief
+        path used by _intel_brief_loop.
+
+        Schedule: first run after a 24h warm-up delay (lets other loops
+        stabilise), then repeats every 7 days (604 800 s).
+        """
+        # 24-hour initial delay so other loops can warm up first
+        await asyncio.sleep(24 * 3600)
+
+        while self._running:
+            if EMERGENCY_STOP_EVENT.is_set():
+                log.critical("[WEEKLY-STRATEGY] Emergency stop active — halting loop")
+                break
+            try:
+                log.info("[WEEKLY-STRATEGY] Generating weekly strategy review brief...")
+
+                brief = await self.intelligence_engine.generate_brief(brief_type="weekly")
+
+                log.info(
+                    f"[WEEKLY-STRATEGY] Brief {brief.brief_id} generated — "
+                    f"{brief.total_signals_processed} signals, "
+                    f"{len(brief.sectors)} sectors"
+                )
+
+                # Push to iPhone via the same path as the daily intel brief
+                try:
+                    from ..strike_point_orchestrator import notify_intelligence_brief
+                    pushed = await notify_intelligence_brief(brief.model_dump())
+                    if pushed:
+                        log.info(f"[WEEKLY-STRATEGY] Brief pushed to iPhone: {brief.brief_id}")
+                    else:
+                        log.info(
+                            f"[WEEKLY-STRATEGY] Brief saved (no Pushover configured): "
+                            f"{brief.brief_id}"
+                        )
+                except ImportError:
+                    log.warning("[WEEKLY-STRATEGY] Could not import notification functions")
+
+                await self._log_autonomous_event("weekly_strategy_review", {
+                    "brief_id": brief.brief_id,
+                    "total_signals": brief.total_signals_processed,
+                    "sectors": len(brief.sectors),
+                    "risk_alerts": len(brief.risk_alerts),
+                })
+
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.error(f"[WEEKLY-STRATEGY] Loop error: {e}", exc_info=True)
+
+            # Run every 7 days
+            await asyncio.sleep(7 * 24 * 3600)
 
     # ─── Helpers ───────────────────────────────────────────────
 

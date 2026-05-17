@@ -25,8 +25,72 @@
     "prediction markets crypto",
     "AI tools developers 2026"
   ],
+  "reddit_subreddits": {
+    "_comment": "Tiered subreddit network — mirrors intelligence/collectors.py",
+    "tier1": [
+      "wallstreetbets",
+      "Superstonk",
+      "options",
+      "stocks",
+      "StockMarket",
+      "Daytrading",
+      "unusual_whales",
+      "GME",
+      "Shortsqueeze",
+      "pennystocks"
+    ],
+    "tier2": [
+      "thetagang",
+      "amcstock",
+      "DeepFuckingValue",
+      "investing",
+      "ValueInvesting",
+      "swingtrading",
+      "smallstreetbets",
+      "WallStreetbetsELITE",
+      "FluentInFinance",
+      "TheRaceTo10Million",
+      "SatoshiStreetBets",
+      "CryptoCurrency",
+      "Bitcoin",
+      "RealDayTrading",
+      "DDintoGME",
+      "SqueezePlays"
+    ],
+    "tier3": [
+      "ethereum",
+      "CryptoMoonShots",
+      "economics",
+      "economy",
+      "finance",
+      "wallstreet",
+      "dividends",
+      "Bogleheads",
+      "financialindependence",
+      "algotrading",
+      "Forex",
+      "FuturesTrading",
+      "quant",
+      "SPACs",
+      "weedstocks",
+      "Biotechplays",
+      "Semiconductors",
+      "Vitards",
+      "CanadianInvestor",
+      "AusFinance",
+      "UKInvesting",
+      "Optionswheel",
+      "optionstrading",
+      "MillennialBets",
+      "FinancialPlanning",
+      "EducatedInvesting",
+      "TradingView",
+      "maxjustrisk",
+      "personalfinance"
+    ]
+  },
   "_meta": {
-    "description": "Watch queries for NCL autonomous scanner. Aligned with active NARTIX mandates.",
+    "description": "Watch queries for NCL autonomous scanner. Aligned with active NATRIX mandates.",
     "mandates": [
       "DIGITAL-LABOUR (revenue scanning)",
       "AAC War Room (crypto/market signals)",
@@ -34,6 +98,6 @@
       "DUBFORGE (music production trends)",
       "STRIKE-POINT (AI infrastructure)"
     ],
-    "updated": "2026-04-17"
+    "updated": "2026-05-17"
   }
 }

@@ -73,7 +73,7 @@ else
     clear_port 8800
     sleep 1
     cd "$NCL_DIR"
-    PYTHONPATH="$NCL_DIR" nohup $PYTHON -m uvicorn runtime.api.routes:app \
+    PYTHONPATH="$NCL_DIR" nohup $PYTHON -m uvicorn runtime.api.routes:versioned_app \
         --host 0.0.0.0 --port 8800 $RELOAD_FLAG \
         > "$LOGS/brain-stdout.log" 2> "$LOGS/brain-stderr.log" &
     wait_for_port 8800 "NCL Brain"

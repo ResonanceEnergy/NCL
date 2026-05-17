@@ -4,7 +4,7 @@ import logging
 import os
 import subprocess
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 
 import yaml
 from pydantic import ConfigDict
@@ -344,10 +344,15 @@ def load_config() -> Settings:
         if env_var in os.environ:
             env_value = os.environ[env_var]
             annotation = field_info.annotation
-            # Unwrap Optional[X] → X for type conversion
+            # Unwrap Optional[X] (i.e. Union[X, None]) → X for type conversion
             origin = getattr(annotation, "__origin__", None)
             args = getattr(annotation, "__args__", ())
-            base_type = args[0] if origin is type(Optional[int].__origin__) and args else annotation  # type: ignore[attr-defined]
+            if origin is Union and args:
+                # Filter out NoneType to get the real type
+                non_none = [a for a in args if a is not type(None)]
+                base_type = non_none[0] if non_none else annotation
+            else:
+                base_type = annotation
             try:
                 if base_type is bool:
                     setattr(settings, field_name, env_value.lower() in ("true", "1", "yes"))

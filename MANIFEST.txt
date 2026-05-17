@@ -295,7 +295,7 @@ Configuration:
 7. export NCL_PAPERCLIP_PORT="3100"
 
 Run:
-- uvicorn runtime.api.routes:app --host 0.0.0.0 --port 8787
+- uvicorn runtime.api.routes:versioned_app --host 0.0.0.0 --port 8787
 
 Docker:
 - docker build -t ncl-brain .

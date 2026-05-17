@@ -20,13 +20,14 @@ import logging
 import logging.handlers
 import os
 import sys
-import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .shared.models import CouncilReport
+
+import aiohttp
 
 # Setup logging before imports
 NCL_BASE = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
@@ -46,6 +47,169 @@ logging.basicConfig(
     ],
 )
 log = logging.getLogger("ncl.councils.runner")
+
+# Brain API for memory store ingestion (localhost when in-process or CLI)
+BRAIN_API = os.getenv("NCL_BRAIN_URL", "http://127.0.0.1:8800")
+BRAIN_AUTH_TOKEN = os.getenv("BRAIN_AUTH_TOKEN", "")
+if not BRAIN_AUTH_TOKEN:
+    log.warning("[council-runner] BRAIN_AUTH_TOKEN not set — Brain API calls will fail. Set in .env")
+
+
+async def _auto_ingest_report(report: CouncilReport) -> None:
+    """
+    Auto-ingest a council report into ChromaDB vector store AND long-term memory.
+
+    Called after write_report() so every council run automatically:
+    1. Indexes each insight into ChromaDB for RAG retrieval
+    2. Indexes the report summary into ChromaDB
+    3. Stores the full report in the memory store for short/long-term recall
+
+    This closes the gap where reports were saved to disk but never entered
+    the searchable knowledge base.
+    """
+    from .shared.vector_store import CouncilVectorStore
+
+    source = report.council_type.value  # "youtube" or "x"
+    session_id = report.session_id
+
+    # ── 1. ChromaDB Vector Store Indexing ──────────────────────────────
+    try:
+        data_dir = NCL_BASE / "data"
+        vector_store = CouncilVectorStore(data_dir=data_dir)
+        backend = await vector_store.init()
+        log.info(f"[AUTO-INGEST] Vector store initialized: {backend}")
+
+        # Index each insight
+        indexed_count = 0
+        for insight in report.insights:
+            try:
+                await vector_store.index_insight(
+                    insight_title=insight.title,
+                    insight_description=insight.description,
+                    session_id=session_id,
+                    source=source,
+                    category=insight.category.value,
+                    tags=insight.tags,
+                    confidence=insight.confidence,
+                )
+                indexed_count += 1
+            except Exception as e:
+                log.warning(f"[AUTO-INGEST] Failed to index insight '{insight.title}': {e}")
+
+        # Index report summary
+        if report.summary:
+            try:
+                await vector_store.index_report_summary(
+                    session_id=session_id,
+                    source=source,
+                    summary=report.summary,
+                    insight_count=len(report.insights),
+                )
+                log.info(f"[AUTO-INGEST] Report summary indexed into vector store")
+            except Exception as e:
+                log.warning(f"[AUTO-INGEST] Failed to index report summary: {e}")
+
+        stats = vector_store.get_stats()
+        log.info(
+            f"[AUTO-INGEST] Vector store: {indexed_count}/{len(report.insights)} insights indexed "
+            f"({stats.get('documents', '?')} total docs in {backend})"
+        )
+    except Exception as e:
+        log.error(f"[AUTO-INGEST] Vector store indexing failed: {e}", exc_info=True)
+
+    # ── 2. Long-Term Memory Store ──────────────────────────────────────
+    try:
+        # Build a rich memory content block from the report
+        insight_summaries = []
+        for i, ins in enumerate(report.insights[:10], 1):
+            insight_summaries.append(
+                f"{i}. [{ins.category.value}] {ins.title} "
+                f"(confidence: {ins.confidence:.0%}): {ins.description[:200]}"
+            )
+
+        memory_content = (
+            f"{'YouTube' if source == 'youtube' else 'X (Twitter)'} Council Report — "
+            f"Session {session_id}\n\n"
+            f"Executive Summary: {(report.summary or 'No summary')[:500]}\n\n"
+            f"Key Insights ({len(report.insights)} total):\n"
+            + "\n".join(insight_summaries)
+        )
+
+        # Build tags from all insight tags + council metadata
+        all_tags = {"council_report", f"council_{source}", "auto_ingested"}
+        for ins in report.insights:
+            all_tags.update(ins.tags[:5])
+
+        payload = {
+            "content": memory_content[:2000],
+            "source": f"council:{source}:{session_id}",
+            "importance": 85.0,
+            "tags": list(all_tags)[:20],
+        }
+
+        headers = {"Content-Type": "application/json"}
+        if BRAIN_AUTH_TOKEN:
+            headers["Authorization"] = f"Bearer {BRAIN_AUTH_TOKEN}"
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{BRAIN_API}/memory/store",
+                json=payload,
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                if resp.status in (200, 201):
+                    result = await resp.json()
+                    log.info(
+                        f"[AUTO-INGEST] Report stored in long-term memory: "
+                        f"unit_id={result.get('unit_id', 'unknown')}"
+                    )
+                else:
+                    body = await resp.text()
+                    log.warning(
+                        f"[AUTO-INGEST] Memory store returned {resp.status}: {body[:200]}"
+                    )
+    except aiohttp.ClientError as e:
+        log.warning(f"[AUTO-INGEST] Memory store unreachable (Brain API down?): {e}")
+    except Exception as e:
+        log.error(f"[AUTO-INGEST] Memory store ingestion failed: {e}", exc_info=True)
+
+    # ── 3. Store individual high-confidence insights in memory ─────────
+    try:
+        high_insights = [i for i in report.insights if i.confidence >= 0.7]
+        stored = 0
+        if high_insights:
+            headers = {"Content-Type": "application/json"}
+            if BRAIN_AUTH_TOKEN:
+                headers["Authorization"] = f"Bearer {BRAIN_AUTH_TOKEN}"
+
+            async with aiohttp.ClientSession() as session:
+                for ins in high_insights[:10]:
+                    try:
+                        payload = {
+                            "content": f"[{ins.category.value}] {ins.title}: {ins.description[:500]}",
+                            "source": f"council:{source}:insight",
+                            "importance": ins.confidence * 100,
+                            "tags": list(ins.tags[:10]) + [
+                                "council_insight", f"council_{source}", "auto_ingested"
+                            ],
+                        }
+                        async with session.post(
+                            f"{BRAIN_API}/memory/store",
+                            json=payload,
+                            headers=headers,
+                            timeout=aiohttp.ClientTimeout(total=5),
+                        ) as resp:
+                            if resp.status in (200, 201):
+                                stored += 1
+                    except Exception as e:
+                        log.warning(f"[AUTO-INGEST] Failed to store insight '{ins.title[:50]}': {e}")
+            log.info(
+                f"[AUTO-INGEST] {stored}/{len(high_insights)} high-confidence insights "
+                f"stored in memory"
+            )
+    except Exception as e:
+        log.warning(f"[AUTO-INGEST] Individual insight storage failed: {e}")
 
 
 async def run_youtube_council(
@@ -89,8 +253,9 @@ async def run_youtube_council(
         return None
 
     # Step 3: Transcribe
+    # transcribe_batch() does blocking Whisper inference; run in thread pool.
     log.info("Step 3/4: Transcribing audio...")
-    transcribed = transcribe_batch(downloaded)
+    transcribed = await asyncio.to_thread(transcribe_batch, downloaded)
     if not transcribed:
         log.warning("No transcriptions produced — YouTube Council cannot proceed")
         return None
@@ -110,6 +275,10 @@ async def run_youtube_council(
     log.info(f"  Insights: {len(report.insights)}")
     log.info(f"  Videos processed: {report.sources_processed}")
     log.info(f"  Total duration: {report.total_duration_hours:.1f}h")
+
+    # Auto-ingest into ChromaDB vector store + long-term memory
+    await _auto_ingest_report(report)
+
     return report
 
 
@@ -157,6 +326,10 @@ async def run_x_council(
     log.info(f"  JSON: {json_path}")
     log.info(f"  Insights: {len(report.insights)}")
     log.info(f"  Posts analyzed: {report.sources_processed}")
+
+    # Auto-ingest into ChromaDB vector store + long-term memory
+    await _auto_ingest_report(report)
+
     return report
 
 

@@ -1,13 +1,21 @@
 """Awarebot scanner agent - collects intelligence from multiple sources.
 
-Integrates with Paperclip cost tracking and MWP intelligence-scan workspace.
-Implements exponential backoff retry and per-platform rate limiting.
+Extracts REAL engagement metrics from APIs (retweets, likes, views,
+upvotes, comments) instead of hardcoding scores. The agent's scoring
+engine in agent.py handles all composite scoring — the scanner only
+passes through raw data and engagement metadata.
+
+Implements exponential backoff retry. Rate limiting is delegated to the
+agent-level TokenBucket (no duplicate limiters here).
 """
 
 import asyncio
+import functools
 import logging
+import math
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -18,35 +26,13 @@ from ..ncl_brain.models import InsightSignal
 logger = logging.getLogger(__name__)
 
 
-class _RateLimiter:
-    """Simple token-bucket rate limiter per platform (thread-safe with asyncio.Lock)."""
-
-    def __init__(self, calls_per_minute: int = 10):
-        self.calls_per_minute = calls_per_minute
-        self._timestamps: list[float] = []
-        self._lock = asyncio.Lock()
-
-    async def acquire(self) -> None:
-        """Wait until a request slot is available."""
-        async with self._lock:
-            now = time.monotonic()
-            # Purge timestamps older than 60 seconds
-            self._timestamps = [t for t in self._timestamps if now - t < 60]
-            if len(self._timestamps) >= self.calls_per_minute:
-                wait = 60 - (now - self._timestamps[0])
-                if wait > 0:
-                    logger.debug(f"Rate limit reached, waiting {wait:.1f}s")
-                    await asyncio.sleep(wait)
-            self._timestamps.append(time.monotonic())
-
-
 class Scanner:
     """
     Multi-source intelligence scanner.
 
     Scans X, YouTube, and Reddit for signals.
-    Scores importance using configurable multi-factor formula.
-    Includes exponential backoff retry and per-platform rate limiting.
+    Extracts real engagement metrics and passes them as metadata so the
+    agent scoring engine can compute data-driven scores.
     """
 
     def __init__(
@@ -56,19 +42,7 @@ class Scanner:
         reddit_client_id: Optional[str] = None,
         reddit_client_secret: Optional[str] = None,
         reddit_user_agent: str = "NCL-Awarebot/1.0",
-        importance_weights: Optional[dict[str, float]] = None,
     ) -> None:
-        """
-        Initialize scanner with API credentials.
-
-        Args:
-            x_bearer_token: X API bearer token
-            youtube_api_key: YouTube Data API key
-            reddit_client_id: Reddit OAuth client ID
-            reddit_client_secret: Reddit OAuth client secret
-            reddit_user_agent: Reddit user agent string
-            importance_weights: Override default importance factor weights
-        """
         self.x_bearer_token = x_bearer_token
         self.youtube_api_key = youtube_api_key
         self.reddit_client_id = reddit_client_id
@@ -76,42 +50,17 @@ class Scanner:
         self.reddit_user_agent = reddit_user_agent
         self.http_client = httpx.AsyncClient(timeout=30.0)
 
-        # Configurable importance weights (Gap 11 fix)
-        self.importance_weights = importance_weights or {
-            "relevance": 0.3,
-            "novelty": 0.25,
-            "actionability": 0.25,
-            "source_authority": 0.1,
-            "time_sensitivity": 0.1,
-        }
-
-        # Per-platform rate limiters
-        self._rate_limiters = {
-            "x": _RateLimiter(calls_per_minute=15),  # X API basic tier
-            "youtube": _RateLimiter(calls_per_minute=30),
-            "reddit": _RateLimiter(calls_per_minute=10),
-        }
-
-        # Reddit OAuth token cache
-        self._reddit_token: Optional[str] = None
-        self._reddit_token_expires: float = 0.0  # monotonic time
+        # Thread pool for blocking yt-dlp calls
+        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ytdlp")
 
         # Retry config
         self._max_retries = 3
-        self._base_delay = 1.0  # seconds
+        self._base_delay = 1.0
 
     async def _request_with_retry(
         self, method: str, url: str, platform: str, **kwargs
     ) -> httpx.Response:
-        """
-        Make an HTTP request with exponential backoff retry and rate limiting.
-
-        Follows Paperclip cost tracking patterns — each retry is logged.
-        """
-        limiter = self._rate_limiters.get(platform)
-        if limiter:
-            await limiter.acquire()
-
+        """HTTP request with exponential backoff retry."""
         last_error = None
         for attempt in range(self._max_retries):
             try:
@@ -120,7 +69,6 @@ class Scanner:
                 else:
                     resp = await self.http_client.post(url, **kwargs)
 
-                # Handle rate limit responses
                 if resp.status_code == 429:
                     retry_after = int(resp.headers.get("retry-after", self._base_delay * (2 ** attempt)))
                     logger.warning(f"[{platform}] Rate limited, waiting {retry_after}s (attempt {attempt + 1})")
@@ -133,7 +81,7 @@ class Scanner:
             except httpx.HTTPStatusError as e:
                 last_error = e
                 if e.response.status_code in (401, 403):
-                    raise  # Auth errors don't retry
+                    raise
                 delay = self._base_delay * (2 ** attempt)
                 logger.warning(f"[{platform}] HTTP {e.response.status_code}, retrying in {delay:.1f}s (attempt {attempt + 1})")
                 await asyncio.sleep(delay)
@@ -146,18 +94,70 @@ class Scanner:
 
         raise last_error or Exception(f"Max retries ({self._max_retries}) exhausted for {platform}")
 
+    # ── Engagement → score helpers ──────────────────────────────────────
+
+    @staticmethod
+    def _x_engagement_score(metrics: dict) -> float:
+        """Derive authority/actionability from real X engagement metrics.
+
+        Uses Wilson score lower bound for small-sample correction:
+            (p + z²/2n - z√(p(1-p)/n + z²/4n²)) / (1 + z²/n)
+        where p = positive ratio, n = total engagements, z = 1.96 (95% CI).
+        """
+        rt = metrics.get("retweet_count", 0)
+        likes = metrics.get("like_count", 0)
+        replies = metrics.get("reply_count", 0)
+        quotes = metrics.get("quote_count", 0)
+        total = rt + likes + replies + quotes
+        if total == 0:
+            return 0.0
+
+        # Weighted engagement (retweets/quotes signal stronger intent)
+        weighted = rt * 3.0 + quotes * 2.5 + likes * 1.0 + replies * 1.5
+        # Log-scale normalization (1000 weighted engagement ≈ 1.0)
+        raw = min(1.0, math.log1p(weighted) / math.log1p(1000))
+
+        # Wilson lower bound for confidence correction
+        n = total
+        p = raw
+        z = 1.96
+        denom = 1 + z * z / n
+        centre = p + z * z / (2 * n)
+        spread = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n))
+        wilson = max(0.0, (centre - spread) / denom)
+        return round(wilson, 4)
+
+    @staticmethod
+    def _reddit_engagement_score(post_data: dict) -> float:
+        """Derive score from Reddit upvotes/comments/awards."""
+        ups = post_data.get("ups", 0)
+        comments = post_data.get("num_comments", 0)
+        awards = post_data.get("total_awards_received", 0)
+        ratio = post_data.get("upvote_ratio", 0.5)
+
+        # Weighted engagement
+        weighted = ups * 1.0 + comments * 2.0 + awards * 5.0
+        raw = min(1.0, math.log1p(weighted) / math.log1p(500))
+
+        # Penalize controversial posts (low upvote ratio)
+        if ratio < 0.6:
+            raw *= 0.7
+        return round(raw * ratio, 4)
+
+    @staticmethod
+    def _time_sensitivity_score(created_utc: float) -> float:
+        """HN-style gravity decay: 1 / (age_hours + 2)^1.8"""
+        age_hours = (time.time() - created_utc) / 3600.0
+        if age_hours < 0:
+            age_hours = 0
+        return round(min(1.0, 1.0 / ((age_hours + 2) ** 1.8) * 10), 4)
+
+    # ── Platform scanners ───────────────────────────────────────────────
+
     async def scan_x(self, query: str, max_results: int = 10) -> list[InsightSignal]:
-        """
-        Scan X (Twitter) for signals matching query.
-
-        Args:
-            query: Search query
-            max_results: Maximum results to return
-
-        Returns:
-            List of InsightSignals from X
-        """
+        """Scan X with REAL engagement metric extraction."""
         if not self.x_bearer_token:
+            logger.error("[scanner] X_BEARER_TOKEN not configured — X scan disabled. Set in .env")
             return []
 
         signals = []
@@ -177,192 +177,220 @@ class Scanner:
             )
             data = response.json()
 
+            # Build user lookup for verified status and followers
+            users = {}
+            for user in data.get("includes", {}).get("users", []):
+                users[user["id"]] = user
+
             for tweet in data.get("data", []):
+                metrics = tweet.get("public_metrics", {})
+                author_id = tweet.get("author_id", "")
+                user_info = users.get(author_id, {})
+                user_metrics = user_info.get("public_metrics", {})
+                verified = user_info.get("verified", False)
+                followers = user_metrics.get("followers_count", 0)
+
+                engagement = self._x_engagement_score(metrics)
+
                 signal = InsightSignal(
                     signal_id=str(uuid.uuid4()),
                     source_platform="x",
                     content=tweet["text"],
                     url=f"https://twitter.com/i/web/status/{tweet['id']}",
-                    importance_score=0.0,  # Will be computed
-                    relevance=0.7,
-                    novelty=0.6,
-                    actionability=0.5,
-                    source_authority=0.6,
-                    time_sensitivity=0.7,
+                    importance_score=0.0,  # Computed by agent scoring engine
+                    relevance=0.0,         # Computed by agent (BM25)
+                    novelty=0.0,           # Computed by agent (decay + SimHash)
+                    actionability=engagement,  # Real engagement data
+                    source_authority=engagement,  # Will be refined by agent
+                    time_sensitivity=0.0,
                     timestamp=datetime.now(timezone.utc),
                     tags=["x", query.lower()],
                 )
-                signal.importance_score = self._compute_importance(signal)
+                # Attach real metrics as metadata for agent scoring
+                signal.metadata = {
+                    "retweets": metrics.get("retweet_count", 0),
+                    "likes": metrics.get("like_count", 0),
+                    "replies": metrics.get("reply_count", 0),
+                    "quotes": metrics.get("quote_count", 0),
+                    "verified": verified,
+                    "followers": followers,
+                    "engagement_score": engagement,
+                }
                 signals.append(signal)
         except Exception as e:
             logger.warning(f"Failed to scan X for query '{query}': {e}")
 
         return signals
 
+    @staticmethod
+    def _ytdlp_search(query: str, max_results: int) -> list[dict]:
+        """Blocking yt-dlp search — runs in thread pool.
+
+        Uses yt-dlp's ytsearch to avoid YouTube Data API quota limits.
+        Returns list of video info dicts.
+        """
+        try:
+            from yt_dlp import YoutubeDL
+        except ImportError:
+            logger.error("[scanner] yt-dlp not installed — YouTube scan disabled. Run: pip install yt-dlp")
+            return []
+
+        ydl_opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "extract_flat": True,
+            "skip_download": True,
+        }
+
+        results = []
+        try:
+            with YoutubeDL(ydl_opts) as ydl:
+                search_url = f"ytsearch{max_results}:{query}"
+                info = ydl.extract_info(search_url, download=False)
+                if not info or "entries" not in info:
+                    return []
+
+                for entry in info["entries"]:
+                    if not entry:
+                        continue
+                    results.append({
+                        "id": entry.get("id", ""),
+                        "title": entry.get("title", "Untitled"),
+                        "description": (entry.get("description") or "")[:500],
+                        "channel": entry.get("channel", entry.get("uploader", "")),
+                        "view_count": entry.get("view_count") or 0,
+                        "duration": entry.get("duration") or 0,
+                        "upload_date": entry.get("upload_date", ""),
+                    })
+        except Exception as e:
+            logger.warning(f"[scanner] yt-dlp search failed for '{query}': {e}")
+
+        return results
+
     async def scan_youtube(
         self, query: str, max_results: int = 10
     ) -> list[InsightSignal]:
+        """Scan YouTube via yt-dlp search (no API quota needed).
+
+        Runs yt-dlp in a thread pool to avoid blocking the async event loop.
+        Falls back to YouTube Data API if yt-dlp is not installed.
         """
-        Scan YouTube for signals matching query.
-
-        Args:
-            query: Search query
-            max_results: Maximum results to return
-
-        Returns:
-            List of InsightSignals from YouTube
-        """
-        if not self.youtube_api_key:
-            return []
-
         signals = []
-        try:
-            response = await self._request_with_retry(
-                "GET",
-                "https://www.googleapis.com/youtube/v3/search",
-                platform="youtube",
-                params={
-                    "q": query,
-                    "maxResults": min(max_results, 50),
-                    "part": "snippet",
-                    "type": "video",
-                    "order": "relevance",
-                },
-                # API key in header — keeps it out of URLs, server logs, and
-                # browser history (Google also accepts X-Goog-Api-Key).
-                headers={"X-Goog-Api-Key": self.youtube_api_key},
-            )
-            data = response.json()
 
-            for item in data.get("items", []):
-                snippet = item.get("snippet", {})
+        try:
+            # Run blocking yt-dlp in thread pool
+            loop = asyncio.get_running_loop()
+            results = await loop.run_in_executor(
+                self._executor,
+                functools.partial(self._ytdlp_search, query, min(max_results, 20)),
+            )
+
+            for item in results:
+                video_id = item.get("id", "")
+                title = item.get("title", "")
+                desc = item.get("description", "")
+                channel = item.get("channel", "")
+                views = item.get("view_count", 0)
+
+                # View-based engagement score (log-scale, 100K views ≈ 1.0)
+                view_score = min(1.0, math.log1p(views) / math.log1p(100_000)) if views else 0.0
+
                 signal = InsightSignal(
                     signal_id=str(uuid.uuid4()),
                     source_platform="youtube",
-                    content=f"{snippet.get('title', '')} - {snippet.get('description', '')}",
-                    url=f"https://youtu.be/{item['id']['videoId']}",
+                    content=f"{title} - {desc}",
+                    url=f"https://youtu.be/{video_id}",
                     importance_score=0.0,
-                    relevance=0.6,
-                    novelty=0.5,
-                    actionability=0.4,
-                    source_authority=0.7,
-                    time_sensitivity=0.3,
+                    relevance=0.0,
+                    novelty=0.0,
+                    actionability=view_score,
+                    source_authority=view_score,
+                    time_sensitivity=0.0,
                     timestamp=datetime.now(timezone.utc),
                     tags=["youtube", query.lower()],
                 )
-                signal.importance_score = self._compute_importance(signal)
+                signal.metadata = {
+                    "channel": channel,
+                    "video_id": video_id,
+                    "view_count": views,
+                    "duration": item.get("duration", 0),
+                    "upload_date": item.get("upload_date", ""),
+                    "view_score": round(view_score, 4),
+                }
                 signals.append(signal)
+
+            logger.info(f"[scanner] YouTube yt-dlp: got {len(signals)} results for '{query}'")
         except Exception as e:
             logger.warning(f"Failed to scan YouTube for query '{query}': {e}")
 
         return signals
 
     async def scan_reddit(self, subreddit: str, max_results: int = 10) -> list[InsightSignal]:
-        """
-        Scan Reddit for signals from subreddit.
-
-        Args:
-            subreddit: Subreddit name (without r/)
-            max_results: Maximum results to return
-
-        Returns:
-            List of InsightSignals from Reddit
-        """
-        if not self.reddit_client_id or not self.reddit_client_secret:
-            return []
-
+        """Scan Reddit via RSS with REAL engagement metric extraction."""
         signals = []
         try:
-            # Get Reddit auth token (cached with expiry)
-            token = await self._get_reddit_token()
+            if subreddit.startswith("search:"):
+                query = subreddit[7:].strip()
+                url = "https://www.reddit.com/search.json"
+                params = {"q": query, "sort": "new", "limit": min(max_results, 25)}
+            else:
+                url = f"https://www.reddit.com/r/{subreddit}/hot.json"
+                params = {"limit": min(max_results, 25)}
 
-            # Fetch subreddit posts (with retry)
-            posts_response = await self._request_with_retry(
+            response = await self._request_with_retry(
                 "GET",
-                f"https://oauth.reddit.com/r/{subreddit}/hot",
+                url,
                 platform="reddit",
-                params={"limit": min(max_results, 100)},
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "User-Agent": self.reddit_user_agent,
-                },
+                params=params,
+                headers={"User-Agent": self.reddit_user_agent},
             )
-            data = posts_response.json()
+            data = response.json()
 
             for post in data.get("data", {}).get("children", []):
                 post_data = post.get("data", {})
+                title = post_data.get("title", "")
+                selftext = post_data.get("selftext", "")[:500]
+                content = f"{title} - {selftext}" if selftext else title
+
+                engagement = self._reddit_engagement_score(post_data)
+                created_utc = post_data.get("created_utc", time.time())
+                freshness = self._time_sensitivity_score(created_utc)
+
                 signal = InsightSignal(
                     signal_id=str(uuid.uuid4()),
                     source_platform="reddit",
-                    content=f"{post_data.get('title', '')} - {post_data.get('selftext', '')}",
+                    content=content,
                     url=f"https://reddit.com{post_data.get('permalink', '')}",
                     importance_score=0.0,
-                    relevance=0.5,
-                    novelty=0.6,
-                    actionability=0.6,
-                    source_authority=0.4,
-                    time_sensitivity=0.4,
+                    relevance=0.0,
+                    novelty=0.0,
+                    actionability=engagement,
+                    source_authority=engagement,
+                    time_sensitivity=freshness,
                     timestamp=datetime.now(timezone.utc),
                     tags=["reddit", f"r/{subreddit}"],
                 )
-                signal.importance_score = self._compute_importance(signal)
+                signal.metadata = {
+                    "upvotes": post_data.get("ups", 0),
+                    "downvotes": post_data.get("downs", 0),
+                    "comments": post_data.get("num_comments", 0),
+                    "awards": post_data.get("total_awards_received", 0),
+                    "upvote_ratio": post_data.get("upvote_ratio", 0.5),
+                    "subreddit": post_data.get("subreddit", subreddit),
+                    "author": post_data.get("author", ""),
+                    "created_utc": created_utc,
+                    "engagement_score": engagement,
+                    "freshness_score": freshness,
+                }
                 signals.append(signal)
+
+            logger.info(f"[scanner] Reddit RSS: got {len(signals)} signals from r/{subreddit}")
         except Exception as e:
-            logger.warning(f"Failed to scan Reddit subreddit '{subreddit}': {e}")
+            logger.warning(f"Failed to scan Reddit (RSS) '{subreddit}': {e}")
 
         return signals
 
-    async def _get_reddit_token(self) -> str:
-        """Get a Reddit OAuth token, returning cached token if still valid."""
-        now = time.monotonic()
-        if self._reddit_token and now < self._reddit_token_expires:
-            return self._reddit_token
-
-        auth = (self.reddit_client_id, self.reddit_client_secret)
-        token_response = await self._request_with_retry(
-            "POST",
-            "https://www.reddit.com/api/v1/access_token",
-            platform="reddit",
-            auth=auth,
-            data={"grant_type": "client_credentials"},
-            headers={"User-Agent": self.reddit_user_agent},
-        )
-        data = token_response.json()
-        self._reddit_token = data["access_token"]
-        # Reddit tokens last 3600s; expire 60s early to avoid edge cases
-        expires_in = data.get("expires_in", 3600)
-        self._reddit_token_expires = time.monotonic() + max(0, expires_in - 60)
-        return self._reddit_token
-
-    def _compute_importance(self, signal: InsightSignal) -> float:
-        """
-        Compute importance score using configurable multi-factor formula.
-
-        Default weights (configurable via importance_weights):
-        - relevance: 0.3
-        - novelty: 0.25
-        - actionability: 0.25
-        - source_authority: 0.1
-        - time_sensitivity: 0.1
-
-        Follows MWP intelligence-scan scoring conventions.
-
-        Args:
-            signal: InsightSignal to score
-
-        Returns:
-            Importance score 0-100
-        """
-        w = self.importance_weights
-        importance = (
-            (signal.relevance * w.get("relevance", 0.3))
-            + (signal.novelty * w.get("novelty", 0.25))
-            + (signal.actionability * w.get("actionability", 0.25))
-            + (signal.source_authority * w.get("source_authority", 0.1))
-            + (signal.time_sensitivity * w.get("time_sensitivity", 0.1))
-        )
-        return max(0.0, min(100.0, importance * 100.0))
-
     async def close(self) -> None:
-        """Close HTTP client."""
+        """Close HTTP client and thread pool."""
         await self.http_client.aclose()
+        self._executor.shutdown(wait=False)

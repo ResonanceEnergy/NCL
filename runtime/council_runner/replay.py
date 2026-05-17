@@ -29,16 +29,20 @@ class ReplayEngine:
         self.replays_dir.mkdir(parents=True, exist_ok=True)
 
     async def save_run(self, record: CouncilRunRecord) -> None:
-        """Save a complete run record to JSON file."""
+        """Save a complete run record to JSON file (atomic write)."""
         run_file = self.replays_dir / f"{record.run_id}.json"
+        tmp_file = run_file.with_suffix(".json.tmp")
 
         # Serialize the record
         record_dict = record.model_dump(mode="json")
 
-        async with await asyncio.to_thread(
-            open, run_file, "w"
-        ) as f:
-            json.dump(record_dict, f, indent=2)
+        def _write() -> None:
+            with open(tmp_file, "w") as f:
+                json.dump(record_dict, f, indent=2)
+                f.flush()
+            tmp_file.replace(run_file)
+
+        await asyncio.to_thread(_write)
 
         log.info(f"Saved council run {record.run_id} to {run_file}")
 
@@ -49,9 +53,11 @@ class ReplayEngine:
         if not run_file.exists():
             raise FileNotFoundError(f"No run found with ID {run_id}")
 
-        with open(run_file) as f:
-            data = json.load(f)
+        def _read() -> dict:
+            with open(run_file) as f:
+                return json.load(f)
 
+        data = await asyncio.to_thread(_read)
         return CouncilRunRecord(**data)
 
     async def replay(
@@ -95,29 +101,31 @@ class ReplayEngine:
 
     async def list_runs(self, limit: int = 50) -> list[dict]:
         """List summary of saved runs."""
-        runs = []
-        run_files = sorted(
-            self.replays_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True
-        )
+        def _read_all() -> list[dict]:
+            runs = []
+            run_files = sorted(
+                self.replays_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True
+            )
+            for run_file in run_files[:limit]:
+                if run_file.suffix == ".tmp":
+                    continue
+                try:
+                    with open(run_file) as f:
+                        data = json.load(f)
+                    runs.append(
+                        {
+                            "run_id": data["run_id"],
+                            "topic": data["topic"],
+                            "timestamp": data["timestamp"],
+                            "consensus_score": data.get("consensus", {}).get("consensus_score"),
+                            "duration_ms": data.get("total_duration_ms"),
+                        }
+                    )
+                except (json.JSONDecodeError, KeyError):
+                    log.warning(f"Could not parse run file {run_file}")
+            return runs
 
-        for run_file in run_files[:limit]:
-            try:
-                with open(run_file) as f:
-                    data = json.load(f)
-
-                runs.append(
-                    {
-                        "run_id": data["run_id"],
-                        "topic": data["topic"],
-                        "timestamp": data["timestamp"],
-                        "consensus_score": data.get("consensus", {}).get("consensus_score"),
-                        "duration_ms": data.get("total_duration_ms"),
-                    }
-                )
-            except (json.JSONDecodeError, KeyError):
-                log.warning(f"Could not parse run file {run_file}")
-
-        return runs
+        return await asyncio.to_thread(_read_all)
 
     async def compare_runs(self, run_id_a: str, run_id_b: str) -> dict:
         """Generate side-by-side comparison of two runs."""

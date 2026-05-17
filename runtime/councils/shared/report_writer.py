@@ -218,10 +218,13 @@ def _write_signals(report: CouncilReport, date_str: str) -> None:
         }
         signals.append(signal)
 
-    # Append to daily signals file (JSONL)
+    # Append to daily signals file (JSONL) — flush after write to minimize
+    # data loss window on crash.
     with open(signals_file, "a", encoding="utf-8") as f:
         for sig in signals:
             f.write(json.dumps(sig) + "\n")
+        f.flush()
+        os.fsync(f.fileno())
 
     log.info(f"Wrote {len(signals)} signals → {signals_file}")
 
@@ -245,5 +248,7 @@ def _write_alerts(report: CouncilReport) -> None:
             "acknowledged": False,
         }
         alert_path = ALERTS_DIR / f"{alert['alert_id']}.json"
-        alert_path.write_text(json.dumps(alert, indent=2))
+        alert_tmp = alert_path.with_suffix(".json.tmp")
+        alert_tmp.write_text(json.dumps(alert, indent=2))
+        alert_tmp.replace(alert_path)
         log.info(f"Alert raised → {alert_path.name}: {insight.title}")

@@ -95,7 +95,7 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
 fi
 
 # Start uvicorn
-exec python3 -m uvicorn runtime.api.routes:app \
+exec python3 -m uvicorn runtime.api.routes:versioned_app \
     --host 0.0.0.0 \
     --port $PORT \
     --reload

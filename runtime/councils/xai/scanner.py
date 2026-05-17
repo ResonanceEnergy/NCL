@@ -24,9 +24,18 @@ from ..shared.models import XPost
 
 log = logging.getLogger("ncl.councils.xai.scanner")
 
-# X API config
-X_BEARER_TOKEN = os.getenv("X_BEARER_TOKEN", "")
-XAI_API_KEY = os.getenv("XAI_API_KEY", "")
+# X API config — lazy-read functions so env vars set after import (e.g. by
+# keychain helper) are picked up.  The old module-level constants
+# X_BEARER_TOKEN / XAI_API_KEY are kept as thin wrappers for any external
+# code that still references them, but internal callsites use the functions.
+
+def _get_x_bearer_token() -> str:
+    """Return the current X bearer token (re-reads env on every call)."""
+    return os.getenv("X_BEARER_TOKEN", "")
+
+def _get_xai_api_key() -> str:
+    """Return the current xAI API key (re-reads env on every call)."""
+    return os.getenv("XAI_API_KEY", "")
 
 # ── Rate limiters ─────────────────────────────────────────────────────────
 # X API v2 (app-level): 300 requests per 15-minute window for /tweets/search/recent
@@ -45,11 +54,16 @@ class _SlidingWindowLimiter:
         self._calls = calls
         self._window = window_seconds
         self._timestamps: list[float] = []
-        self._lock = asyncio.Lock()
+        self._lock: asyncio.Lock | None = None
+
+    def _get_lock(self) -> asyncio.Lock:
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
 
     async def acquire(self) -> None:
         wait = 0.0
-        async with self._lock:
+        async with self._get_lock():
             now = time.monotonic()
             self._timestamps = [t for t in self._timestamps if now - t < self._window]
             if len(self._timestamps) >= self._calls:
@@ -60,13 +74,65 @@ class _SlidingWindowLimiter:
             await asyncio.sleep(wait)
 
         # Record timestamp after waiting
-        async with self._lock:
+        async with self._get_lock():
             self._timestamps.append(time.monotonic())
 
 
 # Module-level rate limiters shared across all scanner functions
 _x_api_limiter = _SlidingWindowLimiter(calls=300, window_seconds=900)   # X: 300/15 min
 _grok_limiter = _SlidingWindowLimiter(calls=60, window_seconds=60)       # Grok: 60/min (conservative)
+
+
+class _CircuitBreaker:
+    """Trips open after N consecutive failures; skips requests for a cooldown period.
+
+    States: CLOSED (normal) → OPEN (tripped, rejecting) → HALF_OPEN (testing one request)
+    """
+
+    def __init__(self, name: str, failure_threshold: int = 3, cooldown_seconds: float = 120.0):
+        self.name = name
+        self._failure_threshold = failure_threshold
+        self._cooldown = cooldown_seconds
+        self._consecutive_failures = 0
+        self._last_failure_time: float = 0.0
+        self._state = "closed"  # closed | open | half_open
+
+    @property
+    def is_open(self) -> bool:
+        if self._state == "closed":
+            return False
+        if self._state == "open":
+            # Check if cooldown has passed → transition to half_open
+            if time.monotonic() - self._last_failure_time >= self._cooldown:
+                self._state = "half_open"
+                log.info(f"Circuit breaker [{self.name}]: HALF_OPEN — allowing test request")
+                return False
+            return True
+        return False  # half_open allows one request through
+
+    def record_success(self) -> None:
+        if self._state != "closed":
+            log.info(f"Circuit breaker [{self.name}]: CLOSED — service recovered")
+        self._consecutive_failures = 0
+        self._state = "closed"
+
+    def record_failure(self) -> None:
+        self._consecutive_failures += 1
+        self._last_failure_time = time.monotonic()
+        if self._consecutive_failures >= self._failure_threshold:
+            if self._state != "open":
+                log.warning(
+                    f"Circuit breaker [{self.name}]: OPEN — "
+                    f"{self._consecutive_failures} consecutive failures, "
+                    f"cooling down for {self._cooldown}s"
+                )
+            self._state = "open"
+
+
+# Circuit breakers for external services
+_x_api_breaker = _CircuitBreaker("X-API", failure_threshold=3, cooldown_seconds=120)
+_grok_breaker = _CircuitBreaker("Grok", failure_threshold=3, cooldown_seconds=60)
+_twscrape_breaker = _CircuitBreaker("twscrape", failure_threshold=5, cooldown_seconds=300)
 
 # Shared HTTP client — reused across all scanner calls to avoid connection pool exhaustion.
 # Lazily created; call close_scanner_client() on shutdown.
@@ -222,9 +288,24 @@ async def full_sweep(
     trending = await scan_trending(since)
     results["trending"] = trending
 
+    # ── Cross-vector deduplication ─────────────────────────────────
+    # A post from a tracked account may also match a keyword search.
+    # Deduplicate by post_id, keeping the first occurrence.
+    seen_ids: set[str] = set()
+    pre_dedup = sum(len(v) for v in results.values())
+    for key in ("accounts", "keywords", "trending"):
+        deduped: list[XPost] = []
+        for post in results[key]:
+            pid = post.post_id
+            if pid.startswith("grok-") or pid not in seen_ids:
+                # Always keep Grok posts (synthetic IDs, can't dedup)
+                seen_ids.add(pid)
+                deduped.append(post)
+        results[key] = deduped
+
     total = sum(len(v) for v in results.values())
     log.info(
-        f"Full sweep complete: {total} posts "
+        f"Full sweep complete: {total} posts (deduped from {pre_dedup}) "
         f"({len(results['accounts'])} from accounts, "
         f"{len(results['keywords'])} from keywords, "
         f"{len(results['trending'])} from trending)"
@@ -241,6 +322,19 @@ def _twscrape_available() -> bool:
         return False
 
 
+# Reuse a single twscrape API instance to avoid per-call SQLite connection overhead
+_twscrape_api: Optional[object] = None
+
+
+def _get_twscrape_api():
+    """Return shared twscrape API instance (lazy-init)."""
+    global _twscrape_api
+    if _twscrape_api is None:
+        from twscrape import API
+        _twscrape_api = API()
+    return _twscrape_api
+
+
 async def scan_account(
     handle: str,
     since: datetime,
@@ -249,23 +343,35 @@ async def scan_account(
     """Scan a specific X account for recent posts.
 
     Fallback chain: X API v2 → twscrape → Grok
+    Circuit breakers skip services that are consistently failing.
     """
 
     # Try X API v2 first (structured, reliable with Bearer Token)
-    if X_BEARER_TOKEN:
+    if _get_x_bearer_token() and not _x_api_breaker.is_open:
         posts = await _scan_account_api(handle, since, max_posts)
         if posts:
+            _x_api_breaker.record_success()
             return posts
+        else:
+            _x_api_breaker.record_failure()
 
     # Fallback 2: twscrape (no API key needed, uses logged-in accounts)
-    if _twscrape_available():
+    if _twscrape_available() and not _twscrape_breaker.is_open:
         posts = await _scan_account_twscrape(handle, since, max_posts)
         if posts:
+            _twscrape_breaker.record_success()
             return posts
+        else:
+            _twscrape_breaker.record_failure()
 
     # Fallback 3: Grok for X intelligence
-    if XAI_API_KEY:
-        return await _scan_account_grok(handle, since, max_posts)
+    if _get_xai_api_key() and not _grok_breaker.is_open:
+        posts = await _scan_account_grok(handle, since, max_posts)
+        if posts:
+            _grok_breaker.record_success()
+        else:
+            _grok_breaker.record_failure()
+        return posts
 
     log.warning(f"No X API, twscrape, or Grok key — cannot scan @{handle}")
     return []
@@ -279,20 +385,32 @@ async def search_keyword(
     """Search X for posts matching a keyword/hashtag.
 
     Fallback chain: X API v2 → twscrape → Grok
+    Circuit breakers skip services that are consistently failing.
     """
 
-    if X_BEARER_TOKEN:
+    if _get_x_bearer_token() and not _x_api_breaker.is_open:
         posts = await _search_keyword_api(keyword, since, max_posts)
         if posts:
+            _x_api_breaker.record_success()
             return posts
+        else:
+            _x_api_breaker.record_failure()
 
-    if _twscrape_available():
+    if _twscrape_available() and not _twscrape_breaker.is_open:
         posts = await _search_keyword_twscrape(keyword, since, max_posts)
         if posts:
+            _twscrape_breaker.record_success()
             return posts
+        else:
+            _twscrape_breaker.record_failure()
 
-    if XAI_API_KEY:
-        return await _search_keyword_grok(keyword, since, max_posts)
+    if _get_xai_api_key() and not _grok_breaker.is_open:
+        posts = await _search_keyword_grok(keyword, since, max_posts)
+        if posts:
+            _grok_breaker.record_success()
+        else:
+            _grok_breaker.record_failure()
+        return posts
 
     log.warning(f"No X API, twscrape, or Grok key — cannot search '{keyword}'")
     return []
@@ -301,17 +419,26 @@ async def search_keyword(
 async def scan_trending(since: datetime) -> list[XPost]:
     """Get posts from trending topics in configured categories.
 
-    Fallback chain: X API v2 → twscrape → Grok
+    Fallback chain: X API v2 → Grok (twscrape has no trending endpoint)
+    Circuit breakers skip services that are consistently failing.
     """
 
-    if X_BEARER_TOKEN:
+    if _get_x_bearer_token() and not _x_api_breaker.is_open:
         posts = await _scan_trending_api(since)
         if posts:
+            _x_api_breaker.record_success()
             return posts
+        else:
+            _x_api_breaker.record_failure()
 
     # twscrape doesn't have a trending endpoint — skip to Grok
-    if XAI_API_KEY:
-        return await _scan_trending_grok(since)
+    if _get_xai_api_key() and not _grok_breaker.is_open:
+        posts = await _scan_trending_grok(since)
+        if posts:
+            _grok_breaker.record_success()
+        else:
+            _grok_breaker.record_failure()
+        return posts
 
     log.warning("No X API or Grok key — cannot scan trending")
     return []
@@ -336,7 +463,7 @@ async def _scan_account_api(
         await _x_api_limiter.acquire()
         user_resp = await client.get(
             f"https://api.twitter.com/2/users/by/username/{handle}",
-            headers={"Authorization": f"Bearer {X_BEARER_TOKEN}"},
+            headers={"Authorization": f"Bearer {_get_x_bearer_token()}"},
         )
         user_resp.raise_for_status()
         user_id = user_resp.json()["data"]["id"]
@@ -347,7 +474,7 @@ async def _scan_account_api(
         since_str = since.strftime("%Y-%m-%dT%H:%M:%SZ")
         tweets_resp = await client.get(
             f"https://api.twitter.com/2/users/{user_id}/tweets",
-            headers={"Authorization": f"Bearer {X_BEARER_TOKEN}"},
+            headers={"Authorization": f"Bearer {_get_x_bearer_token()}"},
             params={
                 "max_results": min(max_posts, 100),
                 "start_time": since_str,
@@ -408,7 +535,7 @@ async def _search_keyword_api(
         client = await _get_shared_client()
         resp = await client.get(
             "https://api.twitter.com/2/tweets/search/recent",
-            headers={"Authorization": f"Bearer {X_BEARER_TOKEN}"},
+            headers={"Authorization": f"Bearer {_get_x_bearer_token()}"},
             params={
                 "query": f"{keyword} -is:retweet lang:en",
                 "max_results": min(max_posts, 100),
@@ -455,15 +582,31 @@ async def _search_keyword_api(
         return []
 
 
+# Configurable trending proxy queries — used when X API v2 trending
+# endpoint is unavailable (requires elevated access).  Override via
+# X_COUNCIL_TRENDING_QUERIES env var (comma-separated).
+DEFAULT_TRENDING_QUERIES: list[str] = [
+    "AI agent",
+    "prediction market Polymarket",
+    "geopolitical risk",
+    "game dev indie",
+    "breaking news markets",
+    "crypto regulation",
+]
+
+
+def get_trending_queries() -> list[str]:
+    """Get trending proxy queries from env or defaults."""
+    env_val = os.getenv("X_COUNCIL_TRENDING_QUERIES", "")
+    if env_val:
+        return [q.strip() for q in env_val.split(",") if q.strip()]
+    return DEFAULT_TRENDING_QUERIES
+
+
 async def _scan_trending_api(since: datetime) -> list[XPost]:
     """Scan trending topics via X API v2. Returns top posts from trends."""
     # X API v2 trending endpoint requires elevated access — use search as proxy
-    trending_queries = [
-        "AI agent",
-        "prediction market Polymarket",
-        "geopolitical",
-        "game dev indie",
-    ]
+    trending_queries = get_trending_queries()
     posts: list[XPost] = []
     for query in trending_queries:
         batch = await _search_keyword_api(query, since, max_posts=20)
@@ -480,12 +623,12 @@ async def _scan_account_twscrape(
 ) -> list[XPost]:
     """Scan account using twscrape (no API key, uses logged-in pool)."""
     try:
-        from twscrape import API, gather as tw_gather
+        from twscrape import gather as tw_gather
     except ImportError:
         return []
 
     try:
-        api = API()
+        api = _get_twscrape_api()
         # twscrape user_tweets wants a user ID — look up first
         user = await api.user_by_login(handle)
         if not user:
@@ -535,12 +678,12 @@ async def _search_keyword_twscrape(
 ) -> list[XPost]:
     """Search using twscrape."""
     try:
-        from twscrape import API, gather as tw_gather
+        from twscrape import gather as tw_gather
     except ImportError:
         return []
 
     try:
-        api = API()
+        api = _get_twscrape_api()
         since_str = since.strftime("%Y-%m-%d")
         query = f"{keyword} since:{since_str} lang:en"
         tweets = await tw_gather(api.search(query, limit=max_posts))
@@ -590,7 +733,7 @@ async def _scan_account_grok(
         resp = await client.post(
             "https://api.x.ai/v1/chat/completions",
             headers={
-                "Authorization": f"Bearer {XAI_API_KEY}",
+                "Authorization": f"Bearer {_get_xai_api_key()}",
                 "Content-Type": "application/json",
             },
             json={
@@ -631,7 +774,7 @@ async def _search_keyword_grok(
         resp = await client.post(
             "https://api.x.ai/v1/chat/completions",
             headers={
-                "Authorization": f"Bearer {XAI_API_KEY}",
+                "Authorization": f"Bearer {_get_xai_api_key()}",
                 "Content-Type": "application/json",
             },
             json={
@@ -667,7 +810,7 @@ async def _scan_trending_grok(since: datetime) -> list[XPost]:
         resp = await client.post(
             "https://api.x.ai/v1/chat/completions",
             headers={
-                "Authorization": f"Bearer {XAI_API_KEY}",
+                "Authorization": f"Bearer {_get_xai_api_key()}",
                 "Content-Type": "application/json",
             },
             json={
@@ -694,13 +837,36 @@ def _parse_grok_posts(text: str, default_handle: str) -> list[XPost]:
 
     Grok doesn't return structured data, so we extract what we can.
     The analysis layer will make sense of the content regardless.
+
+    Hardened: filters boilerplate lines, validates handle extraction,
+    caps output at 20 posts to avoid noise flood from verbose Grok responses.
     """
+    import re
+
     posts: list[XPost] = []
     now = datetime.now(timezone.utc).isoformat()
 
-    for i, line in enumerate(text.split("\n")):
+    # Skip common Grok preamble/disclaimer patterns
+    skip_patterns = [
+        r"^(here|below|i found|i'll|let me|sure|okay|certainly)",
+        r"^(note:|disclaimer:|caveat:)",
+        r"^(---+|===+|\*\*\*+)",
+    ]
+    skip_re = re.compile("|".join(skip_patterns), re.IGNORECASE)
+
+    # Valid X handle: 1-15 alphanumeric + underscore chars
+    handle_re = re.compile(r"^[A-Za-z0-9_]{1,15}$")
+
+    for line in text.split("\n"):
+        if len(posts) >= 20:  # Cap at 20 posts per Grok parse
+            break
+
         line = line.strip()
-        if not line or len(line) < 20:
+        if not line or len(line) < 25:
+            continue
+
+        # Skip boilerplate
+        if skip_re.match(line):
             continue
 
         # Try to extract handle
@@ -709,7 +875,7 @@ def _parse_grok_posts(text: str, default_handle: str) -> list[XPost]:
             parts = line.split("@")
             for part in parts[1:]:
                 candidate = part.split(":")[0].split(" ")[0].split("|")[0].strip()
-                if candidate and candidate.isidentifier():
+                if candidate and handle_re.match(candidate):
                     handle = candidate
                     break
 
@@ -717,15 +883,26 @@ def _parse_grok_posts(text: str, default_handle: str) -> list[XPost]:
         likes = _extract_number(line, ["LIKES:", "likes:", "❤️", "♥"])
         rts = _extract_number(line, ["RTs:", "retweets:", "🔁", "RT:"])
 
+        # Extract actual content (strip format prefixes)
+        content = line
+        for prefix in ["POST:", "TREND:", f"@{handle}:"]:
+            if content.startswith(prefix):
+                content = content[len(prefix):].strip()
+                break
+        # Strip trailing engagement markers
+        if "|" in content:
+            content = content.split("|")[0].strip()
+
         posts.append(XPost(
             post_id=f"grok-{uuid.uuid4().hex[:12]}",
             author_handle=handle,
             author_name=handle,
-            text=line[:500],
+            text=content[:500],
             created_at=now,
-            url="",  # Grok doesn't provide direct URLs reliably
+            url="",  # Grok doesn't provide direct URLs
             like_count=likes,
             retweet_count=rts,
+            synthetic=True,  # Grok-generated data — engagement numbers are approximate
         ))
 
     return posts

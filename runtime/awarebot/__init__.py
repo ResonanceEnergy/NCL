@@ -2,5 +2,6 @@
 
 from .scanner import Scanner
 from .predictor import FuturePredictor
+from .agent import Awarebot, Signal
 
-__all__ = ["Scanner", "FuturePredictor"]
+__all__ = ["Awarebot", "Signal", "Scanner", "FuturePredictor"]

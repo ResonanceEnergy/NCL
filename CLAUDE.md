@@ -40,12 +40,12 @@ NCL/
 │   ├── LOG.md (handoff log)
 │   ├── sources.md (X, YouTube, Reddit subscriptions)
 │   ├── alerts/ (real-time anomalies from Awarebot-FPC)
-│   ├── signals/ (processed intelligence)
+│   ├── signals/ (processed intelligence — unified SignalProcessor output)
 │   └── council-reports/ (YouTube + X council output: .md + .json)
 ├── memory-processing/
 │   ├── LOG.md (handoff log)
-│   ├── long-term/ (institutional knowledge)
-│   ├── working/ (current context)
+│   ├── long-term/ (institutional knowledge — MemoryStore, 10K units, ChromaDB)
+│   ├── working/ (current context — 6am assembly, noon refresh, 11pm EOD)
 │   └── decay/ (archived, low-confidence memories)
 ├── feedback-synthesis/
 │   ├── LOG.md (handoff log)
@@ -54,7 +54,9 @@ NCL/
 │   ├── aac-reports/ (capital performance)
 │   └── synthesis/ (integrated interpretation)
 ├── runtime/
-│   └── councils/ (YouTube + X intelligence council engines)
+│   ├── councils/ (YouTube + X intelligence council engines)
+│   ├── journal/ (daily journal store — JSONL persistence, 9 entry types)
+│   └── scheduler/ (15 autonomous background loops)
 └── shared/
     ├── doctrine/
     │   ├── active-mandates.md
@@ -73,6 +75,59 @@ NCL/
 
 ---
 
+## Runtime System
+
+NCL Brain API runs as a **FastAPI service on port 8800** (Mac Studio M1 Ultra 64GB, Tailscale IP 100.72.223.123) with 176+ endpoints across 20 categories. The runtime layer is autonomous and persistent.
+
+### API Endpoint Categories
+Health, Pump (Strike Point), Council (v1+v2 runner), Mandates, Memory (14 endpoints, ChromaDB vector search), Intelligence (24 endpoints), Autonomous (9 endpoints), Chat, LDE (10 endpoints), Governance (11 endpoints), Telemetry, Availability, Evaluation, Review Queue, UNI Research, Deployment, Swarm, Shortcuts, Search, Notifications SSE, Dashboard/PWA, Feedback, Journal (15 endpoints)
+
+### Autonomous Scheduler — 15 Background Loops
+| # | Loop | Cadence |
+|---|------|---------|
+| 1 | Scanner (Awarebot) — X + YouTube | X: 5m, YT: 10m |
+| 2 | Prediction Engine — ensemble multi-model forecasting | continuous |
+| 3 | Council Auto-Spawn — 3+ converging signals or 4hr strategic review | event-driven |
+| 4 | Memory Consolidation — decay + prune + cluster + merge | 1hr |
+| 5 | AAC War Room Sync | 15m |
+| 6 | Workspace Health | 30m |
+| 7 | Mandate Purge | 6hr |
+| 8 | Feedback Synthesis | 5m |
+| 9 | Heartbeat | 60s |
+| 10 | Working Context — assembly, refresh, EOD | 6am / noon / 11pm |
+| 11 | Intel Collection — Google Trends, Polymarket, News, Crypto, Options, Reddit | continuous |
+| 12 | Intel Brief — LLM-synthesized briefs with push to iPhone | on collect |
+| 13 | Morning Brief | 6am ET daily |
+| 14 | Weekly Strategy Review | 7-day cycle |
+| 15 | Journal Reflection — LLM synthesis | 10pm ET daily |
+
+### Signal Processing
+Unified **SignalProcessor** pipeline: normalize → dedup → rank → route to 5 destinations:
+- Memory store (score ≥ 50)
+- Working context (score ≥ 75)
+- Push notification to iPhone (score ≥ 80)
+- Prediction buffer
+- JSONL archive
+
+### Memory System
+**MemoryStore**: 10K unit capacity, ChromaDB vector search, exponential decay, tag-based clustering, reader-writer locking, file compaction at 200MB.
+
+### Journal System
+Full daily journal with 9 entry types: `note`, `research`, `decision`, `technique`, `observation`, `reflection`, `question`, `lesson`, `best_practice`.
+- **JournalStore**: JSONL persistence, full-text search, tag filtering
+- **ReflectionEngine**: LLM synthesis at 10pm ET daily
+- **ContextAwareTips**: builtin + personal tips library
+- **Memory bridge**: entries → MemoryStore
+- **Context injection**: entries with importance ≥ 60 → WorkingContext
+
+### Council System
+Multi-LLM debate engine with mandate extraction, governance pipeline, v2 runner with RAG + replay.
+
+### Governance
+PolicyKernel, Emergency Stop, mandate approval gates.
+
+---
+
 ## Routing Table
 
 | Task Type | Workspace | Trigger | Output |
@@ -81,9 +136,13 @@ NCL/
 | Council run | mandate-generation/council | `council` keyword | deliberation log + decision |
 | Research request | research-pipeline/queue | `research` keyword | research plan → UNI execution |
 | Intelligence scan | intelligence-scan/alerts | `scan` keyword + cron | signal report |
+| Signal processing | intelligence-scan/signals | auto (SignalProcessor) | routed to memory/context/push/JSONL |
 | Memory recall | memory-processing/working | `recall` keyword | context brief |
+| Journal entry | runtime/journal/ | `journal` keyword | JSONL record + optional memory bridge |
+| Journal reflection | runtime/journal/ | 10pm ET cron | LLM synthesis → WorkingContext |
 | Feedback processing | feedback-synthesis | `feedback` keyword | mandate adjustments |
 | Mandate status | shared/doctrine/active-mandates.md | `status` keyword | current state table |
+| Autonomous task | runtime/scheduler/ | cron / event-driven | per-loop output |
 
 ---
 
@@ -97,6 +156,9 @@ NCL/
 - `recall` — Retrieve institutional memory
 - `feedback` — Process downstream reports + adjust mandates
 - `research` — Dispatch to UNI research cortex
+- `journal` — Create/query daily journal entries
+- `predict` — Trigger prediction engine ensemble run
+- `brief` — Request intelligence or morning brief
 
 ---
 
@@ -107,6 +169,7 @@ NCL registers as a **company** in Paperclip with sub-divisions as **agents**:
 - **Awarebot-FPC** — Intelligence scanner + predictor agent (X/YouTube/Reddit + ensemble forecasting)
 - **Strategy & Doctrine** — Mandate generation agent (turns council output into directives)
 - **Memory & Context** — Institutional memory agent (long-term storage + decay management)
+- **Journal & Reflection** — Daily synthesis agent (entry logging, 10pm reflection, context injection)
 
 **Mandate Approval Gates**: Mandates flow from council → Strategy agent → Paperclip issue creation → approval queue → NCC execution
 **Feedback Audit Log**: All feedback reports logged in Paperclip activities with synthesis notes
@@ -129,6 +192,16 @@ Feedback ↑ (interpreted only, never raw data)
 ```
 
 **Key Rule**: Only NCL updates doctrine, mandates, roadmaps, and context files. NCC/BRS/AAC never set strategy—only execute work orders.
+
+---
+
+## Infrastructure
+
+- **Host**: Mac Studio M1 Ultra 64GB
+- **Tailscale IP**: 100.72.223.123
+- **Brain API port**: 8800 (FastAPI, 176+ endpoints)
+- **Relay port**: 8787 (fire-and-forget pump delivery)
+- **FirstStrike iOS**: 72+ commands across 9 categories, Brain Direct + Relay dual-mode
 
 ---
 

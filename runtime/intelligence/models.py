@@ -211,7 +211,10 @@ class IntelBrief(BaseModel):
                 name = t.get("term", t.get("title", ""))
                 score = t.get("score", t.get("change_pct", ""))
                 direction = t.get("direction", "")
+                content = t.get("content", t.get("description", ""))
                 lines.append(f"  {name:30s}  {direction:12s}  {score}")
+                if content:
+                    lines.append(f"    → {str(content)[:200]}")
             lines.append("")
 
         if self.predictions:

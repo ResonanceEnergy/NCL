@@ -114,6 +114,7 @@ class XPost:
     hashtags: list[str] = field(default_factory=list)
     mentioned_users: list[str] = field(default_factory=list)
     thread_id: Optional[str] = None
+    synthetic: bool = False  # True when data is AI-generated (e.g. Grok fallback)
 
 
 @dataclass

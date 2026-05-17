@@ -142,7 +142,9 @@ async def run_war_room_analysis(
     try:
         REPORTS_DIR.mkdir(parents=True, exist_ok=True)
         md_path = REPORTS_DIR / f"WAR_ROOM_BRIEFING_{date_str}-{session_id}.md"
-        md_path.write_text(briefing, encoding="utf-8")
+        md_tmp = md_path.with_suffix(".md.tmp")
+        md_tmp.write_text(briefing, encoding="utf-8")
+        md_tmp.replace(md_path)
         log.info(f"War Room briefing saved → {md_path}")
     except OSError as e:
         log.error(f"Failed to save War Room briefing: {e}")
@@ -159,7 +161,9 @@ async def run_war_room_analysis(
             "briefing_length": len(briefing),
             "generated_at": datetime.now(timezone.utc).isoformat(),
         }
-        json_path.write_text(json.dumps(war_room_data, indent=2))
+        json_tmp = json_path.with_suffix(".json.tmp")
+        json_tmp.write_text(json.dumps(war_room_data, indent=2))
+        json_tmp.replace(json_path)
     except OSError as e:
         log.warning(f"Failed to save War Room JSON summary: {e}")
 
@@ -284,10 +288,13 @@ async def _try_xai(prompt: str) -> Optional[str]:
 async def _try_ollama(prompt: str) -> Optional[str]:
     """Try local Ollama."""
     try:
-        ollama_host = os.getenv("OLLAMA_HOST", "localhost:11434")
+        raw_host = os.getenv("OLLAMA_HOST", "http://localhost:11434").strip()
+        if not raw_host.startswith(("http://", "https://")):
+            raw_host = f"http://{raw_host}"
+        ollama_url = raw_host.rstrip("/")
         client = await _get_war_room_client()
         resp = await client.post(
-            f"http://{ollama_host}/api/generate",
+            f"{ollama_url}/api/generate",
             json={
                 "model": "qwen3:32b",
                 "prompt": f"{WAR_ROOM_SYSTEM_PROMPT}\n\n{prompt}",
@@ -346,7 +353,9 @@ def _extract_and_route_directives(
         "requires_approval": True,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
-    input_file.write_text(json.dumps(mandate_input, indent=2))
+    tmp_file = input_file.with_suffix(".json.tmp")
+    tmp_file.write_text(json.dumps(mandate_input, indent=2))
+    tmp_file.replace(input_file)
     log.info(f"War Room directives routed to mandate input → {input_file.name}")
 
     # Best-effort: also fire-and-forget mandates to brain /mandates
@@ -387,7 +396,7 @@ async def _post_directives_as_mandates(
     created = 0
     async with _httpx.AsyncClient(timeout=10.0) as client:
         for i, directive in enumerate(directives):
-            params = {
+            payload = {
                 "pillar": "aac",
                 "priority": 6,
                 "title": f"WarRoom {date_str} #{i + 1}",
@@ -399,7 +408,7 @@ async def _post_directives_as_mandates(
             }
             try:
                 resp = await client.post(
-                    f"{brain_url}/mandates", params=params, headers=headers
+                    f"{brain_url}/mandates", json=payload, headers=headers
                 )
                 if resp.status_code in (200, 201):
                     created += 1
@@ -453,21 +462,25 @@ def _route_to_aac_war_room(
     # Save to AAC intelligence directory (if it exists)
     if AAC_WAR_ROOM_DIR.exists():
         aac_file = AAC_WAR_ROOM_DIR / f"council-intel-{date_str}-{session_id}.json"
-        aac_file.write_text(json.dumps({
+        aac_tmp = aac_file.with_suffix(".json.tmp")
+        aac_tmp.write_text(json.dumps({
             "source": "ncl_intelligence_councils",
             "session_id": session_id,
             "date": date_str,
             "signals": relevant_insights,
             "signal_count": len(relevant_insights),
         }, indent=2))
+        aac_tmp.replace(aac_file)
         log.info(f"Routed {len(relevant_insights)} signals to AAC War Room → {aac_file.name}")
     else:
         log.info(f"AAC War Room dir not found ({AAC_WAR_ROOM_DIR}) — skipping AAC routing")
         # Still save locally so it can be picked up later
         local_path = REPORTS_DIR / f"aac-relay-{date_str}-{session_id}.json"
-        local_path.write_text(json.dumps({
+        local_tmp = local_path.with_suffix(".json.tmp")
+        local_tmp.write_text(json.dumps({
             "pending_relay": True,
             "target": "AAC War Room",
             "signals": relevant_insights,
         }, indent=2))
+        local_tmp.replace(local_path)
         log.info(f"Saved AAC relay locally → {local_path.name}")

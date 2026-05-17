@@ -1,12 +1,249 @@
 {
   "version": "1.0",
   "created_at": "2026-04-15T09:14:46.870434Z",
-  "last_updated": "2026-04-15T09:14:46.870445Z",
+  "last_updated": "2026-05-16T14:38:19.372700Z",
   "urls_processed": 0,
   "total_insights_extracted": 0,
-  "core_rules": [],
-  "active_signals": [],
-  "monitored_trends": [],
+  "core_rules": [
+    {
+      "rule_id": "rule-d6f16136",
+      "title": "Macro Regime Awareness",
+      "description": "Monitor Federal Reserve policy signals, Treasury yields, and inflation data. Rate decisions and forward guidance shift risk appetite across all asset classes. Track 10Y/2Y spread for recession signals.",
+      "category": "macro",
+      "strength": 8.0,
+      "status": "active",
+      "supporting_insights": [],
+      "contradicting_insights": [],
+      "created_at": "2026-05-16T14:38:19.372586Z",
+      "updated_at": "2026-05-16T14:38:19.372588Z",
+      "expires_at": null,
+      "tickers": [
+        "TLT",
+        "SPY",
+        "QQQ"
+      ],
+      "action": "Adjust position sizing based on rate environment. Risk-off when yield curve inverts."
+    },
+    {
+      "rule_id": "rule-47aa7fac",
+      "title": "Geopolitical Risk Premium",
+      "description": "Track geopolitical flashpoints (trade wars, military conflicts, sanctions) that create supply chain disruption and energy price shocks. Middle East tensions directly impact oil and shipping costs.",
+      "category": "geopolitical",
+      "strength": 7.0,
+      "status": "active",
+      "supporting_insights": [],
+      "contradicting_insights": [],
+      "created_at": "2026-05-16T14:38:19.372599Z",
+      "updated_at": "2026-05-16T14:38:19.372600Z",
+      "expires_at": null,
+      "tickers": [
+        "USO",
+        "XLE",
+        "GLD"
+      ],
+      "action": "Increase gold and energy exposure during geopolitical escalation. Reduce tech on supply chain risks."
+    },
+    {
+      "rule_id": "rule-24e354aa",
+      "title": "Sentiment Divergence Alpha",
+      "description": "When retail sentiment (Reddit, X) diverges significantly from institutional positioning (13F, dark pool data), mean reversion creates trading opportunities. Extreme fear = buy signal, extreme greed = reduce exposure.",
+      "category": "sentiment",
+      "strength": 7.5,
+      "status": "active",
+      "supporting_insights": [],
+      "contradicting_insights": [],
+      "created_at": "2026-05-16T14:38:19.372608Z",
+      "updated_at": "2026-05-16T14:38:19.372609Z",
+      "expires_at": null,
+      "tickers": [],
+      "action": "Track sentiment indicators. Enter contrarian positions when divergence exceeds 2 standard deviations."
+    },
+    {
+      "rule_id": "rule-384461bf",
+      "title": "AI Infrastructure Secular Trend",
+      "description": "AI/ML infrastructure buildout is a multi-year capex cycle. Track hyperscaler spending, chip demand, data center construction, and energy requirements. Companies enabling AI infrastructure have structural tailwinds.",
+      "category": "tech",
+      "strength": 8.5,
+      "status": "active",
+      "supporting_insights": [],
+      "contradicting_insights": [],
+      "created_at": "2026-05-16T14:38:19.372615Z",
+      "updated_at": "2026-05-16T14:38:19.372616Z",
+      "expires_at": null,
+      "tickers": [
+        "NVDA",
+        "AVGO",
+        "MSFT",
+        "GOOGL"
+      ],
+      "action": "Maintain long-term core position in AI infrastructure leaders. Add on pullbacks of >15%."
+    },
+    {
+      "rule_id": "rule-10988f9a",
+      "title": "Crypto Correlation Regime",
+      "description": "Monitor Bitcoin correlation with risk assets. In risk-on regimes, BTC trades as a high-beta tech proxy. In liquidity crises, it correlates with equities. Track BTC dominance for altcoin rotation signals.",
+      "category": "correlation",
+      "strength": 6.5,
+      "status": "active",
+      "supporting_insights": [],
+      "contradicting_insights": [],
+      "created_at": "2026-05-16T14:38:19.372625Z",
+      "updated_at": "2026-05-16T14:38:19.372626Z",
+      "expires_at": null,
+      "tickers": [
+        "BTC",
+        "ETH"
+      ],
+      "action": "Size crypto exposure relative to overall portfolio risk. Reduce when BTC/SPX correlation exceeds 0.7."
+    },
+    {
+      "rule_id": "rule-1647a53f",
+      "title": "Earnings Revision Momentum",
+      "description": "Companies with positive earnings revision trends (analysts raising estimates) outperform. Track earnings surprise patterns and forward guidance changes for sector rotation signals.",
+      "category": "company",
+      "strength": 6.0,
+      "status": "active",
+      "supporting_insights": [],
+      "contradicting_insights": [],
+      "created_at": "2026-05-16T14:38:19.372639Z",
+      "updated_at": "2026-05-16T14:38:19.372640Z",
+      "expires_at": null,
+      "tickers": [],
+      "action": "Overweight sectors with positive revision breadth. Avoid stocks with 3+ consecutive estimate cuts."
+    },
+    {
+      "rule_id": "rule-4070967b",
+      "title": "Regulatory Disruption Watch",
+      "description": "Monitor regulatory actions (antitrust, data privacy, financial regulation) that can rapidly repruce sector valuations. Track legislative calendars and enforcement actions.",
+      "category": "regulatory",
+      "strength": 5.5,
+      "status": "active",
+      "supporting_insights": [],
+      "contradicting_insights": [],
+      "created_at": "2026-05-16T14:38:19.372645Z",
+      "updated_at": "2026-05-16T14:38:19.372646Z",
+      "expires_at": null,
+      "tickers": [
+        "META",
+        "GOOGL",
+        "AMZN"
+      ],
+      "action": "Reduce position sizing in companies facing active regulatory proceedings. Hedge with sector puts."
+    },
+    {
+      "rule_id": "rule-90cb3dd8",
+      "title": "Sector Rotation via Relative Strength",
+      "description": "Track sector ETF relative strength vs SPY on 20/50/200 day moving averages. Leading sectors in rate-cutting cycles: growth, tech, small caps. Leading in tightening: value, energy, utilities.",
+      "category": "sector",
+      "strength": 6.5,
+      "status": "active",
+      "supporting_insights": [],
+      "contradicting_insights": [],
+      "created_at": "2026-05-16T14:38:19.372652Z",
+      "updated_at": "2026-05-16T14:38:19.372652Z",
+      "expires_at": null,
+      "tickers": [
+        "XLK",
+        "XLF",
+        "XLE",
+        "XLU",
+        "XLV"
+      ],
+      "action": "Rotate into sectors showing rising relative strength. Exit sectors breaking below 200-day RS line."
+    }
+  ],
+  "active_signals": [
+    {
+      "signal_id": "sig-eeef8258",
+      "name": "Treasury Yield Curve",
+      "description": "Monitor 10Y-2Y spread for recession/expansion signals",
+      "category": "macro",
+      "direction": "neutral",
+      "strength": 7.0,
+      "tickers": [
+        "TLT",
+        "SHY"
+      ],
+      "first_seen": "2026-05-16T14:38:19.372664Z",
+      "last_confirmed": "2026-05-16T14:38:19.372664Z",
+      "confirmation_count": 1,
+      "source_insights": []
+    },
+    {
+      "signal_id": "sig-a876b649",
+      "name": "VIX Regime",
+      "description": "Track VIX levels and term structure for volatility regime changes",
+      "category": "technical",
+      "direction": "neutral",
+      "strength": 6.0,
+      "tickers": [
+        "VIX",
+        "UVXY"
+      ],
+      "first_seen": "2026-05-16T14:38:19.372672Z",
+      "last_confirmed": "2026-05-16T14:38:19.372672Z",
+      "confirmation_count": 1,
+      "source_insights": []
+    },
+    {
+      "signal_id": "sig-1d5d2da4",
+      "name": "USD Strength Index",
+      "description": "Dollar strength impacts emerging markets, commodities, and multinational earnings",
+      "category": "macro",
+      "direction": "neutral",
+      "strength": 5.5,
+      "tickers": [
+        "UUP",
+        "DXY"
+      ],
+      "first_seen": "2026-05-16T14:38:19.372677Z",
+      "last_confirmed": "2026-05-16T14:38:19.372678Z",
+      "confirmation_count": 1,
+      "source_insights": []
+    }
+  ],
+  "monitored_trends": [
+    {
+      "trend_id": "trend-f16ac393",
+      "name": "AI Infrastructure Buildout",
+      "description": "Multi-year capex cycle in data centers, chips, and energy for AI workloads",
+      "category": "tech",
+      "direction": "accelerating",
+      "confidence": 8.0,
+      "tickers": [
+        "NVDA",
+        "AVGO",
+        "MSFT"
+      ],
+      "sectors": [
+        "semiconductors",
+        "cloud",
+        "data-centers"
+      ],
+      "data_points": 50,
+      "first_detected": "2026-05-16T14:38:19.372688Z",
+      "last_updated": "2026-05-16T14:38:19.372689Z",
+      "watch_triggers": []
+    },
+    {
+      "trend_id": "trend-eb034d39",
+      "name": "De-globalization Supply Chain Shift",
+      "description": "Nearshoring and friend-shoring trends creating new winners in manufacturing and logistics",
+      "category": "geopolitical",
+      "direction": "emerging",
+      "confidence": 6.5,
+      "tickers": [],
+      "sectors": [
+        "industrials",
+        "logistics",
+        "manufacturing"
+      ],
+      "data_points": 15,
+      "first_detected": "2026-05-16T14:38:19.372696Z",
+      "last_updated": "2026-05-16T14:38:19.372696Z",
+      "watch_triggers": []
+    }
+  ],
   "risk_thresholds": [],
   "history": [],
   "top_tickers": [],

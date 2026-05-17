@@ -23,10 +23,8 @@ echo ""
 # Kill existing brain on port 8800 (aggressive — kill parent reloader too)
 echo -e "${YELLOW}Stopping existing brain on :8800...${NC}"
 for pid in $(lsof -ti :8800 2>/dev/null); do
-    kill -9 "$pid" 2>/dev/null || true
-done
     echo -e "  ${YELLOW}Killing PID $pid${NC}"
-    kill -9 $pid 2>/dev/null || true
+    kill -9 "$pid" 2>/dev/null || true
 done
 sleep 3
 # Second pass — catch any reloader respawns
@@ -35,6 +33,24 @@ for pid in $(lsof -ti :8800 2>/dev/null); do
     kill -9 $pid 2>/dev/null || true
 done
 sleep 2
+
+# Ensure Ollama is running (DeepSeek reasoning — free local LLM)
+echo -e "${YELLOW}Ensuring Ollama is running...${NC}"
+if ! curl -s http://localhost:11434/api/tags >/dev/null 2>&1; then
+    echo -e "  ${YELLOW}Starting Ollama...${NC}"
+    nohup ollama serve > "$LOGS/ollama.log" 2>&1 &
+    sleep 3
+fi
+if curl -s http://localhost:11434/api/tags >/dev/null 2>&1; then
+    echo -e "${GREEN}✓ Ollama running${NC}"
+    # Ensure DeepSeek model is pulled
+    if ! ollama list 2>/dev/null | grep -q "deepseek-coder-v2:16b"; then
+        echo -e "  ${YELLOW}Pulling deepseek-coder-v2:16b (first time only)...${NC}"
+        ollama pull deepseek-coder-v2:16b
+    fi
+else
+    echo -e "${RED}✗ Ollama not available — reasoning will use deterministic fallback${NC}"
+fi
 
 # Install new deps (prefer venv; never --break-system-packages)
 echo -e "${YELLOW}Installing intelligence engine deps...${NC}"
@@ -47,7 +63,7 @@ $PYTHON -m pip install httpx pytrends -q 2>/dev/null || true
 # Start brain
 echo -e "${YELLOW}Starting NCL Brain...${NC}"
 cd "$NCL_DIR"
-PYTHONPATH="$NCL_DIR" nohup $PYTHON -m uvicorn runtime.api.routes:app \
+PYTHONPATH="$NCL_DIR" nohup $PYTHON -m uvicorn runtime.api.routes:versioned_app \
     --host 0.0.0.0 --port 8800 --reload \
     > "$LOGS/brain-stdout.log" 2> "$LOGS/brain-stderr.log" &
 

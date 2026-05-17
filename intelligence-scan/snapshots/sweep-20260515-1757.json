@@ -1,0 +1,1948 @@
+{
+  "session_id": "sweep-20260515-1757",
+  "snapshot_at": "2026-05-15T23:57:51.377276+00:00",
+  "source": "/Users/natrix/dev/NCL/data/intelligence/latest_brief.json",
+  "brief": {
+    "brief_id": "de1e62ef-69ee-47ad-a6fc-3635b8cd9734",
+    "timestamp": "2026-05-15T23:49:50.103070Z",
+    "brief_type": "daily",
+    "executive_summary": "**EXECUTIVE SUMMARY - NCL Intelligence Brief**\n\nCrypto markets are experiencing broad-based weakness with all major assets down 1.6-4.3%, led by LINK (-4.3%) and AVAX (-4.0%), while BTC holds relatively better at -2.5% from $79,067 levels. Despite the crypto selloff, options flow signals remain bullish (53% confidence, 50 signals), suggesting institutional positioning may be contrarian to spot price action. Retail sectors show muted activity with neutral sentiment across 340+ signals, indicating consumer discretionary weakness may be spreading beyond digital assets. Monitor for potential reversal signals if options flow bullishness strengthens while crypto continues declining - this divergence could signal an oversold bounce opportunity in risk assets.",
+    "sectors": [
+      {
+        "sector": "retail_general",
+        "direction": "neutral",
+        "signal_count": 282,
+        "avg_confidence": 0.438,
+        "top_signals": [
+          {
+            "signal_id": "a90e95a3-78dd-4a02-935e-3242e18b0155",
+            "source": "reddit",
+            "category": "retail_general",
+            "title": "This is getting ridiculous",
+            "content": "r/StockMarket [Discussion] | Score: 1,290 | Comments: 425 | Ratio: 89%",
+            "direction": "bullish",
+            "value": 1290.0,
+            "change_pct": null,
+            "volume": 425.0,
+            "confidence": 0.85,
+            "url": "https://www.reddit.com/r/StockMarket/comments/1tcaj2l/this_is_getting_ridiculous/",
+            "tags": [
+              "reddit",
+              "stockmarket",
+              "hot",
+              "hot",
+              "flair:discussion"
+            ],
+            "metadata": {
+              "post_id": "t3_1tcaj2l",
+              "subreddit": "StockMarket",
+              "score": 1290,
+              "num_comments": 425,
+              "upvote_ratio": 0.89,
+              "flair": "Discussion",
+              "listing_type": "hot",
+              "strength": "hot",
+              "tickers": [],
+              "alpha_keywords": [],
+              "is_dd": true,
+              "created_utc": 1778701363.0
+            },
+            "timestamp": "2026-05-15T23:48:41.182414Z"
+          },
+          {
+            "signal_id": "9363c645-c6e2-4d71-9b75-9395f72f4613",
+            "source": "reddit",
+            "category": "retail_general",
+            "title": "THE LAST TIME I REMEMBER THIS MUCH FUD AND \"CERTAINTY\"",
+            "content": "r/Superstonk [\ud83e\udd14 Speculation / Opinion] | Score: 499 | Comments: 60 | Ratio: 86% | Keywords: acquisition | Body: Was when RK bought those 5k call blocks. The ENTIRE sub would not stop repeating \"IT'S UBS CLOSING THEIR SHORTS\" - \"they\" knew it was RK, and their full-time job became to keep you from buying a posit...",
+            "direction": "bullish",
+            "value": 499.0,
+            "change_pct": null,
+            "volume": 60.0,
+            "confidence": 0.75,
+            "url": "https://www.reddit.com/r/Superstonk/comments/1tdz59g/the_last_time_i_remember_this_much_fud_and/",
+            "tags": [
+              "reddit",
+              "superstonk",
+              "hot",
+              "warm",
+              "flair:speculation___opinion"
+            ],
+            "metadata": {
+              "post_id": "t3_1tdz59g",
+              "subreddit": "Superstonk",
+              "score": 499,
+              "num_comments": 60,
+              "upvote_ratio": 0.86,
+              "flair": "\ud83e\udd14 Speculation / Opinion",
+              "listing_type": "hot",
+              "strength": "warm",
+              "tickers": [],
+              "alpha_keywords": [
+                "acquisition"
+              ],
+              "is_dd": true,
+              "created_utc": 1778857745.0
+            },
+            "timestamp": "2026-05-15T23:48:41.286589Z"
+          },
+          {
+            "signal_id": "8515d295-23de-4384-9218-e8b22c5ac011",
+            "source": "reddit",
+            "category": "retail_general",
+            "title": "Mysterious alchemy",
+            "content": "r/FluentInFinance [Educational] | Score: 2,077 | Comments: 57 | Ratio: 98%",
+            "direction": "bullish",
+            "value": 2077.0,
+            "change_pct": null,
+            "volume": 57.0,
+            "confidence": 0.7,
+            "url": "https://www.reddit.com/r/FluentInFinance/comments/1td15q2/mysterious_alchemy/",
+            "tags": [
+              "reddit",
+              "fluentinfinance",
+              "hot",
+              "hot",
+              "flair:educational"
+            ],
+            "metadata": {
+              "post_id": "t3_1td15q2",
+              "subreddit": "FluentInFinance",
+              "score": 2077,
+              "num_comments": 57,
+              "upvote_ratio": 0.98,
+              "flair": "Educational",
+              "listing_type": "hot",
+              "strength": "hot",
+              "tickers": [],
+              "alpha_keywords": [],
+              "is_dd": false,
+              "created_utc": 1778771580.0
+            },
+            "timestamp": "2026-05-15T23:48:44.334827Z"
+          },
+          {
+            "signal_id": "de9dfa0b-581e-4752-9194-65359c630295",
+            "source": "reddit",
+            "category": "retail_general",
+            "title": "I received my first payment in BTC (Surgeon)",
+            "content": "r/Bitcoin | Score: 1,114 | Comments: 70 | Ratio: 97%",
+            "direction": "bullish",
+            "value": 1114.0,
+            "change_pct": null,
+            "volume": 70.0,
+            "confidence": 0.7,
+            "url": "https://www.reddit.com/r/Bitcoin/comments/1td1dsj/i_received_my_first_payment_in_btc_surgeon/",
+            "tags": [
+              "reddit",
+              "bitcoin",
+              "hot",
+              "hot"
+            ],
+            "metadata": {
+              "post_id": "t3_1td1dsj",
+              "subreddit": "Bitcoin",
+              "score": 1114,
+              "num_comments": 70,
+              "upvote_ratio": 0.97,
+              "flair": "",
+              "listing_type": "hot",
+              "strength": "hot",
+              "tickers": [],
+              "alpha_keywords": [],
+              "is_dd": false,
+              "created_utc": 1778772030.0
+            },
+            "timestamp": "2026-05-15T23:48:45.691981Z"
+          },
+          {
+            "signal_id": "36afccbe-9317-466a-a2bf-a0140ac32e2c",
+            "source": "reddit",
+            "category": "retail_general",
+            "title": "Everyone keeps yelling \u201cAI bubble just like dotcom/housing\u201d but zero of you can explain why it would actually pop\u2026",
+            "content": "r/stocks [Crystal Ball Post] | Score: 359 | Comments: 875 | Ratio: 63% | Keywords: earnings, catalyst | Body: Cool story. But every single time someone drops the bubble alarm I ask the same question and get\u2026nothing. No catalyst. No mechanism. No \u201chere\u2019s the specific trigger that makes the whole thing unravel....",
+            "direction": "bullish",
+            "value": 359.0,
+            "change_pct": null,
+            "volume": 875.0,
+            "confidence": 0.6,
+            "url": "https://www.reddit.com/r/stocks/comments/1tdm262/everyone_keeps_yelling_ai_bubble_just_like/",
+            "tags": [
+              "reddit",
+              "stocks",
+              "hot",
+              "warm",
+              "flair:crystal_ball_post"
+            ],
+            "metadata": {
+              "post_id": "t3_1tdm262",
+              "subreddit": "stocks",
+              "score": 359,
+              "num_comments": 875,
+              "upvote_ratio": 0.63,
+              "flair": "Crystal Ball Post",
+              "listing_type": "hot",
+              "strength": "warm",
+              "tickers": [],
+              "alpha_keywords": [
+                "earnings",
+                "catalyst"
+              ],
+              "is_dd": false,
+              "created_utc": 1778820640.0
+            },
+            "timestamp": "2026-05-15T23:48:41.085905Z"
+          }
+        ],
+        "summary": "This is getting ridiculous | THE LAST TIME I REMEMBER THIS MUCH FUD AND \"CERTAINTY\" | Mysterious alchemy",
+        "timestamp": "2026-05-15T23:49:43.981506Z"
+      },
+      {
+        "sector": "fda_catalyst",
+        "direction": "neutral",
+        "signal_count": 100,
+        "avg_confidence": 0.476,
+        "top_signals": [
+          {
+            "signal_id": "f1f278d8-0967-4c4d-b34f-3831ef93b3ac",
+            "source": "market_data",
+            "category": "fda_catalyst",
+            "title": "GERN FDA: Top-line Data Due on 2025-MID",
+            "content": "Geron Announces First Patient Dosed in IMpactMF Phase 3 Clinical Trial in Refractory Myelofibrosis",
+            "direction": "neutral",
+            "value": null,
+            "change_pct": null,
+            "volume": null,
+            "confidence": 0.75,
+            "url": null,
+            "tags": [
+              "biotech",
+              "fda",
+              "gern",
+              "options"
+            ],
+            "metadata": {
+              "ticker": "GERN",
+              "target_date": "2025-MID",
+              "event_type": "Top-line Data Due",
+              "drug": "Imetelstat (IMpactMF)",
+              "indication": "Refractory Myelofibrosis (MF)",
+              "outcome": "Final analysis from the trial are expected in 2025",
+              "has_options": true,
+              "marketcap": "898129364"
+            },
+            "timestamp": "2026-05-15T23:48:42.093569Z"
+          },
+          {
+            "signal_id": "d7119c42-2df3-4c86-995f-d8b674bca14c",
+            "source": "market_data",
+            "category": "fda_catalyst",
+            "title": "IONS FDA: Top-line Data Due on 2025-MID",
+            "content": "Topline data from the study are expected in 2025",
+            "direction": "neutral",
+            "value": null,
+            "change_pct": null,
+            "volume": null,
+            "confidence": 0.75,
+            "url": null,
+            "tags": [
+              "biotech",
+              "fda",
+              "ions",
+              "options"
+            ],
+            "metadata": {
+              "ticker": "IONS",
+              "target_date": "2025-MID",
+              "event_type": "Top-line Data Due",
+              "drug": "Pelacarsen",
+              "indication": "Cardiovascular disease and elevated levels of Lp(a)",
+              "outcome": "Topline data from the study are expected in 2025",
+              "has_options": true,
+              "marketcap": "12507070238"
+            },
+            "timestamp": "2026-05-15T23:48:42.094392Z"
+          },
+          {
+            "signal_id": "aa810502-f050-486a-80b3-a12125e0c426",
+            "source": "market_data",
+            "category": "fda_catalyst",
+            "title": "DBVT FDA: Top-line Data Due on 2025-Q1",
+            "content": "DBV expects to screen the first patient in Q4 2022 and anticipates topline results for the VITESSE study to read out in Q1 2025",
+            "direction": "neutral",
+            "value": null,
+            "change_pct": null,
+            "volume": null,
+            "confidence": 0.6000000000000001,
+            "url": null,
+            "tags": [
+              "biotech",
+              "fda",
+              "dbvt",
+              "no_options"
+            ],
+            "metadata": {
+              "ticker": "DBVT",
+              "target_date": "2025-Q1",
+              "event_type": "Top-line Data Due",
+              "drug": "Viaskin Peanut (VITESSE)",
+              "indication": "Peanut -Allergic Children Ages 4 to 7 Years",
+              "outcome": "DBV expects to screen the first patient in Q4 2022 and anticipates topline results for the VITESSE study to read out in Q1 2025",
+              "has_options": false,
+              "marketcap": "1174696422"
+            },
+            "timestamp": "2026-05-15T23:48:42.094399Z"
+          },
+          {
+            "signal_id": "658f06e1-2b3f-441a-831b-529d2bea01ea",
+            "source": "market_data",
+            "category": "fda_catalyst",
+            "title": "ACAD FDA: Data Presentation on 2021-11-09",
+            "content": "Presents Data on Pimavanserin in Patients with Parkinson's Disease Dementia with Psychosis from the HARMONY trial at the 14th Clinical Trials on Alzheimer's Disease (CTAD) Conference",
+            "direction": "neutral",
+            "value": null,
+            "change_pct": null,
+            "volume": null,
+            "confidence": 0.55,
+            "url": null,
+            "tags": [
+              "biotech",
+              "fda",
+              "acad",
+              "options"
+            ],
+            "metadata": {
+              "ticker": "ACAD",
+              "target_date": "2021-11-09",
+              "event_type": "Data Presentation",
+              "drug": "NUPLAZID (Pimavanserin)",
+              "indication": "Hallucinations and Delusions Associated with Dementia-Related Psychosis",
+              "outcome": "Presents Data on Pimavanserin in Patients with Parkinson's Disease Dementia with Psychosis from the HARMONY trial at the 14th Clinical Trials on Alzheimer's Disease (CTAD) Conference",
+              "has_options": true,
+              "marketcap": "3782600368"
+            },
+            "timestamp": "2026-05-15T23:48:42.093597Z"
+          },
+          {
+            "signal_id": "718d3eb9-381c-4418-a239-fbef4cbabdb2",
+            "source": "market_data",
+            "category": "fda_catalyst",
+            "title": "ETNB FDA: Data Presentation on 2021-11-12",
+            "content": "Presents New Sub-Analysis from Phase 1b/2a NASH Study of BIO89-100 at AASLD's The Liver Meeting 2021, November 12-15, 2021",
+            "direction": "neutral",
+            "value": null,
+            "change_pct": null,
+            "volume": null,
+            "confidence": 0.55,
+            "url": null,
+            "tags": [
+              "biotech",
+              "fda",
+              "etnb",
+              "options"
+            ],
+            "metadata": {
+              "ticker": "ETNB",
+              "target_date": "2021-11-12",
+              "event_type": "Data Presentation",
+              "drug": "BIO89-100",
+              "indication": "nonalcoholic steatohepatitis (NASH)",
+              "outcome": "Presents New Sub-Analysis from Phase 1b/2a NASH Study of BIO89-100 at AASLD's The Liver Meeting 2021, November 12-15, 2021",
+              "has_options": true,
+              "marketcap": "2200894430"
+            },
+            "timestamp": "2026-05-15T23:48:42.093608Z"
+          }
+        ],
+        "summary": "GERN FDA: Top-line Data Due on 2025-MID | IONS FDA: Top-line Data Due on 2025-MID | DBVT FDA: Top-line Data Due on 2025-Q1",
+        "timestamp": "2026-05-15T23:49:43.980910Z"
+      },
+      {
+        "sector": "retail_news",
+        "direction": "neutral",
+        "signal_count": 58,
+        "avg_confidence": 0.611,
+        "top_signals": [
+          {
+            "signal_id": "da6a0a0f-01fe-4117-b1f6-cec7be64175b",
+            "source": "reddit",
+            "category": "retail_news",
+            "title": "A great write up that is gaining traction on X that explains the takeover to the layman",
+            "content": "r/Superstonk [\ud83d\udcf3Social Media] | Score: 2,374 | Comments: 91 | Ratio: 96%",
+            "direction": "bullish",
+            "value": 2374.0,
+            "change_pct": null,
+            "volume": 91.0,
+            "confidence": 0.85,
+            "url": "https://www.reddit.com/r/Superstonk/comments/1tdioyj/a_great_write_up_that_is_gaining_traction_on_x/",
+            "tags": [
+              "reddit",
+              "superstonk",
+              "top",
+              "hot",
+              "flair:social_media"
+            ],
+            "metadata": {
+              "post_id": "t3_1tdioyj",
+              "subreddit": "Superstonk",
+              "score": 2374,
+              "num_comments": 91,
+              "upvote_ratio": 0.96,
+              "flair": "\ud83d\udcf3Social Media",
+              "listing_type": "top",
+              "strength": "hot",
+              "tickers": [],
+              "alpha_keywords": [],
+              "is_dd": true,
+              "created_utc": 1778811165.0
+            },
+            "timestamp": "2026-05-15T23:48:40.921080Z"
+          },
+          {
+            "signal_id": "7017e812-7c73-413d-b0d7-da7ca29256cc",
+            "source": "reddit",
+            "category": "retail_news",
+            "title": "Alibaba gets U.S. approval for Nvidia H200 AI chip buy | News.az",
+            "content": "r/wallstreetbets [News] | Score: 441 | Comments: 34 | Ratio: 96%",
+            "direction": "bullish",
+            "value": 441.0,
+            "change_pct": null,
+            "volume": 34.0,
+            "confidence": 0.65,
+            "url": "https://www.reddit.com/r/wallstreetbets/comments/1tdqwo9/alibaba_gets_us_approval_for_nvidia_h200_ai_chip/",
+            "tags": [
+              "reddit",
+              "wallstreetbets",
+              "hot",
+              "warm",
+              "flair:news"
+            ],
+            "metadata": {
+              "post_id": "t3_1tdqwo9",
+              "subreddit": "wallstreetbets",
+              "score": 441,
+              "num_comments": 34,
+              "upvote_ratio": 0.96,
+              "flair": "News",
+              "listing_type": "hot",
+              "strength": "warm",
+              "tickers": [],
+              "alpha_keywords": [],
+              "is_dd": true,
+              "created_utc": 1778836489.0
+            },
+            "timestamp": "2026-05-15T23:48:41.096042Z"
+          },
+          {
+            "signal_id": "febbf22e-1d31-4992-b882-15caef1bfc8e",
+            "source": "reddit",
+            "category": "retail_news",
+            "title": "China to buy U.S. oil to feed its 'insatiable appetite,' Trump tells Fox News",
+            "content": "r/StockMarket [News] | Score: 792 | Comments: 226 | Ratio: 95%",
+            "direction": "bullish",
+            "value": 792.0,
+            "change_pct": null,
+            "volume": 226.0,
+            "confidence": 0.65,
+            "url": "https://www.reddit.com/r/StockMarket/comments/1tdir3p/china_to_buy_us_oil_to_feed_its_insatiable/",
+            "tags": [
+              "reddit",
+              "stockmarket",
+              "hot",
+              "warm",
+              "flair:news"
+            ],
+            "metadata": {
+              "post_id": "t3_1tdir3p",
+              "subreddit": "StockMarket",
+              "score": 792,
+              "num_comments": 226,
+              "upvote_ratio": 0.95,
+              "flair": "News",
+              "listing_type": "hot",
+              "strength": "warm",
+              "tickers": [],
+              "alpha_keywords": [],
+              "is_dd": true,
+              "created_utc": 1778811319.0
+            },
+            "timestamp": "2026-05-15T23:48:41.180291Z"
+          },
+          {
+            "signal_id": "4a26e008-b0ee-4723-acfa-03c2e89919a8",
+            "source": "reddit",
+            "category": "retail_news",
+            "title": "Myanmar proposes death sentence for scammers, life imprisonment for crypto fraud",
+            "content": "r/CryptoCurrency [GENERAL-NEWS] | Score: 393 | Comments: 35 | Ratio: 97%",
+            "direction": "bearish",
+            "value": 393.0,
+            "change_pct": null,
+            "volume": 35.0,
+            "confidence": 0.65,
+            "url": "https://www.reddit.com/r/CryptoCurrency/comments/1te23q0/myanmar_proposes_death_sentence_for_scammers_life/",
+            "tags": [
+              "reddit",
+              "cryptocurrency",
+              "hot",
+              "warm",
+              "flair:generalnews"
+            ],
+            "metadata": {
+              "post_id": "t3_1te23q0",
+              "subreddit": "CryptoCurrency",
+              "score": 393,
+              "num_comments": 35,
+              "upvote_ratio": 0.97,
+              "flair": "GENERAL-NEWS",
+              "listing_type": "hot",
+              "strength": "warm",
+              "tickers": [],
+              "alpha_keywords": [],
+              "is_dd": true,
+              "created_utc": 1778863990.0
+            },
+            "timestamp": "2026-05-15T23:48:45.623194Z"
+          },
+          {
+            "signal_id": "c9548397-2f79-4ff5-a0a2-e8e61f5f0f55",
+            "source": "reddit",
+            "category": "retail_news",
+            "title": "Great X Post on Ebay Acquisition",
+            "content": "r/GME [\ud83d\udcf1 Social Media \ud83d\udc26] | Score: 237 | Comments: 26 | Ratio: 94% | Keywords: acquisition",
+            "direction": "bearish",
+            "value": 237.0,
+            "change_pct": null,
+            "volume": 26.0,
+            "confidence": 0.6,
+            "url": "https://www.reddit.com/r/GME/comments/1tdfmyx/great_x_post_on_ebay_acquisition/",
+            "tags": [
+              "reddit",
+              "gme",
+              "hot",
+              "warm",
+              "flair:social_media"
+            ],
+            "metadata": {
+              "post_id": "t3_1tdfmyx",
+              "subreddit": "GME",
+              "score": 237,
+              "num_comments": 26,
+              "upvote_ratio": 0.94,
+              "flair": "\ud83d\udcf1 Social Media \ud83d\udc26",
+              "listing_type": "hot",
+              "strength": "warm",
+              "tickers": [],
+              "alpha_keywords": [
+                "acquisition"
+              ],
+              "is_dd": false,
+              "created_utc": 1778803136.0
+            },
+            "timestamp": "2026-05-15T23:48:42.113400Z"
+          }
+        ],
+        "summary": "A great write up that is gaining traction on X that explains the takeover to the layman | Alibaba gets U.S. approval for Nvidia H200 AI chip buy | News.az | China to buy U.S. oil to feed its 'insatiable appetite,' Trump tells Fox News",
+        "timestamp": "2026-05-15T23:49:43.981162Z"
+      },
+      {
+        "sector": "news_headline",
+        "direction": "neutral",
+        "signal_count": 50,
+        "avg_confidence": 0.645,
+        "top_signals": [
+          {
+            "signal_id": "17e99265-04ed-4954-a621-bc0e4e4b8130",
+            "source": "news",
+            "category": "news_headline",
+            "title": "TRUMP ON IRAN STRIKES: \u201cIT\u2019S NOT GOOD ENOUGH PUBLIC RELATIONS-WISE\u201d DESPITE NUCLEAR SETBACK",
+            "content": "TRUMP ON IRAN STRIKES: \u201cIT\u2019S NOT GOOD ENOUGH PUBLIC RELATIONS-WISE\u201d DESPITE NUCLEAR SETBACK | tickers=['ON'] | sentiment=neutral | source=Tradex",
+            "direction": "neutral",
+            "value": null,
+            "change_pct": null,
+            "volume": null,
+            "confidence": 0.9,
+            "url": null,
+            "tags": [
+              "news",
+              "tradex",
+              "major",
+              "on"
+            ],
+            "metadata": {
+              "headline": "TRUMP ON IRAN STRIKES: \u201cIT\u2019S NOT GOOD ENOUGH PUBLIC RELATIONS-WISE\u201d DESPITE NUCLEAR SETBACK",
+              "tickers": [
+                "ON"
+              ],
+              "sentiment": "neutral",
+              "is_major": true,
+              "source": "Tradex",
+              "created_at": "2026-05-15T23:28:57Z",
+              "tags": []
+            },
+            "timestamp": "2026-05-15T23:48:43.351102Z"
+          },
+          {
+            "signal_id": "5ec995de-31a7-4235-9eb3-199ce09f7c9b",
+            "source": "news",
+            "category": "news_headline",
+            "title": "Forbright files for IPO targeting middle market, digital banking; no. of shares and price range not disclosed.",
+            "content": "Forbright files for IPO targeting middle market, digital banking; no. of shares and price range not disclosed. | tickers=['IPO'] | sentiment=neutral | source=Bloomberg",
+            "direction": "neutral",
+            "value": null,
+            "change_pct": null,
+            "volume": null,
+            "confidence": 0.9,
+            "url": null,
+            "tags": [
+              "news",
+              "bloomberg",
+              "major",
+              "ipo"
+            ],
+            "metadata": {
+              "headline": "Forbright files for IPO targeting middle market, digital banking; no. of shares and price range not disclosed.",
+              "tickers": [
+                "IPO"
+              ],
+              "sentiment": "neutral",
+              "is_major": true,
+              "source": "Bloomberg",
+              "created_at": "2026-05-15T22:15:44Z",
+              "tags": []
+            },
+            "timestamp": "2026-05-15T23:48:43.351865Z"
+          },
+          {
+            "signal_id": "01c58ea0-dcce-409e-849a-94ae1affc7a7",
+            "source": "news",
+            "category": "news_headline",
+            "title": "TRUMP: \u201cANYBODY THAT GOES NEAR THAT SPACE, WE HAVE A TAG\u201d ON IRAN NUCLEAR FACILITIES",
+            "content": "TRUMP: \u201cANYBODY THAT GOES NEAR THAT SPACE, WE HAVE A TAG\u201d ON IRAN NUCLEAR FACILITIES | tickers=[] | sentiment=neutral | source=Tradex",
+            "direction": "neutral",
+            "value": null,
+            "change_pct": null,
+            "volume": null,
+            "confidence": 0.8,
+            "url": null,
+            "tags": [
+              "news",
+              "tradex",
+              "major"
+            ],
+            "metadata": {
+              "headline": "TRUMP: \u201cANYBODY THAT GOES NEAR THAT SPACE, WE HAVE A TAG\u201d ON IRAN NUCLEAR FACILITIES",
+              "tickers": [],
+              "sentiment": "neutral",
+              "is_major": true,
+              "source": "Tradex",
+              "created_at": "2026-05-15T23:29:57Z",
+              "tags": []
+            },
+            "timestamp": "2026-05-15T23:48:43.351049Z"
+          },
+          {
+            "signal_id": "a06fae90-6edb-4ecd-94e6-0a75d5cfd20f",
+            "source": "news",
+            "category": "news_headline",
+            "title": "TRUMP CLAIMS U.S. HAS SURVEILLANCE ON IRAN NUCLEAR SITES WITH ABILITY TO TRACK ANY MOVEMENT",
+            "content": "TRUMP CLAIMS U.S. HAS SURVEILLANCE ON IRAN NUCLEAR SITES WITH ABILITY TO TRACK ANY MOVEMENT | tickers=[] | sentiment=neutral | source=Tradex",
+            "direction": "neutral",
+            "value": null,
+            "change_pct": null,
+            "volume": null,
+            "confidence": 0.8,
+            "url": null,
+            "tags": [
+              "news",
+              "tradex",
+              "major"
+            ],
+            "metadata": {
+              "headline": "TRUMP CLAIMS U.S. HAS SURVEILLANCE ON IRAN NUCLEAR SITES WITH ABILITY TO TRACK ANY MOVEMENT",
+              "tickers": [],
+              "sentiment": "neutral",
+              "is_major": true,
+              "source": "Tradex",
+              "created_at": "2026-05-15T23:29:26Z",
+              "tags": []
+            },
+            "timestamp": "2026-05-15T23:48:43.351075Z"
+          },
+          {
+            "signal_id": "e646829c-d32d-4d18-b616-8fb95c58ac90",
+            "source": "news",
+            "category": "news_headline",
+            "title": "TRUMP SAYS IRAN TOLD U.S. IT COULDN\u2019T REMOVE NUCLEAR MATERIAL AFTER SITES WERE \u201cHIT SO HARD\u201d",
+            "content": "TRUMP SAYS IRAN TOLD U.S. IT COULDN\u2019T REMOVE NUCLEAR MATERIAL AFTER SITES WERE \u201cHIT SO HARD\u201d | tickers=[] | sentiment=neutral | source=Tradex",
+            "direction": "neutral",
+            "value": null,
+            "change_pct": null,
+            "volume": null,
+            "confidence": 0.8,
+            "url": null,
+            "tags": [
+              "news",
+              "tradex",
+              "major"
+            ],
+            "metadata": {
+              "headline": "TRUMP SAYS IRAN TOLD U.S. IT COULDN\u2019T REMOVE NUCLEAR MATERIAL AFTER SITES WERE \u201cHIT SO HARD\u201d",
+              "tickers": [],
+              "sentiment": "neutral",
+              "is_major": true,
+              "source": "Tradex",
+              "created_at": "2026-05-15T23:27:21Z",
+              "tags": []
+            },
+            "timestamp": "2026-05-15T23:48:43.351130Z"
+          }
+        ],
+        "summary": "TRUMP ON IRAN STRIKES: \u201cIT\u2019S NOT GOOD ENOUGH PUBLIC RELATIONS-WISE\u201d DESPITE NUCLEAR SETBACK | Forbright files for IPO targeting middle market, digital banking; no. of shares and price range not disclosed. | TRUMP: \u201cANYBODY THAT GOES NEAR THAT SPACE, WE HAVE A TAG\u201d ON IRAN NUCLEAR FACILITIES",
+        "timestamp": "2026-05-15T23:49:43.981040Z"
+      },
+      {
+        "sector": "options_flow",
+        "direction": "bullish",
+        "signal_count": 50,
+        "avg_confidence": 0.528,
+        "top_signals": [
+          {
+            "signal_id": "3d665c89-9c96-4672-aa6c-d3d75abffae4",
+            "source": "options_flow",
+            "category": "options_flow",
+            "title": "QQQ flow alert: $3,113,529 (2501 contracts)",
+            "content": "QQQ \u2014 ask $3,096,186 / bid $17,343 | size 2501 | OI 1314 | sector ",
+            "direction": "bullish",
+            "value": 3113529.0,
+            "change_pct": null,
+            "volume": 2501.0,
+            "confidence": 0.8113529,
+            "url": null,
+            "tags": [
+              "options_flow",
+              "qqq",
+              "unknown"
+            ],
+            "metadata": {
+              "ask_premium": 3096186.0,
+              "bid_premium": 17343.0,
+              "open_interest": 1314.0,
+              "iv_end": "0.238666923526671",
+              "has_multileg": false,
+              "rule_id": "a0979b52-28e4-4585-8f22-881faad2dd8e"
+            },
+            "timestamp": "2026-05-15T23:48:40.491504Z"
+          },
+          {
+            "signal_id": "6ce4d8b4-728f-4632-b18b-26eadc5800cf",
+            "source": "options_flow",
+            "category": "options_flow",
+            "title": "QQQ flow alert: $1,899,708 (1562 contracts)",
+            "content": "QQQ \u2014 ask $1,851,108 / bid $48,600 | size 1562 | OI 3638 | sector ",
+            "direction": "bullish",
+            "value": 1899708.0,
+            "change_pct": null,
+            "volume": 1562.0,
+            "confidence": 0.6899708,
+            "url": null,
+            "tags": [
+              "options_flow",
+              "qqq",
+              "unknown"
+            ],
+            "metadata": {
+              "ask_premium": 1851108.0,
+              "bid_premium": 48600.0,
+              "open_interest": 3638.0,
+              "iv_end": "0.248897766240119",
+              "has_multileg": false,
+              "rule_id": "a0979b52-28e4-4585-8f22-881faad2dd8e"
+            },
+            "timestamp": "2026-05-15T23:48:40.491513Z"
+          },
+          {
+            "signal_id": "440031ce-1ad6-420d-92d7-0b2b530e3593",
+            "source": "options_flow",
+            "category": "options_flow",
+            "title": "QQQ flow alert: $1,173,825 (509 contracts)",
+            "content": "QQQ \u2014 ask $1,153,089 / bid $20,736 | size 509 | OI 357 | sector ",
+            "direction": "bullish",
+            "value": 1173825.0,
+            "change_pct": null,
+            "volume": 509.0,
+            "confidence": 0.6173825,
+            "url": null,
+            "tags": [
+              "options_flow",
+              "qqq",
+              "unknown"
+            ],
+            "metadata": {
+              "ask_premium": 1153089.0,
+              "bid_premium": 20736.0,
+              "open_interest": 357.0,
+              "iv_end": "0.248657147414826",
+              "has_multileg": false,
+              "rule_id": "5ce5ec11-087c-4c00-b164-08106b015856"
+            },
+            "timestamp": "2026-05-15T23:48:40.491556Z"
+          },
+          {
+            "signal_id": "d36a7abd-1492-4d0d-8ab3-4a49c960208b",
+            "source": "options_flow",
+            "category": "options_flow",
+            "title": "QQQ flow alert: $747,000 (1500 contracts)",
+            "content": "QQQ \u2014 ask $747,000 / bid $0 | size 1500 | OI 68125 | sector ",
+            "direction": "bullish",
+            "value": 747000.0,
+            "change_pct": null,
+            "volume": 1500.0,
+            "confidence": 0.5747,
+            "url": null,
+            "tags": [
+              "options_flow",
+              "qqq",
+              "unknown"
+            ],
+            "metadata": {
+              "ask_premium": 747000.0,
+              "bid_premium": 0.0,
+              "open_interest": 68125.0,
+              "iv_end": "0.278508120664754",
+              "has_multileg": false,
+              "rule_id": "e6b9f0b6-fcd9-44fe-9d1c-f53521c152c3"
+            },
+            "timestamp": "2026-05-15T23:48:40.491420Z"
+          },
+          {
+            "signal_id": "0e770913-5a42-4ef5-ae28-6ba952d36d47",
+            "source": "options_flow",
+            "category": "options_flow",
+            "title": "QQQ flow alert: $675,375 (499 contracts)",
+            "content": "QQQ \u2014 ask $674,022 / bid $1,353 | size 499 | OI 8023 | sector ",
+            "direction": "bullish",
+            "value": 675375.0,
+            "change_pct": null,
+            "volume": 499.0,
+            "confidence": 0.5675375,
+            "url": null,
+            "tags": [
+              "options_flow",
+              "qqq",
+              "unknown"
+            ],
+            "metadata": {
+              "ask_premium": 674022.0,
+              "bid_premium": 1353.0,
+              "open_interest": 8023.0,
+              "iv_end": "0.216450229137535",
+              "has_multileg": false,
+              "rule_id": "5ce5ec11-087c-4c00-b164-08106b015856"
+            },
+            "timestamp": "2026-05-15T23:48:40.491531Z"
+          }
+        ],
+        "summary": "QQQ flow alert: $3,113,529 (2501 contracts) | QQQ flow alert: $1,899,708 (1562 contracts) | QQQ flow alert: $1,173,825 (509 contracts)",
+        "timestamp": "2026-05-15T23:49:43.980638Z"
+      },
+      {
+        "sector": "economic_calendar",
+        "direction": "neutral",
+        "signal_count": 36,
+        "avg_confidence": 0.642,
+        "top_signals": [
+          {
+            "signal_id": "8361566b-917f-45ac-8d38-72c37158489b",
+            "source": "market_data",
+            "category": "economic_calendar",
+            "title": "Initial jobless claims (May) @ 2026-05-14T12:30:00Z",
+            "content": "Initial jobless claims | period=May | forecast=205000 | prev=200000",
+            "direction": "neutral",
+            "value": null,
+            "change_pct": null,
+            "volume": null,
+            "confidence": 0.85,
+            "url": null,
+            "tags": [
+              "macro",
+              "calendar",
+              "high_impact"
+            ],
+            "metadata": {
+              "event": "Initial jobless claims",
+              "time": "2026-05-14T12:30:00Z",
+              "forecast": "205000",
+              "prev": "200000",
+              "period": "May",
+              "type": "report"
+            },
+            "timestamp": "2026-05-15T23:48:41.966814Z"
+          },
+          {
+            "signal_id": "61e20881-5320-4240-b010-506c28514101",
+            "source": "market_data",
+            "category": "economic_calendar",
+            "title": "Retail sales minus autos (April) @ 2026-05-14T12:30:00Z",
+            "content": "Retail sales minus autos | period=April | forecast=0.6% | prev=1.9%",
+            "direction": "neutral",
+            "value": null,
+            "change_pct": null,
+            "volume": null,
+            "confidence": 0.85,
+            "url": null,
+            "tags": [
+              "macro",
+              "calendar",
+              "high_impact"
+            ],
+            "metadata": {
+              "event": "Retail sales minus autos",
+              "time": "2026-05-14T12:30:00Z",
+              "forecast": "0.6%",
+              "prev": "1.9%",
+              "period": "April",
+              "type": "report"
+            },
+            "timestamp": "2026-05-15T23:48:41.966842Z"
+          },
+          {
+            "signal_id": "80a01353-948d-4d19-9d60-7c48ab6100b7",
+            "source": "market_data",
+            "category": "economic_calendar",
+            "title": "U.S. retail sales (April) @ 2026-05-14T12:30:00Z",
+            "content": "U.S. retail sales | period=April | forecast=0.5% | prev=1.7%",
+            "direction": "neutral",
+            "value": null,
+            "change_pct": null,
+            "volume": null,
+            "confidence": 0.85,
+            "url": null,
+            "tags": [
+              "macro",
+              "calendar",
+              "high_impact"
+            ],
+            "metadata": {
+              "event": "U.S. retail sales",
+              "time": "2026-05-14T12:30:00Z",
+              "forecast": "0.5%",
+              "prev": "1.7%",
+              "period": "April",
+              "type": "report"
+            },
+            "timestamp": "2026-05-15T23:48:41.966871Z"
+          },
+          {
+            "signal_id": "14214fce-7ed4-4b9d-b4d0-f4ba707c0e42",
+            "source": "market_data",
+            "category": "economic_calendar",
+            "title": "Core PPI year over year (None) @ 2026-05-13T12:30:00Z",
+            "content": "Core PPI year over year | period=None | forecast=None | prev=3.6%",
+            "direction": "neutral",
+            "value": null,
+            "change_pct": null,
+            "volume": null,
+            "confidence": 0.85,
+            "url": null,
+            "tags": [
+              "macro",
+              "calendar",
+              "high_impact"
+            ],
+            "metadata": {
+              "event": "Core PPI year over year",
+              "time": "2026-05-13T12:30:00Z",
+              "forecast": null,
+              "prev": "3.6%",
+              "period": null,
+              "type": "report"
+            },
+            "timestamp": "2026-05-15T23:48:41.966926Z"
+          },
+          {
+            "signal_id": "b6774a3b-8ebf-4642-aeee-63a522a80632",
+            "source": "market_data",
+            "category": "economic_calendar",
+            "title": "PPI year over year (None) @ 2026-05-13T12:30:00Z",
+            "content": "PPI year over year | period=None | forecast=None | prev=4.0%",
+            "direction": "neutral",
+            "value": null,
+            "change_pct": null,
+            "volume": null,
+            "confidence": 0.85,
+            "url": null,
+            "tags": [
+              "macro",
+              "calendar",
+              "high_impact"
+            ],
+            "metadata": {
+              "event": "PPI year over year",
+              "time": "2026-05-13T12:30:00Z",
+              "forecast": null,
+              "prev": "4.0%",
+              "period": null,
+              "type": "report"
+            },
+            "timestamp": "2026-05-15T23:48:41.966952Z"
+          }
+        ],
+        "summary": "Initial jobless claims (May) @ 2026-05-14T12:30:00Z | Retail sales minus autos (April) @ 2026-05-14T12:30:00Z | U.S. retail sales (April) @ 2026-05-14T12:30:00Z",
+        "timestamp": "2026-05-15T23:49:43.980796Z"
+      },
+      {
+        "sector": "congress_trade",
+        "direction": "bullish",
+        "signal_count": 41,
+        "avg_confidence": 0.412,
+        "top_signals": [
+          {
+            "signal_id": "6f4ec6ec-2233-4191-a078-3e7fc09c207f",
+            "source": "market_data",
+            "category": "congress_trade",
+            "title": "Tina Smith sell DXCM ($100,001 - $250,000)",
+            "content": "Tina Smith (senate) sell DXCM on 2026-05-07 | issuer=spouse | filed 2026-05-10",
+            "direction": "bearish",
+            "value": 250000.0,
+            "change_pct": null,
+            "volume": null,
+            "confidence": 0.47500000000000003,
+            "url": null,
+            "tags": [
+              "congress_trade",
+              "dxcm",
+              "sell",
+              "senate"
+            ],
+            "metadata": {
+              "ticker": "DXCM",
+              "politician": "Tina Smith",
+              "politician_id": "bfa3688e-4cc2-4f7e-b497-57b1e8dfb545",
+              "issuer": "spouse",
+              "txn_type": "Sell",
+              "amounts": "$100,001 - $250,000",
+              "transaction_date": "2026-05-07",
+              "filed_at_date": "2026-05-10",
+              "member_type": "senate"
+            },
+            "timestamp": "2026-05-15T23:48:41.676454Z"
+          },
+          {
+            "signal_id": "7c02c834-6394-454d-8a22-1ad38797da44",
+            "source": "market_data",
+            "category": "congress_trade",
+            "title": "Tina Smith sell PODD ($100,001 - $250,000)",
+            "content": "Tina Smith (senate) sell PODD on 2026-05-07 | issuer=spouse | filed 2026-05-10",
+            "direction": "bearish",
+            "value": 250000.0,
+            "change_pct": null,
+            "volume": null,
+            "confidence": 0.47500000000000003,
+            "url": null,
+            "tags": [
+              "congress_trade",
+              "podd",
+              "sell",
+              "senate"
+            ],
+            "metadata": {
+              "ticker": "PODD",
+              "politician": "Tina Smith",
+              "politician_id": "bfa3688e-4cc2-4f7e-b497-57b1e8dfb545",
+              "issuer": "spouse",
+              "txn_type": "Sell",
+              "amounts": "$100,001 - $250,000",
+              "transaction_date": "2026-05-07",
+              "filed_at_date": "2026-05-10",
+              "member_type": "senate"
+            },
+            "timestamp": "2026-05-15T23:48:41.676470Z"
+          },
+          {
+            "signal_id": "c5ef5dc8-9fcc-4864-83f3-fd845852bf39",
+            "source": "market_data",
+            "category": "congress_trade",
+            "title": "Tina Smith sell PODD ($100,001 - $250,000)",
+            "content": "Tina Smith (senate) sell PODD on 2026-04-29 | issuer=spouse | filed 2026-05-10",
+            "direction": "bearish",
+            "value": 250000.0,
+            "change_pct": null,
+            "volume": null,
+            "confidence": 0.47500000000000003,
+            "url": null,
+            "tags": [
+              "congress_trade",
+              "podd",
+              "sell",
+              "senate"
+            ],
+            "metadata": {
+              "ticker": "PODD",
+              "politician": "Tina Smith",
+              "politician_id": "bfa3688e-4cc2-4f7e-b497-57b1e8dfb545",
+              "issuer": "spouse",
+              "txn_type": "Sell",
+              "amounts": "$100,001 - $250,000",
+              "transaction_date": "2026-04-29",
+              "filed_at_date": "2026-05-10",
+              "member_type": "senate"
+            },
+            "timestamp": "2026-05-15T23:48:41.676671Z"
+          },
+          {
+            "signal_id": "ad2247ab-d490-444a-8e9d-d77ba3e8f419",
+            "source": "market_data",
+            "category": "congress_trade",
+            "title": "Tina Smith sell DXCM ($100,001 - $250,000)",
+            "content": "Tina Smith (senate) sell DXCM on 2026-04-29 | issuer=spouse | filed 2026-05-10",
+            "direction": "bearish",
+            "value": 250000.0,
+            "change_pct": null,
+            "volume": null,
+            "confidence": 0.47500000000000003,
+            "url": null,
+            "tags": [
+              "congress_trade",
+              "dxcm",
+              "sell",
+              "senate"
+            ],
+            "metadata": {
+              "ticker": "DXCM",
+              "politician": "Tina Smith",
+              "politician_id": "bfa3688e-4cc2-4f7e-b497-57b1e8dfb545",
+              "issuer": "spouse",
+              "txn_type": "Sell",
+              "amounts": "$100,001 - $250,000",
+              "transaction_date": "2026-04-29",
+              "filed_at_date": "2026-05-10",
+              "member_type": "senate"
+            },
+            "timestamp": "2026-05-15T23:48:41.676679Z"
+          },
+          {
+            "signal_id": "1d29eee3-17b7-47a7-88fc-541772774fac",
+            "source": "market_data",
+            "category": "congress_trade",
+            "title": "Greg Stanton sell TCNNF ($15,001 - $50,000)",
+            "content": "Greg Stanton (house) sell TCNNF on 2026-05-06 | issuer=spouse | filed 2026-05-08",
+            "direction": "bearish",
+            "value": 50000.0,
+            "change_pct": null,
+            "volume": null,
+            "confidence": 0.41500000000000004,
+            "url": null,
+            "tags": [
+              "congress_trade",
+              "tcnnf",
+              "sell",
+              "house"
+            ],
+            "metadata": {
+              "ticker": "TCNNF",
+              "politician": "Greg Stanton",
+              "politician_id": "f8c9309f-a466-4d69-b17a-e680495e479b",
+              "issuer": "spouse",
+              "txn_type": "Sell",
+              "amounts": "$15,001 - $50,000",
+              "transaction_date": "2026-05-06",
+              "filed_at_date": "2026-05-08",
+              "member_type": "house"
+            },
+            "timestamp": "2026-05-15T23:48:41.676490Z"
+          }
+        ],
+        "summary": "Tina Smith sell DXCM ($100,001 - $250,000) | Tina Smith sell PODD ($100,001 - $250,000) | Tina Smith sell PODD ($100,001 - $250,000)",
+        "timestamp": "2026-05-15T23:49:43.980747Z"
+      },
+      {
+        "sector": "screener_unusual",
+        "direction": "bullish",
+        "signal_count": 23,
+        "avg_confidence": 0.694,
+        "top_signals": [
+          {
+            "signal_id": "394cc4c0-1498-459a-b6b0-9e33789aaa6b",
+            "source": "market_data",
+            "category": "screener_unusual",
+            "title": "NDX flow imbalance $+187,429,018",
+            "content": "NDX (-) | bullish $383,795,076 / bearish $196,366,058 | net $+187,429,018 | iv30d=0.219000 | iv_rank=54.1198 | sector=None",
+            "direction": "bullish",
+            "value": 187429018.0,
+            "change_pct": null,
+            "volume": null,
+            "confidence": 0.85,
+            "url": null,
+            "tags": [
+              "screener",
+              "unusual_flow",
+              "ndx"
+            ],
+            "metadata": {
+              "ticker": "NDX",
+              "bullish_premium": 383795076.0,
+              "bearish_premium": 196366058.0,
+              "net_premium": 187429018.0,
+              "iv30d": "0.219000",
+              "iv_rank": "54.1198",
+              "sector": null,
+              "marketcap": null,
+              "next_earnings_date": null
+            },
+            "timestamp": "2026-05-15T23:48:42.894364Z"
+          },
+          {
+            "signal_id": "c498eb0f-ab41-4104-97ba-5c4dfd78a3fe",
+            "source": "market_data",
+            "category": "screener_unusual",
+            "title": "MSFT flow imbalance $+98,691,843",
+            "content": "MSFT (MICROSOFT CORP) | bullish $477,753,249 / bearish $379,061,406 | net $+98,691,843 | iv30d=0.294000 | iv_rank=55.0117 | sector=Technology",
+            "direction": "bullish",
+            "value": 98691843.0,
+            "change_pct": null,
+            "volume": null,
+            "confidence": 0.85,
+            "url": null,
+            "tags": [
+              "screener",
+              "unusual_flow",
+              "msft"
+            ],
+            "metadata": {
+              "ticker": "MSFT",
+              "bullish_premium": 477753249.0,
+              "bearish_premium": 379061406.0,
+              "net_premium": 98691843.0,
+              "iv30d": "0.294000",
+              "iv_rank": "55.0117",
+              "sector": "Technology",
+              "marketcap": "3134205170312",
+              "next_earnings_date": "2026-07-29"
+            },
+            "timestamp": "2026-05-15T23:48:42.894413Z"
+          },
+          {
+            "signal_id": "b5a1fee7-209d-4214-bc51-e425a21f930d",
+            "source": "market_data",
+            "category": "screener_unusual",
+            "title": "SPX flow imbalance $+6,361,536,045",
+            "content": "SPX (S&P 500 Index) | bullish $13,209,658,225 / bearish $6,848,122,180 | net $+6,361,536,045 | iv30d=0.149000 | iv_rank=30.8457 | sector=None",
+            "direction": "bullish",
+            "value": 6361536045.0,
+            "change_pct": null,
+            "volume": null,
+            "confidence": 0.85,
+            "url": null,
+            "tags": [
+              "screener",
+              "unusual_flow",
+              "spx"
+            ],
+            "metadata": {
+              "ticker": "SPX",
+              "bullish_premium": 13209658225.0,
+              "bearish_premium": 6848122180.0,
+              "net_premium": 6361536045.0,
+              "iv30d": "0.149000",
+              "iv_rank": "30.8457",
+              "sector": null,
+              "marketcap": null,
+              "next_earnings_date": null
+            },
+            "timestamp": "2026-05-15T23:48:42.894449Z"
+          },
+          {
+            "signal_id": "6bb14c41-a294-4dd1-972c-03a0b04d793f",
+            "source": "market_data",
+            "category": "screener_unusual",
+            "title": "UPS flow imbalance $+23,978,213",
+            "content": "UPS (UNITED PARCEL SERVICE INC) | bullish $44,963,351 / bearish $20,985,138 | net $+23,978,213 | iv30d=0.276000 | iv_rank=29.9423 | sector=Industrials",
+            "direction": "bullish",
+            "value": 23978213.0,
+            "change_pct": null,
+            "volume": null,
+            "confidence": 0.85,
+            "url": null,
+            "tags": [
+              "screener",
+              "unusual_flow",
+              "ups"
+            ],
+            "metadata": {
+              "ticker": "UPS",
+              "bullish_premium": 44963351.0,
+              "bearish_premium": 20985138.0,
+              "net_premium": 23978213.0,
+              "iv30d": "0.276000",
+              "iv_rank": "29.9423",
+              "sector": "Industrials",
+              "marketcap": "73859339057",
+              "next_earnings_date": "2026-08-04"
+            },
+            "timestamp": "2026-05-15T23:48:42.894482Z"
+          },
+          {
+            "signal_id": "b6c8083c-26af-49a0-be41-40322fa23b14",
+            "source": "market_data",
+            "category": "screener_unusual",
+            "title": "RUT flow imbalance $+19,444,551",
+            "content": "RUT (-) | bullish $64,495,686 / bearish $45,051,135 | net $+19,444,551 | iv30d=0.221000 | iv_rank=35.0593 | sector=None",
+            "direction": "bullish",
+            "value": 19444551.0,
+            "change_pct": null,
+            "volume": null,
+            "confidence": 0.85,
+            "url": null,
+            "tags": [
+              "screener",
+              "unusual_flow",
+              "rut"
+            ],
+            "metadata": {
+              "ticker": "RUT",
+              "bullish_premium": 64495686.0,
+              "bearish_premium": 45051135.0,
+              "net_premium": 19444551.0,
+              "iv30d": "0.221000",
+              "iv_rank": "35.0593",
+              "sector": null,
+              "marketcap": null,
+              "next_earnings_date": null
+            },
+            "timestamp": "2026-05-15T23:48:42.894515Z"
+          }
+        ],
+        "summary": "NDX flow imbalance $+187,429,018 | MSFT flow imbalance $+98,691,843 | SPX flow imbalance $+6,361,536,045",
+        "timestamp": "2026-05-15T23:49:43.980959Z"
+      }
+    ],
+    "top_signals": [
+      {
+        "signal_id": "74fa5af4-9b15-4340-9b64-15b0e3ffa6e2",
+        "source": "polymarket",
+        "category": "sports",
+        "title": "Will Liverpool FC win on 2026-05-17?",
+        "content": "Polymarket: Will Liverpool FC win on 2026-05-17? \u2014 YES=0.0%, NO=100.0%, 24h vol=$0",
+        "direction": "bearish",
+        "value": 0.0,
+        "change_pct": -39.45,
+        "volume": 0.0,
+        "confidence": 1.0,
+        "url": "https://polymarket.com/event/epl-ast-liv-2026-05-17",
+        "tags": [
+          "polymarket",
+          "prediction",
+          "sports",
+          "games",
+          "soccer",
+          "premier league",
+          "epl"
+        ],
+        "metadata": {
+          "event_slug": "epl-ast-liv-2026-05-17",
+          "liquidity": 2373153.12662,
+          "total_volume": 6662431.689142015,
+          "num_outcomes": 3
+        },
+        "timestamp": "2026-05-15T23:48:40.430178Z"
+      },
+      {
+        "signal_id": "6b8a709a-0581-41ff-8a90-81750f685600",
+        "source": "polymarket",
+        "category": "sports",
+        "title": "Aston Villa FC vs. Liverpool FC: O/U 2.5",
+        "content": "Polymarket: Aston Villa FC vs. Liverpool FC: O/U 2.5 \u2014 YES=100.0%, NO=0.0%, 24h vol=$0",
+        "direction": "bullish",
+        "value": 0.9995,
+        "change_pct": 40.45,
+        "volume": 0.0,
+        "confidence": 1.0,
+        "url": "https://polymarket.com/event/epl-ast-liv-2026-05-17-more-markets",
+        "tags": [
+          "polymarket",
+          "prediction",
+          "sports",
+          "games",
+          "soccer",
+          "premier league",
+          "epl"
+        ],
+        "metadata": {
+          "event_slug": "epl-ast-liv-2026-05-17-more-markets",
+          "liquidity": 4081376.39053,
+          "total_volume": 1988153.8308900003,
+          "num_outcomes": 11
+        },
+        "timestamp": "2026-05-15T23:48:40.430349Z"
+      },
+      {
+        "signal_id": "1491159f-5108-462f-94b9-ecf8b514d3b9",
+        "source": "polymarket",
+        "category": "sports",
+        "title": "Will Scottie Scheffler win the 2026 PGA Championship?",
+        "content": "Polymarket: Will Scottie Scheffler win the 2026 PGA Championship? \u2014 YES=18.5%, NO=81.5%, 24h vol=$0",
+        "direction": "bearish",
+        "value": 0.185,
+        "change_pct": -15.5,
+        "volume": 0.0,
+        "confidence": 1.0,
+        "url": "https://polymarket.com/event/pga-championship-winner-2026",
+        "tags": [
+          "polymarket",
+          "prediction",
+          "pga",
+          "major championships",
+          "pga championship",
+          "sports",
+          "golf"
+        ],
+        "metadata": {
+          "event_slug": "pga-championship-winner-2026",
+          "liquidity": 3739974.28772,
+          "total_volume": 3776746.1267000004,
+          "num_outcomes": 120
+        },
+        "timestamp": "2026-05-15T23:48:40.430629Z"
+      },
+      {
+        "signal_id": "221d040b-02e1-4e7d-bc8e-a8b6c45d1c15",
+        "source": "polymarket",
+        "category": "politics",
+        "title": "Will Trump say \"Iran\" during events with Xi Jinping?",
+        "content": "Polymarket: Will Trump say \"Iran\" during events with Xi Jinping? \u2014 YES=3.5%, NO=96.5%, 24h vol=$0",
+        "direction": "bearish",
+        "value": 0.0355,
+        "change_pct": -37.95,
+        "volume": 0.0,
+        "confidence": 0.41484322708099997,
+        "url": "https://polymarket.com/event/what-will-trump-say-during-bilateral-events-with-xi-jinping",
+        "tags": [
+          "polymarket",
+          "prediction",
+          "trump",
+          "politics",
+          "china",
+          "mentions",
+          "trump-xi summit"
+        ],
+        "metadata": {
+          "event_slug": "what-will-trump-say-during-bilateral-events-with-xi-jinping",
+          "liquidity": 151833.10235,
+          "total_volume": 9647898.68720799,
+          "num_outcomes": 33
+        },
+        "timestamp": "2026-05-15T23:48:40.430110Z"
+      },
+      {
+        "signal_id": "d88869cb-51f3-4cf1-a887-7779b3de0571",
+        "source": "polymarket",
+        "category": "sports",
+        "title": "Counter-Strike: FURIA vs Team Falcons (BO3) - PGL Astana Playoffs",
+        "content": "Polymarket: Counter-Strike: FURIA vs Team Falcons (BO3) - PGL Astana Playoffs \u2014 YES=0.0%, NO=100.0%, 24h vol=$0",
+        "direction": "bearish",
+        "value": 0.0,
+        "change_pct": -46.45,
+        "volume": 0.0,
+        "confidence": 0.3450563477,
+        "url": "https://polymarket.com/event/cs2-furia-fal2-2026-05-15",
+        "tags": [
+          "polymarket",
+          "prediction",
+          "esports",
+          "counter strike 2",
+          "games",
+          "sports"
+        ],
+        "metadata": {
+          "event_slug": "cs2-furia-fal2-2026-05-15",
+          "liquidity": 122.495,
+          "total_volume": 4124721.7915809867,
+          "num_outcomes": 12
+        },
+        "timestamp": "2026-05-15T23:48:40.430281Z"
+      },
+      {
+        "signal_id": "23bdccc9-053a-4167-b070-af7a944a28ac",
+        "source": "polymarket",
+        "category": "sports",
+        "title": "LoL: HANJIN BRION vs DN SOOPers - Game 2 Winner",
+        "content": "Polymarket: LoL: HANJIN BRION vs DN SOOPers - Game 2 Winner \u2014 YES=100.0%, NO=0.0%, 24h vol=$0",
+        "direction": "bullish",
+        "value": 1.0,
+        "change_pct": 31.45,
+        "volume": 0.0,
+        "confidence": 0.34501869899999993,
+        "url": "https://polymarket.com/event/lol-bro2-dnf-2026-05-15",
+        "tags": [
+          "polymarket",
+          "prediction",
+          "esports",
+          "league of legends",
+          "games",
+          "sports"
+        ],
+        "metadata": {
+          "event_slug": "lol-bro2-dnf-2026-05-15",
+          "liquidity": 40.65,
+          "total_volume": 1838072.4825490017,
+          "num_outcomes": 51
+        },
+        "timestamp": "2026-05-15T23:48:40.430381Z"
+      },
+      {
+        "signal_id": "11df2fad-f3d7-4457-a55c-3b44d2b88ef7",
+        "source": "options_flow",
+        "category": "max_pain",
+        "title": "QQQ max pain $625.00 (-11.84% from spot)",
+        "content": "QQQ \u2014 spot $708.93 | max pain $625.00 | expiry 2028-12-15",
+        "direction": "bullish",
+        "value": 625.0,
+        "change_pct": -11.83896858646128,
+        "volume": null,
+        "confidence": 0.65,
+        "url": null,
+        "tags": [
+          "max_pain",
+          "qqq"
+        ],
+        "metadata": {
+          "expiry": "2028-12-15",
+          "next_upper_strike": "630",
+          "next_lower_strike": "620"
+        },
+        "timestamp": "2026-05-15T23:48:41.211542Z"
+      },
+      {
+        "signal_id": "b5db91f5-502f-4f3b-b105-a14f32430b71",
+        "source": "crypto",
+        "category": "crypto",
+        "title": "ETH $2,223.59 (-2.7%)",
+        "content": "ETH: $2,223.59 | 24h: -2.7% | 7d: -3.8% | 30d: -6.0% | Vol: $16,964,988,748 | MCap: $268,389,600,209",
+        "direction": "contracting",
+        "value": 2223.59,
+        "change_pct": -2.71095,
+        "volume": 16964988748.0,
+        "confidence": 1.0,
+        "url": null,
+        "tags": [
+          "crypto",
+          "eth",
+          "market_data"
+        ],
+        "metadata": {
+          "change_7d": -3.77194108447874,
+          "change_30d": -5.980503049447945,
+          "ath": 4946.05,
+          "ath_distance_pct": -55.04311521314988
+        },
+        "timestamp": "2026-05-15T23:48:40.402272Z"
+      },
+      {
+        "signal_id": "cc9a153c-88ae-4400-8a72-b829fddf0959",
+        "source": "crypto",
+        "category": "crypto",
+        "title": "SOL $89.22 (-3.5%)",
+        "content": "SOL: $89.22 | 24h: -3.5% | 7d: -3.3% | 30d: +5.2% | Vol: $3,244,797,442 | MCap: $51,606,017,975",
+        "direction": "contracting",
+        "value": 89.22,
+        "change_pct": -3.495,
+        "volume": 3244797442.0,
+        "confidence": 1.0,
+        "url": null,
+        "tags": [
+          "crypto",
+          "sol",
+          "market_data"
+        ],
+        "metadata": {
+          "change_7d": -3.344040269680701,
+          "change_30d": 5.194962456946157,
+          "ath": 293.31,
+          "ath_distance_pct": -69.58167126930552
+        },
+        "timestamp": "2026-05-15T23:48:40.402307Z"
+      },
+      {
+        "signal_id": "d90e62b5-c85c-42e3-9fe0-6d0e307d32e4",
+        "source": "crypto",
+        "category": "crypto",
+        "title": "DOGE $0.11 (-1.6%)",
+        "content": "DOGE: $0.11 | 24h: -1.6% | 7d: +3.5% | 30d: +19.1% | Vol: $1,570,080,921 | MCap: $17,484,956,904",
+        "direction": "expanding",
+        "value": 0.113366,
+        "change_pct": -1.64845,
+        "volume": 1570080921.0,
+        "confidence": 1.0,
+        "url": null,
+        "tags": [
+          "crypto",
+          "doge",
+          "market_data"
+        ],
+        "metadata": {
+          "change_7d": 3.5030378464451637,
+          "change_30d": 19.09082938126413,
+          "ath": 0.731578,
+          "ath_distance_pct": -84.50390799067222
+        },
+        "timestamp": "2026-05-15T23:48:40.402319Z"
+      },
+      {
+        "signal_id": "b2e5a8be-b1ae-43d5-b975-f3a16c430fab",
+        "source": "crypto",
+        "category": "crypto",
+        "title": "ADA $0.26 (-3.8%)",
+        "content": "ADA: $0.26 | 24h: -3.8% | 7d: -5.4% | 30d: +5.3% | Vol: $385,529,624 | MCap: $9,670,093,358",
+        "direction": "contracting",
+        "value": 0.261348,
+        "change_pct": -3.80562,
+        "volume": 385529624.0,
+        "confidence": 1.0,
+        "url": null,
+        "tags": [
+          "crypto",
+          "ada",
+          "market_data"
+        ],
+        "metadata": {
+          "change_7d": -5.449296717395164,
+          "change_30d": 5.279692597313795,
+          "ath": 3.09,
+          "ath_distance_pct": -91.5421359223301
+        },
+        "timestamp": "2026-05-15T23:48:40.402356Z"
+      },
+      {
+        "signal_id": "f6118371-f703-4f68-8163-403d741ebcfe",
+        "source": "crypto",
+        "category": "crypto",
+        "title": "AVAX $9.53 (-4.0%)",
+        "content": "AVAX: $9.53 | 24h: -4.0% | 7d: -4.3% | 30d: +0.3% | Vol: $209,526,638 | MCap: $4,115,498,888",
+        "direction": "contracting",
+        "value": 9.53,
+        "change_pct": -4.00473,
+        "volume": 209526638.0,
+        "confidence": 1.0,
+        "url": null,
+        "tags": [
+          "crypto",
+          "avax",
+          "market_data"
+        ],
+        "metadata": {
+          "change_7d": -4.271511681683422,
+          "change_30d": 0.34518710784676326,
+          "ath": 144.96,
+          "ath_distance_pct": -93.42577262693158
+        },
+        "timestamp": "2026-05-15T23:48:40.402384Z"
+      },
+      {
+        "signal_id": "543a5ea9-7edf-4099-bc58-beee2e039a82",
+        "source": "reddit",
+        "category": "gme_intel",
+        "title": "GME vs. GMEBAY - The funding problem, the dilution math, and what could happen when RC makes a new proposal",
+        "content": "r/Superstonk [\ud83e\udd14 Speculation / Opinion] | Score: 1,930 | Comments: 221 | Ratio: 94% | Keywords: dilution",
+        "direction": "bearish",
+        "value": 1930.0,
+        "change_pct": null,
+        "volume": 221.0,
+        "confidence": 0.95,
+        "url": "https://www.reddit.com/r/Superstonk/comments/1tdvfpl/gme_vs_gmebay_the_funding_problem_the_dilution/",
+        "tags": [
+          "reddit",
+          "superstonk",
+          "hot",
+          "hot",
+          "flair:speculation___opinion"
+        ],
+        "metadata": {
+          "post_id": "t3_1tdvfpl",
+          "subreddit": "Superstonk",
+          "score": 1930,
+          "num_comments": 221,
+          "upvote_ratio": 0.94,
+          "flair": "\ud83e\udd14 Speculation / Opinion",
+          "listing_type": "hot",
+          "strength": "hot",
+          "tickers": [],
+          "alpha_keywords": [
+            "dilution"
+          ],
+          "is_dd": true,
+          "created_utc": 1778849449.0
+        },
+        "timestamp": "2026-05-15T23:48:41.285081Z"
+      },
+      {
+        "signal_id": "6d88ce44-1f5d-42b8-a644-9828ebedf191",
+        "source": "reddit",
+        "category": "retail_meme",
+        "title": "\"We'll see what happens!\" \ud83d\ude01",
+        "content": "r/Superstonk [\ud83e\udd21 Meme] | Score: 232 | Comments: 6 | Ratio: 88%",
+        "direction": "emerging",
+        "value": 232.0,
+        "change_pct": null,
+        "volume": 6.0,
+        "confidence": 0.5,
+        "url": "https://www.reddit.com/r/Superstonk/comments/1tdzkd6/well_see_what_happens/",
+        "tags": [
+          "reddit",
+          "superstonk",
+          "rising",
+          "warm",
+          "flair:meme"
+        ],
+        "metadata": {
+          "post_id": "t3_1tdzkd6",
+          "subreddit": "Superstonk",
+          "score": 232,
+          "num_comments": 6,
+          "upvote_ratio": 0.88,
+          "flair": "\ud83e\udd21 Meme",
+          "listing_type": "rising",
+          "strength": "warm",
+          "tickers": [],
+          "alpha_keywords": [],
+          "is_dd": false,
+          "created_utc": 1778858625.0
+        },
+        "timestamp": "2026-05-15T23:48:40.759830Z"
+      },
+      {
+        "signal_id": "33c0baaf-1aab-474c-98be-822ebda4cd64",
+        "source": "options_flow",
+        "category": "sector_rotation",
+        "title": "SPY -0.35% | net opt prem $+375,708,313",
+        "content": "SPY (S&P 500 Index) \u2014 last $739.17 | P/C ratio 1.04 | call prem $1,550,147,471 | put prem $1,174,439,158",
+        "direction": "expanding",
+        "value": 375708313.0,
+        "change_pct": -0.3531996926353826,
+        "volume": 11289536.0,
+        "confidence": 0.85,
+        "url": null,
+        "tags": [
+          "sector_etf",
+          "spy",
+          "rotation"
+        ],
+        "metadata": {
+          "call_premium": 1550147471.0,
+          "put_premium": 1174439158.0,
+          "call_volume": 5520969.0,
+          "put_volume": 5768567.0,
+          "put_call_ratio": 1.0448468375750706,
+          "in_out_flow": [
+            {
+              "date": "2026-05-08",
+              "change": 5650000
+            },
+            {
+              "date": "2026-05-11",
+              "change": 1050000
+            },
+            {
+              "date": "2026-05-12",
+              "change": 3500000
+            },
+            {
+              "date": "2026-05-13",
+              "change": 2700000
+            },
+            {
+              "date": "2026-05-14",
+              "change": -5200000
+            }
+          ],
+          "marketcap": "747.973604"
+        },
+        "timestamp": "2026-05-15T23:48:41.435727Z"
+      }
+    ],
+    "predictions": [
+      {
+        "question": "will jesus christ return before gta vi?",
+        "probability": 0.485,
+        "volume": 11370329.46713691,
+        "direction": "neutral"
+      },
+      {
+        "question": "will china invades taiwan before gta vi?",
+        "probability": 0.505,
+        "volume": 1825749.8758420616,
+        "direction": "neutral"
+      },
+      {
+        "question": "new playboi carti album before gta vi?",
+        "probability": 0.51,
+        "volume": 733576.9462979477,
+        "direction": "neutral"
+      },
+      {
+        "question": "new rihanna album before gta vi?",
+        "probability": 0.51,
+        "volume": 728285.4934170028,
+        "direction": "neutral"
+      },
+      {
+        "question": "trump out as president before gta vi?",
+        "probability": 0.51,
+        "volume": 644787.5085740105,
+        "direction": "neutral"
+      },
+      {
+        "question": "will uzbekistan win the 2026 fifa world cup?",
+        "probability": 0.0015,
+        "volume": 0,
+        "direction": "bearish"
+      },
+      {
+        "question": "will trump say \"iran\" during events with xi jinping?",
+        "probability": 0.0355,
+        "volume": 0,
+        "direction": "bearish"
+      },
+      {
+        "question": "will austria win eurovision 2026?",
+        "probability": 0.0005,
+        "volume": 0,
+        "direction": "bearish"
+      },
+      {
+        "question": "will liverpool fc win on 2026-05-17?",
+        "probability": 0.5,
+        "volume": 0,
+        "direction": "bearish"
+      },
+      {
+        "question": "will bitcoin hit $150k by june 30, 2026?",
+        "probability": 0.0135,
+        "volume": 0,
+        "direction": "bearish"
+      }
+    ],
+    "trending": [
+      {
+        "term": "flash flood warning",
+        "score": 5000.0,
+        "change_pct": null,
+        "direction": "emerging"
+      },
+      {
+        "term": "aaron nola",
+        "score": 1000.0,
+        "change_pct": null,
+        "direction": "emerging"
+      },
+      {
+        "term": "redistricting in virginia",
+        "score": 1000.0,
+        "change_pct": null,
+        "direction": "emerging"
+      },
+      {
+        "term": "fever game",
+        "score": 1000.0,
+        "change_pct": null,
+        "direction": "emerging"
+      },
+      {
+        "term": "yaamava casino",
+        "score": 500.0,
+        "change_pct": null,
+        "direction": "emerging"
+      },
+      {
+        "term": "henry cavill",
+        "score": 500.0,
+        "change_pct": null,
+        "direction": "emerging"
+      },
+      {
+        "term": "luis miguel",
+        "score": 200.0,
+        "change_pct": null,
+        "direction": "emerging"
+      },
+      {
+        "term": "marcell ozuna",
+        "score": 200.0,
+        "change_pct": null,
+        "direction": "emerging"
+      },
+      {
+        "term": "zion national park",
+        "score": 200.0,
+        "change_pct": null,
+        "direction": "emerging"
+      },
+      {
+        "term": "rangers vs astros",
+        "score": 2000.0,
+        "change_pct": null,
+        "direction": "emerging"
+      }
+    ],
+    "market_movements": [
+      {
+        "symbol": "LINK",
+        "price": 10.06,
+        "change_pct": -4.34407,
+        "volume": 347780312.0
+      },
+      {
+        "symbol": "AVAX",
+        "price": 9.53,
+        "change_pct": -4.00473,
+        "volume": 209526638.0
+      },
+      {
+        "symbol": "XRP",
+        "price": 1.43,
+        "change_pct": -3.84077,
+        "volume": 2470130758.0
+      },
+      {
+        "symbol": "ADA",
+        "price": 0.261348,
+        "change_pct": -3.80562,
+        "volume": 385529624.0
+      },
+      {
+        "symbol": "SOL",
+        "price": 89.22,
+        "change_pct": -3.495,
+        "volume": 3244797442.0
+      },
+      {
+        "symbol": "ETH",
+        "price": 2223.59,
+        "change_pct": -2.71095,
+        "volume": 16964988748.0
+      },
+      {
+        "symbol": "BTC",
+        "price": 79067.0,
+        "change_pct": -2.47793,
+        "volume": 38606178934.0
+      },
+      {
+        "symbol": "DOGE",
+        "price": 0.113366,
+        "change_pct": -1.64845,
+        "volume": 1570080921.0
+      }
+    ],
+    "risk_alerts": [],
+    "source_counts": {
+      "google_trends": 10,
+      "polymarket": 50,
+      "news": 110,
+      "crypto": 19,
+      "options_flow": 72,
+      "market_data": 225,
+      "reddit": 440
+    },
+    "total_signals_processed": 926
+  }
+}

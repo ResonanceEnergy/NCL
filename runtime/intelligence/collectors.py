@@ -58,12 +58,17 @@ class _RateLimiter:
         self.calls = calls
         self.window = window_seconds
         self._timestamps: list[float] = []
-        self._lock = asyncio.Lock()
+        self._lock: asyncio.Lock | None = None  # Lazy-init to avoid wrong-loop binding
+
+    def _get_lock(self) -> asyncio.Lock:
+        if self._lock is None:
+            self._lock = asyncio.Lock()
+        return self._lock
 
     async def acquire(self) -> None:
         while True:
             wait_time = 0.0
-            async with self._lock:
+            async with self._get_lock():
                 now = time.monotonic()
                 self._timestamps = [t for t in self._timestamps if now - t < self.window]
                 if len(self._timestamps) >= self.calls:
@@ -119,8 +124,18 @@ async def _fetch_json(
                 log.debug(f"404 Not Found for {url.split('?', 1)[0]} — skipping retries")
                 return None
             if resp.status_code == 429:
-                wait = int(resp.headers.get("retry-after", 2 ** attempt))
-                log.warning(f"Rate limited on {url.split('?', 1)[0]}, waiting {wait}s")
+                import random
+                base_wait = int(resp.headers.get("retry-after", 2 ** attempt))
+                jitter = random.uniform(0.5, 2.0)  # Add jitter to avoid thundering herd
+                wait = base_wait + jitter
+                log.warning(f"Rate limited on {url.split('?', 1)[0]}, waiting {wait:.1f}s")
+                await asyncio.sleep(wait)
+                continue
+            if resp.status_code == 503:
+                # Reddit returns 503 during heavy traffic — treat like rate limit
+                import random
+                wait = (2 ** attempt) * 5 + random.uniform(1, 3)
+                log.warning(f"503 from {url.split('?', 1)[0]}, backing off {wait:.1f}s")
                 await asyncio.sleep(wait)
                 continue
             if resp.status_code in (401, 403):
@@ -200,8 +215,14 @@ class GoogleTrendsCollector:
     """
     Fetch trending searches and interest-over-time from Google Trends.
 
-    Uses the unofficial trends API endpoints (same as pytrends).
-    No API key required.
+    Uses the RSS feed as the primary (and most reliable) data source.
+    The JSON dailytrends endpoint is a secondary fallback.
+    pytrends is DEPRECATED (archived April 2025) — collect_interest()
+    now derives keyword relevance from the RSS trending data instead.
+
+    Health tracking: consecutive failures, last success timestamp, and
+    per-method signal counts are exposed via .health_status() for the
+    /intelligence/google-trends/health diagnostic endpoint.
     """
 
     TRENDING_URL = "https://trends.google.com/trending/rss"
@@ -212,20 +233,64 @@ class GoogleTrendsCollector:
         self._client = httpx.AsyncClient(
             timeout=30.0,
             headers={
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) NCL-Intelligence/1.0",
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                              "AppleWebKit/537.36 (KHTML, like Gecko) "
+                              "Chrome/125.0.0.0 Safari/537.36",
             },
             follow_redirects=True,
         )
         self._limiter = _RateLimiter(calls=5, window_seconds=60)
 
+        # ── Health tracking ──────────────────────────────────────────
+        self._health = {
+            "rss_successes": 0,
+            "rss_failures": 0,
+            "rss_consecutive_failures": 0,
+            "rss_last_success": None,
+            "rss_last_failure": None,
+            "rss_last_failure_reason": None,
+            "rss_last_signal_count": 0,
+            "json_successes": 0,
+            "json_failures": 0,
+            "json_consecutive_failures": 0,
+            "json_last_success": None,
+            "json_last_failure": None,
+            "json_last_failure_reason": None,
+            "interest_matches": 0,
+            "total_signals_produced": 0,
+        }
+
+    def health_status(self) -> dict:
+        """Return collector health for diagnostic endpoint."""
+        rss_ok = self._health["rss_consecutive_failures"] < 3
+        json_ok = self._health["json_consecutive_failures"] < 5
+        if rss_ok:
+            status = "healthy"
+        elif json_ok:
+            status = "degraded"
+        else:
+            status = "down"
+        return {
+            "status": status,
+            "rss_feed": "ok" if rss_ok else f"failing ({self._health['rss_consecutive_failures']} consecutive)",
+            "json_api": "ok" if json_ok else f"failing ({self._health['json_consecutive_failures']} consecutive)",
+            "pytrends": "removed (archived April 2025 — using RSS keyword matching)",
+            **self._health,
+        }
+
     async def collect_daily_trends(self, geo: str = "US") -> list[TrendSignal]:
         """
         Fetch today's trending searches from Google Trends.
 
-        Primary: RSS feed (reliable, always works).
-        Fallback: dailytrends JSON API (sometimes returns 404).
+        Primary: RSS feed (most reliable path — Google maintains it for
+        podcast apps and news aggregators).
+        Fallback: dailytrends JSON API (sometimes returns 404 / 429).
+
+        Health tracking updates on every call so the diagnostic endpoint
+        always reflects current state.
         """
         signals = []
+        now_iso = datetime.now(timezone.utc).isoformat()
 
         # ── Primary: RSS feed ─────────────────────────────────────
         try:
@@ -237,10 +302,36 @@ class GoogleTrendsCollector:
             if resp.status_code == 200 and resp.text.strip().startswith("<?xml"):
                 signals = self._parse_rss_trends(resp.text, geo)
                 if signals:
-                    log.info(f"Google Trends RSS: {len(signals)} trending items")
+                    self._health["rss_successes"] += 1
+                    self._health["rss_consecutive_failures"] = 0
+                    self._health["rss_last_success"] = now_iso
+                    self._health["rss_last_signal_count"] = len(signals)
+                    self._health["total_signals_produced"] += len(signals)
+                    log.info(f"[GTRENDS] RSS OK: {len(signals)} trending items (geo={geo})")
                     return signals
+                else:
+                    # 200 but empty parse — treat as soft failure
+                    self._health["rss_consecutive_failures"] += 1
+                    self._health["rss_last_failure"] = now_iso
+                    self._health["rss_last_failure_reason"] = "200 OK but parsed 0 items"
+                    log.warning("[GTRENDS] RSS returned 200 but parsed 0 items — "
+                                "feed format may have changed")
+            else:
+                self._health["rss_failures"] += 1
+                self._health["rss_consecutive_failures"] += 1
+                self._health["rss_last_failure"] = now_iso
+                self._health["rss_last_failure_reason"] = (
+                    f"HTTP {resp.status_code}" if resp.status_code != 200
+                    else "Response not XML"
+                )
+                log.warning(f"[GTRENDS] RSS non-200 or non-XML: status={resp.status_code}, "
+                            f"body_start={resp.text[:80]!r}")
         except Exception as e:
-            log.warning(f"Google Trends RSS failed: {e}")
+            self._health["rss_failures"] += 1
+            self._health["rss_consecutive_failures"] += 1
+            self._health["rss_last_failure"] = now_iso
+            self._health["rss_last_failure_reason"] = str(e)[:200]
+            log.warning(f"[GTRENDS] RSS exception: {e}")
 
         # ── Fallback: JSON API ────────────────────────────────────
         try:
@@ -250,7 +341,12 @@ class GoogleTrendsCollector:
                 params={"hl": "en-US", "tz": "-240", "geo": geo, "ns": "15"},
             )
             if resp.status_code != 200:
-                log.warning(f"Google Trends JSON API returned {resp.status_code}")
+                self._health["json_failures"] += 1
+                self._health["json_consecutive_failures"] += 1
+                self._health["json_last_failure"] = now_iso
+                self._health["json_last_failure_reason"] = f"HTTP {resp.status_code}"
+                log.warning(f"[GTRENDS] JSON API HTTP {resp.status_code} "
+                            f"(consecutive failures: {self._health['json_consecutive_failures']})")
                 return signals
 
             # Google prepends ")]}'" to JSON responses
@@ -293,8 +389,34 @@ class GoogleTrendsCollector:
                         metadata={"formatted_traffic": traffic, "article_count": len(articles)},
                     ))
 
+            if signals:
+                self._health["json_successes"] += 1
+                self._health["json_consecutive_failures"] = 0
+                self._health["json_last_success"] = now_iso
+                self._health["total_signals_produced"] += len(signals)
+                log.info(f"[GTRENDS] JSON fallback OK: {len(signals)} trending items")
+            else:
+                self._health["json_consecutive_failures"] += 1
+                self._health["json_last_failure"] = now_iso
+                self._health["json_last_failure_reason"] = "Parsed 0 items from valid JSON"
+                log.warning("[GTRENDS] JSON API returned valid JSON but 0 items")
+
         except Exception as e:
-            log.warning(f"Google Trends daily collection failed: {e}")
+            self._health["json_failures"] += 1
+            self._health["json_consecutive_failures"] += 1
+            self._health["json_last_failure"] = now_iso
+            self._health["json_last_failure_reason"] = str(e)[:200]
+            log.warning(f"[GTRENDS] JSON API exception: {e}")
+
+        # If both paths failed, log a loud warning
+        if not signals:
+            total_consecutive = (self._health["rss_consecutive_failures"]
+                                 + self._health["json_consecutive_failures"])
+            if total_consecutive >= 4:
+                log.error(f"[GTRENDS] BOTH feeds failing — RSS: "
+                          f"{self._health['rss_consecutive_failures']} consecutive, "
+                          f"JSON: {self._health['json_consecutive_failures']} consecutive. "
+                          f"Google Trends is producing ZERO signals.")
 
         return signals
 
@@ -363,60 +485,108 @@ class GoogleTrendsCollector:
 
     async def collect_interest(self, keywords: list[str], timeframe: str = "now 7-d", geo: str = "US") -> list[TrendSignal]:
         """
-        Fetch interest-over-time for specific keywords.
+        Check whether watched keywords appear in current Google Trends.
 
-        Uses pytrends if available, falls back to basic API call.
-        pytrends makes synchronous HTTP requests, so the blocking call is
-        offloaded to a thread pool via asyncio.to_thread.
+        DEPRECATED: The original pytrends-based interest-over-time approach
+        is dead (pytrends archived April 2025, no longer maintained).
+
+        New approach: Fetch today's RSS trending data and match against the
+        watch-list keywords. If a keyword (or close variant) is currently
+        trending, that's a high-signal event — emit a TrendSignal with the
+        RSS traffic volume as a proxy for interest.
+
+        This trades granular time-series data for reliability. The RSS feed
+        is Google's most stable public trends surface.
         """
-        signals = []
+        signals: list[TrendSignal] = []
+        if not keywords:
+            return signals
+
+        # Fetch fresh RSS data (reuses rate limiter + health tracking)
         try:
-            def _fetch_pytrends() -> list[TrendSignal]:
-                from pytrends.request import TrendReq
-                pt = TrendReq(hl="en-US", tz=240)
-                pt.build_payload(keywords[:5], cat=0, timeframe=timeframe, geo=geo)
-                iot = pt.interest_over_time()
-
-                result: list[TrendSignal] = []
-                if iot is not None and not iot.empty:
-                    for kw in keywords[:5]:
-                        if kw in iot.columns:
-                            values = iot[kw].tolist()
-                            if len(values) >= 2:
-                                current = values[-1]
-                                previous = values[-2] if values[-2] > 0 else 1
-                                change = ((current - previous) / previous) * 100
-                                avg_val = sum(values) / len(values)
-
-                                if change > 20:
-                                    direction = SignalDirection.EXPANDING
-                                elif change < -20:
-                                    direction = SignalDirection.CONTRACTING
-                                else:
-                                    direction = SignalDirection.NEUTRAL
-
-                                result.append(TrendSignal(
-                                    source=SourceType.GOOGLE_TRENDS,
-                                    category="interest",
-                                    title=f"Google Trends: {kw}",
-                                    content=f"{kw} interest {'up' if change > 0 else 'down'} {abs(change):.0f}% over period. Current={current}, avg={avg_val:.0f}",
-                                    search_term=kw,
-                                    trend_direction="rising" if change > 10 else "declining" if change < -10 else "stable",
-                                    geo=geo,
-                                    value=float(current),
-                                    change_pct=change,
-                                    volume=avg_val,
-                                    confidence=0.7,
-                                    direction=direction,
-                                    tags=["interest", "google_trends", kw.lower().replace(" ", "_")],
-                                ))
-                return result
-
-            signals = await asyncio.to_thread(_fetch_pytrends)
-        except ImportError:
-            log.info("pytrends not installed — skipping interest_over_time (pip install pytrends)")
+            rss_signals = await self.collect_daily_trends(geo=geo)
         except Exception as e:
-            log.warning(f"Google Trends interest collection failed: {e}")
+            log.warning(f"[GTRENDS] Interest check: could not fetch RSS for keyword matching: {e}")
+            return signals
+
+        if not rss_signals:
+            log.debug("[GTRENDS] Interest check: no RSS data to match against")
+            return signals
+
+        # Build a lowercase lookup of trending titles for fuzzy matching
+        trending_map: dict[str, TrendSignal] = {}
+        for sig in rss_signals:
+            trending_map[sig.search_term.lower()] = sig
+
+        # Match keywords against trending terms
+        kw_lower = [kw.lower().strip() for kw in keywords[:10]]
+
+        for kw, kw_orig in zip(kw_lower, keywords[:10]):
+            # Exact match
+            if kw in trending_map:
+                match = trending_map[kw]
+                signals.append(TrendSignal(
+                    source=SourceType.GOOGLE_TRENDS,
+                    category="interest",
+                    title=f"Watch Topic Trending: {kw_orig}",
+                    content=(
+                        f"'{kw_orig}' is currently trending on Google with "
+                        f"~{match.volume:,.0f} searches. {match.content[:200]}"
+                    ),
+                    search_term=kw_orig,
+                    trend_direction="rising",
+                    geo=geo,
+                    value=match.value,
+                    volume=match.volume,
+                    change_pct=0.0,  # No time-series data from RSS
+                    confidence=0.85,  # High — confirmed trending
+                    direction=SignalDirection.EMERGING,
+                    tags=["interest", "watch_topic", "trending_match", kw.replace(" ", "_")],
+                    metadata={"match_type": "exact", "rss_rank": match.metadata.get("rss_rank", 0)},
+                ))
+                self._health["interest_matches"] += 1
+                log.info(f"[GTRENDS] Watch topic EXACT match: '{kw_orig}' is trending!")
+                continue
+
+            # Partial / substring match (e.g., "crypto" matches "crypto regulation news")
+            for trending_term, match in trending_map.items():
+                if kw in trending_term or trending_term in kw:
+                    signals.append(TrendSignal(
+                        source=SourceType.GOOGLE_TRENDS,
+                        category="interest",
+                        title=f"Watch Topic Related: {kw_orig} ↔ {match.search_term}",
+                        content=(
+                            f"Watch topic '{kw_orig}' partially matches trending term "
+                            f"'{match.search_term}' (~{match.volume:,.0f} searches). "
+                            f"{match.content[:150]}"
+                        ),
+                        search_term=kw_orig,
+                        trend_direction="rising",
+                        geo=geo,
+                        value=match.value,
+                        volume=match.volume,
+                        change_pct=0.0,
+                        confidence=0.65,  # Lower — partial match
+                        direction=SignalDirection.EMERGING,
+                        tags=["interest", "watch_topic", "partial_match", kw.replace(" ", "_")],
+                        metadata={
+                            "match_type": "partial",
+                            "matched_term": match.search_term,
+                            "rss_rank": match.metadata.get("rss_rank", 0),
+                        },
+                    ))
+                    self._health["interest_matches"] += 1
+                    log.info(f"[GTRENDS] Watch topic PARTIAL match: '{kw_orig}' ↔ "
+                             f"'{match.search_term}'")
+                    break  # One match per keyword is enough
+
+        if signals:
+            self._health["total_signals_produced"] += len(signals)
+            log.info(f"[GTRENDS] Interest check: {len(signals)} keyword matches "
+                     f"from {len(rss_signals)} trending items")
+        else:
+            log.debug(f"[GTRENDS] Interest check: 0/{len(keywords)} watch topics "
+                      f"trending right now (checked {len(rss_signals)} items)")
 
         return signals
 
@@ -535,9 +705,14 @@ class PolymarketCollector:
                 else:
                     direction = SignalDirection.NEUTRAL
 
+                # Categorize and apply sports noise filter at source
+                _event_category = self._categorize_event(title, tag_labels)
+                if _event_category == "sports" and vol_24h < 500_000:
+                    continue  # Skip low-volume sports — not actionable intelligence
+
                 signals.append(PredictionMarketSignal(
                     source=SourceType.POLYMARKET,
-                    category=self._categorize_event(title, tag_labels),
+                    category=_event_category,
                     title=question[:200],
                     content=f"Polymarket: {question} — YES={yes_price:.1%}, NO={no_price:.1%}, 24h vol=${vol_24h:,.0f}",
                     market_question=question,
@@ -1001,6 +1176,34 @@ class CryptoMarketCollector:
                 else:
                     direction = SignalDirection.NEUTRAL
 
+                # Compute RSI/MACD from price history (best-effort)
+                coin_rsi: Optional[float] = None
+                coin_macd_hist: Optional[float] = None
+                try:
+                    hist = await _fetch_json(
+                        self._client,
+                        f"{self.BASE_URL}/coins/{coin_id}/market_chart",
+                        params={"vs_currency": "usd", "days": "60", "interval": "daily"},
+                        limiter=self._limiter,
+                    )
+                    if isinstance(hist, dict) and "prices" in hist:
+                        closes = [p[1] for p in hist["prices"] if isinstance(p, list) and len(p) == 2]
+                        if closes:
+                            coin_rsi = compute_rsi(closes)
+                            macd_result = compute_macd(closes)
+                            if macd_result:
+                                coin_macd_hist = macd_result[2]  # histogram
+                except Exception:
+                    pass  # Non-critical — signal still valid without TA
+
+                # Build content string with TA when available
+                ta_parts = []
+                if coin_rsi is not None:
+                    ta_parts.append(f"RSI: {coin_rsi:.1f}")
+                if coin_macd_hist is not None:
+                    ta_parts.append(f"MACD-H: {coin_macd_hist:.4f}")
+                ta_str = f" | {' | '.join(ta_parts)}" if ta_parts else ""
+
                 signals.append(MarketSignal(
                     source=SourceType.CRYPTO,
                     category="crypto",
@@ -1008,7 +1211,7 @@ class CryptoMarketCollector:
                     content=(
                         f"{symbol}: ${price:,.2f} | 24h: {change_24h:+.1f}% | "
                         f"7d: {change_7d:+.1f}% | 30d: {change_30d:+.1f}% | "
-                        f"Vol: ${volume:,.0f} | MCap: ${market_cap:,.0f}"
+                        f"Vol: ${volume:,.0f} | MCap: ${market_cap:,.0f}{ta_str}"
                     ),
                     symbol=symbol,
                     current_price=price,
@@ -1018,6 +1221,8 @@ class CryptoMarketCollector:
                     value=price,
                     change_pct=change_24h,
                     volume=volume,
+                    rsi=coin_rsi,
+                    macd_histogram=coin_macd_hist,
                     direction=direction,
                     confidence=0.85,  # Hard data, high confidence
                     tags=["crypto", symbol.lower(), "market_data"],
@@ -2342,7 +2547,20 @@ class RedditCollector:
     """
 
     BASE_URL = "https://www.reddit.com"
+    FALLBACK_URL = "https://old.reddit.com"
     OAUTH_URL = "https://oauth.reddit.com"
+
+    # Rotate User-Agent strings for unauthenticated requests to avoid
+    # bot-detection on the public .json endpoints.  Authenticated OAuth
+    # requests always use the bot-style UA that Reddit requires.
+    _BROWSER_UAS: list[str] = [
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0",
+    ]
+    _ua_index: int = 0
 
     # ── Tiered subreddit network ──────────────────────────────────
     # TIER 1: Scanned every cycle (hot + top + rising) — core alpha sources
@@ -2407,7 +2625,7 @@ class RedditCollector:
         "MillennialBets",       # 12K   — millennial traders
         "FinancialPlanning",    # 976K  — planning / macro
         "EducatedInvesting",    # 95K   — investment education
-        "BBBY",                 # 67K   — meme stock archive
+        "TradingView",          # 107K  — charting / TA community
         "maxjustrisk",          # 7K    — risk analysis DD
         "personalfinance",      # 21.7M — consumer sentiment
     ]
@@ -2503,6 +2721,11 @@ class RedditCollector:
         # Reddit OAuth: 60 requests/min (authenticated); be conservative
         self._limiter = _RateLimiter(calls=60, window_seconds=60)
 
+        # RSS pre-scan: track last-seen post IDs per subreddit so we can skip
+        # JSON API calls when a sub has no new activity since last scan.
+        self._last_rss_ids: dict[str, set[str]] = {}
+        self._rss_limiter = _RateLimiter(calls=30, window_seconds=60)  # conservative for RSS
+
     async def _get_oauth_token(self) -> str | None:
         """Fetch (and cache) a Reddit OAuth bearer token via client_credentials."""
         if not self._authed:
@@ -2529,12 +2752,78 @@ class RedditCollector:
                 self._oauth_token = None
                 return None
 
+    def _next_browser_ua(self) -> str:
+        """Return the next browser User-Agent from the rotation pool."""
+        ua = self._BROWSER_UAS[RedditCollector._ua_index % len(self._BROWSER_UAS)]
+        RedditCollector._ua_index += 1
+        return ua
+
     async def _auth_headers(self) -> dict:
         """Headers to use for Reddit API requests, with OAuth bearer when available."""
         token = await self._get_oauth_token()
         if token:
             return {"Authorization": f"Bearer {token}", "User-Agent": self._user_agent}
-        return {"User-Agent": self._user_agent}
+        # Unauthenticated: use browser-like UA to avoid bot detection on
+        # the public .json endpoints (Reddit blocks generic/bot UAs with 403).
+        return {"User-Agent": self._next_browser_ua()}
+
+    async def _rss_has_new_posts(self, subreddit: str) -> bool:
+        """Check RSS feed for new posts since last scan — zero-auth, lightweight.
+
+        Returns True if new posts detected (or on any error — fail-open so the
+        JSON scan still runs).  Returns False only when we can confidently say
+        nothing new has appeared.
+
+        RSS feeds are rate-limited separately and much more lenient than the
+        JSON API, so this is cheap to call for every Tier 2/3 sub.
+        """
+        import xml.etree.ElementTree as ET
+
+        url = f"https://www.reddit.com/r/{subreddit}/new.rss?limit=10"
+        headers = {"User-Agent": self._next_browser_ua()}
+
+        try:
+            await self._rss_limiter.acquire()
+            resp = await self._client.get(url, headers=headers, timeout=10.0)
+            if resp.status_code != 200:
+                # Fail open — can't confirm no new posts, so proceed with JSON scan
+                return True
+
+            # Parse Atom feed — extract entry IDs (fullname like t3_abc123)
+            root = ET.fromstring(resp.text)
+            ns = {"atom": "http://www.w3.org/2005/Atom"}
+            entries = root.findall("atom:entry", ns)
+
+            current_ids: set[str] = set()
+            for entry in entries:
+                entry_id = entry.findtext("atom:id", default="", namespaces=ns)
+                if entry_id:
+                    # RSS IDs are full URLs; extract the post path as identifier
+                    current_ids.add(entry_id)
+
+            if not current_ids:
+                return True  # Couldn't parse — fail open
+
+            prev_ids = self._last_rss_ids.get(subreddit, set())
+            self._last_rss_ids[subreddit] = current_ids
+
+            if not prev_ids:
+                # First scan for this sub — no baseline to compare, proceed with JSON
+                return True
+
+            # If any new IDs appeared since last check, there's new activity
+            new_posts = current_ids - prev_ids
+            if new_posts:
+                log.debug(f"RSS r/{subreddit}: {len(new_posts)} new posts detected")
+                return True
+
+            log.debug(f"RSS r/{subreddit}: no new posts since last scan — skipping JSON")
+            return False
+
+        except Exception as e:
+            # Fail open on any error (network, parse, etc.)
+            log.debug(f"RSS r/{subreddit} check failed ({e}) — proceeding with JSON scan")
+            return True
 
     def _build_scan_list(self, advance_offset: bool = False) -> list[str]:
         """Build subreddit list based on tier config.
@@ -2640,8 +2929,15 @@ class RedditCollector:
         return signals
 
     async def _scan_sub_hot(self, sub: str) -> list[SocialSignal]:
-        """Quick scan: hot posts only."""
+        """Quick scan: hot posts only.
+
+        Uses RSS pre-scan to skip JSON API call if no new activity detected
+        since the last scan cycle.  Saves API quota on inactive Tier 2/3 subs.
+        """
         try:
+            # RSS gate: skip JSON call if sub has no new posts
+            if not await self._rss_has_new_posts(sub):
+                return []
             return await self._collect_listing(sub, "hot", limit=15)
         except Exception as e:
             log.warning(f"Reddit r/{sub} hot scan failed: {e}")
@@ -2654,28 +2950,56 @@ class RedditCollector:
         limit: int = 25,
         params: dict | None = None,
     ) -> list[SocialSignal]:
-        """Fetch a subreddit listing (hot/top/rising/new) and convert to signals."""
+        """Fetch a subreddit listing (hot/top/rising/new) and convert to signals.
+
+        Fallback chain (unauthenticated):
+          1. www.reddit.com/r/{sub}/{sort}.json  (primary)
+          2. old.reddit.com/r/{sub}/{sort}.json  (fallback on 403)
+        Authenticated requests always go through oauth.reddit.com.
+        """
         signals: list[SocialSignal] = []
 
-        # Phase 2 fix: prefer authenticated oauth.reddit.com when creds available
-        # (unauthenticated www.reddit.com JSON returns 403). OAuth host wants
-        # the path WITHOUT a .json suffix; the legacy host wants it WITH.
-        if self._authed:
-            url = f"{self.OAUTH_URL}/r/{subreddit}/{sort}"
-        else:
-            url = f"{self.BASE_URL}/r/{subreddit}/{sort}.json"
         query = {"limit": limit, "raw_json": 1}
         if params:
             query.update(params)
         headers = await self._auth_headers()
 
-        try:
-            data = await _fetch_json(
-                self._client, url, params=query, headers=headers, limiter=self._limiter
-            )
-        except Exception as e:
-            log.warning(f"Reddit r/{subreddit}/{sort} fetch failed: {e}")
-            return signals
+        data = None
+        if self._authed:
+            # OAuth host wants path WITHOUT .json suffix
+            url = f"{self.OAUTH_URL}/r/{subreddit}/{sort}"
+            try:
+                data = await _fetch_json(
+                    self._client, url, params=query, headers=headers, limiter=self._limiter
+                )
+            except Exception as e:
+                log.warning(f"Reddit r/{subreddit}/{sort} OAuth fetch failed: {e}")
+                return signals
+        else:
+            # Unauthenticated: try www first, then old.reddit.com on 403
+            for base in (self.BASE_URL, self.FALLBACK_URL):
+                url = f"{base}/r/{subreddit}/{sort}.json"
+                # Refresh UA for each attempt (different fingerprint per host)
+                headers = await self._auth_headers()
+                try:
+                    data = await _fetch_json(
+                        self._client, url, params=query, headers=headers,
+                        limiter=self._limiter,
+                    )
+                    if data is not None:
+                        break  # success — don't try fallback
+                except SafeAPIError as e:
+                    if e.status_code == 403 and base == self.BASE_URL:
+                        log.info(
+                            f"Reddit r/{subreddit}/{sort} got 403 from www, "
+                            f"falling back to old.reddit.com"
+                        )
+                        continue  # try old.reddit.com
+                    log.warning(f"Reddit r/{subreddit}/{sort} fetch failed: {e}")
+                    return signals
+                except Exception as e:
+                    log.warning(f"Reddit r/{subreddit}/{sort} fetch failed: {e}")
+                    return signals
 
         children = data.get("data", {}).get("children", [])
 

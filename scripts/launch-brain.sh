@@ -32,6 +32,6 @@ export PYTHONPATH="$NCL_DIR${PYTHONPATH:+:$PYTHONPATH}"
 
 # 4. Exec the brain server (replace this shell process so launchd tracks the right PID)
 cd "$NCL_DIR"
-exec /opt/homebrew/bin/python3 -m uvicorn runtime.api.routes:app \
+exec /opt/homebrew/bin/python3 -m uvicorn runtime.api.routes:versioned_app \
     --host 0.0.0.0 \
     --port 8800

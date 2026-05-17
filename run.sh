@@ -75,7 +75,7 @@ if [ "$NCL_ENV" = "development" ]; then
 fi
 
 # Run
-exec python3 -m uvicorn runtime.api.routes:app \
+exec python3 -m uvicorn runtime.api.routes:versioned_app \
     --host 0.0.0.0 \
     --port $PORT \
     $RELOAD_FLAG \

@@ -24,8 +24,20 @@ log = logging.getLogger("ncl.councils.youtube.scraper")
 
 # Default channels — extend via config file or env
 DEFAULT_CHANNELS: list[str] = [
-    "https://www.youtube.com/@NathansMRE",
-    "https://www.youtube.com/@substandard5858",
+    "https://www.youtube.com/@J_Bravo",
+    "https://www.youtube.com/@eurodollaruniversity",
+    "https://www.youtube.com/@brighterwithherbert",
+    "https://www.youtube.com/@cryptosenseii",
+    "https://www.youtube.com/@bullrunners",
+    "https://www.youtube.com/@felixfriends",
+    "https://www.youtube.com/@stockmoe",
+    "https://www.youtube.com/@tombilyeu",
+    "https://www.youtube.com/@andreijikh",
+    "https://www.youtube.com/@thediaryofaceo",
+    "https://www.youtube.com/@following-the-money",
+    "https://www.youtube.com/@chriswillx",
+    "https://www.youtube.com/@theicedcoffeehour",
+    "https://www.youtube.com/@dumbmoneylive",
 ]
 
 # Path to runtime-editable channel config (no code change required to add/remove)
@@ -40,17 +52,12 @@ MAX_TOTAL_DURATION_HOURS = 24
 
 # Strike Point relevance keywords — scored for priority selection
 STRIKE_POINT_KEYWORDS: list[str] = [
-    "first strike",
-    "first-strike",
-    "FSR",
-    "MRE",
-    "ration",
-    "24 hour",
-    "24hr",
-    "military ration",
-    "bass music",
-    "dubstep",
-    "substandard",
+    "crypto", "bitcoin", "ethereum", "altcoin", "defi",
+    "market", "stocks", "trading", "investing", "economy",
+    "eurodollar", "fed", "interest rate", "inflation", "macro",
+    "AI", "artificial intelligence", "machine learning", "automation",
+    "mindset", "entrepreneur", "business", "wealth",
+    "polymarket", "prediction", "forecast",
 ]
 
 # Where to store downloaded audio temporarily

@@ -43,6 +43,11 @@ class ResearchGatherer:
         self.ollama_host = ollama_host
         self.http_client = httpx.AsyncClient(timeout=60.0)
 
+    async def close(self) -> None:
+        """Close the underlying HTTP client to release connections."""
+        if self.http_client and not self.http_client.is_closed:
+            await self.http_client.aclose()
+
     async def gather_sources(
         self,
         sub_question: str,

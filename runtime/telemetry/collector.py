@@ -182,10 +182,14 @@ class TelemetryCollector:
         filepath = self.telemetry_dir / f"{today}.ndjson"
 
         try:
-            with open(filepath, "a") as f:
-                for record in records:
-                    line = record.model_dump_json()
-                    f.write(line + "\n")
+            # Serialize records first, then offload blocking write to thread
+            lines = [record.model_dump_json() + "\n" for record in records]
+
+            def _write() -> None:
+                with open(filepath, "a") as f:
+                    f.writelines(lines)
+
+            await asyncio.to_thread(_write)
             logger.debug(
                 f"Flushed {len(records)} telemetry records to {filepath}"
             )
@@ -334,6 +338,11 @@ class TelemetryCollector:
     ) -> list[TelemetryRecord]:
         """Load all records from NDJSON files in date range.
 
+        Note: This method performs synchronous file I/O.  It is called from
+        synchronous ``get_workflow_stats`` / ``get_all_workflow_stats`` helpers,
+        so wrapping it in ``asyncio.to_thread`` is the caller's responsibility
+        if the event loop must not block.
+
         Args:
             start_time: Lower bound (loads all files from this date onward)
 
@@ -361,9 +370,12 @@ class TelemetryCollector:
                     with open(filepath) as f:
                         for line in f:
                             if line.strip():
-                                data = json.loads(line)
-                                record = TelemetryRecord(**data)
-                                records.append(record)
+                                try:
+                                    data = json.loads(line)
+                                    record = TelemetryRecord(**data)
+                                    records.append(record)
+                                except (json.JSONDecodeError, ValueError) as e:
+                                    logger.warning(f"Skipping malformed telemetry record in {filepath}: {e}")
                 except Exception as e:
                     logger.error(f"Error reading {filepath}: {e}")
             current += timedelta(days=1)

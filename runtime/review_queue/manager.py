@@ -60,7 +60,7 @@ class ReviewItem(BaseModel):
     tags: List[str] = Field(default_factory=list)
     linked_items: List[str] = Field(default_factory=list)
     suggestions: List[Suggestion] = Field(default_factory=list)
-    created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     archived: bool = False
     archived_at: Optional[str] = None
 
@@ -514,7 +514,7 @@ class ReviewQueueManager:
             item = self.items.pop(item_id, None)
             if item:
                 item.archived = True
-                item.archived_at = datetime.utcnow().isoformat()
+                item.archived_at = datetime.now(timezone.utc).isoformat()
                 self.archived[item_id] = item
                 archived_items.append(item)
 
@@ -547,7 +547,7 @@ class ReviewQueueManager:
                 'success': True,
                 'item_type': item.item_type,
                 'source_id': item.source_id,
-                'timestamp': datetime.utcnow().isoformat()
+                'timestamp': datetime.now(timezone.utc).isoformat()
             })
 
         return results
@@ -575,7 +575,7 @@ class ReviewQueueManager:
                 'item_type': item.item_type,
                 'source_id': item.source_id,
                 'reason': reason,
-                'timestamp': datetime.utcnow().isoformat()
+                'timestamp': datetime.now(timezone.utc).isoformat()
             })
 
         return results
@@ -631,7 +631,7 @@ class ReviewQueueManager:
         # Old items (>24h)
         try:
             created = datetime.fromisoformat(item.created_at)
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             hours_old = (now - created).total_seconds() / 3600
 
             if hours_old > 24:
