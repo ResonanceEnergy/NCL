@@ -17,8 +17,6 @@ log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/portfolio", tags=["portfolio"])
 
-STRIKE_TOKEN = os.getenv("STRIKE_AUTH_TOKEN", "")
-
 # Module-level reference — injected by Brain startup via set_portfolio_manager()
 _portfolio_manager = None
 
@@ -29,12 +27,22 @@ def set_portfolio_manager(pm) -> None:
     _portfolio_manager = pm
 
 
+def _get_strike_token() -> str:
+    """Lazily resolve the strike token — reads at call time, not import time."""
+    try:
+        from runtime.api.routes import STRIKE_TOKEN
+        return STRIKE_TOKEN
+    except ImportError:
+        return os.getenv("STRIKE_AUTH_TOKEN", "")
+
+
 def _verify_strike_token(authorization: str):
     """Verify the strike point auth token."""
     if not authorization:
         raise HTTPException(status_code=401, detail="Missing Authorization header")
     token = authorization.replace("Bearer ", "").strip()
-    if not STRIKE_TOKEN or not secrets.compare_digest(token, STRIKE_TOKEN):
+    strike_token = _get_strike_token()
+    if not strike_token or not secrets.compare_digest(token, strike_token):
         raise HTTPException(status_code=403, detail="Invalid strike token")
 
 
