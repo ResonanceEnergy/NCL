@@ -9,6 +9,7 @@ Env config: MOOMOO_HOST, MOOMOO_PORT, MOOMOO_TRADE_ENV, MOOMOO_MARKET, MOOMOO_SE
 import asyncio
 import logging
 import os
+import socket
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -78,12 +79,15 @@ class MoomooAdapter:
     # -- Connection --------------------------------------------------------
 
     async def connect(self) -> bool:
-        """Connect to OpenD. Returns False if SDK missing or connection fails."""
+        """Connect to OpenD. Returns False if SDK missing or connection fails.
+        Times out after 10 seconds to avoid blocking Brain startup."""
         if not MOOMOO_AVAILABLE:
             logger.warning("moomoo-api not installed — adapter disabled. pip install moomoo-api")
             return False
         try:
-            quote_ctx, trade_ctx = await asyncio.to_thread(self._connect_sync)
+            quote_ctx, trade_ctx = await asyncio.wait_for(
+                asyncio.to_thread(self._connect_sync), timeout=10
+            )
             self._quote_ctx = quote_ctx
             self._trade_ctx = trade_ctx
             self._connected = True
@@ -91,12 +95,30 @@ class MoomooAdapter:
             logger.info("Connected to Moomoo OpenD %s:%d market=%s env=%s",
                         self._host, self._port, self._market, self._trade_env_str)
             return True
+        except asyncio.TimeoutError:
+            logger.warning("Moomoo connection timed out (OpenD not running on %s:%d)",
+                           self._host, self._port)
+            self._connected = False
+            return False
         except Exception as exc:
             logger.error("Moomoo connection failed: %s", exc)
             self._connected = False
             return False
 
     def _connect_sync(self):
+        # Pre-check: verify OpenD is actually listening before letting the SDK
+        # block for minutes with its own retry loop.
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(3)
+        try:
+            sock.connect((self._host, self._port))
+        except (ConnectionRefusedError, OSError, socket.timeout):
+            raise ConnectionError(
+                f"OpenD not reachable at {self._host}:{self._port}"
+            )
+        finally:
+            sock.close()
+
         security_firm = getattr(SecurityFirm, self._security_firm_str, SecurityFirm.FUTUINC)
         trd_market = TRD_MARKET_MAP.get(self._market, TrdMarket.US)
         quote_ctx = OpenQuoteContext(host=self._host, port=self._port)
