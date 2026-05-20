@@ -17,7 +17,7 @@ log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/portfolio", tags=["portfolio"])
 
-STRIKE_TOKEN = os.getenv("STRIKE_POINT_TOKEN", "")
+STRIKE_TOKEN = os.getenv("STRIKE_AUTH_TOKEN", "")
 
 # Module-level reference — injected by Brain startup via set_portfolio_manager()
 _portfolio_manager = None
