@@ -1368,7 +1368,7 @@ class AutonomousScheduler:
             report["errors"].append(f"M1: {e}")
 
         # ══════════════════════════════════════════════════════════════
-        # Task M2: Deep Re-scoring (uses memory scorer - Haiku, ~$0.15)
+        # Task M2: Deep Re-scoring (uses memory scorer - Sonnet, ~$1.80)
         # ══════════════════════════════════════════════════════════════
         try:
             task_t0 = time.monotonic()
@@ -1418,8 +1418,8 @@ class AutonomousScheduler:
                                 units_by_id[unit.unit_id] = unit
                                 rescored_count += 1
 
-                                # Estimate per-call cost (Haiku: $0.25/1M in, $1.25/1M out)
-                                est_cost = 0.00075  # ~300 in + 50 out tokens typical
+                                # Estimate per-call cost (Sonnet: $3.00/1M in, $15.00/1M out)
+                                est_cost = 0.0016  # ~300 in + 50 out tokens typical
                                 m2_cost += est_cost
 
                         except Exception as e:
@@ -1453,7 +1453,7 @@ class AutonomousScheduler:
             report["errors"].append(f"M2: {e}")
 
         # ══════════════════════════════════════════════════════════════
-        # Task M3: Entity Backfill (HAIKU, ~$0.10)
+        # Task M3: Entity Backfill (Sonnet, ~$1.20)
         # ══════════════════════════════════════════════════════════════
         try:
             task_t0 = time.monotonic()

@@ -128,7 +128,7 @@ Respond with ONLY a JSON object: {{"score": N, "type": "episodic|semantic|decisi
                     "content-type": "application/json",
                 },
                 json={
-                    "model": "claude-haiku-4-5-20251001",
+                    "model": "claude-sonnet-4-6-20250514",
                     "max_tokens": 100,
                     "messages": [{"role": "user", "content": prompt}],
                 },
@@ -145,7 +145,7 @@ Respond with ONLY a JSON object: {{"score": N, "type": "episodic|semantic|decisi
                 usage = data.get("usage", {})
                 input_t = usage.get("input_tokens", 0)
                 output_t = usage.get("output_tokens", 0)
-                cost_usd = (input_t * 0.25 + output_t * 1.25) / 1_000_000  # Haiku pricing
+                cost_usd = (input_t * 3.00 + output_t * 15.00) / 1_000_000  # Sonnet pricing
                 await record_cost("anthropic", cost_usd, "memory_scoring",
                                   f"importance scoring in={input_t} out={output_t}")
             except Exception:
