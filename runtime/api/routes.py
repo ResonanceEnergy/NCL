@@ -124,6 +124,10 @@ from ..evaluation.runner import GoldenTaskRunner
 # Sprint 3 — Review Queue
 from ..review_queue.manager import ReviewQueueManager
 
+# Portfolio
+from ..portfolio.portfolio_routes import router as portfolio_router, set_portfolio_manager
+from ..portfolio.paper_routes import router as paper_router, set_paper_engine
+
 # Sprint 4 — Council Runner v1
 from ..council_runner.models import CouncilRunRecord, ReplayConfig
 from ..council_runner.agents import run_parallel_council
@@ -220,8 +224,6 @@ async def lifespan(app: FastAPI):
         reddit_client_id=config.reddit_client_id,
         reddit_client_secret=config.reddit_client_secret,
         ollama_host=config.ollama_host,
-        paperclip_host=config.paperclip_host,
-        paperclip_port=config.paperclip_port,
     )
     await brain.init()
 
@@ -299,6 +301,14 @@ async def lifespan(app: FastAPI):
     from ..memory.dashboard_bridge import MemoryDashboardBridge
     if brain and brain.memory_store:
         _memory_bridge = MemoryDashboardBridge(memory_store=brain.memory_store)
+        # Initialize knowledge graph and wire into memory store
+        try:
+            from ..memory.knowledge_graph import KnowledgeGraph
+            _kg = KnowledgeGraph(data_dir=brain.memory_store.data_dir.parent)
+            brain.memory_store.set_knowledge_graph(_kg)
+            log.info("Knowledge graph initialized and wired into memory store")
+        except Exception as e:
+            log.warning(f"Knowledge graph initialization failed (non-fatal): {e}")
 
     # Pipeline Hardening — Deployment Monitor
     from ..deployment.monitor import ServiceMonitor
@@ -328,6 +338,8 @@ async def lifespan(app: FastAPI):
             memory_store=brain.memory_store if brain else None,
             working_context=None,
         )
+        # TODO: Wire up a real LLM client here once available so reflections use AI synthesis
+        # instead of the template fallback. For now, template-based reflections still work.
         _reflection_engine = ReflectionEngine(_journal_store, llm_client=None)
         _context_tips = ContextAwareTips(_journal_store)
         log.info("[lifespan] Journal subsystem initialised")
@@ -347,9 +359,35 @@ async def lifespan(app: FastAPI):
             "Autonomous scheduler DISABLED (set autonomous_enabled: true to enable)"
         )
 
+    # Rotate old prediction files (keep 30 days, archive older)
+    try:
+        from runtime.awarebot.predictor import FuturePredictor
+        rotated = FuturePredictor.rotate_prediction_files(
+            data_dir=os.getenv("NCL_DATA_DIR", "data"), keep_days=30,
+        )
+        if any(rotated.values()):
+            log.info(f"[lifespan] Prediction file rotation: {rotated}")
+    except Exception as _exc:
+        log.warning(f"[lifespan] Prediction rotation failed: {_exc}")
+
+    # Portfolio manager
+    from runtime.portfolio.portfolio_manager import PortfolioManager
+    _portfolio_mgr = PortfolioManager()
+    await _portfolio_mgr.start()
+    set_portfolio_manager(_portfolio_mgr)
+    log.info("Portfolio manager started")
+
+    # Paper trading engine
+    from runtime.portfolio.paper_trading import PaperTradingEngine
+    _data_dir = os.getenv("NCL_DATA_DIR", "data")
+    _paper_engine = PaperTradingEngine(data_dir=_data_dir)
+    set_paper_engine(_paper_engine)
+    log.info("Paper trading engine started (%d existing trades)", len(_paper_engine.trades))
+
     yield
 
     # Shutdown
+    await _portfolio_mgr.stop()
     if _intelligence:
         await _intelligence.close()
     if _autonomous:
@@ -366,6 +404,9 @@ app = FastAPI(
     description="NCL Brain - Think, Research, Plan, Decide",
     lifespan=lifespan,
 )
+
+app.include_router(portfolio_router)
+app.include_router(paper_router)
 
 # Rate limiting middleware
 if _has_slowapi and _limiter:
@@ -1126,28 +1167,51 @@ async def list_youtube_reports(
             if len(reports) >= limit:
                 break
 
-    # Also check for JSON reports (newer format)
+    # Also check for JSON reports (newer format — per-video + rollup)
     json_reports_dir = ncl_base / "intelligence-scan" / "youtube-reports"
     if json_reports_dir.exists():
         for rpt_path in sorted(json_reports_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
             try:
                 data = json.loads(rpt_path.read_text())
-                reports.append({
+                report_type = data.get("report_type", "legacy")  # per_video, rollup, or legacy
+                # For per-video reports, extract video info from the videos list
+                videos = data.get("videos", [])
+                first_video = videos[0] if videos else {}
+                entry = {
                     "filename": rpt_path.name,
-                    "title": data.get("title", data.get("video_title", rpt_path.stem)),
-                    "channel": data.get("channel", data.get("channel_name", "Unknown")),
-                    "video_url": data.get("video_url", data.get("url", "")),
-                    "date": data.get("published_at", data.get("date", datetime.fromtimestamp(
-                        rpt_path.stat().st_mtime, tz=timezone.utc).isoformat())),
-                    "transcript_summary": data.get("transcript_summary", data.get("summary", "")),
-                    "analysis": data.get("analysis", ""),
+                    "title": first_video.get("title", data.get("title", data.get("video_title", rpt_path.stem))),
+                    "channel": first_video.get("channel", data.get("channel", data.get("channel_name", "Unknown"))),
+                    "video_url": first_video.get("url", data.get("video_url", data.get("url", ""))),
+                    "video_id": first_video.get("video_id", ""),
+                    "date": data.get("completed_at", data.get("published_at", data.get("date",
+                        datetime.fromtimestamp(rpt_path.stat().st_mtime, tz=timezone.utc).isoformat()))),
+                    "transcript_summary": data.get("summary", data.get("transcript_summary", "")),
+                    "analysis": data.get("raw_analysis", data.get("analysis", "")),
+                    "insights_count": len(data.get("insights", [])),
+                    "duration_hours": data.get("total_duration_hours", 0),
                     "status": data.get("status", "complete"),
-                })
+                    "report_type": report_type,
+                    "auto_triggered": data.get("auto_triggered", False),
+                }
+                if report_type == "rollup":
+                    entry["per_video_count"] = data.get("per_video_count", len(videos))
+                    entry["videos_processed"] = data.get("sources_processed", len(videos))
+                reports.append(entry)
             except Exception as e:
                 log.warning(f"Failed to read JSON report {rpt_path}: {e}")
 
             if len(reports) >= limit:
                 break
+
+    # Deduplicate by filename (MD and JSON dirs may reference the same report)
+    seen_filenames: set[str] = set()
+    deduped: list[dict] = []
+    for r in reports:
+        fn = r.get("filename", "")
+        if fn not in seen_filenames:
+            seen_filenames.add(fn)
+            deduped.append(r)
+    reports = deduped
 
     # Sort all by date descending
     reports.sort(key=lambda r: r.get("date", ""), reverse=True)
@@ -1188,6 +1252,11 @@ async def get_youtube_report(
     raise HTTPException(status_code=404, detail=f"Report not found: {filename}")
 
 
+# YTC run status tracker — persists across requests
+_ytc_run_status: dict[str, dict] = {}  # session_id → {status, step, started, error, ...}
+_YTC_RUN_STATUS_MAX = 50  # Keep only the last N entries to prevent unbounded growth
+
+
 @app.post("/council/youtube/run")
 async def trigger_youtube_council(
     authorization: str = Header(default=""),
@@ -1195,28 +1264,95 @@ async def trigger_youtube_council(
     """Trigger a YouTube Council run (scrape → transcribe → analyze → report)."""
     _verify_strike_token(authorization)
 
+    # Prune old entries if we've hit the cap — keep only the most recent N-1
+    if len(_ytc_run_status) >= _YTC_RUN_STATUS_MAX:
+        # Sort by started_at, remove oldest entries
+        sorted_ids = sorted(
+            _ytc_run_status.keys(),
+            key=lambda k: _ytc_run_status[k].get("started_at", ""),
+        )
+        for old_id in sorted_ids[: len(sorted_ids) - _YTC_RUN_STATUS_MAX + 1]:
+            del _ytc_run_status[old_id]
+
     session_id = f"ytc-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{str(uuid.uuid4())[:8]}"
+    _ytc_run_status[session_id] = {
+        "status": "running",
+        "step": "starting",
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "videos_found": 0,
+        "videos_transcribed": 0,
+        "insights": 0,
+    }
 
     async def _run():
+        status = _ytc_run_status[session_id]
         try:
             from ..councils.runner import run_youtube_council
-            report = await run_youtube_council(session_id)
+
+            def _update_progress(step: str, **kwargs):
+                status["step"] = step
+                for k, v in kwargs.items():
+                    status[k] = v
+
+            status["step"] = "scraping"
+            report = await run_youtube_council(session_id, progress_cb=_update_progress)
             if report:
-                # Save report as JSON for the new format
+                status["step"] = "saving"
                 ncl_base = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
                 json_dir = ncl_base / "intelligence-scan" / "youtube-reports"
                 json_dir.mkdir(parents=True, exist_ok=True)
                 out_path = json_dir / f"{session_id}.json"
-                out_path.write_text(json.dumps({
+                # Build a richer JSON so the iOS reports view has all the fields it needs
+                report_data = {
                     "session_id": session_id,
                     "title": getattr(report, "title", "YouTube Council Report"),
                     "status": "complete",
                     "completed_at": datetime.now(timezone.utc).isoformat(),
-                }, default=str, indent=2))
+                    "sources_processed": report.sources_processed,
+                    "total_duration_hours": round(report.total_duration_hours, 2),
+                    "summary": report.summary or "",
+                    "transcript_summary": report.summary or "",
+                    "analysis": report.raw_analysis or "",
+                    "insights": [
+                        {
+                            "title": ins.title,
+                            "description": ins.description,
+                            "category": ins.category.value if hasattr(ins.category, "value") else str(ins.category),
+                            "confidence": ins.confidence,
+                            "tags": ins.tags,
+                            "actionable": ins.actionable,
+                            "action_suggestion": ins.action_suggestion or "",
+                        }
+                        for ins in (report.insights or [])
+                    ],
+                    "videos": [
+                        {
+                            "title": v.title,
+                            "channel": v.channel,
+                            "url": v.url,
+                            "video_url": v.url,
+                            "duration_seconds": v.duration_seconds,
+                            "view_count": v.view_count,
+                            "upload_date": v.upload_date,
+                        }
+                        for v in (report.videos or [])
+                    ],
+                }
+                out_path.write_text(json.dumps(report_data, default=str, indent=2))
+                status.update({
+                    "status": "complete",
+                    "step": "done",
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                    "videos_transcribed": report.sources_processed,
+                    "insights": len(report.insights),
+                    "duration_hours": round(report.total_duration_hours, 2),
+                })
                 log.info(f"[YTC] Council run complete: {session_id}")
             else:
+                status.update({"status": "complete", "step": "done (no new content)"})
                 log.info(f"[YTC] Council run produced no report: {session_id}")
         except Exception as e:
+            status.update({"status": "failed", "step": "error", "error": str(e)})
             log.exception(f"[YTC] Council run failed: {e}")
 
     task = asyncio.create_task(_run())
@@ -1225,8 +1361,151 @@ async def trigger_youtube_council(
     return {
         "session_id": session_id,
         "status": "running",
-        "message": "YouTube Council pipeline started. Poll /council/youtube/reports for results.",
+        "message": "YouTube Council pipeline started. Poll /council/youtube/status/{session_id} for progress.",
     }
+
+
+@app.get("/council/youtube/status/{session_id}")
+async def get_ytc_run_status(
+    session_id: str,
+    authorization: str = Header(default=""),
+) -> dict:
+    """Get the current status of a YouTube Council run."""
+    _verify_strike_token(authorization)
+    if session_id not in _ytc_run_status:
+        raise HTTPException(status_code=404, detail=f"No run found: {session_id}")
+    return {"session_id": session_id, **_ytc_run_status[session_id]}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# X OAUTH + LIKED-VIDEO ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════
+
+@app.get("/x/oauth/status")
+async def x_oauth_status(authorization: str = Header(default="")) -> dict:
+    """Check X OAuth authentication status."""
+    _verify_strike_token(authorization)
+    from ..councils.xai.x_oauth import get_auth_status
+    return get_auth_status()
+
+
+@app.post("/x/oauth/authorize")
+async def x_oauth_authorize(authorization: str = Header(default="")) -> dict:
+    """Generate OAuth 2.0 authorization URL for X user context."""
+    _verify_strike_token(authorization)
+    from ..councils.xai.x_oauth import get_authorization_url
+    return get_authorization_url()
+
+
+# NOTE: No auth check — this is an OAuth callback URL that X redirects to.
+# CSRF protection via state parameter.
+@app.get("/x/oauth/callback")
+async def x_oauth_callback(
+    code: str = Query(...),
+    state: str = Query(...),
+) -> dict:
+    """OAuth 2.0 callback — exchange authorization code for tokens."""
+    from ..councils.xai.x_oauth import exchange_code
+    result = await exchange_code(code, state)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.post("/x/oauth/refresh")
+async def x_oauth_refresh(authorization: str = Header(default="")) -> dict:
+    """Refresh the X OAuth access token."""
+    _verify_strike_token(authorization)
+    from ..councils.xai.x_oauth import refresh_access_token
+    result = await refresh_access_token()
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return result
+
+
+@app.post("/x/liked-videos/scan")
+async def x_liked_video_scan(
+    authorization: str = Header(default=""),
+) -> dict:
+    """Trigger a liked-video scan — fetch, download, transcribe, analyze."""
+    _verify_strike_token(authorization)
+    from ..councils.xai.liked_scanner import run_liked_video_scan
+    session_id = f"xliked-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+
+    async def _run():
+        try:
+            reports = await run_liked_video_scan(session_id=session_id)
+            log.info(f"[X-Liked] Scan complete: {len(reports)} reports")
+        except Exception as e:
+            log.exception(f"[X-Liked] Scan failed: {e}")
+
+    asyncio.create_task(_run())
+    return {
+        "session_id": session_id,
+        "status": "running",
+        "message": "X liked-video scan started. Reports will appear in /x/liked-videos/reports.",
+    }
+
+
+@app.get("/x/liked-videos/reports")
+async def list_x_liked_video_reports(
+    limit: int = Query(default=50, ge=1, le=200),
+    authorization: str = Header(default=""),
+) -> dict:
+    """List X liked-video reports."""
+    _verify_strike_token(authorization)
+
+    ncl_base = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
+    reports_dir = ncl_base / "intelligence-scan" / "x-liked-videos"
+
+    reports: list[dict] = []
+    if reports_dir.exists():
+        for rpt_path in sorted(reports_dir.glob("xliked-*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+            try:
+                data = json.loads(rpt_path.read_text())
+                videos = data.get("videos", [])
+                first_video = videos[0] if videos else {}
+                reports.append({
+                    "filename": rpt_path.name,
+                    "session_id": data.get("session_id", rpt_path.stem),
+                    "title": first_video.get("title", data.get("title", rpt_path.stem)),
+                    "channel": first_video.get("channel", "Unknown"),
+                    "tweet_id": data.get("tweet_id", ""),
+                    "tweet_text": data.get("tweet_text", "")[:200],
+                    "video_url": first_video.get("url", ""),
+                    "date": data.get("completed_at", ""),
+                    "summary": data.get("summary", ""),
+                    "insights_count": len(data.get("insights", [])),
+                    "duration_hours": data.get("total_duration_hours", 0),
+                    "status": data.get("status", "complete"),
+                })
+            except Exception as e:
+                log.warning(f"Failed to read X liked-video report {rpt_path}: {e}")
+            if len(reports) >= limit:
+                break
+
+    return {"reports": reports, "count": len(reports)}
+
+
+@app.get("/x/liked-videos/reports/{filename}")
+async def get_x_liked_video_report(
+    filename: str,
+    authorization: str = Header(default=""),
+) -> dict:
+    """Get a specific X liked-video report."""
+    _verify_strike_token(authorization)
+
+    ncl_base = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
+    report_path = ncl_base / "intelligence-scan" / "x-liked-videos" / filename
+
+    if not report_path.exists():
+        raise HTTPException(status_code=404, detail=f"Report not found: {filename}")
+
+    try:
+        data = json.loads(report_path.read_text())
+        return data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read report: {e}")
 
 
 # Mandate endpoints
@@ -4204,6 +4483,16 @@ async def get_memory_stats(authorization: str = Header(default="")) -> dict:
     return await _memory_bridge.get_stats()
 
 
+@app.post("/memory/cleanup-sources")
+async def cleanup_memory_sources(authorization: str = Header(default="")) -> dict:
+    """One-time fix: normalize corrupted nested consolidation source tags."""
+    _verify_strike_token(authorization)
+    if not _memory_bridge:
+        raise HTTPException(status_code=503, detail="MemoryBridge not initialized")
+    result = await _memory_bridge.store.cleanup_sources()
+    return {"status": "ok", **result}
+
+
 @app.get("/memory/timeline")
 async def get_memory_timeline(limit: int = Query(default=50, le=200), authorization: str = Header(default="")) -> dict:
     """Get memory event timeline."""
@@ -4311,6 +4600,193 @@ async def memory_dashboard(authorization: str = Header(default="")) -> HTMLRespo
     async with aiofiles.open(dashboard_path, "r") as f:
         html = await f.read()
     return HTMLResponse(content=html)
+
+
+# ── Enhanced Memory System Endpoints ──────────────────────────────────────
+
+@app.post("/memory/consolidate-v2")
+async def consolidate_memory_v2(authorization: str = Header(default="")) -> dict:
+    """Run enhanced consolidation with reflection loop and entity extraction."""
+    _verify_strike_token(authorization)
+    if not brain or not brain.memory_store:
+        return {"error": "Memory store not available"}
+    result = await brain.memory_store.consolidate_v2()
+    return {"status": "ok", "result": result}
+
+
+@app.get("/memory/knowledge-graph/stats")
+async def get_knowledge_graph_stats(authorization: str = Header(default="")) -> dict:
+    """Get knowledge graph statistics."""
+    _verify_strike_token(authorization)
+    kg = getattr(brain.memory_store, '_knowledge_graph', None) if brain else None
+    if not kg:
+        return {"status": "not_initialized", "nodes": 0, "edges": 0}
+    return await kg.stats()
+
+
+@app.get("/memory/knowledge-graph/entity/{entity}")
+async def query_knowledge_graph_entity(
+    entity: str,
+    depth: int = Query(default=1, ge=1, le=3),
+    authorization: str = Header(default=""),
+) -> dict:
+    """Query a specific entity in the knowledge graph."""
+    _verify_strike_token(authorization)
+    kg = getattr(brain.memory_store, '_knowledge_graph', None) if brain else None
+    if not kg:
+        return {"found": False, "error": "Knowledge graph not initialized"}
+    return await kg.query_entity(entity, depth=depth)
+
+
+@app.get("/memory/knowledge-graph/top-entities")
+async def get_top_entities(
+    n: int = Query(default=20, ge=1, le=100),
+    authorization: str = Header(default=""),
+) -> dict:
+    """Get top entities by mention count."""
+    _verify_strike_token(authorization)
+    kg = getattr(brain.memory_store, '_knowledge_graph', None) if brain else None
+    if not kg:
+        return {"entities": []}
+    entities = await kg.get_top_entities(n=n)
+    return {"entities": entities}
+
+
+@app.get("/memory/knowledge-graph/path")
+async def find_entity_path(
+    source: str = Query(...),
+    target: str = Query(...),
+    authorization: str = Header(default=""),
+) -> dict:
+    """Find shortest path between two entities in the knowledge graph."""
+    _verify_strike_token(authorization)
+    kg = getattr(brain.memory_store, '_knowledge_graph', None) if brain else None
+    if not kg:
+        return {"path": None, "error": "Knowledge graph not initialized"}
+    path = await kg.find_path(source, target)
+    return {"source": source, "target": target, "path": path}
+
+
+@app.post("/memory/knowledge-graph/prune")
+async def prune_knowledge_graph(
+    days: int = Query(default=90, ge=7),
+    authorization: str = Header(default=""),
+) -> dict:
+    """Prune stale entities and edges from the knowledge graph."""
+    _verify_strike_token(authorization)
+    kg = getattr(brain.memory_store, '_knowledge_graph', None) if brain else None
+    if not kg:
+        return {"error": "Knowledge graph not initialized"}
+    result = await kg.prune_stale(days=days)
+    return {"status": "ok", "result": result}
+
+
+@app.post("/memory/score")
+async def score_memory_content(
+    body: dict,
+    authorization: str = Header(default=""),
+) -> dict:
+    """Score memory content for importance using LLM + rule-based hybrid."""
+    _verify_strike_token(authorization)
+    content = body.get("content", "")
+    source = body.get("source", "")
+    tags = body.get("tags", [])
+    use_llm = body.get("use_llm", True)
+
+    if not content:
+        return {"error": "content is required"}
+
+    from ..memory.importance_scorer import score_memory as _score_memory
+    result = await _score_memory(content, source, tags, use_llm=use_llm)
+    return result
+
+
+@app.post("/memory/extract-entities")
+async def extract_entities_endpoint(
+    body: dict,
+    authorization: str = Header(default=""),
+) -> dict:
+    """Extract entities and relationships from content."""
+    _verify_strike_token(authorization)
+    content = body.get("content", "")
+    use_llm = body.get("use_llm", False)
+
+    if not content:
+        return {"error": "content is required"}
+
+    from ..memory.entity_extractor import extract_entities_and_relationships
+    result = await extract_entities_and_relationships(content, use_llm=use_llm)
+    return result
+
+
+@app.get("/memory/typed-stats")
+async def get_typed_memory_stats(authorization: str = Header(default="")) -> dict:
+    """Get memory statistics broken down by memory type and tier."""
+    _verify_strike_token(authorization)
+    if not brain or not brain.memory_store:
+        return {"error": "Memory store not available"}
+
+    units = await brain.memory_store._load_all_units()
+
+    type_counts = {}
+    tier_counts = {"LML": 0, "SML": 0}
+    type_avg_importance = {}
+
+    for unit in units:
+        mem_type = getattr(unit, 'memory_type', 'episodic')
+        mem_tier = getattr(unit, 'memory_tier', 'SML')
+
+        type_counts[mem_type] = type_counts.get(mem_type, 0) + 1
+        tier_counts[mem_tier] = tier_counts.get(mem_tier, 0) + 1
+
+        if mem_type not in type_avg_importance:
+            type_avg_importance[mem_type] = []
+        type_avg_importance[mem_type].append(unit.importance)
+
+    # Calculate averages
+    type_stats = {}
+    for mem_type, importances in type_avg_importance.items():
+        type_stats[mem_type] = {
+            "count": type_counts.get(mem_type, 0),
+            "avg_importance": round(sum(importances) / len(importances), 2) if importances else 0,
+        }
+
+    # ChromaDB collection stats
+    collection_stats = {}
+    if hasattr(brain.memory_store, '_chroma_collections'):
+        for name, col in brain.memory_store._chroma_collections.items():
+            try:
+                collection_stats[name] = col.count()
+            except Exception:
+                collection_stats[name] = "error"
+
+    return {
+        "total_units": len(units),
+        "by_type": type_stats,
+        "by_tier": tier_counts,
+        "chromadb_collections": collection_stats,
+    }
+
+
+@app.post("/memory/migrate-types")
+async def migrate_memory_types_endpoint(authorization: str = Header(default="")) -> dict:
+    """
+    Migrate all memory units to proper memory_type and memory_tier.
+
+    Pre-type-system units are all stuck as SML/episodic. This endpoint
+    infers the correct type from source/content/tags and assigns proper tiers.
+    One-time migration — safe to re-run (idempotent).
+    """
+    _verify_strike_token(authorization)
+    if not brain or not brain.memory_store:
+        return {"error": "Memory store not available"}
+
+    try:
+        result = await brain.memory_store.migrate_memory_types()
+        return {"status": "ok", **result}
+    except Exception as e:
+        log.error(f"Memory type migration failed: {e}")
+        return {"error": str(e)}
 
 
 # ===========================================================================
@@ -4468,6 +4944,107 @@ async def trigger_working_context_eod(
         raise HTTPException(status_code=503, detail="Working context not initialized")
     stats = await _autonomous._working_context.end_of_day()
     return {"status": "eod_complete", **stats}
+
+
+@app.post("/memory/working-context/promote")
+async def promote_working_context_item(
+    body: dict,
+    authorization: str = Header(default=""),
+) -> dict:
+    """Promote an item into the working context with high importance and pinned."""
+    _verify_strike_token(authorization)
+    if not _autonomous or not getattr(_autonomous, "_working_context", None):
+        raise HTTPException(status_code=503, detail="Working context not initialized")
+    content = body.get("content", "")
+    source = body.get("source", "manual")
+    tags = body.get("tags", [])
+    item_id = body.get("item_id")
+    if not content:
+        raise HTTPException(status_code=400, detail="content is required")
+    item = await _autonomous._working_context.promote_item(
+        content=content, source=source, tags=tags, item_id=item_id,
+    )
+    ctx = _autonomous._working_context.get_current()
+    return {
+        "status": "ok",
+        "item_id": item.item_id,
+        "items_count": len(ctx.items) if ctx else 0,
+    }
+
+
+@app.post("/memory/working-context/dismiss")
+async def dismiss_working_context_item(
+    body: dict,
+    authorization: str = Header(default=""),
+) -> dict:
+    """Remove an item from the current working context."""
+    _verify_strike_token(authorization)
+    if not _autonomous or not getattr(_autonomous, "_working_context", None):
+        raise HTTPException(status_code=503, detail="Working context not initialized")
+    item_id = body.get("item_id", "")
+    if not item_id:
+        raise HTTPException(status_code=400, detail="item_id is required")
+    success = await _autonomous._working_context.dismiss_item(item_id)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Item not found: {item_id}")
+    return {"status": "ok", "dismissed": item_id}
+
+
+@app.post("/memory/working-context/toggle-pin")
+async def toggle_pin_working_context_item(
+    body: dict,
+    authorization: str = Header(default=""),
+) -> dict:
+    """Toggle pin state on a working context item."""
+    _verify_strike_token(authorization)
+    if not _autonomous or not getattr(_autonomous, "_working_context", None):
+        raise HTTPException(status_code=503, detail="Working context not initialized")
+    item_id = body.get("item_id", "")
+    if not item_id:
+        raise HTTPException(status_code=400, detail="item_id is required")
+    result = await _autonomous._working_context.toggle_pin(item_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"Item not found: {item_id}")
+    return {"status": "ok", "item_id": item_id, "pinned": result}
+
+
+@app.post("/memory/working-context/score")
+async def score_working_context_items(
+    body: dict,
+    authorization: str = Header(default=""),
+) -> dict:
+    """Score items against current context themes for relevance."""
+    _verify_strike_token(authorization)
+    if not _autonomous or not getattr(_autonomous, "_working_context", None):
+        raise HTTPException(status_code=503, detail="Working context not initialized")
+    items = body.get("items", [])
+    if not items:
+        raise HTTPException(status_code=400, detail="items list is required")
+
+    ctx_window = _autonomous._working_context
+    ctx = ctx_window.get_current()
+    themes = ctx.themes if ctx else []
+
+    scores = []
+    for entry in items:
+        content = entry.get("content", "")
+        relevance = ctx_window.compute_relevance(content, themes)
+        # Find which themes matched
+        matched = []
+        if themes:
+            import re as _re
+            content_tokens = set(_re.findall(r'[a-z0-9_-]{3,}', content.lower()))
+            for theme in themes:
+                theme_tokens = set(_re.findall(r'[a-z0-9_-]{3,}', theme.lower()))
+                if content_tokens & theme_tokens:
+                    matched.append(theme)
+        scores.append({
+            "content": content[:100],
+            "relevance": round(relevance, 4),
+            "matched_themes": matched,
+        })
+
+    return {"scores": scores}
 
 
 # ===========================================================================
@@ -4774,22 +5351,51 @@ async def context_top10(authorization: str = Header(default="")) -> dict:
     }
 
 
+def _score_signals_against_context(signals: list, wctx) -> list[dict]:
+    """Score signals against working context themes and return enriched dicts."""
+    from .memory.working_context import DailyContextWindow
+    themes = []
+    if wctx and wctx._current:
+        themes = wctx._current.themes or []
+
+    scored = []
+    for s in signals:
+        d = s.to_dict()
+        # Compute context relevance
+        text = f"{d.get('title', '')} {d.get('summary', '')} {d.get('content', '')}"
+        if themes:
+            d["context_relevance"] = round(DailyContextWindow.compute_relevance(text, themes), 3)
+        else:
+            d["context_relevance"] = round(d.get("composite_score", 0.5), 3)
+        # Blended score: 60% context relevance + 40% composite score
+        composite = d.get("composite_score", 0.5)
+        d["hot_score"] = round(0.6 * d["context_relevance"] + 0.4 * composite, 3)
+        scored.append(d)
+
+    scored.sort(key=lambda x: x["hot_score"], reverse=True)
+    return scored
+
+
 @app.get("/context/24h")
 async def context_24h(
     limit: int = Query(default=50, ge=1, le=200),
     authorization: str = Header(default=""),
 ) -> dict:
-    """Get signals from the last 24 hours (above threshold)."""
+    """Get signals from the last 24 hours, ranked by context relevance."""
     _verify_strike_token(authorization)
     if not _autonomous or not _autonomous.awarebot:
         raise HTTPException(status_code=503, detail="Awarebot agent not initialized")
     agent = _autonomous.awarebot
     cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
     signals = [s for s in agent._context_24h if s.timestamp >= cutoff]
-    signals.sort(key=lambda s: s.composite_score, reverse=True)
+
+    # Get working context for theme scoring
+    wctx = getattr(_autonomous, "_working_context", None)
+    scored = _score_signals_against_context(signals, wctx)
+
     return {
-        "signals": [s.to_dict() for s in signals[:limit]],
-        "count": len(signals),
+        "signals": scored[:limit],
+        "count": len(scored),
         "window": "24h",
         "updated_at": agent._stats.get("last_scan_at"),
     }
@@ -4800,30 +5406,39 @@ async def context_7d(
     limit: int = Query(default=100, ge=1, le=500),
     authorization: str = Header(default=""),
 ) -> dict:
-    """Get signals from the last 7 days — weekly trend view."""
+    """Get signals from the last 7 days, ranked by context relevance."""
     _verify_strike_token(authorization)
     if not _autonomous or not _autonomous.awarebot:
         raise HTTPException(status_code=503, detail="Awarebot agent not initialized")
     agent = _autonomous.awarebot
     cutoff = datetime.now(timezone.utc) - timedelta(days=7)
     signals = [s for s in agent._context_7d if s.timestamp >= cutoff]
-    signals.sort(key=lambda s: s.composite_score, reverse=True)
+
+    wctx = getattr(_autonomous, "_working_context", None)
+    scored = _score_signals_against_context(signals, wctx)
+
     return {
-        "signals": [s.to_dict() for s in signals[:limit]],
-        "count": len(signals),
+        "signals": scored[:limit],
+        "count": len(scored),
         "window": "7d",
         "updated_at": agent._stats.get("last_scan_at"),
     }
 
 
 @app.get("/context/brief")
-async def context_brief(authorization: str = Header(default="")) -> dict:
-    """Get the latest Awarebot consolidation brief."""
+async def context_brief(
+    refresh: bool = False,
+    authorization: str = Header(default=""),
+) -> dict:
+    """Get the latest Awarebot consolidation brief.
+
+    Returns cached brief if < 4h old. Pass ?refresh=true to force regeneration.
+    """
     _verify_strike_token(authorization)
     if not _autonomous or not _autonomous.awarebot:
         raise HTTPException(status_code=503, detail="Awarebot agent not initialized")
     try:
-        brief = await _autonomous.awarebot.on_demand_brief()
+        brief = await _autonomous.awarebot.on_demand_brief(force_refresh=refresh)
         return brief
     except Exception as e:
         log.exception("Endpoint error: %s", e)
@@ -4868,6 +5483,253 @@ async def context_health(authorization: str = Header(default="")) -> dict:
     if not _autonomous or not _autonomous.awarebot:
         raise HTTPException(status_code=503, detail="Awarebot agent not initialized")
     return _autonomous.awarebot.get_source_health()
+
+
+# ---------------------------------------------------------------------------
+# 3-Tier Context Endpoints — Awarebot Single Scorer + Tier Router
+# ---------------------------------------------------------------------------
+# Awarebot scores on ingest (6-factor composite) and route_to_tiers()
+# handles Focused/Micro/Macro assignment in one pass.
+# ---------------------------------------------------------------------------
+
+
+def _get_awarebot_tiers() -> dict:
+    """Get tier-routed signals directly from Awarebot's single scorer."""
+    if not _autonomous or not _autonomous.awarebot:
+        return {
+            "focused": {"signals": [], "count": 0, "tier": "focused"},
+            "micro": {"signals": [], "count": 0, "tier": "micro"},
+            "macro": {"signals": [], "count": 0, "tier": "macro"},
+        }
+    return _autonomous.awarebot.route_to_tiers()
+
+
+@app.get("/context/focused")
+async def context_focused(authorization: str = Header(default="")) -> dict:
+    """
+    FOCUSED tier (green) — Top 10 highest-priority, actionable, fresh signals.
+    Score ≥ 0.75, < 4 hours old, multi-source preferred.
+    """
+    _verify_strike_token(authorization)
+    tiers = _get_awarebot_tiers()
+    result = tiers["focused"]
+    result["updated_at"] = datetime.now(timezone.utc).isoformat()
+    return result
+
+
+@app.get("/context/micro")
+async def context_micro(
+    window: str = Query(default="24h", regex="^(24h|7d)$"),
+    authorization: str = Header(default=""),
+) -> dict:
+    """
+    MICRO tier (orange) — Top 10 trending signals within 24h/7d window.
+    Score ≥ 0.50, sector clusters, momentum.
+    """
+    _verify_strike_token(authorization)
+    tiers = _get_awarebot_tiers()
+
+    # For 7d window, include Macro items too (broader view)
+    signals = tiers["micro"]["signals"]
+    if window == "7d":
+        signals = tiers["micro"]["signals"] + tiers["macro"]["signals"]
+
+    return {
+        "signals": signals,
+        "count": len(signals),
+        "tier": "micro",
+        "window": window,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@app.get("/context/macro")
+async def context_macro(authorization: str = Header(default="")) -> dict:
+    """
+    MACRO tier (blue) — Top 10 persistent narrative-level signals.
+    Score ≥ 0.30, 7d+ persistence, council/journal/mandate sources.
+    """
+    _verify_strike_token(authorization)
+    tiers = _get_awarebot_tiers()
+    result = tiers["macro"]
+    result["updated_at"] = datetime.now(timezone.utc).isoformat()
+    return result
+
+
+@app.get("/context/tiers")
+async def context_all_tiers(authorization: str = Header(default="")) -> dict:
+    """
+    All 3 tiers in one call — Focused + Micro + Macro.
+    Single request for the iOS Intel tab to populate all sections.
+    """
+    _verify_strike_token(authorization)
+    tiers = _get_awarebot_tiers()
+
+    return {
+        "focused": tiers["focused"],
+        "micro": tiers["micro"],
+        "macro": tiers["macro"],
+        "counts": {
+            "focused": tiers["focused"]["count"],
+            "micro": tiers["micro"]["count"],
+            "macro": tiers["macro"]["count"],
+        },
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# ===========================================================================
+# Focus Context — CRUD for Awarebot watch queries
+# ===========================================================================
+
+_WATCH_QUERIES_PATH = Path("~/dev/NCL/runtime/autonomous/watch_queries.json").expanduser()
+_VALID_SOURCES = {"x", "youtube", "reddit"}
+_VALID_TIERS = {"tier1", "tier2", "tier3"}
+
+
+def _load_watch_queries_from_disk() -> dict:
+    """Load watch_queries.json from disk."""
+    if not _WATCH_QUERIES_PATH.exists():
+        raise HTTPException(status_code=404, detail="watch_queries.json not found")
+    return json.loads(_WATCH_QUERIES_PATH.read_text())
+
+
+def _save_watch_queries_to_disk(data: dict) -> None:
+    """Atomic write: write to .tmp then rename."""
+    tmp_path = _WATCH_QUERIES_PATH.with_suffix(".tmp")
+    tmp_path.write_text(json.dumps(data, indent=2) + "\n")
+    os.rename(str(tmp_path), str(_WATCH_QUERIES_PATH))
+
+
+def _reload_awarebot_queries() -> None:
+    """Tell the live Awarebot agent to reload queries from disk."""
+    if _autonomous and _autonomous.awarebot:
+        _autonomous.awarebot.reload_watch_queries()
+
+
+@app.get("/focus/queries")
+async def focus_get_queries(authorization: str = Header(default="")) -> dict:
+    """Return current watch queries (full JSON)."""
+    _verify_strike_token(authorization)
+    data = _load_watch_queries_from_disk()
+    return data
+
+
+@app.put("/focus/queries")
+async def focus_replace_queries(
+    body: dict = Body(...),
+    authorization: str = Header(default=""),
+) -> dict:
+    """Replace entire watch queries JSON."""
+    _verify_strike_token(authorization)
+    _save_watch_queries_to_disk(body)
+    _reload_awarebot_queries()
+    return body
+
+
+@app.post("/focus/queries/{source}")
+async def focus_add_query(
+    source: str,
+    body: dict = Body(...),
+    authorization: str = Header(default=""),
+) -> dict:
+    """Add a query to a specific source (x, youtube, reddit)."""
+    _verify_strike_token(authorization)
+    if source not in _VALID_SOURCES:
+        raise HTTPException(status_code=400, detail=f"Invalid source: {source}. Must be one of {_VALID_SOURCES}")
+    query = body.get("query")
+    if not query or not isinstance(query, str):
+        raise HTTPException(status_code=400, detail="Missing or invalid 'query' string in body")
+    data = _load_watch_queries_from_disk()
+    if source not in data:
+        data[source] = []
+    if query in data[source]:
+        raise HTTPException(status_code=409, detail=f"Query already exists in {source}")
+    data[source].append(query)
+    _save_watch_queries_to_disk(data)
+    _reload_awarebot_queries()
+    return data
+
+
+@app.delete("/focus/queries/{source}/{index}")
+async def focus_remove_query(
+    source: str,
+    index: int,
+    authorization: str = Header(default=""),
+) -> dict:
+    """Remove a query by index from a source."""
+    _verify_strike_token(authorization)
+    if source not in _VALID_SOURCES:
+        raise HTTPException(status_code=400, detail=f"Invalid source: {source}. Must be one of {_VALID_SOURCES}")
+    data = _load_watch_queries_from_disk()
+    queries = data.get(source, [])
+    if index < 0 or index >= len(queries):
+        raise HTTPException(status_code=404, detail=f"Index {index} out of range for {source} (has {len(queries)} queries)")
+    removed = queries.pop(index)
+    _save_watch_queries_to_disk(data)
+    _reload_awarebot_queries()
+    return {"removed": removed, **data}
+
+
+@app.post("/focus/subreddits/{tier}")
+async def focus_add_subreddit(
+    tier: str,
+    body: dict = Body(...),
+    authorization: str = Header(default=""),
+) -> dict:
+    """Add a subreddit to a tier (tier1, tier2, tier3)."""
+    _verify_strike_token(authorization)
+    if tier not in _VALID_TIERS:
+        raise HTTPException(status_code=400, detail=f"Invalid tier: {tier}. Must be one of {_VALID_TIERS}")
+    subreddit = body.get("subreddit")
+    if not subreddit or not isinstance(subreddit, str):
+        raise HTTPException(status_code=400, detail="Missing or invalid 'subreddit' string in body")
+    data = _load_watch_queries_from_disk()
+    subs = data.setdefault("reddit_subreddits", {})
+    tier_list = subs.setdefault(tier, [])
+    if subreddit in tier_list:
+        raise HTTPException(status_code=409, detail=f"Subreddit '{subreddit}' already in {tier}")
+    tier_list.append(subreddit)
+    _save_watch_queries_to_disk(data)
+    _reload_awarebot_queries()
+    return data
+
+
+@app.delete("/focus/subreddits/{tier}/{name}")
+async def focus_remove_subreddit(
+    tier: str,
+    name: str,
+    authorization: str = Header(default=""),
+) -> dict:
+    """Remove a subreddit from a tier by name."""
+    _verify_strike_token(authorization)
+    if tier not in _VALID_TIERS:
+        raise HTTPException(status_code=400, detail=f"Invalid tier: {tier}. Must be one of {_VALID_TIERS}")
+    data = _load_watch_queries_from_disk()
+    subs = data.get("reddit_subreddits", {})
+    tier_list = subs.get(tier, [])
+    if name not in tier_list:
+        raise HTTPException(status_code=404, detail=f"Subreddit '{name}' not found in {tier}")
+    tier_list.remove(name)
+    _save_watch_queries_to_disk(data)
+    _reload_awarebot_queries()
+    return data
+
+
+@app.post("/focus/reload")
+async def focus_reload(authorization: str = Header(default="")) -> dict:
+    """Force Awarebot to reload watch queries from disk."""
+    _verify_strike_token(authorization)
+    if not _autonomous or not _autonomous.awarebot:
+        raise HTTPException(status_code=503, detail="Awarebot agent not initialized")
+    _autonomous.awarebot.reload_watch_queries()
+    wq = _autonomous.awarebot._watch_queries
+    query_count = sum(len(v) for v in wq.values() if isinstance(v, list))
+    return {
+        "status": "reloaded",
+        "sources": len(wq),
+        "total_queries": query_count,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -5852,6 +6714,7 @@ async def reddit_intel(
             "posts": [
                 {
                     "title": s.title,
+                    "body": (s.metadata.get("selftext") or s.metadata.get("body") or s.content or "")[:500],
                     "score": s.metadata.get("score", 0),
                     "comments": s.metadata.get("num_comments", 0),
                     "flair": s.metadata.get("flair", ""),
@@ -5866,6 +6729,7 @@ async def reddit_intel(
             ],
         }
     except Exception as e:
+        log.warning(f"[reddit] /intelligence/reddit failed: {e}")
         raise HTTPException(status_code=500, detail="Reddit scan failed")
     finally:
         if owns_scanner:
@@ -5914,6 +6778,7 @@ async def reddit_ticker_heat(authorization: str = Header(default="")) -> dict:
             "tickers": dict(list(sorted_tickers.items())[:20]),
         }
     except Exception as e:
+        log.warning(f"[reddit] /intelligence/reddit/tickers failed: {e}")
         raise HTTPException(status_code=500, detail="Ticker scan failed")
     finally:
         if owns_scanner:
@@ -6084,10 +6949,252 @@ async def run_reddit_scan(
             "posts": all_posts[:50],
         }
     except Exception as e:
+        log.warning(f"[reddit] /intelligence/reddit/run failed: {e}")
         raise HTTPException(status_code=500, detail="Reddit scan failed")
     finally:
         if owns_scanner:
             await scanner.close()
+
+
+# ===========================================================================
+# X (Twitter) Intelligence — tracked accounts, scan, tickers
+# ===========================================================================
+
+_X_ACCOUNTS_CONFIG = Path(os.getenv("NCL_DATA", str(Path.home() / "NCL" / "data"))) / "x_accounts.json"
+
+
+def _load_x_accounts() -> list[dict]:
+    """Load tracked X accounts from JSON file."""
+    if _X_ACCOUNTS_CONFIG.exists():
+        try:
+            data = json.loads(_X_ACCOUNTS_CONFIG.read_text())
+            if isinstance(data, list):
+                return data
+            if isinstance(data, dict) and "accounts" in data:
+                return data["accounts"]
+        except Exception as _load_err:
+            log.warning("Failed to load X accounts config: %s", _load_err)
+    # Default starter accounts from scanner defaults
+    from ..councils.xai.scanner import DEFAULT_ACCOUNTS
+    return [
+        {"handle": h, "display_name": h, "added_at": datetime.now(timezone.utc).isoformat()}
+        for h in DEFAULT_ACCOUNTS
+    ]
+
+
+def _save_x_accounts(accounts: list[dict]) -> None:
+    """Save tracked X accounts to JSON file."""
+    _X_ACCOUNTS_CONFIG.parent.mkdir(parents=True, exist_ok=True)
+    _X_ACCOUNTS_CONFIG.write_text(json.dumps({"accounts": accounts}, indent=2))
+
+
+@app.get("/intelligence/x/accounts")
+async def list_x_accounts(
+    authorization: str = Header(default=""),
+) -> dict:
+    """List all tracked X accounts."""
+    _verify_strike_token(authorization)
+    accounts = _load_x_accounts()
+    return {"accounts": accounts, "count": len(accounts)}
+
+
+class XAccountBody(BaseModel):
+    handle: str
+    display_name: str = ""
+
+
+@app.post("/intelligence/x/accounts")
+async def follow_x_account(
+    body: XAccountBody,
+    authorization: str = Header(default=""),
+) -> dict:
+    """Add an X account to track."""
+    _verify_strike_token(authorization)
+
+    handle = body.handle.strip().lstrip("@")
+    if not handle:
+        raise HTTPException(status_code=422, detail="Handle required")
+
+    accounts = _load_x_accounts()
+
+    # Check duplicates
+    existing = {a["handle"].lower() for a in accounts}
+    if handle.lower() in existing:
+        return {"status": "already_following", "handle": handle}
+
+    new_acct = {
+        "handle": handle,
+        "display_name": body.display_name.strip() or handle,
+        "added_at": datetime.now(timezone.utc).isoformat(),
+    }
+    accounts.append(new_acct)
+    _save_x_accounts(accounts)
+
+    log.info(f"[X] Followed account: @{handle}")
+    return {"status": "followed", "account": new_acct, "total": len(accounts)}
+
+
+@app.delete("/intelligence/x/accounts")
+async def unfollow_x_account(
+    handle: str = Query(..., description="X handle to unfollow"),
+    authorization: str = Header(default=""),
+) -> dict:
+    """Remove a tracked X account."""
+    _verify_strike_token(authorization)
+
+    clean = handle.strip().lower().lstrip("@")
+    if not clean:
+        raise HTTPException(status_code=422, detail="Handle required")
+
+    accounts = _load_x_accounts()
+    before = len(accounts)
+    accounts = [a for a in accounts if a["handle"].lower() != clean]
+    after = len(accounts)
+
+    if before == after:
+        raise HTTPException(status_code=404, detail=f"Account not found: @{handle}")
+
+    _save_x_accounts(accounts)
+    log.info(f"[X] Unfollowed account: @{handle}")
+    return {"status": "unfollowed", "handle": handle, "remaining": after}
+
+
+# NOTE: In-memory only by design — lost on restart so a cold start triggers a fresh scan.
+_x_scan_cache: dict = {"data": None, "timestamp": 0.0}
+_X_CACHE_TTL = 300  # 5-minute cache — prevents iOS refresh storms
+
+@app.post("/intelligence/x/run")
+async def run_x_scan(
+    authorization: str = Header(default=""),
+) -> dict:
+    """Run X intelligence scan across all tracked accounts.
+
+    Uses the xai/scanner module for the full sweep (accounts + keywords + trending).
+    Returns posts formatted for the iOS XView feed, plus ticker aggregation.
+    Cached for 5 minutes to prevent API rate exhaustion on repeated iOS refreshes.
+    """
+    _verify_strike_token(authorization)
+
+    import time as _time
+    now = _time.time()
+    if _x_scan_cache["data"] and (now - _x_scan_cache["timestamp"]) < _X_CACHE_TTL:
+        log.info(f"[X] Returning cached scan ({now - _x_scan_cache['timestamp']:.0f}s old)")
+        return _x_scan_cache["data"]
+
+    from ..councils.xai.scanner import full_sweep
+
+    try:
+        sweep = await full_sweep(lookback_hours=24)
+    except Exception as e:
+        log.error(f"[X] Full sweep failed: {e}")
+        # Return stale cache if available rather than error
+        if _x_scan_cache["data"]:
+            log.info("[X] Returning stale cache after sweep failure")
+            return _x_scan_cache["data"]
+        raise HTTPException(status_code=500, detail="X scan failed")
+
+    # Flatten all posts into iOS-friendly dicts and extract tickers
+    import re
+    ticker_re = re.compile(r"\$([A-Z]{1,5})\b")
+    ticker_agg: dict[str, int] = {}
+    all_posts: list[dict] = []
+
+    for category, posts in sweep.items():
+        for post in posts:
+            # Extract cashtags/tickers from post text
+            tickers_found = ticker_re.findall(post.text)
+            for tk in tickers_found:
+                ticker_agg[tk] = ticker_agg.get(tk, 0) + 1
+
+            all_posts.append({
+                "id": post.post_id,
+                "handle": post.author_handle,
+                "display_name": post.author_name,
+                "name": post.author_name,
+                "text": post.text,
+                "content": post.text,
+                "url": post.url,
+                "created_at": post.created_at,
+                "likes": post.like_count,
+                "retweets": post.retweet_count,
+                "replies": post.reply_count,
+                "impressions": post.impression_count,
+                "tickers": tickers_found,
+                "hashtags": post.hashtags,
+                "sentiment": getattr(post, "sentiment", 0.0) if hasattr(post, "sentiment") else 0.0,
+                "verified": getattr(post, "verified", False) if hasattr(post, "verified") else False,
+                "synthetic": post.synthetic,
+                "source_vector": category,
+            })
+
+    # Sort by engagement (likes + retweets)
+    all_posts.sort(key=lambda x: x.get("likes", 0) + x.get("retweets", 0), reverse=True)
+    top_tickers = dict(sorted(ticker_agg.items(), key=lambda x: x[1], reverse=True)[:30])
+
+    result = {
+        "status": "completed",
+        "total_posts": len(all_posts),
+        "top_tickers": top_tickers,
+        "posts": all_posts[:100],
+        "vectors": {k: len(v) for k, v in sweep.items()},
+        "cached_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _x_scan_cache["data"] = result
+    _x_scan_cache["timestamp"] = _time.time()
+    return result
+
+
+_x_ticker_cache: dict = {"data": None, "timestamp": 0.0}
+_X_TICKER_CACHE_TTL = 300  # 5-minute cache — same rationale as _x_scan_cache
+
+
+@app.get("/intelligence/x/tickers")
+async def x_ticker_heatmap(
+    authorization: str = Header(default=""),
+) -> dict:
+    """Get X ticker/cashtag mention counts.
+
+    Runs a targeted keyword scan for financial cashtags across tracked accounts.
+    Cached for 5 minutes to avoid running full_sweep() on every call.
+    """
+    _verify_strike_token(authorization)
+
+    import time as _time
+    now = _time.time()
+    if _x_ticker_cache["data"] and (now - _x_ticker_cache["timestamp"]) < _X_TICKER_CACHE_TTL:
+        log.info(f"[X] Returning cached tickers ({now - _x_ticker_cache['timestamp']:.0f}s old)")
+        return _x_ticker_cache["data"]
+
+    from ..councils.xai.scanner import full_sweep
+
+    try:
+        sweep = await full_sweep(lookback_hours=24)
+    except Exception as e:
+        log.error(f"[X] Ticker scan failed: {e}")
+        if _x_ticker_cache["data"]:
+            log.info("[X] Returning stale ticker cache after sweep failure")
+            return _x_ticker_cache["data"]
+        raise HTTPException(status_code=500, detail="X ticker scan failed")
+
+    import re
+    ticker_re = re.compile(r"\$([A-Z]{1,5})\b")
+    ticker_agg: dict[str, int] = {}
+
+    for _category, posts in sweep.items():
+        for post in posts:
+            for tk in ticker_re.findall(post.text):
+                ticker_agg[tk] = ticker_agg.get(tk, 0) + 1
+
+    top_tickers = dict(sorted(ticker_agg.items(), key=lambda x: x[1], reverse=True)[:30])
+
+    result = {
+        "tickers": top_tickers,
+        "total_mentions": sum(ticker_agg.values()),
+        "unique_tickers": len(ticker_agg),
+    }
+    _x_ticker_cache["data"] = result
+    _x_ticker_cache["timestamp"] = _time.time()
+    return result
 
 
 # ===========================================================================
@@ -6100,7 +7207,7 @@ class _JournalEntryRequest(BaseModel):
     entry_type: str = "note"
     title: str = ""
     tags: list[str] = Field(default_factory=list)
-    importance: float = 0.5
+    importance: float = 50.0  # 0-100 scale (was 0.5 — wrong scale)
     source_context: str = ""
 
 
@@ -6109,6 +7216,7 @@ class _JournalTipRequest(BaseModel):
     content: str
     category: str = "general"
     tags: list[str] = Field(default_factory=list)
+    source: str = ""
 
 
 @app.post("/journal/entry")
@@ -6246,6 +7354,7 @@ async def create_journal_tip(
             content=body.content,
             category=body.category,
             tags=body.tags,
+            source=body.source,
         )
         return {"status": "created", "tip": tip if isinstance(tip, dict) else tip.__dict__ if hasattr(tip, "__dict__") else vars(tip)}
     except Exception as e:
@@ -6705,6 +7814,880 @@ async def list_swarm_agents(authorization: str = Header(default="")) -> dict:
             for agent_type, cls in registry.items()
         ],
     }
+
+
+# ── Missing Endpoints (FirstStrike iOS app) ────────────────────────────────
+# These endpoints were returning 404 during live testing. Added to support
+# the full command set in FirstStrike v2.0.
+
+
+@app.get("/predictions")
+async def list_predictions(
+    limit: int = Query(default=20, ge=1, le=100),
+    authorization: str = Header(default=""),
+) -> dict:
+    """List recent predictions — returns cached predictions from disk (fast)."""
+    _verify_strike_token(authorization)
+
+    predictions = []
+
+    # 1. Load council predictions from disk (newest first)
+    council_pred_dir = Path(os.getenv("NCL_DATA_DIR", "data")) / "predictions" / "council"
+    if council_pred_dir.exists():
+        files = sorted(council_pred_dir.glob("council-pred-*.json"), reverse=True)
+        for f in files[:limit]:
+            try:
+                data = json.loads(f.read_text())
+                if isinstance(data, list):
+                    predictions.extend(data)
+                elif isinstance(data, dict) and "predictions" in data:
+                    predictions.extend(data["predictions"])
+                elif isinstance(data, dict):
+                    predictions.append(data)
+            except Exception:
+                pass
+
+    # 2. Load ensemble predictions from disk
+    pred_dir = Path(os.getenv("NCL_DATA_DIR", "data")) / "predictions"
+    if pred_dir.exists():
+        files = sorted(pred_dir.glob("pred-*.json"), reverse=True)
+        for f in files[:limit]:
+            try:
+                data = json.loads(f.read_text())
+                if isinstance(data, dict):
+                    data["_type"] = "ensemble"
+                    predictions.append(data)
+            except Exception:
+                pass
+
+    # Sort by timestamp descending
+    predictions.sort(
+        key=lambda p: p.get("timestamp", p.get("generated_at", "")),
+        reverse=True,
+    )
+
+    return {
+        "status": "ok",
+        "predictions": predictions[:limit],
+        "total": len(predictions),
+    }
+
+
+@app.post("/predictions/council")
+async def generate_council_predictions(
+    authorization: str = Header(default=""),
+) -> dict:
+    """
+    Generate council-based predictions — each of the 5 council members
+    (Claude, Grok, Gemini, GPT, Perplexity) makes a 24hr prediction on a
+    different hot topic. Claude (chair) assigns topics to ensure diversity.
+    """
+    _verify_strike_token(authorization)
+    if not brain:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+
+    from ..ncl_brain.models import CouncilMember
+
+    council_engine = brain.council_engine
+    members = [
+        CouncilMember.CLAUDE,
+        CouncilMember.GROK,
+        CouncilMember.GEMINI,
+        CouncilMember.GPT,
+        CouncilMember.PERPLEXITY,
+    ]
+
+    # ── Step 1: Get hottest signals from last 24h ──
+    hot_signals = []
+    if _autonomous and _autonomous.awarebot:
+        ctx24 = list(_autonomous.awarebot._context_24h)
+        # Sort by score descending, take top 10
+        ctx24.sort(key=lambda s: getattr(s, "score", 0), reverse=True)
+        for s in ctx24[:10]:
+            hot_signals.append({
+                "title": s.title or s.content[:80],
+                "content": (s.content or "")[:200],
+                "source": s.source or "",
+                "score": getattr(s, "score", 0),
+                "tags": list(s.tags) if s.tags else [],
+            })
+
+    if not hot_signals:
+        return {"status": "no_signals", "predictions": [],
+                "reason": "No signals in the last 24h to base predictions on"}
+
+    # ── Step 2: Chair (Claude) assigns unique topics ──
+    signals_summary = "\n".join(
+        f"{i+1}. [{s['source']}] {s['title']} (score: {s['score']:.0f})"
+        for i, s in enumerate(hot_signals)
+    )
+
+    assignment_prompt = f"""You are the chair of a prediction council with 5 members: Claude, Grok, Gemini, GPT, and Perplexity.
+
+Here are the top intelligence signals from the last 24 hours:
+
+{signals_summary}
+
+Your job: Assign each council member a DIFFERENT topic to make a 24-hour prediction about.
+Rules:
+- Each member gets exactly ONE unique topic
+- Topics must be based on the signals above but should NOT overlap
+- Pick the most actionable and interesting angles
+- Include relevant signal numbers so members have context
+
+Respond ONLY in this exact JSON format (no markdown, no explanation):
+{{"assignments": [
+  {{"member": "claude", "topic": "...", "signal_refs": [1,2]}},
+  {{"member": "grok", "topic": "...", "signal_refs": [3]}},
+  {{"member": "gemini", "topic": "...", "signal_refs": [4,5]}},
+  {{"member": "gpt", "topic": "...", "signal_refs": [6]}},
+  {{"member": "perplexity", "topic": "...", "signal_refs": [7,8]}}
+]}}"""
+
+    try:
+        assignment_raw = await asyncio.wait_for(
+            council_engine._get_member_response_safe(
+                CouncilMember.CLAUDE, assignment_prompt, "prediction-chair"
+            ),
+            timeout=30.0,
+        )
+    except Exception as e:
+        log.error(f"[predictions:council] Chair assignment failed: {e}")
+        return {"status": "error", "predictions": [], "error": f"Chair assignment failed: {e}"}
+
+    # Parse assignments
+    try:
+        # Strip markdown fences if present
+        cleaned = assignment_raw.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3]
+            cleaned = cleaned.strip()
+        if cleaned.startswith("json"):
+            cleaned = cleaned[4:].strip()
+        assignments = json.loads(cleaned)
+        if isinstance(assignments, dict) and "assignments" in assignments:
+            assignments = assignments["assignments"]
+    except (json.JSONDecodeError, KeyError) as e:
+        log.error(f"[predictions:council] Failed to parse assignments: {e}\nRaw: {assignment_raw[:500]}")
+        return {"status": "error", "predictions": [],
+                "error": "Chair failed to produce valid topic assignments"}
+
+    # ── Step 3: Each member makes their prediction in parallel ──
+    async def get_member_prediction(assignment: dict) -> dict:
+        member_name = assignment.get("member", "unknown")
+        topic = assignment.get("topic", "general")
+        signal_refs = assignment.get("signal_refs", [])
+
+        # Build context from referenced signals
+        context_lines = []
+        for ref in signal_refs:
+            idx = ref - 1  # 1-indexed
+            if 0 <= idx < len(hot_signals):
+                s = hot_signals[idx]
+                context_lines.append(f"- {s['title']}: {s['content']}")
+
+        context = "\n".join(context_lines) if context_lines else "No specific signals provided"
+
+        pred_prompt = f"""You are {member_name.upper()}, a member of an intelligence prediction council.
+
+Your assigned topic for a 24-HOUR prediction: {topic}
+
+Supporting intelligence signals:
+{context}
+
+Make a specific, actionable prediction about what will happen in the next 24 hours regarding this topic.
+Be concrete — include specific outcomes, probability estimates, and what to watch for.
+
+Respond in this JSON format (no markdown, no explanation):
+{{"prediction": "Your specific 24hr prediction here",
+  "confidence": 0.75,
+  "direction": "bullish|bearish|neutral",
+  "watch_for": "Key indicator to watch",
+  "reasoning": "Brief reasoning"}}"""
+
+        member_enum = {
+            "claude": CouncilMember.CLAUDE,
+            "grok": CouncilMember.GROK,
+            "gemini": CouncilMember.GEMINI,
+            "gpt": CouncilMember.GPT,
+            "perplexity": CouncilMember.PERPLEXITY,
+        }.get(member_name.lower())
+
+        if not member_enum:
+            return {"member": member_name, "topic": topic, "error": "Unknown member"}
+
+        try:
+            raw = await asyncio.wait_for(
+                council_engine._get_member_response_safe(
+                    member_enum, pred_prompt, f"prediction-{member_name}"
+                ),
+                timeout=30.0,
+            )
+
+            # Parse response
+            cleaned = raw.strip()
+            if cleaned.startswith("```"):
+                cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
+                if cleaned.endswith("```"):
+                    cleaned = cleaned[:-3]
+                cleaned = cleaned.strip()
+            if cleaned.startswith("json"):
+                cleaned = cleaned[4:].strip()
+
+            try:
+                parsed = json.loads(cleaned)
+            except json.JSONDecodeError:
+                parsed = {"prediction": cleaned[:500]}
+
+            return {
+                "member": member_name,
+                "topic": topic,
+                "title": topic,
+                "content": parsed.get("prediction", raw[:500]),
+                "confidence": parsed.get("confidence", 0.5),
+                "direction": parsed.get("direction", "neutral"),
+                "watch_for": parsed.get("watch_for", ""),
+                "reasoning": parsed.get("reasoning", ""),
+                "tags": [t for s in signal_refs if 0 <= s-1 < len(hot_signals)
+                         for t in hot_signals[s-1].get("tags", [])],
+                "signal_refs": signal_refs,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "source": f"council:{member_name}",
+                "council_member": member_name,
+            }
+        except Exception as e:
+            log.warning(f"[predictions:council] {member_name} prediction failed: {e}")
+            return {
+                "member": member_name,
+                "topic": topic,
+                "title": topic,
+                "content": f"Prediction unavailable: {e}",
+                "confidence": 0.0,
+                "direction": "neutral",
+                "error": str(e),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "source": f"council:{member_name}",
+                "council_member": member_name,
+            }
+
+    # Run all 5 predictions in parallel
+    tasks = [get_member_prediction(a) for a in assignments[:5]]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    predictions = []
+    for r in results:
+        if isinstance(r, Exception):
+            log.warning(f"[predictions:council] Prediction task failed: {r}")
+        elif isinstance(r, dict):
+            predictions.append(r)
+
+    # ── Step 4: Save to disk ──
+    data_dir = Path(os.getenv("NCL_DATA_DIR", "data")) / "predictions" / "council"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    pred_file = data_dir / f"council-pred-{ts}.json"
+    try:
+        save_data = {
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "signal_count": len(hot_signals),
+            "predictions": predictions,
+        }
+        pred_file.write_text(json.dumps(save_data, indent=2, default=str))
+        log.info(f"[predictions:council] Saved {len(predictions)} predictions to {pred_file}")
+    except Exception as e:
+        log.warning(f"[predictions:council] Disk save failed: {e}")
+
+    # ── Step 5: Memory storage ──
+    if _autonomous and _autonomous.awarebot and _autonomous.awarebot.memory_store:
+        for pred in predictions:
+            try:
+                await _autonomous.awarebot.memory_store.create_unit(
+                    content=(
+                        f"[Council Prediction] {pred.get('member', 'unknown').upper()}: "
+                        f"{pred.get('topic', 'N/A')} — {pred.get('content', '')[:200]}"
+                    ),
+                    source=f"council:prediction:{pred.get('member', 'unknown')}",
+                    importance=min(100.0, (pred.get('confidence', 0.5) * 100)),
+                    tags=["prediction", "council", pred.get("member", "unknown")],
+                )
+            except Exception:
+                pass
+
+    return {
+        "status": "ok",
+        "predictions": predictions,
+        "total": len(predictions),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+# IMPORTANT: Fixed paths MUST come before the parameterized {prediction_id}
+# route, otherwise FastAPI matches "accuracy" / "convergence" as a prediction_id.
+
+@app.post("/prediction/{prediction_id}/outcome")
+async def record_prediction_outcome(
+    prediction_id: str,
+    correct: bool = Query(..., description="Whether the prediction was correct"),
+    authorization: str = Header(default=""),
+) -> dict:
+    """
+    Record a prediction outcome (correct/incorrect) for accuracy tracking.
+
+    Args:
+        prediction_id: The prediction ID to record outcome for.
+        correct: True if prediction proved accurate, False otherwise.
+    """
+    _verify_strike_token(authorization)
+    if not brain:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+    if not brain.predictor:
+        raise HTTPException(status_code=503, detail="Predictor not initialized")
+    brain.predictor.record_outcome(prediction_id, correct)
+    stats = brain.predictor.accuracy_stats()
+    return {
+        "status": "recorded",
+        "prediction_id": prediction_id,
+        "correct": correct,
+        **stats,
+    }
+
+
+@app.get("/prediction/accuracy")
+async def prediction_accuracy(authorization: str = Header(default="")) -> dict:
+    """
+    Get prediction accuracy metrics from the FuturePredictor's rolling window.
+
+    Returns outcomes recorded, rolling accuracy, and window size.
+    """
+    _verify_strike_token(authorization)
+    if not brain:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+    if not brain.predictor:
+        return {"status": "unavailable", "reason": "Predictor not initialized"}
+    stats = brain.predictor.accuracy_stats()
+    stats["status"] = "ok"
+    return stats
+
+
+@app.get("/prediction/convergence")
+async def prediction_convergence(
+    topic: str = Query(default="", description="Optional topic filter"),
+    authorization: str = Header(default=""),
+) -> dict:
+    """
+    Convergence analysis — where multiple prediction models agree.
+
+    READ-ONLY: Loads predictions from disk files (no side effects).
+    """
+    _verify_strike_token(authorization)
+    convergence_data = []
+
+    # Read from disk — no side effects
+    pred_dir = Path(os.getenv("NCL_DATA_DIR", "data")) / "predictions"
+    for pattern in ["pred-*.json", "council/council-pred-*.json"]:
+        for f in sorted(pred_dir.glob(pattern), reverse=True)[:50]:
+            try:
+                data = json.loads(f.read_text())
+                preds = []
+                if isinstance(data, list):
+                    preds = data
+                elif isinstance(data, dict) and "predictions" in data:
+                    preds = data["predictions"]
+                elif isinstance(data, dict):
+                    preds = [data]
+                for pred in preds:
+                    conv = pred.get("convergence_signals", pred.get("convergence", []))
+                    if conv:
+                        entry = {
+                            "prediction_id": pred.get("prediction_id"),
+                            "topic": pred.get("topic"),
+                            "confidence": pred.get("confidence"),
+                            "convergence_signals": conv,
+                            "signal_count": pred.get("signal_count", 0),
+                        }
+                        if not topic or topic.lower() in (pred.get("topic") or "").lower():
+                            convergence_data.append(entry)
+            except Exception:
+                pass
+
+    return {
+        "status": "ok",
+        "convergence_count": len(convergence_data),
+        "convergences": convergence_data,
+        "topic_filter": topic or None,
+    }
+
+
+@app.get("/prediction/{prediction_id}")
+async def get_prediction_detail(
+    prediction_id: str,
+    authorization: str = Header(default=""),
+) -> dict:
+    """
+    Get detail for a specific prediction by ID.
+
+    READ-ONLY: Scans disk prediction files for a matching ID (no side effects).
+    """
+    _verify_strike_token(authorization)
+    if not brain:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+
+    # Scan disk files for matching prediction_id
+    pred_dir = Path(os.getenv("NCL_DATA_DIR", "data")) / "predictions"
+    for pattern in ["pred-*.json", "council/council-pred-*.json"]:
+        for f in sorted(pred_dir.glob(pattern), reverse=True):
+            try:
+                data = json.loads(f.read_text())
+                preds = []
+                if isinstance(data, list):
+                    preds = data
+                elif isinstance(data, dict) and "predictions" in data:
+                    preds = data["predictions"]
+                elif isinstance(data, dict):
+                    preds = [data]
+                for pred in preds:
+                    if pred.get("prediction_id") == prediction_id:
+                        return {"status": "found", "prediction": pred}
+            except Exception:
+                pass
+
+    return {"status": "not_found", "prediction_id": prediction_id,
+            "message": "Prediction not found on disk. Use POST /prediction with a topic to generate a new one."}
+
+
+@app.get("/councils/status")
+async def councils_status(authorization: str = Header(default="")) -> dict:
+    """
+    Council system status — active sessions, store health, and recent activity.
+
+    Distinct from /councils/reports which returns full report files.
+    """
+    _verify_strike_token(authorization)
+    status: dict = {"status": "ok"}
+
+    # Council store stats
+    if _council_store:
+        try:
+            recent = _council_store.list_runs(limit=5)
+            status["recent_runs"] = len(recent)
+            status["latest_run"] = recent[0].model_dump() if recent else None
+            status["store"] = "connected"
+        except Exception as e:
+            status["store"] = f"error: {e}"
+    else:
+        status["store"] = "not_initialized"
+
+    # Replay engine
+    status["replay_engine"] = "available" if _replay_engine else "not_initialized"
+
+    # Autonomous council flags
+    if _autonomous:
+        try:
+            flags = await _autonomous._get_council_flags()
+            status["pending_council_flags"] = len(flags)
+        except Exception:
+            status["pending_council_flags"] = 0
+    else:
+        status["pending_council_flags"] = 0
+
+    return status
+
+
+@app.get("/intelligence/signals")
+async def intelligence_signals_list(
+    limit: int = Query(default=20, ge=1, le=100),
+    authorization: str = Header(default=""),
+) -> dict:
+    """
+    List intelligence signals — alias for /intelligence/signals/top.
+
+    Returns top unacknowledged signals from the latest intelligence brief.
+    """
+    _verify_strike_token(authorization)
+    if not _intelligence:
+        raise HTTPException(status_code=503, detail="Intelligence engine not initialized")
+
+    brief = await _intelligence.get_latest_brief()
+    if not brief:
+        return {"total": 0, "signals": []}
+
+    top = sorted(brief.top_signals, key=lambda s: s.importance_score(), reverse=True)[:limit]
+    return {
+        "total": len(top),
+        "brief_id": brief.brief_id,
+        "brief_type": brief.brief_type,
+        "signals": [
+            {
+                "signal_id": s.signal_id,
+                "title": s.title,
+                "content": s.content,
+                "category": s.category,
+                "source": s.source.value,
+                "direction": s.direction.value,
+                "importance": s.importance_score(),
+                "confidence": s.confidence,
+                "tags": s.tags,
+                "url": s.url,
+                "timestamp": s.timestamp.isoformat(),
+            }
+            for s in top
+        ],
+    }
+
+
+@app.get("/intelligence/signals/{signal_id}")
+async def intelligence_signal_detail_alias(
+    signal_id: str,
+    authorization: str = Header(default=""),
+) -> dict:
+    """
+    Get a single signal by ID — alias for /intelligence/signal/{signal_id}.
+
+    FirstStrike iOS app calls /intelligence/signals/{id} (plural 's').
+    The canonical route is /intelligence/signal/{signal_id} (singular).
+    """
+    _verify_strike_token(authorization)
+    if not _intelligence:
+        raise HTTPException(status_code=503, detail="Intelligence engine not initialized")
+
+    # Reuse the canonical handler's logic
+    brief = await _intelligence.get_latest_brief()
+    if brief:
+        for sig in brief.top_signals:
+            if sig.signal_id == signal_id:
+                return {
+                    "found_in": "latest_brief",
+                    "signal": {
+                        "signal_id": sig.signal_id,
+                        "title": sig.title,
+                        "content": sig.content,
+                        "category": sig.category,
+                        "source": sig.source.value,
+                        "direction": sig.direction.value,
+                        "importance": sig.importance_score(),
+                        "confidence": sig.confidence,
+                        "tags": sig.tags,
+                        "url": sig.url,
+                        "metadata": sig.metadata,
+                        "timestamp": sig.timestamp.isoformat(),
+                    },
+                }
+    return {"status": "not_found", "signal_id": signal_id}
+
+
+@app.get("/intelligence/reddit/posts")
+async def reddit_posts_alias(
+    subreddit: str = Query(default="wallstreetbets", description="Subreddit to scan"),
+    limit: int = Query(default=15, ge=1, le=50, description="Number of posts"),
+    authorization: str = Header(default=""),
+) -> dict:
+    """
+    Reddit posts listing — alias for /intelligence/reddit.
+
+    Returns top posts with sentiment, ticker mentions, and engagement metrics.
+    """
+    _verify_strike_token(authorization)
+    owns_scanner = False
+    if _intelligence and hasattr(_intelligence, "_reddit"):
+        scanner = _intelligence._reddit
+    else:
+        from ..intelligence.collectors import RedditCollector
+        scanner = RedditCollector(subreddits=[subreddit])
+        owns_scanner = True
+
+    try:
+        signals = await scanner._collect_listing(subreddit, "hot", limit=limit)
+        tickers = await scanner.collect_ticker_mentions(subreddit, limit=limit)
+
+        return {
+            "subreddit": subreddit,
+            "post_count": len(signals),
+            "top_tickers": dict(list(tickers.items())[:10]),
+            "posts": [
+                {
+                    "title": s.title,
+                    "score": s.metadata.get("score", 0),
+                    "comments": s.metadata.get("num_comments", 0),
+                    "flair": s.metadata.get("flair", ""),
+                    "sentiment": round(s.sentiment, 2),
+                    "tickers": s.metadata.get("tickers", []),
+                    "strength": s.metadata.get("strength", ""),
+                    "confidence": round(s.confidence, 2),
+                    "url": s.url,
+                    "category": s.category,
+                }
+                for s in sorted(signals, key=lambda x: x.metadata.get("score", 0), reverse=True)
+            ],
+        }
+    except Exception as e:
+        log.warning(f"[reddit] /intelligence/reddit/posts failed: {e}")
+        raise HTTPException(status_code=500, detail="Reddit scan failed")
+    finally:
+        if owns_scanner:
+            await scanner.close()
+
+
+# ── Stock Scanner Endpoints (FirstStrike Stocks Tab) ──────────────────────
+# GOAT Academy strategy + Johnny Bravo swing scanner — powered by yfinance
+# with numpy-based technical indicators (SMA, EMA, RSI, Bollinger, VWAP).
+# No paid API key required. Optional Alpaca upgrade path.
+
+from runtime.stocks.watchlist import (
+    DEFAULT_WATCHLIST, WATCHLIST_MAP, WATCHLIST_TICKERS,
+    DISPLAY_MAP, display_ticker,
+)
+from runtime.stocks.scanner import StockScanner
+
+# Module-level scanner instance (5-min cache for data)
+_stock_scanner = StockScanner()
+
+
+@app.get("/stocks/watchlist", tags=["stocks"])
+async def stocks_watchlist(sector: str = None):
+    """Fetch current quotes for the full NATRIX watchlist.
+    Optional ?sector= filter (e.g. Semis/AI, Energy, Tech).
+    """
+    tickers = WATCHLIST_TICKERS
+    if sector:
+        tickers = [t.ticker for t in DEFAULT_WATCHLIST if t.sector.lower() == sector.lower()]
+        if not tickers:
+            return {"stocks": [], "error": f"Unknown sector: {sector}"}
+
+    try:
+        quotes = await _stock_scanner.fetch_quotes(tickers)
+
+        # Merge watchlist metadata into quotes, strip exchange suffixes
+        stocks = []
+        for q in quotes:
+            raw_ticker = q["ticker"]
+            disp = display_ticker(raw_ticker)
+            q["ticker"] = disp  # iOS expects WCP not WCP.TO
+            meta = WATCHLIST_MAP.get(raw_ticker) or DISPLAY_MAP.get(disp)
+            if meta:
+                q["name"] = meta.name
+                q["sector"] = meta.sector
+                q["currency"] = meta.currency
+                q["is_position"] = meta.is_position
+            stocks.append(q)
+
+        return {
+            "stocks": stocks,
+            "count": len(stocks),
+            "total_watchlist": len(WATCHLIST_TICKERS),
+        }
+    except Exception as e:
+        log.error("Watchlist fetch failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"Watchlist fetch failed: {e}")
+
+
+@app.get("/stocks/scanner/goat", tags=["stocks"])
+async def stocks_scanner_goat(sector: str = None, min_score: int = 0):
+    """Run GOAT Academy strategy scanner on the watchlist.
+
+    6 Rules: Price > 50 SMA, Price > 150 SMA, 50 SMA rising,
+    RSI 40-70, Volume > 1.5x avg, Price > 20-day high.
+
+    Optional filters:
+    - ?sector= — scan only one sector
+    - ?min_score= — only return results >= this GOAT score
+    """
+    tickers = WATCHLIST_TICKERS
+    if sector:
+        tickers = [t.ticker for t in DEFAULT_WATCHLIST if t.sector.lower() == sector.lower()]
+
+    try:
+        results = await _stock_scanner.run_goat_scan(tickers)
+
+        if min_score > 0:
+            results = [r for r in results if r["goat_score"] >= min_score]
+
+        # Merge names from watchlist, strip exchange suffixes
+        for r in results:
+            raw = r["ticker"]
+            disp = display_ticker(raw)
+            r["ticker"] = disp
+            meta = WATCHLIST_MAP.get(raw) or DISPLAY_MAP.get(disp)
+            if meta:
+                r["name"] = meta.name
+
+        return {
+            "results": results,
+            "count": len(results),
+            "scanned": len(tickers),
+            "scanner": "goat",
+            "rules": [
+                "Price > 50-day SMA",
+                "Price > 150-day SMA",
+                "50-day SMA rising",
+                "RSI 40-70",
+                "Volume > 1.5x 20-day avg",
+                "Price > 20-day high (breakout)",
+            ],
+        }
+    except Exception as e:
+        log.error("GOAT scan failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"GOAT scan failed: {e}")
+
+
+@app.get("/stocks/scanner/bravo", tags=["stocks"])
+async def stocks_scanner_bravo(sector: str = None, min_score: int = 0, gogo_only: bool = False):
+    """Run Johnny Bravo / Bill Stenzel swing scanner on the watchlist.
+
+    Core: SMA 9 > EMA 20 > SMA 180 alignment, all MAs sloping up,
+    entry above SMA 9, exit below EMA 20, GoGo Juice, Bollinger Squeeze.
+
+    Optional filters:
+    - ?sector= — scan only one sector
+    - ?min_score= — only return results >= this Bravo score
+    - ?gogo_only=true — only show stocks with GoGo Juice active
+    """
+    tickers = WATCHLIST_TICKERS
+    if sector:
+        tickers = [t.ticker for t in DEFAULT_WATCHLIST if t.sector.lower() == sector.lower()]
+
+    try:
+        results = await _stock_scanner.run_bravo_scan(tickers)
+
+        if min_score > 0:
+            results = [r for r in results if r["bravo_score"] >= min_score]
+        if gogo_only:
+            results = [r for r in results if r.get("gogo_juice")]
+
+        # Merge names from watchlist, strip exchange suffixes
+        for r in results:
+            raw = r["ticker"]
+            disp = display_ticker(raw)
+            r["ticker"] = disp
+            meta = WATCHLIST_MAP.get(raw) or DISPLAY_MAP.get(disp)
+            if meta:
+                r["name"] = meta.name
+
+        return {
+            "results": results,
+            "count": len(results),
+            "scanned": len(tickers),
+            "scanner": "bravo",
+        }
+    except Exception as e:
+        log.error("Bravo scan failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"Bravo scan failed: {e}")
+
+
+@app.get("/stocks/quote/{ticker}", tags=["stocks"])
+async def stocks_quote(ticker: str):
+    """Fetch a single stock quote with basic technical data."""
+    ticker = ticker.upper()
+    try:
+        quotes = await _stock_scanner.fetch_quotes([ticker])
+        if not quotes:
+            raise HTTPException(status_code=404, detail=f"No data for {ticker}")
+
+        quote = quotes[0]
+        meta = WATCHLIST_MAP.get(ticker)
+        if meta:
+            quote["name"] = meta.name
+            quote["sector"] = meta.sector
+            quote["currency"] = meta.currency
+            quote["is_position"] = meta.is_position
+            quote["in_watchlist"] = True
+        else:
+            quote["in_watchlist"] = False
+
+        return quote
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error("Quote fetch failed for %s: %s", ticker, e)
+        raise HTTPException(status_code=500, detail=f"Quote fetch failed: {e}")
+
+
+# ── System Cost Tracker (FirstStrike Settings Tab) ────────────────────────
+# Real, file-backed cost tracking with per-source daily budgets.
+# Backed by runtime/cost_tracker.py — JSONL ledger + daily summaries.
+
+@app.get("/system/costs", tags=["system"])
+async def system_costs():
+    """Return today's cost summary by source with budget enforcement status.
+    The iOS Settings > Costs tab reads from this endpoint.
+    """
+    from ..cost_tracker import get_tracker
+    tracker = await get_tracker()
+    summary = await tracker.get_daily_summary()
+
+    # Also format for legacy iOS compatibility
+    services = []
+    for source, info in summary.get("sources", {}).items():
+        if info["spent_usd"] > 0 or info["budget_usd"] > 0:
+            services.append({
+                "name": source,
+                "cost": info["spent_usd"],
+                "detail": f"Budget: ${info['budget_usd']:.2f}/day | {info['pct_used']:.0f}% used | {info['calls']} calls",
+                "budget": info["budget_usd"],
+                "calls": info["calls"],
+                "blocked": info["blocked"],
+            })
+
+    return {
+        "services": sorted(services, key=lambda s: s["cost"], reverse=True),
+        "total_cost": summary["total_spent_usd"],
+        "total_calls": summary["total_calls"],
+        "date": summary["date"],
+        "period": f"Today ({summary['date']})",
+        "daily": [],  # Legacy field — use /system/costs/history for historical
+    }
+
+
+@app.get("/system/costs/today", tags=["system"])
+async def system_costs_today():
+    """Detailed today's cost breakdown — per source, per category."""
+    from ..cost_tracker import get_tracker
+    tracker = await get_tracker()
+    return await tracker.get_daily_summary()
+
+
+@app.get("/system/costs/history", tags=["system"])
+async def system_costs_history(days: int = 30):
+    """Historical daily cost summaries."""
+    from ..cost_tracker import get_tracker
+    tracker = await get_tracker()
+    return await tracker.get_historical(days)
+
+
+@app.get("/system/costs/ledger", tags=["system"])
+async def system_costs_ledger(days: int = 7):
+    """Raw cost ledger entries for the last N days."""
+    from ..cost_tracker import get_tracker
+    tracker = await get_tracker()
+    entries = await tracker.get_full_ledger(days)
+    return {"entries": entries, "count": len(entries)}
+
+
+@app.post("/system/costs/record", tags=["system"])
+async def system_costs_record(
+    service: str = Body(...),
+    cost: float = Body(...),
+    category: str = Body("api_calls"),
+    detail: str = Body(""),
+):
+    """Record a cost entry. Called by NCL services after API calls."""
+    from ..cost_tracker import record_cost
+    await record_cost(service, cost, category, detail)
+    return {"status": "recorded"}
+
+
+@app.post("/system/costs/reset", tags=["system"])
+async def system_costs_reset():
+    """Reset today's cost tracking. Use at start of new billing period."""
+    # The JSONL ledger is append-only — reset just clears in-memory totals
+    from ..cost_tracker import get_tracker
+    tracker = await get_tracker()
+    async with tracker._lock:
+        tracker._daily_totals.clear()
+        tracker._daily_counts.clear()
+        tracker._warned_sources.clear()
+    return {"status": "reset", "date": datetime.now(timezone.utc).strftime("%Y-%m-%d")}
 
 
 # ── API Versioning ─────────────────────────────────────────────────────────
