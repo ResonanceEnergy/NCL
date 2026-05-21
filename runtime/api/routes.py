@@ -5291,13 +5291,11 @@ async def autonomous_loops(authorization: str = Header(default="")) -> dict:
     if not _autonomous:
         return {"loops": [], "count": 0, "status": "scheduler_not_initialized"}
 
+    # --- Scheduler-level tasks (spawned in scheduler.py start()) ---
     loop_definitions = [
-        {"name": "Intelligence Scanner", "id": "ncl-scanner",
-         "interval": getattr(_autonomous.config, "x_scan_interval", 300),
-         "enabled": True, "description": "Scans X, YouTube, Reddit for signals"},
-        {"name": "Future Prediction", "id": "ncl-predictor",
-         "interval": getattr(_autonomous.config, "prediction_interval", 3600),
-         "enabled": True, "description": "Runs prediction models"},
+        {"name": "Heartbeat", "id": "ncl-heartbeat",
+         "interval": 60, "enabled": True,
+         "description": "Health heartbeat and uptime tracking"},
         {"name": "Council Auto-Spawn", "id": "ncl-council-auto",
          "interval": 120, "enabled": True,
          "description": "Monitors triggers for autonomous council sessions"},
@@ -5310,37 +5308,60 @@ async def autonomous_loops(authorization: str = Header(default="")) -> dict:
         {"name": "Workspace Health", "id": "ncl-workspace",
          "interval": 1800, "enabled": True,
          "description": "Monitors workspace health and connectivity"},
-        {"name": "Mandate Purge", "id": "ncl-mandate-purge",
-         "interval": 3600, "enabled": True,
-         "description": "Cleans expired and stale mandates"},
-        {"name": "Feedback Synthesis", "id": "ncl-feedback-synth",
-         "interval": 7200, "enabled": True,
-         "description": "Synthesizes feedback from execution results"},
-        {"name": "Heartbeat", "id": "ncl-heartbeat",
-         "interval": 60, "enabled": True,
-         "description": "Health heartbeat and uptime tracking"},
+        {"name": "Working Context", "id": "ncl-working-ctx",
+         "interval": 0, "enabled": True,
+         "description": "Daily context window: 6am assembly, noon refresh, 11pm EOD cycle"},
+        {"name": "Journal Reflection", "id": "ncl-journal-reflection",
+         "interval": 0, "enabled": True,
+         "description": "Daily 10pm ET journal synthesis with intel patterns"},
     ]
 
-    # Add intelligence engine loops if available
-    if _autonomous.intelligence_engine:
+    # --- Awarebot sub-tasks (spawned inside awarebot agent) ---
+    if _autonomous.awarebot:
+        _ab = _autonomous.awarebot
         loop_definitions.extend([
-            {"name": "Intel Collection", "id": "ncl-intel-collect",
-             "interval": getattr(_autonomous.config, "intelligence_collection_interval", 1800),
-             "enabled": True, "description": "Collects intelligence from all sources"},
-            {"name": "Intel Brief", "id": "ncl-intel-brief",
-             "interval": getattr(_autonomous.config, "intelligence_brief_interval", 3600),
+            {"name": "Awarebot Agent", "id": "ncl-awarebot-agent",
+             "interval": 0, "enabled": True,
+             "description": "Unified intelligence pipeline supervisor"},
+            {"name": "Intelligence Scanner", "id": "awarebot-scan",
+             "interval": getattr(_ab, "_scan_interval", 300),
+             "enabled": True, "description": "Scans all sources for signals (X, YouTube, Reddit, news, markets)"},
+            {"name": "Future Prediction", "id": "awarebot-predict",
+             "interval": getattr(_ab, "_prediction_interval", 1800),
+             "enabled": True, "description": "Runs prediction models on accumulated signals"},
+            {"name": "Intel Brief", "id": "awarebot-brief",
+             "interval": getattr(_ab, "_brief_interval", 14400),
              "enabled": True, "description": "Generates periodic intelligence briefs"},
+            {"name": "Context Maintenance", "id": "awarebot-context",
+             "interval": getattr(_ab, "_context_interval", 600),
+             "enabled": True, "description": "Maintains context window and signal buffers"},
+            {"name": "Journal Processing", "id": "awarebot-journal",
+             "interval": getattr(_ab, "_journal_interval", 3600),
+             "enabled": True, "description": "Processes journal entries and generates tips"},
+            {"name": "YouTube Council", "id": "awarebot-ytc",
+             "interval": 1800, "enabled": True,
+             "description": "Scrapes, transcribes, and analyzes YouTube channels"},
+            {"name": "X Liked Posts", "id": "awarebot-x-liked",
+             "interval": 3600, "enabled": True,
+             "description": "Processes liked posts from X for signal extraction"},
         ])
 
-    # Enrich with live task status
+    # Enrich with live task status from scheduler + awarebot sub-tasks
     active_task_names = set()
     for t in _autonomous._tasks:
         if not t.done():
             active_task_names.add(t.get_name())
+    # Also check Awarebot internal tasks
+    if _autonomous.awarebot and hasattr(_autonomous.awarebot, "_tasks"):
+        for t in _autonomous.awarebot._tasks:
+            if not t.done():
+                active_task_names.add(t.get_name())
 
     for loop in loop_definitions:
         loop["active"] = loop["id"] in active_task_names
-        loop["last_run"] = _autonomous._stats.get(f"last_{loop['id'].replace('ncl-', '').replace('-', '_')}")
+        # Try scheduler stats first, then awarebot stats
+        stat_key = f"last_{loop['id'].replace('ncl-', '').replace('awarebot-', '').replace('-', '_')}"
+        loop["last_run"] = _autonomous._stats.get(stat_key)
 
     return {"loops": loop_definitions, "count": len(loop_definitions)}
 
