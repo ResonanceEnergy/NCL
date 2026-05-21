@@ -37,7 +37,7 @@ DAILY_SUMMARY_FILE = COST_DIR / "daily_summary.json"
 # Override via environment: NCL_BUDGET_X=5.00, NCL_BUDGET_ANTHROPIC=10.00, etc.
 DEFAULT_DAILY_BUDGETS: dict[str, float] = {
     "x_twitter":       2.00,    # Reduced — consider once-daily for morning brief only
-    "anthropic":       2.00,    # Claude API — councils, analysis
+    "anthropic":       5.00,    # Claude API -- Night Watch (Opus+Sonnet), councils, analysis
     "xai":             2.00,    # Grok — council member + fallback
     "openai":          2.00,    # GPT-4o — council member + Whisper
     "google":          2.00,    # Gemini — council member

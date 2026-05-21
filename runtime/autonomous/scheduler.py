@@ -1222,11 +1222,11 @@ class AutonomousScheduler:
 
         Runs 6 sequential maintenance tasks on the memory store:
           M1: Semantic duplicate detection (FREE)
-          M2: Deep re-scoring of unscored units (Haiku, ~$0.15)
-          M3: Entity backfill for entity-less units (Haiku, ~$0.10)
-          M4: Stale fact detection via LLM (Haiku + Gemini dual-model, ~$0.02)
+          M2: Deep re-scoring of unscored units (Sonnet, ~$0.50)
+          M3: Entity backfill for entity-less units (Sonnet, ~$0.30)
+          M4: Stale fact detection via LLM (Sonnet + Gemini dual-model, ~$0.05)
           M5: Knowledge graph maintenance (FREE)
-          M6: Entity normalization (Haiku + Gemini consensus, ~$0.002)
+          M6: Entity normalization (Sonnet + Gemini consensus, ~$0.01)
 
         NEVER deletes memory units — all operations are additive or re-scoring.
 
@@ -1368,7 +1368,7 @@ class AutonomousScheduler:
             report["errors"].append(f"M1: {e}")
 
         # ══════════════════════════════════════════════════════════════
-        # Task M2: Deep Re-scoring (HAIKU, ~$0.15)
+        # Task M2: Deep Re-scoring (uses memory scorer - Haiku, ~$0.15)
         # ══════════════════════════════════════════════════════════════
         try:
             task_t0 = time.monotonic()
@@ -1622,7 +1622,7 @@ class AutonomousScheduler:
                                     "content-type": "application/json",
                                 },
                                 json={
-                                    "model": "claude-haiku-4-5-20251001",
+                                    "model": "claude-sonnet-4-6",
                                     "max_tokens": 300,
                                     "messages": [{"role": "user", "content": p}],
                                 },
@@ -1633,8 +1633,8 @@ class AutonomousScheduler:
                             usage = data.get("usage", {})
                             input_t = usage.get("input_tokens", 0)
                             output_t = usage.get("output_tokens", 0)
-                            cost = (input_t * 0.25 + output_t * 1.25) / 1_000_000
-                            return [{"_cost": cost, "_source": "haiku"}] + _m4_parse_contradictions(data["content"][0]["text"])
+                            cost = (input_t * 3.00 + output_t * 15.00) / 1_000_000
+                            return [{"_cost": cost, "_source": "sonnet"}] + _m4_parse_contradictions(data["content"][0]["text"])
 
                     # --- Gemini call ---
                     async def _m4_gemini(p: str) -> list[dict]:
@@ -1961,7 +1961,7 @@ class AutonomousScheduler:
                                             "content-type": "application/json",
                                         },
                                         json={
-                                            "model": "claude-haiku-4-5-20251001",
+                                            "model": "claude-sonnet-4-6",
                                             "max_tokens": 200,
                                             "messages": [{"role": "user", "content": p}],
                                         },
@@ -1972,7 +1972,7 @@ class AutonomousScheduler:
                                     usage = data.get("usage", {})
                                     input_t = usage.get("input_tokens", 0)
                                     output_t = usage.get("output_tokens", 0)
-                                    cost = (input_t * 0.25 + output_t * 1.25) / 1_000_000
+                                    cost = (input_t * 3.00 + output_t * 15.00) / 1_000_000
                                     return _m6_parse_results(data["content"][0]["text"]), cost
 
                             async def _m6_gemini(p: str) -> tuple[list[bool], float]:
@@ -2112,13 +2112,13 @@ class AutonomousScheduler:
 
         Runs 6 analysis tasks on intelligence data:
           I1: Cross-source correlation mining (FREE)
-          I2: Coverage blind spot detection (FREE + Haiku + Gemini dual-model)
+          I2: Coverage blind spot detection (FREE + Sonnet + Gemini dual-model)
           I3: Signal score calibration (FREE)
-          I4: Prediction calibration analysis (FREE + Haiku + Gemini dual-model)
-          I5: Council topic suggestion (Haiku + Gemini dual-model, merged with priority)
-          I6: Cost optimization analysis (Haiku + Gemini consensus)
+          I4: Prediction calibration analysis (FREE + Sonnet + Gemini dual-model)
+          I5: Council topic suggestion (Sonnet + Gemini dual-model, merged with priority)
+          I6: Cost optimization analysis (Sonnet + Gemini consensus)
 
-        Total cost target: ~$0.03/night (4 Haiku + 4 Gemini calls).
+        Total cost target: ~$0.30/night (4 Sonnet + 4 Gemini calls).
 
         Returns:
             Dict with task results and overall stats.
@@ -2153,25 +2153,25 @@ class AutonomousScheduler:
             log.warning("[NIGHT-WATCH/INTEL] No ANTHROPIC_API_KEY — LLM tasks will be skipped")
 
         tracker = await get_tracker()
-        haiku_model = "claude-haiku-4-5-20251001"
+        sonnet_model_intel = "claude-sonnet-4-6"
         api_headers = {
             "x-api-key": api_key,
             "anthropic-version": "2023-06-01",
             "content-type": "application/json",
         }
 
-        async def _call_haiku(prompt: str, label: str, max_tokens: int = 1024) -> tuple[str, float]:
-            """Make a Haiku call, return (text, cost_usd). Raises on failure."""
+        async def _call_sonnet_intel(prompt: str, label: str, max_tokens: int = 1024) -> tuple[str, float]:
+            """Make a Sonnet call for intel analysis, return (text, cost_usd). Raises on failure."""
             if not api_key:
                 raise RuntimeError("No API key")
-            if not await tracker.can_spend("anthropic", 0.005):
+            if not await tracker.can_spend("anthropic", 0.02):
                 raise RuntimeError("Anthropic budget exceeded")
-            async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(90.0)) as client:
                 resp = await client.post(
                     "https://api.anthropic.com/v1/messages",
                     headers=api_headers,
                     json={
-                        "model": haiku_model,
+                        "model": sonnet_model_intel,
                         "max_tokens": max_tokens,
                         "messages": [{"role": "user", "content": prompt}],
                     },
@@ -2182,15 +2182,15 @@ class AutonomousScheduler:
                 usage = data.get("usage", {})
                 input_tokens = usage.get("input_tokens", 0)
                 output_tokens = usage.get("output_tokens", 0)
-                cost = (input_tokens * 0.80 + output_tokens * 4.00) / 1_000_000
+                cost = (input_tokens * 3.00 + output_tokens * 15.00) / 1_000_000
                 log.info(
-                    "[NIGHT-WATCH/INTEL] Haiku call '%s': %d in / %d out tokens, $%.4f",
+                    "[NIGHT-WATCH/INTEL] Sonnet call '%s': %d in / %d out tokens, $%.4f",
                     label, input_tokens, output_tokens, cost,
                 )
                 await tracker.record(
                     "anthropic", cost, "night_watch_intel",
-                    f"Night Watch Intel Haiku: {label}",
-                    {"model": haiku_model, "phase": "intel", "label": label},
+                    f"Night Watch Intel Sonnet: {label}",
+                    {"model": sonnet_model_intel, "phase": "intel", "label": label},
                 )
                 return text, cost
 
@@ -2434,7 +2434,7 @@ class AutonomousScheduler:
 
                     # Run both models in parallel
                     haiku_task = asyncio.wait_for(
-                        _call_haiku(prompt, "I2_blind_spots"), timeout=TASK_TIMEOUT
+                        _call_sonnet_intel(prompt, "I2_blind_spots"), timeout=TASK_TIMEOUT
                     )
                     gemini_task = asyncio.wait_for(
                         _call_gemini(prompt, "I2_blind_spots"), timeout=TASK_TIMEOUT
@@ -2805,7 +2805,7 @@ class AutonomousScheduler:
 
                     # Run both models in parallel
                     haiku_task = asyncio.wait_for(
-                        _call_haiku(prompt, "I4_prediction_calibration"), timeout=TASK_TIMEOUT
+                        _call_sonnet_intel(prompt, "I4_prediction_calibration"), timeout=TASK_TIMEOUT
                     )
                     gemini_task = asyncio.wait_for(
                         _call_gemini(prompt, "I4_prediction_calibration"), timeout=TASK_TIMEOUT
@@ -2933,7 +2933,7 @@ class AutonomousScheduler:
 
                     # Run both models in parallel
                     haiku_task = asyncio.wait_for(
-                        _call_haiku(prompt, "I5_council_topics"), timeout=TASK_TIMEOUT
+                        _call_sonnet_intel(prompt, "I5_council_topics"), timeout=TASK_TIMEOUT
                     )
                     gemini_task = asyncio.wait_for(
                         _call_gemini(prompt, "I5_council_topics"), timeout=TASK_TIMEOUT
@@ -3125,7 +3125,7 @@ class AutonomousScheduler:
                         "COST DATA:\n"
                         + "\n".join(cost_summary_lines) + "\n\n"
                         "Identify:\n"
-                        "1. Categories where Haiku could replace Sonnet (simple tasks using expensive models)\n"
+                        "1. Categories where Sonnet could replace Opus (simpler tasks using expensive models)\n"
                         "2. Redundant calls (same data processed twice)\n"
                         "3. Times/patterns of highest spend\n"
                         "4. Project when daily budgets will be consistently exceeded\n\n"
@@ -3135,7 +3135,7 @@ class AutonomousScheduler:
 
                     # Run both models in parallel
                     haiku_task = asyncio.wait_for(
-                        _call_haiku(prompt, "I6_cost_optimization"), timeout=TASK_TIMEOUT
+                        _call_sonnet_intel(prompt, "I6_cost_optimization"), timeout=TASK_TIMEOUT
                     )
                     gemini_task = asyncio.wait_for(
                         _call_gemini(prompt, "I6_cost_optimization"), timeout=TASK_TIMEOUT
@@ -3647,15 +3647,15 @@ class AutonomousScheduler:
                 "content-type": "application/json",
             }
 
-            # Call 1: Claude analysis
+            # Call 1: Claude Sonnet analysis
             claude_text = ""
             try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(90.0)) as client:
                     resp = await client.post(
                         "https://api.anthropic.com/v1/messages",
                         headers=anthropic_headers,
                         json={
-                            "model": "claude-haiku-4-5-20251001",
+                            "model": "claude-sonnet-4-6",
                             "max_tokens": 1024,
                             "messages": [{"role": "user", "content": prompt}],
                         },
@@ -3664,14 +3664,14 @@ class AutonomousScheduler:
                     data = resp.json()
                     claude_text = data["content"][0]["text"]
                     usage = data.get("usage", {})
-                    cost = (usage.get("input_tokens", 0) * 0.80 + usage.get("output_tokens", 0) * 4.00) / 1_000_000
+                    cost = (usage.get("input_tokens", 0) * 3.00 + usage.get("output_tokens", 0) * 15.00) / 1_000_000
                     total_cost += cost
                     await tracker.record(
                         "anthropic", cost, "night_watch_council",
-                        f"NW council {label} — Claude analysis",
-                        {"model": "claude-haiku-4-5-20251001", "council": label, "step": "analysis"},
+                        f"NW council {label} -- Sonnet analysis",
+                        {"model": "claude-sonnet-4-6", "council": label, "step": "analysis"},
                     )
-                    log.info("[NIGHT-WATCH/COUNCIL] %s — Claude analysis done ($%.4f)", label, cost)
+                    log.info("[NIGHT-WATCH/COUNCIL] %s -- Sonnet analysis done ($%.4f)", label, cost)
             except Exception as e:
                 log.error("[NIGHT-WATCH/COUNCIL] %s — Claude analysis failed: %s", label, e)
                 return None, total_cost
@@ -3726,51 +3726,51 @@ class AutonomousScheduler:
                     log.error("[NIGHT-WATCH/COUNCIL] %s — Grok rebuttal failed: %s", label, e)
                     grok_text = "(Grok rebuttal unavailable)"
 
-            # Call 3: Claude synthesis
+            # Call 3: Claude Opus synthesis (top-tier reasoning for council chair)
             try:
-                if not await tracker.can_spend("anthropic", 0.05):
-                    log.warning("[NIGHT-WATCH/COUNCIL] Budget exceeded — returning analysis without synthesis for %s", label)
+                if not await tracker.can_spend("anthropic", 0.20):
+                    log.warning("[NIGHT-WATCH/COUNCIL] Budget exceeded -- returning analysis without synthesis for %s", label)
                     return claude_text, total_cost
 
-                synthesis_prompt = (
+                council_synthesis_prompt = (
                     f"You are the chair of the NCL Night Watch council. "
                     f"Synthesize these two perspectives on: {topic}\n\n"
                     f"=== ANALYST (Claude) ===\n{claude_text[:1200]}\n\n"
                     f"=== CONTRARIAN (Grok) ===\n{grok_text[:1200] if grok_text else '(No rebuttal available)'}\n\n"
                     f"Produce a synthesis:\n"
-                    f"1. KEY FINDINGS (3-5 bullets — what both agree on)\n"
+                    f"1. KEY FINDINGS (3-5 bullets -- what both agree on)\n"
                     f"2. CONTESTED POINTS (where they disagree and why it matters)\n"
                     f"3. BLIND SPOTS (what neither addressed)\n"
                     f"4. ACTION ITEMS (2-3 specific next steps for tomorrow)\n"
                     f"Be concise. Total response under 400 words."
                 )
 
-                async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(120.0)) as client:
                     resp = await client.post(
                         "https://api.anthropic.com/v1/messages",
                         headers=anthropic_headers,
                         json={
-                            "model": "claude-haiku-4-5-20251001",
+                            "model": "claude-opus-4-6",
                             "max_tokens": 1024,
-                            "messages": [{"role": "user", "content": synthesis_prompt}],
+                            "messages": [{"role": "user", "content": council_synthesis_prompt}],
                         },
                     )
                     resp.raise_for_status()
                     data = resp.json()
                     synthesis = data["content"][0]["text"]
                     usage = data.get("usage", {})
-                    cost = (usage.get("input_tokens", 0) * 0.80 + usage.get("output_tokens", 0) * 4.00) / 1_000_000
+                    cost = (usage.get("input_tokens", 0) * 15.00 + usage.get("output_tokens", 0) * 75.00) / 1_000_000
                     total_cost += cost
                     await tracker.record(
                         "anthropic", cost, "night_watch_council",
-                        f"NW council {label} — Claude synthesis",
-                        {"model": "claude-haiku-4-5-20251001", "council": label, "step": "synthesis"},
+                        f"NW council {label} -- Opus synthesis",
+                        {"model": "claude-opus-4-6", "council": label, "step": "synthesis"},
                     )
-                    log.info("[NIGHT-WATCH/COUNCIL] %s — synthesis done ($%.4f, total=$%.4f)", label, cost, total_cost)
+                    log.info("[NIGHT-WATCH/COUNCIL] %s -- Opus synthesis done ($%.4f, total=$%.4f)", label, cost, total_cost)
                     return synthesis, total_cost
             except Exception as e:
-                log.error("[NIGHT-WATCH/COUNCIL] %s — synthesis failed: %s", label, e)
-                return claude_text, total_cost  # Fall back to raw Claude analysis
+                log.error("[NIGHT-WATCH/COUNCIL] %s -- synthesis failed: %s", label, e)
+                return claude_text, total_cost  # Fall back to raw Sonnet analysis
 
         # ── Collect supplemental data ────────────────────────────────
         portfolio_data = await self._nw_collect_portfolio_data()
@@ -4042,7 +4042,7 @@ class AutonomousScheduler:
         LLM-powered analysis phase for Night Watch.
 
         Runs AFTER the deterministic health checks. Collects operational data
-        from multiple subsystems, triages with Haiku, synthesizes with Sonnet,
+        from multiple subsystems, triages with Sonnet, synthesizes with Opus,
         pushes a daily briefing via ntfy, and saves to disk.
         """
         import glob as glob_mod
@@ -4059,7 +4059,7 @@ class AutonomousScheduler:
         tracker = await get_tracker()
 
         # ── Budget guard: estimate max cost ──────────────────────────
-        # 4 Haiku calls ~2000 tok in + ~500 tok out each = ~$0.014
+        # 4 Sonnet calls ~2000 tok in + ~500 tok out each = ~$0.05
         # 1 Sonnet call ~4000 tok in + ~1000 tok out   = ~$0.027
         # Total estimate: ~$0.04
         estimated_total = 0.05  # conservative
@@ -4425,20 +4425,21 @@ class AutonomousScheduler:
             "content-type": "application/json",
         }
 
-        haiku_model = "claude-haiku-4-5-20251001"
-        sonnet_model = "claude-sonnet-4-5-20241022"
+        sonnet_model = "claude-sonnet-4-6"
+        opus_model = "claude-opus-4-6"
 
-        # Haiku cost rates: $0.80/1M input, $4.00/1M output
         # Sonnet cost rates: $3.00/1M input, $15.00/1M output
+        # Opus cost rates: $15.00/1M input, $75.00/1M output
 
-        haiku_outputs: dict[str, str] = {}
+        triage_outputs: dict[str, str] = {}
         total_llm_cost = 0.0
 
         async def _call_anthropic(
             model: str, prompt: str, max_tokens: int, label: str
         ) -> tuple[str, float]:
             """Make a single Anthropic API call, return (text, cost_usd)."""
-            async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
+            timeout = 120.0 if model == opus_model else 60.0
+            async with httpx.AsyncClient(timeout=httpx.Timeout(timeout)) as client:
                 resp = await client.post(
                     "https://api.anthropic.com/v1/messages",
                     headers=api_headers,
@@ -4455,10 +4456,11 @@ class AutonomousScheduler:
                 input_tokens = usage.get("input_tokens", 0)
                 output_tokens = usage.get("output_tokens", 0)
 
-                # Compute cost
-                if model == haiku_model:
-                    cost = (input_tokens * 0.80 + output_tokens * 4.00) / 1_000_000
+                # Compute cost per model
+                if model == opus_model:
+                    cost = (input_tokens * 15.00 + output_tokens * 75.00) / 1_000_000
                 else:
+                    # Sonnet-class rates (default)
                     cost = (input_tokens * 3.00 + output_tokens * 15.00) / 1_000_000
 
                 log.info(
@@ -4467,9 +4469,9 @@ class AutonomousScheduler:
                 )
                 return text, cost
 
-        # ── Haiku triage calls ────────────────────────────────────────
+        # ── Sonnet triage calls ───────────────────────────────────────
 
-        haiku_prompts = {
+        triage_prompts = {
             "cost_analysis": (
                 "You are an operations analyst for an autonomous AI brain system. "
                 "Analyze this cost data from today. Flag anomalies, unusual spending "
@@ -4503,36 +4505,36 @@ class AutonomousScheduler:
             ),
         }
 
-        for label, prompt in haiku_prompts.items():
+        for label, prompt in triage_prompts.items():
             try:
                 # Budget check before each call
-                if not await tracker.can_spend("anthropic", 0.01):
-                    log.warning("[NIGHT-WATCH] Budget hit mid-analysis — stopping Haiku calls")
+                if not await tracker.can_spend("anthropic", 0.03):
+                    log.warning("[NIGHT-WATCH] Budget hit mid-analysis -- stopping Sonnet triage")
                     break
 
-                text, cost = await _call_anthropic(haiku_model, prompt, 1024, label)
-                haiku_outputs[label] = text
+                text, cost = await _call_anthropic(sonnet_model, prompt, 1024, label)
+                triage_outputs[label] = text
                 total_llm_cost += cost
 
                 await tracker.record(
                     "anthropic", cost, "night_watch",
-                    f"Night Watch Haiku triage: {label}",
-                    {"model": haiku_model, "phase": "triage", "label": label},
+                    f"Night Watch Sonnet triage: {label}",
+                    {"model": sonnet_model, "phase": "triage", "label": label},
                 )
             except Exception as e:
-                log.error("[NIGHT-WATCH] Haiku call '%s' failed: %s", label, e)
-                haiku_outputs[label] = f"[Analysis failed: {type(e).__name__}: {e}]"
+                log.error("[NIGHT-WATCH] Sonnet triage '%s' failed: %s", label, e)
+                triage_outputs[label] = f"[Analysis failed: {type(e).__name__}: {e}]"
 
-        # ── Sonnet synthesis call ─────────────────────────────────────
+        # ── Opus synthesis call ───────────────────────────────────────
         synthesis_text = ""
-        if haiku_outputs:
+        if triage_outputs:
             try:
-                if not await tracker.can_spend("anthropic", 0.03):
-                    log.warning("[NIGHT-WATCH] Budget hit — skipping Sonnet synthesis")
+                if not await tracker.can_spend("anthropic", 0.10):
+                    log.warning("[NIGHT-WATCH] Budget hit -- skipping Opus synthesis")
                 else:
                     subsystem_reports = "\n\n".join(
                         f"=== {label.upper()} ===\n{text}"
-                        for label, text in haiku_outputs.items()
+                        for label, text in triage_outputs.items()
                     )
 
                     deterministic_summary = (
@@ -4540,7 +4542,7 @@ class AutonomousScheduler:
                         if deterministic_issues else "None — all deterministic checks passed."
                     )
 
-                    sonnet_prompt = (
+                    synthesis_prompt = (
                         "You are the Night Watch analyst for NCL Brain, an autonomous AI "
                         "second brain system. Synthesize these subsystem triage reports into "
                         "a daily briefing for NATRIX (the human operator).\n\n"
@@ -4558,17 +4560,17 @@ class AutonomousScheduler:
                     )
 
                     synthesis_text, cost = await _call_anthropic(
-                        sonnet_model, sonnet_prompt, 2048, "synthesis"
+                        opus_model, synthesis_prompt, 2048, "synthesis"
                     )
                     total_llm_cost += cost
 
                     await tracker.record(
                         "anthropic", cost, "night_watch",
-                        "Night Watch Sonnet synthesis",
-                        {"model": sonnet_model, "phase": "synthesis"},
+                        "Night Watch Opus synthesis",
+                        {"model": opus_model, "phase": "synthesis"},
                     )
             except Exception as e:
-                log.error("[NIGHT-WATCH] Sonnet synthesis failed: %s", e)
+                log.error("[NIGHT-WATCH] Opus synthesis failed: %s", e)
                 synthesis_text = ""
 
         # ── Fallback: if no synthesis, use deterministic results ──────
@@ -4578,8 +4580,8 @@ class AutonomousScheduler:
                 "LLM analysis was unavailable. Deterministic check results:\n"
                 + ("\n".join(f"  - {i}" for i in deterministic_issues) if deterministic_issues
                    else "All deterministic checks passed.")
-                + "\n\nHaiku triage outputs:\n"
-                + "\n".join(f"  [{k}]: {v[:200]}" for k, v in haiku_outputs.items())
+                + "\n\nSonnet triage outputs:\n"
+                + "\n".join(f"  [{k}]: {v[:200]}" for k, v in triage_outputs.items())
             )
 
         # ══════════════════════════════════════════════════════════════
@@ -4658,8 +4660,8 @@ class AutonomousScheduler:
 
         log.info(
             "[NIGHT-WATCH] Analyst phase complete — total LLM cost: $%.4f, "
-            "haiku calls: %d, synthesis: %s",
-            total_llm_cost, len(haiku_outputs),
+            "triage calls: %d, synthesis: %s",
+            total_llm_cost, len(triage_outputs),
             "yes" if "STATUS:" in synthesis_text else "fallback",
         )
 
