@@ -1184,11 +1184,1578 @@ class AutonomousScheduler:
                 "issues": issues[:20],
             })
 
+            # Phase 2: Memory maintenance cycle
+            memory_report: dict = {}
+            try:
+                memory_report = await self._night_watch_memory_cycle()
+            except Exception as exc:
+                log.error("[NIGHT-WATCH] Memory cycle failed: %s", exc)
+                memory_report = {"error": str(exc)}
+
+            # Phase 3: Intelligence correlation cycle
+            intel_report: dict = {}
+            try:
+                intel_report = await self._night_watch_intel_cycle()
+            except Exception as exc:
+                log.error("[NIGHT-WATCH] Intel cycle failed: %s", exc)
+                intel_report = {"error": str(exc)}
+
             # LLM-powered analysis phase
             try:
-                await self._night_watch_analyst(issues, len(issues) > 0, critical)
+                await self._night_watch_analyst(issues, len(issues) > 0, critical, memory_report=memory_report, intel_report=intel_report)
             except Exception as exc:
                 log.error("[NIGHT-WATCH] Analyst phase failed: %s", exc)
+
+    # ─── NIGHT WATCH MEMORY CYCLE: Phase 2 memory maintenance ──────
+
+    async def _night_watch_memory_cycle(self) -> dict:
+        """
+        Night Watch Phase 2 — Memory Maintenance Cycle.
+
+        Runs 6 sequential maintenance tasks on the memory store:
+          M1: Semantic duplicate detection (FREE)
+          M2: Deep re-scoring of unscored units (Haiku, ~$0.15)
+          M3: Entity backfill for entity-less units (Haiku, ~$0.10)
+          M4: Stale fact detection via LLM (Haiku, ~$0.015)
+          M5: Knowledge graph maintenance (FREE)
+          M6: Entity normalization (Haiku, ~$0.001)
+
+        NEVER deletes memory units — all operations are additive or re-scoring.
+
+        Returns:
+            Dict with task results and overall stats.
+        """
+        import time
+        import hashlib
+        import re
+
+        import httpx
+
+        from ..cost_tracker import get_tracker
+        from ..memory.importance_scorer import rule_based_score, llm_importance_score
+        from ..memory.entity_extractor import fast_extract_entities, extract_entities_and_relationships
+        from ..memory.reflection import MemoryReflector
+
+        t0 = time.monotonic()
+        report = {
+            "duplicates_found": 0,
+            "units_rescored": 0,
+            "entities_extracted": 0,
+            "stale_facts_found": 0,
+            "kg_stats": {"nodes": 0, "edges": 0, "components": 0},
+            "normalizations": 0,
+            "total_cost_usd": 0.0,
+            "duration_seconds": 0.0,
+            "errors": [],
+        }
+
+        TASK_TIMEOUT = 30 * 60  # 30 minutes per task
+
+        memory_store = getattr(self.brain, 'memory_store', None)
+        if not memory_store:
+            report["errors"].append("Memory store not available")
+            report["duration_seconds"] = time.monotonic() - t0
+            return report
+
+        knowledge_graph = getattr(memory_store, '_knowledge_graph', None)
+        if knowledge_graph is None:
+            knowledge_graph = getattr(self.brain, 'knowledge_graph', None)
+
+        tracker = await get_tracker()
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+
+        log.info("[NIGHT-WATCH/MEMORY] Starting memory maintenance cycle")
+
+        # ══════════════════════════════════════════════════════════════
+        # Task M1: Semantic Duplicate Detection (FREE)
+        # ══════════════════════════════════════════════════════════════
+        try:
+            task_t0 = time.monotonic()
+            log.info("[NIGHT-WATCH/MEMORY] Task M1: Semantic duplicate detection")
+
+            units = await memory_store._load_all_units()
+            now_utc = datetime.now(timezone.utc)
+            seven_days_ago = now_utc - timedelta(days=7)
+
+            # Separate recent units (last 7 days) from older units
+            recent_units = [u for u in units if u.created_at >= seven_days_ago]
+            older_units = [u for u in units if u.created_at < seven_days_ago]
+
+            duplicates_found = 0
+            duplicate_examples: list[str] = []
+
+            # Try ChromaDB-based similarity detection first
+            chroma_available = memory_store._init_vector_db()
+
+            if chroma_available and hasattr(memory_store, '_chroma_collections'):
+                # For each recent unit, query its collection for similar units
+                for unit in recent_units:
+                    if time.monotonic() - task_t0 > TASK_TIMEOUT:
+                        log.warning("[NIGHT-WATCH/MEMORY] M1 timeout — aborting")
+                        break
+
+                    mem_type = getattr(unit, 'memory_type', 'episodic')
+                    collection = memory_store._get_collection_for_type(mem_type)
+                    if not collection:
+                        continue
+
+                    try:
+                        results = await asyncio.to_thread(
+                            collection.query,
+                            query_texts=[unit.content[:500]],
+                            n_results=5,
+                        )
+                        if results and results["ids"] and results["ids"][0]:
+                            if results.get("distances") and results["distances"][0]:
+                                for idx, (match_id, distance) in enumerate(
+                                    zip(results["ids"][0], results["distances"][0])
+                                ):
+                                    # ChromaDB cosine distance: 0 = identical, 2 = opposite
+                                    # cosine similarity = 1 - (distance / 2)
+                                    similarity = 1.0 - (distance / 2.0)
+                                    if (
+                                        similarity > 0.92
+                                        and match_id != unit.unit_id
+                                    ):
+                                        duplicates_found += 1
+                                        if len(duplicate_examples) < 5:
+                                            duplicate_examples.append(
+                                                f"{unit.unit_id[:8]}... ~ {match_id[:8]}... "
+                                                f"(sim={similarity:.3f})"
+                                            )
+                    except Exception as e:
+                        log.debug("[NIGHT-WATCH/MEMORY] M1 ChromaDB query error: %s", e)
+                        continue
+            else:
+                # Fallback: fingerprint + content prefix comparison
+                reflector = MemoryReflector()
+                older_fingerprints: dict[str, str] = {}
+                for u in older_units:
+                    fp = reflector._fingerprint(u.content)
+                    older_fingerprints[fp] = u.unit_id
+
+                for unit in recent_units:
+                    if time.monotonic() - task_t0 > TASK_TIMEOUT:
+                        log.warning("[NIGHT-WATCH/MEMORY] M1 timeout — aborting")
+                        break
+                    fp = reflector._fingerprint(unit.content)
+                    if fp in older_fingerprints:
+                        duplicates_found += 1
+                        match_id = older_fingerprints[fp]
+                        if len(duplicate_examples) < 5:
+                            duplicate_examples.append(
+                                f"{unit.unit_id[:8]}... ~ {match_id[:8]}... (fingerprint match)"
+                            )
+
+            report["duplicates_found"] = duplicates_found
+            log.info(
+                "[NIGHT-WATCH/MEMORY] Task M1: found %d duplicates among %d recent units "
+                "(checked against %d older units)%s",
+                duplicates_found, len(recent_units), len(older_units),
+                f" — examples: {duplicate_examples[:3]}" if duplicate_examples else "",
+            )
+
+        except Exception as e:
+            log.error("[NIGHT-WATCH/MEMORY] Task M1 failed: %s", e)
+            report["errors"].append(f"M1: {e}")
+
+        # ══════════════════════════════════════════════════════════════
+        # Task M2: Deep Re-scoring (HAIKU, ~$0.15)
+        # ══════════════════════════════════════════════════════════════
+        try:
+            task_t0 = time.monotonic()
+            log.info("[NIGHT-WATCH/MEMORY] Task M2: Deep re-scoring of unscored units")
+
+            if not api_key:
+                log.info("[NIGHT-WATCH/MEMORY] M2 skipped — no ANTHROPIC_API_KEY")
+            else:
+                units = await memory_store._load_all_units()
+
+                # Find units with no LLM importance score
+                unscored = [u for u in units if u.llm_importance_score is None]
+                # Limit to 200 per night
+                unscored = unscored[:200]
+                log.info("[NIGHT-WATCH/MEMORY] M2: %d unscored units found (capped at 200)", len(unscored))
+
+                rescored_count = 0
+                m2_cost = 0.0
+                batch_size = 50
+                units_by_id = {u.unit_id: u for u in units}
+
+                for batch_start in range(0, len(unscored), batch_size):
+                    if time.monotonic() - task_t0 > TASK_TIMEOUT:
+                        log.warning("[NIGHT-WATCH/MEMORY] M2 timeout — aborting")
+                        break
+
+                    # Budget check before each batch
+                    if not await tracker.can_spend("anthropic", 0.02):
+                        log.warning("[NIGHT-WATCH/MEMORY] M2 budget exceeded — stopping")
+                        break
+
+                    batch = unscored[batch_start:batch_start + batch_size]
+                    for unit in batch:
+                        try:
+                            llm_score = await llm_importance_score(
+                                unit.content, unit.source,
+                                unit.tags, timeout=10.0,
+                            )
+                            if llm_score is not None:
+                                # Compute hybrid score: 70% LLM + 30% rule
+                                rule_score = rule_based_score(unit.content, unit.source, unit.tags)
+                                hybrid = (llm_score * 10 * 0.7) + (rule_score * 10 * 0.3)
+                                hybrid = max(0.0, min(100.0, hybrid))
+
+                                unit.llm_importance_score = llm_score
+                                unit.importance = hybrid
+                                units_by_id[unit.unit_id] = unit
+                                rescored_count += 1
+
+                                # Estimate per-call cost (Haiku: $0.25/1M in, $1.25/1M out)
+                                est_cost = 0.00075  # ~300 in + 50 out tokens typical
+                                m2_cost += est_cost
+
+                        except Exception as e:
+                            log.debug("[NIGHT-WATCH/MEMORY] M2 scoring error: %s", e)
+                            continue
+
+                # Persist re-scored units
+                if rescored_count > 0:
+                    await memory_store._acquire_write()
+                    try:
+                        all_units = list(units_by_id.values())
+                        await memory_store._rewrite_units(all_units)
+                    finally:
+                        memory_store._release_write()
+
+                    # Record cost
+                    await tracker.record(
+                        "anthropic", m2_cost, "night_watch_memory",
+                        f"deep re-scoring {rescored_count} units",
+                    )
+                    report["total_cost_usd"] += m2_cost
+
+                report["units_rescored"] = rescored_count
+                log.info(
+                    "[NIGHT-WATCH/MEMORY] Task M2: re-scored %d units, cost $%.4f",
+                    rescored_count, m2_cost,
+                )
+
+        except Exception as e:
+            log.error("[NIGHT-WATCH/MEMORY] Task M2 failed: %s", e)
+            report["errors"].append(f"M2: {e}")
+
+        # ══════════════════════════════════════════════════════════════
+        # Task M3: Entity Backfill (HAIKU, ~$0.10)
+        # ══════════════════════════════════════════════════════════════
+        try:
+            task_t0 = time.monotonic()
+            log.info("[NIGHT-WATCH/MEMORY] Task M3: Entity backfill")
+
+            units = await memory_store._load_all_units()
+
+            # Find units with importance >= 40 and no entities
+            needs_entities = [
+                u for u in units
+                if u.importance >= 40.0 and not u.entities
+            ]
+            needs_entities = needs_entities[:100]  # Limit to 100 per night
+            log.info("[NIGHT-WATCH/MEMORY] M3: %d entity-less units found (capped at 100)", len(needs_entities))
+
+            entities_extracted = 0
+            m3_cost = 0.0
+            modified_ids: set[str] = set()
+
+            for unit in needs_entities:
+                if time.monotonic() - task_t0 > TASK_TIMEOUT:
+                    log.warning("[NIGHT-WATCH/MEMORY] M3 timeout — aborting")
+                    break
+
+                try:
+                    # Always do fast extraction (FREE)
+                    use_llm = unit.importance >= 60.0 and bool(api_key)
+
+                    if use_llm:
+                        if not await tracker.can_spend("anthropic", 0.002):
+                            use_llm = False  # Fall back to regex-only
+
+                    extraction = await extract_entities_and_relationships(
+                        unit.content, unit.source, use_llm=use_llm,
+                    )
+
+                    new_entities = extraction.get("entities", [])
+                    new_relationships = extraction.get("relationships", [])
+
+                    if new_entities:
+                        unit.entities = new_entities
+                        unit.relationships = new_relationships
+                        entities_extracted += 1
+                        modified_ids.add(unit.unit_id)
+
+                        # Add to knowledge graph
+                        if knowledge_graph:
+                            await knowledge_graph.add_entities(new_entities, unit.unit_id)
+                            if new_relationships:
+                                await knowledge_graph.add_relationships(
+                                    new_relationships, unit.unit_id
+                                )
+
+                        if use_llm:
+                            est_cost = 0.001
+                            m3_cost += est_cost
+
+                except Exception as e:
+                    log.debug("[NIGHT-WATCH/MEMORY] M3 extraction error for %s: %s", unit.unit_id[:8], e)
+                    continue
+
+            # Persist modified units
+            if modified_ids:
+                await memory_store._acquire_write()
+                try:
+                    all_units = await memory_store._load_all_units()
+                    units_by_id = {u.unit_id: u for u in all_units}
+                    # Update modified units in place
+                    for unit in needs_entities:
+                        if unit.unit_id in modified_ids:
+                            units_by_id[unit.unit_id] = unit
+                    await memory_store._rewrite_units(list(units_by_id.values()))
+                finally:
+                    memory_store._release_write()
+
+                if m3_cost > 0:
+                    await tracker.record(
+                        "anthropic", m3_cost, "night_watch_memory",
+                        f"entity backfill {entities_extracted} units",
+                    )
+                    report["total_cost_usd"] += m3_cost
+
+            report["entities_extracted"] = entities_extracted
+            log.info(
+                "[NIGHT-WATCH/MEMORY] Task M3: extracted entities for %d units, cost $%.4f",
+                entities_extracted, m3_cost,
+            )
+
+        except Exception as e:
+            log.error("[NIGHT-WATCH/MEMORY] Task M3 failed: %s", e)
+            report["errors"].append(f"M3: {e}")
+
+        # ══════════════════════════════════════════════════════════════
+        # Task M4: Stale Fact Detection (HAIKU, ~$0.015)
+        # ══════════════════════════════════════════════════════════════
+        try:
+            task_t0 = time.monotonic()
+            log.info("[NIGHT-WATCH/MEMORY] Task M4: Stale fact detection")
+
+            if not api_key or not knowledge_graph:
+                log.info("[NIGHT-WATCH/MEMORY] M4 skipped — no API key or knowledge graph")
+            else:
+                units = await memory_store._load_all_units()
+
+                # Load semantic and decision type units
+                fact_units = [
+                    u for u in units
+                    if getattr(u, 'memory_type', 'episodic') in ('semantic', 'decision')
+                ]
+
+                # Group by shared entities from the knowledge graph
+                entity_to_units: dict[str, list] = {}
+                for unit in fact_units:
+                    for entity in unit.entities:
+                        entity_to_units.setdefault(entity, []).append(unit)
+
+                # Find clusters with 3+ units
+                clusters: list[tuple[str, list]] = [
+                    (entity, unit_list)
+                    for entity, unit_list in entity_to_units.items()
+                    if len(unit_list) >= 3
+                ]
+                clusters = clusters[:30]  # Limit to 30 clusters per night
+
+                stale_facts_found = 0
+                m4_cost = 0.0
+
+                for entity, cluster_units in clusters:
+                    if time.monotonic() - task_t0 > TASK_TIMEOUT:
+                        log.warning("[NIGHT-WATCH/MEMORY] M4 timeout — aborting")
+                        break
+
+                    if not await tracker.can_spend("anthropic", 0.001):
+                        log.warning("[NIGHT-WATCH/MEMORY] M4 budget exceeded — stopping")
+                        break
+
+                    # Build prompt with unit contents
+                    unit_texts = []
+                    for i, u in enumerate(cluster_units[:10]):  # Cap at 10 per cluster
+                        unit_texts.append(
+                            f"[{i+1}] (created {u.created_at.strftime('%Y-%m-%d')}, "
+                            f"importance {u.importance:.0f}): {u.content[:300]}"
+                        )
+
+                    prompt = (
+                        f"These memory units reference '{entity}'. "
+                        "Identify any contradictions or outdated facts. "
+                        "Respond with JSON: {{\"contradictions\": [{{\"units\": [i,j], "
+                        "\"description\": \"...\"}}, ...], \"count\": N}}\n"
+                        "If no contradictions, respond: {{\"contradictions\": [], \"count\": 0}}\n\n"
+                        + "\n".join(unit_texts)
+                    )
+
+                    try:
+                        async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
+                            resp = await client.post(
+                                "https://api.anthropic.com/v1/messages",
+                                headers={
+                                    "x-api-key": api_key,
+                                    "anthropic-version": "2023-06-01",
+                                    "content-type": "application/json",
+                                },
+                                json={
+                                    "model": "claude-haiku-4-5-20251001",
+                                    "max_tokens": 300,
+                                    "messages": [{"role": "user", "content": prompt}],
+                                },
+                            )
+
+                            if resp.status_code == 200:
+                                data = resp.json()
+                                usage = data.get("usage", {})
+                                input_t = usage.get("input_tokens", 0)
+                                output_t = usage.get("output_tokens", 0)
+                                cost = (input_t * 0.25 + output_t * 1.25) / 1_000_000
+                                m4_cost += cost
+
+                                text = data["content"][0]["text"]
+                                text = re.sub(r"```json\s*", "", text)
+                                text = re.sub(r"```\s*", "", text)
+                                parsed = json.loads(text.strip())
+                                contradictions = parsed.get("contradictions", [])
+                                if contradictions:
+                                    stale_facts_found += len(contradictions)
+                                    log.info(
+                                        "[NIGHT-WATCH/MEMORY] M4: %d contradiction(s) for entity '%s'",
+                                        len(contradictions), entity,
+                                    )
+                    except Exception as e:
+                        log.debug("[NIGHT-WATCH/MEMORY] M4 LLM call error for '%s': %s", entity, e)
+                        continue
+
+                if m4_cost > 0:
+                    await tracker.record(
+                        "anthropic", m4_cost, "night_watch_memory",
+                        f"stale fact detection across {len(clusters)} clusters",
+                    )
+                    report["total_cost_usd"] += m4_cost
+
+                report["stale_facts_found"] = stale_facts_found
+                log.info(
+                    "[NIGHT-WATCH/MEMORY] Task M4: found %d stale facts across %d clusters, cost $%.4f",
+                    stale_facts_found, len(clusters), m4_cost,
+                )
+
+        except Exception as e:
+            log.error("[NIGHT-WATCH/MEMORY] Task M4 failed: %s", e)
+            report["errors"].append(f"M4: {e}")
+
+        # ══════════════════════════════════════════════════════════════
+        # Task M5: Knowledge Graph Maintenance (FREE)
+        # ══════════════════════════════════════════════════════════════
+        try:
+            task_t0 = time.monotonic()
+            log.info("[NIGHT-WATCH/MEMORY] Task M5: Knowledge graph maintenance")
+
+            if not knowledge_graph:
+                log.info("[NIGHT-WATCH/MEMORY] M5 skipped — no knowledge graph")
+            else:
+                # Prune stale nodes/edges (not seen in 90 days)
+                prune_result = await knowledge_graph.prune_stale(90)
+                log.info(
+                    "[NIGHT-WATCH/MEMORY] M5 prune: %d nodes, %d edges removed",
+                    prune_result.get("pruned_nodes", 0),
+                    prune_result.get("pruned_edges", 0),
+                )
+
+                # Graph structure analysis using NetworkX
+                if knowledge_graph._ensure_graph():
+                    import networkx as nx
+                    g = knowledge_graph._graph
+
+                    total_nodes = g.number_of_nodes()
+                    total_edges = g.number_of_edges()
+
+                    # Weakly connected components
+                    if total_nodes > 0:
+                        components = list(nx.weakly_connected_components(g))
+                        num_components = len(components)
+                        largest_component = max(len(c) for c in components) if components else 0
+                        isolated = sum(1 for n in g.nodes() if g.degree(n) == 0)
+                    else:
+                        num_components = 0
+                        largest_component = 0
+                        isolated = 0
+
+                    report["kg_stats"] = {
+                        "nodes": total_nodes,
+                        "edges": total_edges,
+                        "components": num_components,
+                        "largest_component": largest_component,
+                        "isolated_nodes": isolated,
+                        "pruned_nodes": prune_result.get("pruned_nodes", 0),
+                        "pruned_edges": prune_result.get("pruned_edges", 0),
+                    }
+
+                    # Find potential missing connections: entity pairs that
+                    # share 3+ neighbors but have no direct edge
+                    potential_links: list[str] = []
+                    if total_nodes > 0 and total_nodes < 5000:
+                        undirected = g.to_undirected()
+                        nodes_list = list(g.nodes())
+                        # Only check top entities by degree to limit compute
+                        top_nodes = sorted(
+                            nodes_list,
+                            key=lambda n: g.degree(n),
+                            reverse=True,
+                        )[:100]
+
+                        checked = set()
+                        for n1 in top_nodes:
+                            if time.monotonic() - task_t0 > TASK_TIMEOUT:
+                                break
+                            neighbors_1 = set(undirected.neighbors(n1))
+                            for n2 in top_nodes:
+                                if n1 >= n2 or (n1, n2) in checked:
+                                    continue
+                                checked.add((n1, n2))
+                                if g.has_edge(n1, n2) or g.has_edge(n2, n1):
+                                    continue
+                                neighbors_2 = set(undirected.neighbors(n2))
+                                shared = neighbors_1 & neighbors_2
+                                if len(shared) >= 3:
+                                    potential_links.append(
+                                        f"{n1} <-> {n2} (share {len(shared)} neighbors)"
+                                    )
+
+                    if potential_links:
+                        log.info(
+                            "[NIGHT-WATCH/MEMORY] M5: %d potential missing connections found",
+                            len(potential_links),
+                        )
+                        for pl in potential_links[:5]:
+                            log.info("[NIGHT-WATCH/MEMORY] M5 potential link: %s", pl)
+
+                    log.info(
+                        "[NIGHT-WATCH/MEMORY] Task M5: nodes=%d, edges=%d, components=%d, "
+                        "largest=%d, isolated=%d",
+                        total_nodes, total_edges, num_components,
+                        largest_component, isolated,
+                    )
+
+        except Exception as e:
+            log.error("[NIGHT-WATCH/MEMORY] Task M5 failed: %s", e)
+            report["errors"].append(f"M5: {e}")
+
+        # ══════════════════════════════════════════════════════════════
+        # Task M6: Entity Normalization (HAIKU, ~$0.001)
+        # ══════════════════════════════════════════════════════════════
+        try:
+            task_t0 = time.monotonic()
+            log.info("[NIGHT-WATCH/MEMORY] Task M6: Entity normalization")
+
+            if not knowledge_graph or not knowledge_graph._ensure_graph():
+                log.info("[NIGHT-WATCH/MEMORY] M6 skipped — no knowledge graph")
+            else:
+                # Get top entities
+                top_entities = await knowledge_graph.get_top_entities(100)
+                entity_names = [e["entity"] for e in top_entities]
+
+                # Simple heuristic: find candidate pairs that may be the same entity
+                candidate_pairs: list[tuple[str, str]] = []
+                for i, name_a in enumerate(entity_names):
+                    for name_b in entity_names[i + 1:]:
+                        # Strip $ prefix for comparison
+                        clean_a = name_a.lstrip("$").lower()
+                        clean_b = name_b.lstrip("$").lower()
+
+                        # Skip if identical after cleaning
+                        if clean_a == clean_b and name_a != name_b:
+                            candidate_pairs.append((name_a, name_b))
+                            continue
+
+                        # Check if one is a substring of the other (min length 3)
+                        if len(clean_a) >= 3 and len(clean_b) >= 3:
+                            if clean_a in clean_b or clean_b in clean_a:
+                                candidate_pairs.append((name_a, name_b))
+                                continue
+
+                        # Common ticker-to-name mappings
+                        ticker_map = {
+                            "aapl": "apple", "goog": "google", "googl": "google",
+                            "msft": "microsoft", "amzn": "amazon", "tsla": "tesla",
+                            "meta": "facebook", "nvda": "nvidia", "nflx": "netflix",
+                            "spy": "s&p 500", "qqq": "nasdaq",
+                        }
+                        if clean_a in ticker_map and ticker_map[clean_a] in clean_b:
+                            candidate_pairs.append((name_a, name_b))
+                        elif clean_b in ticker_map and ticker_map[clean_b] in clean_a:
+                            candidate_pairs.append((name_a, name_b))
+
+                normalizations = 0
+                m6_cost = 0.0
+
+                if candidate_pairs:
+                    log.info(
+                        "[NIGHT-WATCH/MEMORY] M6: %d candidate pairs found for normalization",
+                        len(candidate_pairs),
+                    )
+
+                    # For unambiguous pairs (exact match after cleanup), add directly
+                    unambiguous: list[tuple[str, str]] = []
+                    ambiguous: list[tuple[str, str]] = []
+
+                    for a, b in candidate_pairs:
+                        clean_a = a.lstrip("$").lower().strip()
+                        clean_b = b.lstrip("$").lower().strip()
+                        if clean_a == clean_b:
+                            unambiguous.append((a, b))
+                        else:
+                            ambiguous.append((a, b))
+
+                    # Add SAME_AS edges for unambiguous pairs
+                    for a, b in unambiguous:
+                        await knowledge_graph.add_relationships(
+                            [{"subject": a, "predicate": "SAME_AS", "object": b}]
+                        )
+                        normalizations += 1
+
+                    # For ambiguous pairs, use ONE Haiku call if budget allows
+                    if ambiguous and api_key:
+                        if await tracker.can_spend("anthropic", 0.001):
+                            pairs_text = "\n".join(
+                                f"  {i+1}. \"{a}\" vs \"{b}\""
+                                for i, (a, b) in enumerate(ambiguous[:30])
+                            )
+                            prompt = (
+                                "These entity pairs may refer to the same real-world entity. "
+                                "For each pair, respond YES if they are the same, NO if different.\n"
+                                "Respond with JSON: {{\"results\": [true/false, ...]}}\n\n"
+                                + pairs_text
+                            )
+
+                            try:
+                                async with httpx.AsyncClient(
+                                    timeout=httpx.Timeout(15.0)
+                                ) as client:
+                                    resp = await client.post(
+                                        "https://api.anthropic.com/v1/messages",
+                                        headers={
+                                            "x-api-key": api_key,
+                                            "anthropic-version": "2023-06-01",
+                                            "content-type": "application/json",
+                                        },
+                                        json={
+                                            "model": "claude-haiku-4-5-20251001",
+                                            "max_tokens": 200,
+                                            "messages": [{"role": "user", "content": prompt}],
+                                        },
+                                    )
+
+                                    if resp.status_code == 200:
+                                        data = resp.json()
+                                        usage = data.get("usage", {})
+                                        input_t = usage.get("input_tokens", 0)
+                                        output_t = usage.get("output_tokens", 0)
+                                        cost = (input_t * 0.25 + output_t * 1.25) / 1_000_000
+                                        m6_cost += cost
+
+                                        text = data["content"][0]["text"]
+                                        text = re.sub(r"```json\s*", "", text)
+                                        text = re.sub(r"```\s*", "", text)
+                                        parsed = json.loads(text.strip())
+                                        results = parsed.get("results", [])
+
+                                        for idx, is_same in enumerate(results):
+                                            if idx < len(ambiguous) and is_same:
+                                                a, b = ambiguous[idx]
+                                                await knowledge_graph.add_relationships(
+                                                    [{"subject": a, "predicate": "SAME_AS", "object": b}]
+                                                )
+                                                normalizations += 1
+
+                            except Exception as e:
+                                log.debug("[NIGHT-WATCH/MEMORY] M6 LLM call error: %s", e)
+
+                        if m6_cost > 0:
+                            await tracker.record(
+                                "anthropic", m6_cost, "night_watch_memory",
+                                f"entity normalization {normalizations} pairs",
+                            )
+                            report["total_cost_usd"] += m6_cost
+
+                report["normalizations"] = normalizations
+                log.info(
+                    "[NIGHT-WATCH/MEMORY] Task M6: %d normalizations, cost $%.4f",
+                    normalizations, m6_cost,
+                )
+
+        except Exception as e:
+            log.error("[NIGHT-WATCH/MEMORY] Task M6 failed: %s", e)
+            report["errors"].append(f"M6: {e}")
+
+        # ══════════════════════════════════════════════════════════════
+        # Final report
+        # ══════════════════════════════════════════════════════════════
+        report["duration_seconds"] = round(time.monotonic() - t0, 2)
+
+        log.info(
+            "[NIGHT-WATCH/MEMORY] Memory cycle complete — "
+            "duplicates=%d, rescored=%d, entities=%d, stale=%d, "
+            "normalizations=%d, cost=$%.4f, duration=%.1fs, errors=%d",
+            report["duplicates_found"],
+            report["units_rescored"],
+            report["entities_extracted"],
+            report["stale_facts_found"],
+            report["normalizations"],
+            report["total_cost_usd"],
+            report["duration_seconds"],
+            len(report["errors"]),
+        )
+
+        return report
+
+    # ─── NIGHT WATCH INTEL CYCLE: Phase 3 intelligence correlation ──
+
+    async def _night_watch_intel_cycle(self) -> dict:
+        """
+        Night Watch Phase 3 — Intelligence Correlation Cycle.
+
+        Runs 6 analysis tasks on intelligence data:
+          I1: Cross-source correlation mining (FREE)
+          I2: Coverage blind spot detection (FREE + 1 Haiku)
+          I3: Signal score calibration (FREE)
+          I4: Prediction calibration analysis (FREE + 1 Haiku)
+          I5: Council topic suggestion (1 Haiku)
+          I6: Cost optimization analysis (1 Haiku)
+
+        Total cost target: ~$0.02/night (4 Haiku calls).
+
+        Returns:
+            Dict with task results and overall stats.
+        """
+        import re
+        import time
+
+        import httpx
+
+        from ..cost_tracker import get_tracker
+
+        t0 = time.monotonic()
+        report: dict = {
+            "missed_correlations": 0,
+            "blind_spots": [],
+            "over_scored_signals": 0,
+            "under_scored_signals": 0,
+            "predictions_stale": 0,
+            "per_model_accuracy": {},
+            "council_suggestions": [],
+            "cost_optimization": "",
+            "total_cost_usd": 0.0,
+            "duration_seconds": 0.0,
+            "errors": [],
+        }
+
+        TASK_TIMEOUT = 10 * 60  # 10 minutes per task
+
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            report["errors"].append("No ANTHROPIC_API_KEY — skipping LLM intel tasks")
+            log.warning("[NIGHT-WATCH/INTEL] No ANTHROPIC_API_KEY — LLM tasks will be skipped")
+
+        tracker = await get_tracker()
+        haiku_model = "claude-haiku-4-5-20251001"
+        api_headers = {
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        }
+
+        async def _call_haiku(prompt: str, label: str, max_tokens: int = 1024) -> tuple[str, float]:
+            """Make a Haiku call, return (text, cost_usd). Raises on failure."""
+            if not api_key:
+                raise RuntimeError("No API key")
+            if not await tracker.can_spend("anthropic", 0.005):
+                raise RuntimeError("Anthropic budget exceeded")
+            async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
+                resp = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers=api_headers,
+                    json={
+                        "model": haiku_model,
+                        "max_tokens": max_tokens,
+                        "messages": [{"role": "user", "content": prompt}],
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                text = data["content"][0]["text"]
+                usage = data.get("usage", {})
+                input_tokens = usage.get("input_tokens", 0)
+                output_tokens = usage.get("output_tokens", 0)
+                cost = (input_tokens * 0.80 + output_tokens * 4.00) / 1_000_000
+                log.info(
+                    "[NIGHT-WATCH/INTEL] Haiku call '%s': %d in / %d out tokens, $%.4f",
+                    label, input_tokens, output_tokens, cost,
+                )
+                await tracker.record(
+                    "anthropic", cost, "night_watch_intel",
+                    f"Night Watch Intel Haiku: {label}",
+                    {"model": haiku_model, "phase": "intel", "label": label},
+                )
+                return text, cost
+
+        # Ensure output directory exists
+        nw_dir = self.data_dir / "night-watch"
+        nw_dir.mkdir(parents=True, exist_ok=True)
+
+        # ══════════════════════════════════════════════════════════════
+        # TASK I1: Cross-Source Correlation Mining (FREE)
+        # ══════════════════════════════════════════════════════════════
+        try:
+            log.info("[NIGHT-WATCH/INTEL] Task I1: Cross-source correlation mining...")
+
+            signals_file = self.data_dir / "intelligence" / "agent_signals.jsonl"
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+            signals_by_source: dict[str, list[dict]] = defaultdict(list)
+
+            if signals_file.exists():
+                with open(signals_file, "r") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            sig = json.loads(line)
+                            ts = sig.get("timestamp", "")
+                            if ts >= cutoff:
+                                source = sig.get("source", "unknown")
+                                signals_by_source[source].append(sig)
+                        except json.JSONDecodeError:
+                            continue
+
+            # Tokenize each signal's content into keyword sets
+            def _tokenize_signal(sig: dict) -> set[str]:
+                text = f"{sig.get('title', '')} {sig.get('content', '')} {' '.join(sig.get('tags', []))}"
+                tokens = set(t.lower() for t in re.findall(r'\b[a-zA-Z0-9]{4,}\b', text))
+                # Filter out very common words
+                stopwords = {"this", "that", "with", "from", "have", "been", "will", "they",
+                             "their", "about", "would", "could", "should", "just", "more",
+                             "some", "than", "into", "when", "what", "also", "other", "were"}
+                return tokens - stopwords
+
+            # Build per-source keyword sets grouped by broad topic clusters
+            source_keywords: dict[str, dict[str, set]] = {}  # source -> {keyword -> signal_ids}
+            for source, sigs in signals_by_source.items():
+                kw_map: dict[str, set] = defaultdict(set)
+                for sig in sigs:
+                    tokens = _tokenize_signal(sig)
+                    sid = sig.get("signal_id", "")
+                    for token in tokens:
+                        kw_map[token].add(sid)
+                source_keywords[source] = dict(kw_map)
+
+            # Find keywords appearing in 2+ different sources
+            all_sources = list(source_keywords.keys())
+            cross_source_keywords: dict[str, set[str]] = defaultdict(set)  # keyword -> sources
+            for source, kw_map in source_keywords.items():
+                for kw in kw_map:
+                    cross_source_keywords[kw].add(source)
+
+            # Filter to multi-source keywords with >= 2 sources
+            multi_source_kw = {
+                kw: sources for kw, sources in cross_source_keywords.items()
+                if len(sources) >= 2
+            }
+
+            # Cluster related keywords by co-occurrence in the same signals
+            # Simple approach: group keywords that share significant overlap in source coverage
+            missed_clusters: list[dict] = []
+            used_keywords: set[str] = set()
+
+            for kw, sources in sorted(multi_source_kw.items(), key=lambda x: -len(x[1])):
+                if kw in used_keywords:
+                    continue
+                # Find related keywords (appear in same sources)
+                cluster = {kw}
+                for other_kw, other_sources in multi_source_kw.items():
+                    if other_kw not in used_keywords and other_sources == sources:
+                        cluster.add(other_kw)
+                    if len(cluster) >= 8:
+                        break
+
+                used_keywords.update(cluster)
+                if len(cluster) >= 2:  # Only report clusters with multiple related keywords
+                    missed_clusters.append({
+                        "keywords": sorted(cluster)[:8],
+                        "sources": sorted(sources),
+                        "source_count": len(sources),
+                    })
+
+                if len(missed_clusters) >= 20:
+                    break
+
+            report["missed_correlations"] = len(missed_clusters)
+            log.info("[NIGHT-WATCH/INTEL] Task I1: found %d missed correlation clusters across %d sources",
+                     len(missed_clusters), len(all_sources))
+
+        except asyncio.TimeoutError:
+            report["errors"].append("I1: timeout")
+            log.error("[NIGHT-WATCH/INTEL] Task I1 timed out")
+        except Exception as e:
+            report["errors"].append(f"I1: {e}")
+            log.error("[NIGHT-WATCH/INTEL] Task I1 failed: %s", e, exc_info=True)
+
+        # ══════════════════════════════════════════════════════════════
+        # TASK I2: Coverage Blind Spot Detection (FREE + 1 Haiku)
+        # ══════════════════════════════════════════════════════════════
+        blind_spot_analysis = ""
+        try:
+            log.info("[NIGHT-WATCH/INTEL] Task I2: Coverage blind spot detection...")
+
+            # Load watch queries
+            watch_topics: list[str] = []
+            wq_candidates = [
+                self.data_dir.parent / "config" / "watch_queries.json",
+                self.data_dir.parent / "runtime" / "autonomous" / "watch_queries.json",
+                self.data_dir / "watch_queries.json",
+            ]
+            for wq_path in wq_candidates:
+                if wq_path.exists():
+                    try:
+                        wq_data = json.loads(wq_path.read_text())
+                        for key, val in wq_data.items():
+                            if key.startswith("_"):
+                                continue
+                            if isinstance(val, list):
+                                watch_topics.extend(val)
+                        break
+                    except Exception:
+                        continue
+
+            # If no watch config, try knowledge graph top entities
+            if not watch_topics:
+                memory_store = getattr(self.brain, 'memory_store', None)
+                kg = getattr(memory_store, '_knowledge_graph', None) if memory_store else None
+                if kg and hasattr(kg, 'get_top_entities'):
+                    try:
+                        top_ents = kg.get_top_entities(limit=20)
+                        watch_topics = [e.get("name", "") for e in top_ents if e.get("name")]
+                    except Exception:
+                        pass
+
+            # Deduplicate
+            watch_topics = list(dict.fromkeys(watch_topics))
+
+            # Check signals from last 48h for coverage
+            cutoff_48h = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
+            recent_signal_text = ""
+            recent_count = 0
+            if signals_file.exists():
+                with open(signals_file, "r") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            sig = json.loads(line)
+                            if sig.get("timestamp", "") >= cutoff_48h:
+                                recent_signal_text += f" {sig.get('title', '')} {sig.get('content', '')}"
+                                recent_count += 1
+                        except json.JSONDecodeError:
+                            continue
+
+            recent_lower = recent_signal_text.lower()
+            blind_spots: list[str] = []
+            covered_topics: list[str] = []
+            for topic in watch_topics:
+                # Check if any significant words from the topic appear in signals
+                topic_words = [w.lower() for w in topic.split() if len(w) >= 4]
+                if not topic_words:
+                    continue
+                matches = sum(1 for w in topic_words if w in recent_lower)
+                coverage_ratio = matches / len(topic_words) if topic_words else 0
+                if coverage_ratio < 0.3:
+                    blind_spots.append(topic)
+                else:
+                    covered_topics.append(topic)
+
+            report["blind_spots"] = blind_spots[:20]
+
+            # Haiku call for synthesis
+            if blind_spots and api_key:
+                try:
+                    prompt = (
+                        "You are an intelligence analyst for an autonomous AI brain system. "
+                        "The system watches specific topics and generates signals from X/Twitter, "
+                        "YouTube, Reddit, Google Trends, news, and market data.\n\n"
+                        f"WATCHED TOPICS ({len(watch_topics)} total):\n"
+                        + "\n".join(f"- {t}" for t in watch_topics[:30]) + "\n\n"
+                        f"TOPICS WITH NO COVERAGE in last 48h ({len(blind_spots)}):\n"
+                        + "\n".join(f"- {t}" for t in blind_spots[:15]) + "\n\n"
+                        f"TOPICS WITH COVERAGE ({len(covered_topics)}):\n"
+                        + "\n".join(f"- {t}" for t in covered_topics[:10]) + "\n\n"
+                        f"Total signals in last 48h: {recent_count}\n\n"
+                        "Given these watched topics and coverage gaps, what intelligence might "
+                        "we be missing? What risks emerge from the blind spots? 3-5 bullet points."
+                    )
+                    text, cost = await asyncio.wait_for(
+                        _call_haiku(prompt, "I2_blind_spots"), timeout=TASK_TIMEOUT
+                    )
+                    blind_spot_analysis = text
+                    report["total_cost_usd"] += cost
+                except Exception as e:
+                    report["errors"].append(f"I2 Haiku: {e}")
+                    log.error("[NIGHT-WATCH/INTEL] Task I2 Haiku failed: %s", e)
+
+            log.info("[NIGHT-WATCH/INTEL] Task I2: %d blind spots out of %d watched topics",
+                     len(blind_spots), len(watch_topics))
+
+        except asyncio.TimeoutError:
+            report["errors"].append("I2: timeout")
+            log.error("[NIGHT-WATCH/INTEL] Task I2 timed out")
+        except Exception as e:
+            report["errors"].append(f"I2: {e}")
+            log.error("[NIGHT-WATCH/INTEL] Task I2 failed: %s", e, exc_info=True)
+
+        # ══════════════════════════════════════════════════════════════
+        # TASK I3: Signal Score Calibration (FREE)
+        # ══════════════════════════════════════════════════════════════
+        try:
+            log.info("[NIGHT-WATCH/INTEL] Task I3: Signal score calibration...")
+
+            signals_file = self.data_dir / "intelligence" / "agent_signals.jsonl"
+            cutoff_14d = (datetime.now(timezone.utc) - timedelta(days=14)).isoformat()
+
+            high_signals: list[dict] = []  # scored HIGH/CRITICAL (composite > 0.7)
+            low_signals: list[dict] = []   # scored LOW (composite < 0.3)
+
+            if signals_file.exists():
+                with open(signals_file, "r") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            sig = json.loads(line)
+                            if sig.get("timestamp", "") < cutoff_14d:
+                                continue
+                            score = sig.get("composite_score", 0)
+                            level = sig.get("route_level", "")
+                            if score >= 0.7 or level in ("HIGH", "CRITICAL"):
+                                high_signals.append(sig)
+                            elif score < 0.3 or level == "LOW":
+                                low_signals.append(sig)
+                        except json.JSONDecodeError:
+                            continue
+
+            # Check which high signals were actually referenced in memory/journal
+            memory_store = getattr(self.brain, 'memory_store', None)
+            memory_contents: set[str] = set()
+            if memory_store:
+                try:
+                    # Get recent memory units to check for signal references
+                    all_units = getattr(memory_store, '_units', [])
+                    if hasattr(memory_store, 'get_all_units'):
+                        try:
+                            all_units = await memory_store.get_all_units()
+                        except Exception:
+                            pass
+                    for unit in all_units:
+                        content = ""
+                        if isinstance(unit, dict):
+                            content = unit.get("content", "")
+                        elif hasattr(unit, "content"):
+                            content = unit.content
+                        if content:
+                            memory_contents.add(content[:200].lower())
+                except Exception:
+                    pass
+
+            # Check journal for references
+            journal_store = getattr(self.brain, 'journal_store', None)
+            journal_contents: set[str] = set()
+            if journal_store:
+                try:
+                    recent_entries = await journal_store.get_entries(
+                        date_from=(datetime.now(timezone.utc) - timedelta(days=14)).date(),
+                        limit=100,
+                    )
+                    for entry in recent_entries:
+                        journal_contents.add(entry.content[:200].lower())
+                except Exception:
+                    pass
+
+            all_ref_text = " ".join(memory_contents) + " " + " ".join(journal_contents)
+            all_ref_lower = all_ref_text.lower()
+
+            # Over-scored: HIGH signals never referenced again
+            over_scored = 0
+            over_scored_examples: list[str] = []
+            for sig in high_signals:
+                title = sig.get("title", "")[:60]
+                # Check if key words from the signal title appear in memory/journal
+                key_words = [w.lower() for w in title.split() if len(w) >= 5]
+                if key_words:
+                    found = sum(1 for w in key_words if w in all_ref_lower)
+                    if found == 0:
+                        over_scored += 1
+                        if len(over_scored_examples) < 5:
+                            over_scored_examples.append(
+                                f"{sig.get('source', '?')}: {title} (score={sig.get('composite_score', 0):.2f})"
+                            )
+
+            # Under-scored: LOW signals that ended up being reinforced/referenced
+            under_scored = 0
+            under_scored_examples: list[str] = []
+            for sig in low_signals[:500]:  # Cap for performance
+                title = sig.get("title", "")[:60]
+                key_words = [w.lower() for w in title.split() if len(w) >= 5]
+                if key_words:
+                    found = sum(1 for w in key_words if w in all_ref_lower)
+                    if found >= 2:  # Multiple key words referenced
+                        under_scored += 1
+                        if len(under_scored_examples) < 5:
+                            under_scored_examples.append(
+                                f"{sig.get('source', '?')}: {title} (score={sig.get('composite_score', 0):.2f})"
+                            )
+
+            report["over_scored_signals"] = over_scored
+            report["under_scored_signals"] = under_scored
+
+            over_rate = (over_scored / max(len(high_signals), 1)) * 100
+            under_rate = (under_scored / max(min(len(low_signals), 500), 1)) * 100
+
+            log.info(
+                "[NIGHT-WATCH/INTEL] Task I3: %d HIGH signals checked, %d over-scored (%.1f%%), "
+                "%d LOW signals checked, %d under-scored (%.1f%%)",
+                len(high_signals), over_scored, over_rate,
+                min(len(low_signals), 500), under_scored, under_rate,
+            )
+
+        except asyncio.TimeoutError:
+            report["errors"].append("I3: timeout")
+            log.error("[NIGHT-WATCH/INTEL] Task I3 timed out")
+        except Exception as e:
+            report["errors"].append(f"I3: {e}")
+            log.error("[NIGHT-WATCH/INTEL] Task I3 failed: %s", e, exc_info=True)
+
+        # ══════════════════════════════════════════════════════════════
+        # TASK I4: Prediction Calibration Analysis (FREE + 1 Haiku)
+        # ══════════════════════════════════════════════════════════════
+        try:
+            log.info("[NIGHT-WATCH/INTEL] Task I4: Prediction calibration analysis...")
+
+            pred_dir = self.data_dir / "predictions"
+            cutoff_30d = (datetime.now(timezone.utc) - timedelta(days=30))
+            cutoff_14d_dt = datetime.now(timezone.utc) - timedelta(days=14)
+
+            all_predictions: list[dict] = []
+            if pred_dir.exists():
+                for pf in sorted(pred_dir.glob("pred-*.json")):
+                    try:
+                        # Check file age
+                        mtime = datetime.fromtimestamp(pf.stat().st_mtime, tz=timezone.utc)
+                        if mtime < cutoff_30d:
+                            continue
+                        pdata = json.loads(pf.read_text())
+                        pdata["_file"] = pf.name
+                        pdata["_mtime"] = mtime.isoformat()
+                        all_predictions.append(pdata)
+                    except Exception:
+                        continue
+
+            # Read accuracy outcomes
+            accuracy_outcomes: dict[str, dict] = {}  # prediction_id -> outcome
+            acc_file = pred_dir / "accuracy.jsonl" if pred_dir.exists() else None
+            if acc_file and acc_file.exists():
+                try:
+                    with open(acc_file, "r") as f:
+                        for line in f:
+                            line = line.strip()
+                            if not line:
+                                continue
+                            try:
+                                outcome = json.loads(line)
+                                pid = outcome.get("prediction_id", "")
+                                if pid:
+                                    accuracy_outcomes[pid] = outcome
+                            except json.JSONDecodeError:
+                                continue
+                except Exception:
+                    pass
+
+            # Extract model info from consensus text and compute per-model stats
+            model_predictions: dict[str, list[dict]] = defaultdict(list)  # model -> predictions
+            stale_predictions: list[dict] = []
+
+            for pred in all_predictions:
+                consensus = pred.get("consensus", "")
+                topic = pred.get("topic", "unknown")
+                ts_str = pred.get("timestamp", pred.get("_mtime", ""))
+                pred_id = pred.get("prediction_id", "")
+
+                # Extract model names from consensus text
+                models_found: list[str] = []
+                # Pattern: "lead=MODEL@" or "[MODEL concurs@"
+                for m in re.findall(r'lead=(\w+)@|(\w+)\s+concurs@|\[Single-model\]', consensus):
+                    model_name = m[0] or m[1]
+                    if model_name:
+                        models_found.append(model_name.lower())
+                if "[Single-model]" in consensus:
+                    # Try to detect model from context
+                    if "claude" in consensus.lower():
+                        models_found.append("claude")
+                    elif "qwen" in consensus.lower():
+                        models_found.append("qwen")
+                    elif "deepseek" in consensus.lower():
+                        models_found.append("deepseek")
+
+                if not models_found:
+                    models_found = ["unknown"]
+
+                # Check for outcome
+                has_outcome = pred_id in accuracy_outcomes or pred.get("outcome")
+                outcome_correct = None
+                if pred_id in accuracy_outcomes:
+                    outcome_correct = accuracy_outcomes[pred_id].get("correct")
+                elif pred.get("outcome") in ("correct", "partial"):
+                    outcome_correct = True
+                elif pred.get("outcome") == "incorrect":
+                    outcome_correct = False
+
+                for model in models_found:
+                    model_predictions[model].append({
+                        "topic": topic,
+                        "confidence": pred.get("confidence", 0),
+                        "has_outcome": has_outcome,
+                        "correct": outcome_correct,
+                    })
+
+                # Stale predictions: no outcome and older than 14 days
+                if not has_outcome:
+                    try:
+                        pred_dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00")) if ts_str else None
+                        if pred_dt and pred_dt < cutoff_14d_dt:
+                            stale_predictions.append({
+                                "topic": topic,
+                                "timestamp": ts_str,
+                                "file": pred.get("_file", ""),
+                            })
+                    except Exception:
+                        pass
+
+            report["predictions_stale"] = len(stale_predictions)
+
+            # Compute per-model accuracy
+            per_model_accuracy: dict[str, str] = {}
+            model_summary_lines: list[str] = []
+            for model, preds in sorted(model_predictions.items()):
+                total = len(preds)
+                with_outcome = sum(1 for p in preds if p["has_outcome"])
+                correct = sum(1 for p in preds if p["correct"] is True)
+                if with_outcome > 0:
+                    acc_pct = f"{correct}/{with_outcome} ({correct/with_outcome*100:.0f}%)"
+                else:
+                    acc_pct = f"0/{total} (no outcomes)"
+                per_model_accuracy[model] = acc_pct
+                model_summary_lines.append(
+                    f"{model}: {total} predictions, accuracy={acc_pct}"
+                )
+
+            report["per_model_accuracy"] = per_model_accuracy
+
+            # Haiku call for model reliability assessment
+            if api_key and model_summary_lines:
+                try:
+                    stale_summary = ""
+                    if stale_predictions:
+                        stale_summary = (
+                            f"\n\nUNRESOLVED PREDICTIONS (older than 14 days, no outcome recorded):\n"
+                            + "\n".join(f"- {p['topic']} ({p.get('file', '')})" for p in stale_predictions[:10])
+                        )
+
+                    prompt = (
+                        "You are a prediction system analyst. Review per-model accuracy data "
+                        "for an AI ensemble forecasting system.\n\n"
+                        "PER-MODEL STATS:\n"
+                        + "\n".join(f"- {line}" for line in model_summary_lines) + "\n"
+                        + stale_summary + "\n\n"
+                        "Given these per-model accuracy rates and unresolved predictions, "
+                        "which models are reliable on which topics? What calibration issues "
+                        "exist? 3-5 bullet points."
+                    )
+                    text, cost = await asyncio.wait_for(
+                        _call_haiku(prompt, "I4_prediction_calibration"), timeout=TASK_TIMEOUT
+                    )
+                    report["total_cost_usd"] += cost
+                except Exception as e:
+                    report["errors"].append(f"I4 Haiku: {e}")
+                    log.error("[NIGHT-WATCH/INTEL] Task I4 Haiku failed: %s", e)
+
+            log.info(
+                "[NIGHT-WATCH/INTEL] Task I4: %d predictions, %d models, %d stale",
+                len(all_predictions), len(model_predictions), len(stale_predictions),
+            )
+
+        except asyncio.TimeoutError:
+            report["errors"].append("I4: timeout")
+            log.error("[NIGHT-WATCH/INTEL] Task I4 timed out")
+        except Exception as e:
+            report["errors"].append(f"I4: {e}")
+            log.error("[NIGHT-WATCH/INTEL] Task I4 failed: %s", e, exc_info=True)
+
+        # ══════════════════════════════════════════════════════════════
+        # TASK I5: Council Topic Suggestion (1 Haiku)
+        # ══════════════════════════════════════════════════════════════
+        try:
+            log.info("[NIGHT-WATCH/INTEL] Task I5: Council topic suggestion...")
+
+            suggestion_inputs: list[str] = []
+
+            # Prediction failures
+            for model, preds in model_predictions.items():
+                for p in preds:
+                    if p["correct"] is False:
+                        suggestion_inputs.append(f"PREDICTION FAILURE ({model}): {p['topic']}")
+
+            # Coverage blind spots from I2
+            for bs in report.get("blind_spots", [])[:5]:
+                suggestion_inputs.append(f"COVERAGE GAP: {bs}")
+
+            # Journal research_queue items
+            journal_store = getattr(self.brain, 'journal_store', None)
+            if journal_store:
+                try:
+                    recent_reflections = await journal_store.get_recent_reflections(days=7)
+                    for ref in recent_reflections:
+                        for rq in getattr(ref, 'research_queue', []):
+                            suggestion_inputs.append(f"RESEARCH QUEUE: {rq}")
+                        for oq in getattr(ref, 'open_questions', []):
+                            suggestion_inputs.append(f"OPEN QUESTION: {oq}")
+                except Exception:
+                    pass
+
+            # High-importance signals not yet council-debated
+            if signals_file.exists():
+                cutoff_7d = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+                high_undebated: list[str] = []
+                with open(signals_file, "r") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            sig = json.loads(line)
+                            if sig.get("timestamp", "") >= cutoff_7d:
+                                tags = sig.get("tags", [])
+                                level = sig.get("route_level", "")
+                                if level in ("HIGH", "CRITICAL") and "council_flagged" not in tags:
+                                    title = sig.get("title", "")[:80]
+                                    if title and len(high_undebated) < 10:
+                                        high_undebated.append(title)
+                        except json.JSONDecodeError:
+                            continue
+                for t in high_undebated[:5]:
+                    suggestion_inputs.append(f"HIGH SIGNAL (no council): {t}")
+
+            if api_key and suggestion_inputs:
+                try:
+                    prompt = (
+                        "You are a strategic intelligence advisor for an autonomous AI brain system. "
+                        "Based on the following intelligence gaps, prediction failures, research questions, "
+                        "and high-importance signals, suggest the top 3 topics that would benefit from "
+                        "a full council debate (multi-LLM deliberation with Claude, Grok, Gemini, GPT). "
+                        "Explain why each topic matters.\n\n"
+                        "INPUTS:\n"
+                        + "\n".join(f"- {inp}" for inp in suggestion_inputs[:30]) + "\n\n"
+                        "Format as:\n"
+                        "1. TOPIC: [topic]\n   WHY: [reasoning]\n"
+                        "2. TOPIC: [topic]\n   WHY: [reasoning]\n"
+                        "3. TOPIC: [topic]\n   WHY: [reasoning]"
+                    )
+                    text, cost = await asyncio.wait_for(
+                        _call_haiku(prompt, "I5_council_topics"), timeout=TASK_TIMEOUT
+                    )
+                    report["total_cost_usd"] += cost
+
+                    # Parse topic suggestions from response
+                    suggestions: list[str] = []
+                    for line_text in text.split("\n"):
+                        line_text = line_text.strip()
+                        if line_text and re.match(r'^\d+\.?\s*TOPIC:', line_text, re.IGNORECASE):
+                            topic_text = re.sub(r'^\d+\.?\s*TOPIC:\s*', '', line_text, flags=re.IGNORECASE).strip()
+                            if topic_text:
+                                suggestions.append(topic_text)
+
+                    if not suggestions:
+                        # Fallback: just split by numbered lines
+                        for line_text in text.split("\n"):
+                            line_text = line_text.strip()
+                            if re.match(r'^\d+\.', line_text):
+                                suggestions.append(line_text)
+
+                    report["council_suggestions"] = suggestions[:5]
+
+                    # Save to file for daytime council scheduling
+                    today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                    topics_file = nw_dir / f"council-topics-{today_str}.json"
+                    try:
+                        topics_data = {
+                            "date": today_str,
+                            "generated_at": datetime.now(timezone.utc).isoformat(),
+                            "suggestions": suggestions,
+                            "full_analysis": text,
+                            "inputs_count": len(suggestion_inputs),
+                        }
+                        async with aiofiles.open(topics_file, "w") as f:
+                            await f.write(json.dumps(topics_data, indent=2))
+                        log.info("[NIGHT-WATCH/INTEL] Council topics saved to %s", topics_file)
+                    except Exception as e:
+                        log.error("[NIGHT-WATCH/INTEL] Failed to save council topics: %s", e)
+
+                except Exception as e:
+                    report["errors"].append(f"I5 Haiku: {e}")
+                    log.error("[NIGHT-WATCH/INTEL] Task I5 Haiku failed: %s", e)
+            else:
+                log.info("[NIGHT-WATCH/INTEL] Task I5: no inputs or no API key — skipping")
+
+            log.info("[NIGHT-WATCH/INTEL] Task I5: %d suggestion inputs, %d topics suggested",
+                     len(suggestion_inputs), len(report.get("council_suggestions", [])))
+
+        except asyncio.TimeoutError:
+            report["errors"].append("I5: timeout")
+            log.error("[NIGHT-WATCH/INTEL] Task I5 timed out")
+        except Exception as e:
+            report["errors"].append(f"I5: {e}")
+            log.error("[NIGHT-WATCH/INTEL] Task I5 failed: %s", e, exc_info=True)
+
+        # ══════════════════════════════════════════════════════════════
+        # TASK I6: Cost Optimization Analysis (1 Haiku)
+        # ══════════════════════════════════════════════════════════════
+        try:
+            log.info("[NIGHT-WATCH/INTEL] Task I6: Cost optimization analysis...")
+
+            # Get 30-day spending history
+            historical = await tracker.get_historical(30)
+            today_ledger = await tracker.get_full_ledger(1)
+
+            # Build per-source daily averages
+            source_daily_totals: dict[str, list[float]] = defaultdict(list)
+            daily_totals: list[float] = []
+            for day_summary in historical:
+                by_source = day_summary.get("by_source", {})
+                day_total = day_summary.get("total_usd", 0)
+                daily_totals.append(day_total)
+                for source, sdata in by_source.items():
+                    spent = sdata.get("spent_usd", 0)
+                    if spent > 0:
+                        source_daily_totals[source].append(spent)
+
+            # Per-category breakdown from today's ledger
+            category_totals: dict[str, float] = defaultdict(float)
+            source_totals_today: dict[str, float] = defaultdict(float)
+            for entry in today_ledger:
+                cat = entry.get("category", "unknown")
+                src = entry.get("source", "unknown")
+                amt = entry.get("amount_usd", 0)
+                category_totals[cat] += amt
+                source_totals_today[src] += amt
+
+            # Build analysis summary for Haiku
+            cost_summary_lines: list[str] = []
+            cost_summary_lines.append(f"30-day history: {len(historical)} days recorded")
+            if daily_totals:
+                avg_daily = sum(daily_totals) / len(daily_totals)
+                max_daily = max(daily_totals)
+                cost_summary_lines.append(f"Daily average: ${avg_daily:.4f}, max: ${max_daily:.4f}")
+
+                # Trend: compare last 7 days vs prior 7 days
+                if len(daily_totals) >= 14:
+                    recent_avg = sum(daily_totals[-7:]) / 7
+                    prior_avg = sum(daily_totals[-14:-7]) / 7
+                    if prior_avg > 0:
+                        change_pct = ((recent_avg - prior_avg) / prior_avg) * 100
+                        trend = "INCREASING" if change_pct > 10 else "DECREASING" if change_pct < -10 else "STABLE"
+                        cost_summary_lines.append(
+                            f"Trend: {trend} ({change_pct:+.1f}% last 7d vs prior 7d)"
+                        )
+
+            cost_summary_lines.append(f"\nPer-source daily averages:")
+            for source, amounts in sorted(source_daily_totals.items(), key=lambda x: -sum(x[1])):
+                avg = sum(amounts) / max(len(amounts), 1)
+                cost_summary_lines.append(f"  {source}: ${avg:.4f}/day (over {len(amounts)} days)")
+
+            cost_summary_lines.append(f"\nToday's per-category spend:")
+            for cat, amt in sorted(category_totals.items(), key=lambda x: -x[1]):
+                cost_summary_lines.append(f"  {cat}: ${amt:.4f}")
+
+            cost_summary_lines.append(f"\nToday's ledger entries: {len(today_ledger)}")
+            cost_summary_lines.append(f"Today's total: ${sum(source_totals_today.values()):.4f}")
+
+            if api_key:
+                try:
+                    prompt = (
+                        "You are a cost optimization analyst for an autonomous AI brain system "
+                        "that uses Claude, Grok, Gemini, GPT, and local Ollama models. "
+                        "Analyze this 30-day cost data and identify optimization opportunities.\n\n"
+                        "COST DATA:\n"
+                        + "\n".join(cost_summary_lines) + "\n\n"
+                        "Identify:\n"
+                        "1. Categories where Haiku could replace Sonnet (simple tasks using expensive models)\n"
+                        "2. Redundant calls (same data processed twice)\n"
+                        "3. Times/patterns of highest spend\n"
+                        "4. Project when daily budgets will be consistently exceeded\n\n"
+                        "Give 3-5 specific, actionable recommendations."
+                    )
+                    text, cost = await asyncio.wait_for(
+                        _call_haiku(prompt, "I6_cost_optimization"), timeout=TASK_TIMEOUT
+                    )
+                    report["cost_optimization"] = text
+                    report["total_cost_usd"] += cost
+                except Exception as e:
+                    report["errors"].append(f"I6 Haiku: {e}")
+                    log.error("[NIGHT-WATCH/INTEL] Task I6 Haiku failed: %s", e)
+            else:
+                report["cost_optimization"] = "No API key — skipped LLM analysis"
+
+            log.info("[NIGHT-WATCH/INTEL] Task I6: analyzed %d days of cost history", len(historical))
+
+        except asyncio.TimeoutError:
+            report["errors"].append("I6: timeout")
+            log.error("[NIGHT-WATCH/INTEL] Task I6 timed out")
+        except Exception as e:
+            report["errors"].append(f"I6: {e}")
+            log.error("[NIGHT-WATCH/INTEL] Task I6 failed: %s", e, exc_info=True)
+
+        # ══════════════════════════════════════════════════════════════
+        # WRAP-UP
+        # ══════════════════════════════════════════════════════════════
+
+        report["duration_seconds"] = round(time.monotonic() - t0, 2)
+
+        log.info(
+            "[NIGHT-WATCH/INTEL] Intel cycle complete — "
+            "correlations=%d, blind_spots=%d, over_scored=%d, under_scored=%d, "
+            "stale_predictions=%d, council_suggestions=%d, "
+            "cost=$%.4f, duration=%.1fs, errors=%d",
+            report["missed_correlations"],
+            len(report["blind_spots"]),
+            report["over_scored_signals"],
+            report["under_scored_signals"],
+            report["predictions_stale"],
+            len(report["council_suggestions"]),
+            report["total_cost_usd"],
+            report["duration_seconds"],
+            len(report["errors"]),
+        )
+
+        return report
 
     async def _nw_run_checks(self, issues: list[str]) -> None:
         """Run all Night Watch health checks, appending issues found."""
@@ -1365,7 +2932,8 @@ class AutonomousScheduler:
     # ─── NIGHT WATCH ANALYST: LLM-powered nightly analysis ─────────
 
     async def _night_watch_analyst(
-        self, deterministic_issues: list[str], has_warnings: bool, critical: bool
+        self, deterministic_issues: list[str], has_warnings: bool, critical: bool,
+        *, memory_report: dict | None = None, intel_report: dict | None = None,
     ) -> None:
         """
         LLM-powered analysis phase for Night Watch.
@@ -1565,6 +3133,64 @@ class AutonomousScheduler:
             collected["memory"] = "\n".join(mem_lines)
         except Exception as e:
             collected["memory"] = f"Error reading memory stats: {e}"
+
+        # ── 4b. Night Watch Memory Cycle report ──────────────────────
+        if memory_report:
+            try:
+                mc_lines: list[str] = []
+                if memory_report.get("error"):
+                    mc_lines.append(f"Memory cycle error: {memory_report['error']}")
+                else:
+                    mc_lines.append(f"Duplicates found: {memory_report.get('duplicates_found', 0)}")
+                    mc_lines.append(f"Units re-scored: {memory_report.get('units_rescored', 0)}")
+                    mc_lines.append(f"Entities extracted: {memory_report.get('entities_extracted', 0)}")
+                    mc_lines.append(f"Stale facts found: {memory_report.get('stale_facts_found', 0)}")
+                    mc_lines.append(f"Normalizations: {memory_report.get('normalizations', 0)}")
+                    kg = memory_report.get("kg_stats", {})
+                    if kg:
+                        mc_lines.append(f"KG nodes: {kg.get('nodes', 0)}, edges: {kg.get('edges', 0)}, components: {kg.get('components', 0)}")
+                    mc_lines.append(f"Memory cycle cost: ${memory_report.get('total_cost_usd', 0):.4f}")
+                    mc_lines.append(f"Memory cycle duration: {memory_report.get('duration_seconds', 0):.1f}s")
+                    errors = memory_report.get("errors", [])
+                    if errors:
+                        mc_lines.append(f"Errors ({len(errors)}): " + "; ".join(errors[:5]))
+                collected["memory_cycle"] = "\n".join(mc_lines)
+            except Exception as e:
+                collected["memory_cycle"] = f"Error formatting memory cycle report: {e}"
+
+        # ── 4c. Night Watch Intel Cycle report ────────────────────────
+        if intel_report:
+            try:
+                ic_lines: list[str] = []
+                if intel_report.get("error"):
+                    ic_lines.append(f"Intel cycle error: {intel_report['error']}")
+                else:
+                    ic_lines.append(f"Missed correlations: {intel_report.get('missed_correlations', 0)}")
+                    blind_spots = intel_report.get("blind_spots", [])
+                    if blind_spots:
+                        ic_lines.append(f"Coverage blind spots ({len(blind_spots)}): {', '.join(blind_spots[:10])}")
+                    ic_lines.append(f"Over-scored signals: {intel_report.get('over_scored_signals', 0)}")
+                    ic_lines.append(f"Under-scored signals: {intel_report.get('under_scored_signals', 0)}")
+                    ic_lines.append(f"Stale predictions: {intel_report.get('predictions_stale', 0)}")
+                    pma = intel_report.get("per_model_accuracy", {})
+                    if pma:
+                        ic_lines.append("Per-model accuracy: " + ", ".join(
+                            f"{m}={a}" for m, a in pma.items()
+                        ))
+                    suggestions = intel_report.get("council_suggestions", [])
+                    if suggestions:
+                        ic_lines.append(f"Council topic suggestions ({len(suggestions)}): {'; '.join(suggestions[:3])}")
+                    cost_opt = intel_report.get("cost_optimization", "")
+                    if cost_opt:
+                        ic_lines.append(f"Cost optimization: {cost_opt[:200]}")
+                    ic_lines.append(f"Intel cycle cost: ${intel_report.get('total_cost_usd', 0):.4f}")
+                    ic_lines.append(f"Intel cycle duration: {intel_report.get('duration_seconds', 0):.1f}s")
+                    errors = intel_report.get("errors", [])
+                    if errors:
+                        ic_lines.append(f"Errors ({len(errors)}): " + "; ".join(errors[:5]))
+                collected["intel_cycle"] = "\n".join(ic_lines)
+            except Exception as e:
+                collected["intel_cycle"] = f"Error formatting intel cycle report: {e}"
 
         # ── 5. Awarebot scan results ──────────────────────────────────
         try:
