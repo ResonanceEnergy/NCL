@@ -1200,9 +1200,17 @@ class AutonomousScheduler:
                 log.error("[NIGHT-WATCH] Intel cycle failed: %s", exc)
                 intel_report = {"error": str(exc)}
 
+            # Phase 4: Council sessions (4 mini-councils on memory, intel, portfolio, journal)
+            council_report: dict = {}
+            try:
+                council_report = await self._night_watch_council_cycle(memory_report, intel_report)
+            except Exception as exc:
+                log.error("[NIGHT-WATCH] Council cycle failed: %s", exc)
+                council_report = {"error": str(exc)}
+
             # LLM-powered analysis phase
             try:
-                await self._night_watch_analyst(issues, len(issues) > 0, critical, memory_report=memory_report, intel_report=intel_report)
+                await self._night_watch_analyst(issues, len(issues) > 0, critical, memory_report=memory_report, intel_report=intel_report, council_report=council_report)
             except Exception as exc:
                 log.error("[NIGHT-WATCH] Analyst phase failed: %s", exc)
 
@@ -2929,11 +2937,620 @@ class AutonomousScheduler:
         except Exception as e:
             log.error(f"[NIGHT-WATCH] ntfy push failed: {e}")
 
+    # ─── NIGHT WATCH COUNCIL CYCLE: Phase 4 mini-councils ──────────
+
+    async def _nw_collect_portfolio_data(self) -> dict:
+        """Collect portfolio data for the Night Watch portfolio council."""
+        data: dict = {
+            "total_value": 0,
+            "daily_pnl": 0,
+            "positions_summary": [],
+            "open_paper_trades": [],
+            "paper_stats": {},
+            "weekly_performance": {},
+            "available": False,
+        }
+
+        try:
+            from ..portfolio.portfolio_routes import _portfolio_manager
+            from ..portfolio.paper_routes import _engine as _paper_engine
+
+            if _portfolio_manager is not None:
+                data["available"] = True
+                summary = _portfolio_manager.get_summary()
+                data["total_value"] = summary.get("total_value", 0)
+                data["daily_pnl"] = summary.get("daily_pl", 0)
+                data["accounts_summary"] = [
+                    f"{a.get('broker', '?')}/{a.get('label', '?')}: ${a.get('value', 0):,.0f}"
+                    for a in summary.get("accounts", [])
+                ][:6]
+                data["allocation"] = summary.get("allocation", {}).get("by_asset_class", {})
+
+                # Top 5 positions by weight
+                positions = _portfolio_manager.get_positions()
+                data["positions_summary"] = [
+                    {
+                        "symbol": p.get("symbol", "?"),
+                        "broker": p.get("broker", "?"),
+                        "market_value": p.get("market_value", 0),
+                        "daily_pl_pct": p.get("daily_pl_pct", 0),
+                        "unrealized_pl_pct": p.get("unrealized_pl_pct", 0),
+                        "weight_pct": p.get("weight_pct", 0),
+                    }
+                    for p in positions[:5]
+                ]
+
+                # Weekly performance
+                try:
+                    perf = _portfolio_manager.get_performance("1W")
+                    data["weekly_performance"] = {
+                        "change": perf.get("change", 0),
+                        "change_pct": perf.get("change_pct", 0),
+                        "data_points": len(perf.get("data_points", [])),
+                    }
+                except Exception:
+                    pass
+
+            if _paper_engine is not None:
+                try:
+                    data["paper_stats"] = _paper_engine.get_stats()
+                    open_trades = _paper_engine.get_trades(status="open")
+                    data["open_paper_trades"] = [
+                        {
+                            "symbol": t.get("symbol", "?"),
+                            "direction": t.get("direction", "?"),
+                            "strategy": t.get("strategy", "?"),
+                            "entry_price": t.get("entry_price", 0),
+                            "r_multiple": t.get("r_multiple", 0),
+                            "unrealized_pl": t.get("unrealized_pl", 0),
+                        }
+                        for t in open_trades[:10]
+                    ]
+                except Exception:
+                    pass
+
+        except ImportError:
+            data["error"] = "Portfolio modules not available"
+        except Exception as e:
+            data["error"] = str(e)
+
+        return data
+
+    async def _nw_collect_journal_data(self) -> dict:
+        """Collect journal data for the Night Watch journal council."""
+        data: dict = {
+            "recent_entries_count": 0,
+            "weekly_patterns": {},
+            "research_queue": [],
+            "open_questions": [],
+            "analytics_summary": {},
+            "available": False,
+        }
+
+        journal_store = self._journal_store or getattr(self.brain, 'journal_store', None)
+        if not journal_store:
+            data["error"] = "Journal store not available"
+            return data
+
+        try:
+            data["available"] = True
+
+            # Recent reflections (7 days)
+            reflections = await journal_store.get_recent_reflections(days=7)
+            reflection_summaries = []
+            for r in reflections[:5]:
+                summary_text = ""
+                if hasattr(r, 'highlights') and r.highlights:
+                    summary_text = "; ".join(r.highlights[:3])
+                elif hasattr(r, 'summary') and r.summary:
+                    summary_text = r.summary[:200]
+                elif hasattr(r, 'content') and r.content:
+                    summary_text = r.content[:200]
+                reflection_summaries.append({
+                    "date": getattr(r, 'date', '?'),
+                    "summary": summary_text,
+                })
+                # Extract research queue items
+                if hasattr(r, 'research_queue') and r.research_queue:
+                    data["research_queue"].extend(r.research_queue[:3])
+                if hasattr(r, 'open_questions') and r.open_questions:
+                    data["open_questions"].extend(r.open_questions[:3])
+            data["weekly_patterns"] = reflection_summaries
+
+            # 30-day analytics
+            analytics = await journal_store.get_analytics(days=30)
+            data["analytics_summary"] = {
+                "total_entries": analytics.get("total_entries", 0),
+                "total_words": analytics.get("total_words", 0),
+                "current_streak": analytics.get("current_streak_days", 0),
+                "top_tags": dict(list(analytics.get("top_tags", {}).items())[:10]),
+                "entries_by_type": analytics.get("entries_by_type", {}),
+                "avg_importance": round(analytics.get("avg_importance", 0), 1),
+            }
+            data["recent_entries_count"] = analytics.get("total_entries", 0)
+
+            # Recent entries (last 20)
+            entries = await journal_store.get_entries(limit=20)
+            entry_titles = [
+                f"[{e.entry_type.value}] {e.title}"
+                for e in entries[:10]
+                if hasattr(e, 'title') and e.title
+            ]
+            data["recent_entry_titles"] = entry_titles
+
+            # Quick stats
+            stats = journal_store.get_stats()
+            data["stats"] = stats
+
+        except Exception as e:
+            data["error"] = str(e)
+
+        # Truncate lists to keep prompt size manageable
+        data["research_queue"] = data["research_queue"][:5]
+        data["open_questions"] = data["open_questions"][:5]
+        return data
+
+    async def _night_watch_council_cycle(
+        self, memory_report: dict, intel_report: dict,
+    ) -> dict:
+        """
+        Night Watch Phase 4 — Mini-Council Sessions.
+
+        Runs 4 lightweight 2-model debates (Claude + Grok) on:
+          1. Memory audit findings
+          2. Intelligence correlation findings
+          3. Portfolio risk assessment
+          4. Journal & strategy review
+
+        Each debate uses 3 sequential LLM calls:
+          Claude analysis → Grok rebuttal → Claude synthesis
+
+        Total budget: ~$0.50/night (~$0.10-0.15 per council).
+        """
+        import time
+        import httpx
+
+        from ..cost_tracker import get_tracker
+
+        t0 = time.monotonic()
+        report = {
+            "councils_run": 0,
+            "memory_council": None,
+            "intel_council": None,
+            "portfolio_council": None,
+            "journal_council": None,
+            "portfolio_data": {},
+            "journal_data": {},
+            "total_cost_usd": 0.0,
+            "duration_seconds": 0.0,
+            "errors": [],
+        }
+
+        anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        xai_key = os.environ.get("XAI_API_KEY", "")
+        if not anthropic_key:
+            report["errors"].append("No ANTHROPIC_API_KEY — skipping councils")
+            report["duration_seconds"] = time.monotonic() - t0
+            return report
+        if not xai_key:
+            report["errors"].append("No XAI_API_KEY — councils will use Claude-only fallback")
+
+        tracker = await get_tracker()
+        COUNCIL_TIMEOUT = 300  # 5 minutes per council
+
+        log.info("[NIGHT-WATCH/COUNCIL] Starting council cycle (4 mini-councils)")
+
+        # ── Helper: 3-call debate pattern ────────────────────────────
+        async def _run_mini_council(
+            topic: str, prompt: str, label: str,
+        ) -> tuple[str | None, float]:
+            """
+            Run a 3-call debate: Claude analysis → Grok rebuttal → Claude synthesis.
+            Returns (synthesis_text, total_cost_usd).
+            """
+            total_cost = 0.0
+
+            # Budget check for the full council (~$0.15)
+            if not await tracker.can_spend("anthropic", 0.10):
+                log.warning("[NIGHT-WATCH/COUNCIL] Anthropic budget exceeded — skipping %s", label)
+                return None, 0.0
+
+            anthropic_headers = {
+                "x-api-key": anthropic_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            }
+
+            # Call 1: Claude analysis
+            claude_text = ""
+            try:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
+                    resp = await client.post(
+                        "https://api.anthropic.com/v1/messages",
+                        headers=anthropic_headers,
+                        json={
+                            "model": "claude-haiku-4-5-20251001",
+                            "max_tokens": 1024,
+                            "messages": [{"role": "user", "content": prompt}],
+                        },
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    claude_text = data["content"][0]["text"]
+                    usage = data.get("usage", {})
+                    cost = (usage.get("input_tokens", 0) * 0.80 + usage.get("output_tokens", 0) * 4.00) / 1_000_000
+                    total_cost += cost
+                    await tracker.record(
+                        "anthropic", cost, "night_watch_council",
+                        f"NW council {label} — Claude analysis",
+                        {"model": "claude-haiku-4-5-20251001", "council": label, "step": "analysis"},
+                    )
+                    log.info("[NIGHT-WATCH/COUNCIL] %s — Claude analysis done ($%.4f)", label, cost)
+            except Exception as e:
+                log.error("[NIGHT-WATCH/COUNCIL] %s — Claude analysis failed: %s", label, e)
+                return None, total_cost
+
+            # Call 2: Grok rebuttal (skip if no xAI key)
+            grok_text = ""
+            if xai_key:
+                try:
+                    if not await tracker.can_spend("xai", 0.05):
+                        log.warning("[NIGHT-WATCH/COUNCIL] xAI budget exceeded — skipping Grok rebuttal for %s", label)
+                    else:
+                        grok_prompt = (
+                            f"You are a contrarian analyst on the NCL Night Watch council. "
+                            f"Topic: {topic}\n\n"
+                            f"Another analyst (Claude) provided this assessment:\n\n"
+                            f"{claude_text[:1500]}\n\n"
+                            f"Your job: Challenge this analysis. What did they miss? "
+                            f"What risks are they underestimating? What data would change "
+                            f"the conclusions? Where is the reasoning weak? Be specific and "
+                            f"constructive. 3-5 bullet points."
+                        )
+                        async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
+                            resp = await client.post(
+                                "https://api.x.ai/v1/chat/completions",
+                                headers={
+                                    "Authorization": f"Bearer {xai_key}",
+                                    "Content-Type": "application/json",
+                                },
+                                json={
+                                    "model": "grok-3",
+                                    "max_tokens": 1024,
+                                    "messages": [{"role": "user", "content": grok_prompt}],
+                                },
+                            )
+                            resp.raise_for_status()
+                            grok_data = resp.json()
+                            grok_text = grok_data["choices"][0]["message"]["content"]
+                            # Grok cost estimate: ~$5/1M input, ~$15/1M output
+                            grok_usage = grok_data.get("usage", {})
+                            grok_cost = (
+                                grok_usage.get("prompt_tokens", 0) * 5.0
+                                + grok_usage.get("completion_tokens", 0) * 15.0
+                            ) / 1_000_000
+                            total_cost += grok_cost
+                            await tracker.record(
+                                "xai", grok_cost, "night_watch_council",
+                                f"NW council {label} — Grok rebuttal",
+                                {"model": "grok-3", "council": label, "step": "rebuttal"},
+                            )
+                            log.info("[NIGHT-WATCH/COUNCIL] %s — Grok rebuttal done ($%.4f)", label, grok_cost)
+                except Exception as e:
+                    log.error("[NIGHT-WATCH/COUNCIL] %s — Grok rebuttal failed: %s", label, e)
+                    grok_text = "(Grok rebuttal unavailable)"
+
+            # Call 3: Claude synthesis
+            try:
+                if not await tracker.can_spend("anthropic", 0.05):
+                    log.warning("[NIGHT-WATCH/COUNCIL] Budget exceeded — returning analysis without synthesis for %s", label)
+                    return claude_text, total_cost
+
+                synthesis_prompt = (
+                    f"You are the chair of the NCL Night Watch council. "
+                    f"Synthesize these two perspectives on: {topic}\n\n"
+                    f"=== ANALYST (Claude) ===\n{claude_text[:1200]}\n\n"
+                    f"=== CONTRARIAN (Grok) ===\n{grok_text[:1200] if grok_text else '(No rebuttal available)'}\n\n"
+                    f"Produce a synthesis:\n"
+                    f"1. KEY FINDINGS (3-5 bullets — what both agree on)\n"
+                    f"2. CONTESTED POINTS (where they disagree and why it matters)\n"
+                    f"3. BLIND SPOTS (what neither addressed)\n"
+                    f"4. ACTION ITEMS (2-3 specific next steps for tomorrow)\n"
+                    f"Be concise. Total response under 400 words."
+                )
+
+                async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
+                    resp = await client.post(
+                        "https://api.anthropic.com/v1/messages",
+                        headers=anthropic_headers,
+                        json={
+                            "model": "claude-haiku-4-5-20251001",
+                            "max_tokens": 1024,
+                            "messages": [{"role": "user", "content": synthesis_prompt}],
+                        },
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    synthesis = data["content"][0]["text"]
+                    usage = data.get("usage", {})
+                    cost = (usage.get("input_tokens", 0) * 0.80 + usage.get("output_tokens", 0) * 4.00) / 1_000_000
+                    total_cost += cost
+                    await tracker.record(
+                        "anthropic", cost, "night_watch_council",
+                        f"NW council {label} — Claude synthesis",
+                        {"model": "claude-haiku-4-5-20251001", "council": label, "step": "synthesis"},
+                    )
+                    log.info("[NIGHT-WATCH/COUNCIL] %s — synthesis done ($%.4f, total=$%.4f)", label, cost, total_cost)
+                    return synthesis, total_cost
+            except Exception as e:
+                log.error("[NIGHT-WATCH/COUNCIL] %s — synthesis failed: %s", label, e)
+                return claude_text, total_cost  # Fall back to raw Claude analysis
+
+        # ── Collect supplemental data ────────────────────────────────
+        portfolio_data = await self._nw_collect_portfolio_data()
+        journal_data = await self._nw_collect_journal_data()
+        report["portfolio_data"] = portfolio_data
+        report["journal_data"] = journal_data
+
+        # ── Council 1: Memory Review ─────────────────────────────────
+        try:
+            log.info("[NIGHT-WATCH/COUNCIL] Running memory council...")
+            mem_summary_lines = []
+            if memory_report.get("error"):
+                mem_summary_lines.append(f"Memory cycle error: {memory_report['error']}")
+            else:
+                mem_summary_lines.append(f"Duplicates found: {memory_report.get('duplicates_found', 0)}")
+                mem_summary_lines.append(f"Units re-scored: {memory_report.get('units_rescored', 0)}")
+                mem_summary_lines.append(f"Entities extracted: {memory_report.get('entities_extracted', 0)}")
+                mem_summary_lines.append(f"Stale facts found: {memory_report.get('stale_facts_found', 0)}")
+                kg = memory_report.get("kg_stats", {})
+                mem_summary_lines.append(f"Knowledge graph: {kg.get('nodes', 0)} nodes, {kg.get('edges', 0)} edges, {kg.get('components', 0)} components")
+                mem_summary_lines.append(f"Entity normalizations: {memory_report.get('normalizations', 0)}")
+                mem_summary_lines.append(f"Cycle cost: ${memory_report.get('total_cost_usd', 0):.4f}")
+                errors = memory_report.get("errors", [])
+                if errors:
+                    mem_summary_lines.append(f"Errors: {'; '.join(errors[:3])}")
+
+            mem_prompt = (
+                "You are an AI memory systems analyst on the NCL Night Watch council. "
+                "Review tonight's memory maintenance findings for an autonomous AI brain.\n\n"
+                f"MEMORY MAINTENANCE REPORT:\n" + "\n".join(mem_summary_lines) + "\n\n"
+                "Questions to address:\n"
+                "- What patterns do you see in the knowledge base health?\n"
+                "- Are there concerning trends in duplicate rates or stale facts?\n"
+                "- What knowledge gaps likely exist based on the entity/KG stats?\n"
+                "- What should be prioritized for tomorrow's memory operations?\n"
+                "Be concise — 5-8 bullet points."
+            )
+
+            synthesis, cost = await asyncio.wait_for(
+                _run_mini_council("Night Watch Memory Audit", mem_prompt, "memory"),
+                timeout=COUNCIL_TIMEOUT,
+            )
+            if synthesis:
+                report["memory_council"] = synthesis
+                report["councils_run"] += 1
+            report["total_cost_usd"] += cost
+        except asyncio.TimeoutError:
+            report["errors"].append("Memory council timed out (5min)")
+            log.error("[NIGHT-WATCH/COUNCIL] Memory council timed out")
+        except Exception as e:
+            report["errors"].append(f"Memory council failed: {e}")
+            log.error("[NIGHT-WATCH/COUNCIL] Memory council failed: %s", e)
+
+        # ── Council 2: Intel Review ──────────────────────────────────
+        try:
+            log.info("[NIGHT-WATCH/COUNCIL] Running intel council...")
+            intel_summary_lines = []
+            if intel_report.get("error"):
+                intel_summary_lines.append(f"Intel cycle error: {intel_report['error']}")
+            else:
+                intel_summary_lines.append(f"Missed correlations: {intel_report.get('missed_correlations', 0)}")
+                blind_spots = intel_report.get("blind_spots", [])
+                if blind_spots:
+                    intel_summary_lines.append(f"Blind spots: {', '.join(blind_spots[:8])}")
+                intel_summary_lines.append(f"Over-scored signals: {intel_report.get('over_scored_signals', 0)}")
+                intel_summary_lines.append(f"Under-scored signals: {intel_report.get('under_scored_signals', 0)}")
+                intel_summary_lines.append(f"Stale predictions: {intel_report.get('predictions_stale', 0)}")
+                pma = intel_report.get("per_model_accuracy", {})
+                if pma:
+                    intel_summary_lines.append("Per-model accuracy: " + ", ".join(f"{m}={a}" for m, a in pma.items()))
+                suggestions = intel_report.get("council_suggestions", [])
+                if suggestions:
+                    intel_summary_lines.append(f"Suggested topics: {'; '.join(suggestions[:3])}")
+                cost_opt = intel_report.get("cost_optimization", "")
+                if cost_opt:
+                    intel_summary_lines.append(f"Cost optimization: {cost_opt[:150]}")
+
+            intel_prompt = (
+                "You are an intelligence analyst on the NCL Night Watch council. "
+                "Review tonight's intelligence correlation findings for an autonomous AI brain.\n\n"
+                f"INTELLIGENCE CORRELATION REPORT:\n" + "\n".join(intel_summary_lines) + "\n\n"
+                "Questions to address:\n"
+                "- What intelligence are we missing? Where are the blind spots?\n"
+                "- Which prediction models need calibration based on accuracy data?\n"
+                "- What topics warrant a full council debate tomorrow?\n"
+                "- Are signal scoring thresholds correctly calibrated?\n"
+                "- What should we investigate tomorrow?\n"
+                "Be concise — 5-8 bullet points."
+            )
+
+            synthesis, cost = await asyncio.wait_for(
+                _run_mini_council("Night Watch Intelligence Review", intel_prompt, "intel"),
+                timeout=COUNCIL_TIMEOUT,
+            )
+            if synthesis:
+                report["intel_council"] = synthesis
+                report["councils_run"] += 1
+            report["total_cost_usd"] += cost
+        except asyncio.TimeoutError:
+            report["errors"].append("Intel council timed out (5min)")
+            log.error("[NIGHT-WATCH/COUNCIL] Intel council timed out")
+        except Exception as e:
+            report["errors"].append(f"Intel council failed: {e}")
+            log.error("[NIGHT-WATCH/COUNCIL] Intel council failed: %s", e)
+
+        # ── Council 3: Portfolio Review ───────────────────────────────
+        try:
+            log.info("[NIGHT-WATCH/COUNCIL] Running portfolio council...")
+            port_summary_lines = []
+            if not portfolio_data.get("available"):
+                port_summary_lines.append(f"Portfolio not available: {portfolio_data.get('error', 'not initialized')}")
+            else:
+                port_summary_lines.append(f"Total portfolio value: ${portfolio_data.get('total_value', 0):,.2f}")
+                port_summary_lines.append(f"Daily P&L: ${portfolio_data.get('daily_pnl', 0):,.2f}")
+                accts = portfolio_data.get("accounts_summary", [])
+                if accts:
+                    port_summary_lines.append(f"Accounts: {'; '.join(accts)}")
+                positions = portfolio_data.get("positions_summary", [])
+                if positions:
+                    port_summary_lines.append("Top positions by weight:")
+                    for p in positions:
+                        port_summary_lines.append(
+                            f"  {p.get('symbol', '?')} ({p.get('broker', '?')}): "
+                            f"${p.get('market_value', 0):,.0f}, "
+                            f"wt={p.get('weight_pct', 0):.1f}%, "
+                            f"day={p.get('daily_pl_pct', 0):+.1f}%"
+                        )
+                alloc = portfolio_data.get("allocation", {})
+                if alloc:
+                    port_summary_lines.append(f"Asset allocation: {json.dumps(alloc)[:200]}")
+                wp = portfolio_data.get("weekly_performance", {})
+                if wp:
+                    port_summary_lines.append(f"Weekly change: {wp.get('change_pct', 0):+.2f}%")
+                paper = portfolio_data.get("paper_stats", {})
+                if paper:
+                    port_summary_lines.append(
+                        f"Paper trading: {paper.get('total_trades', 0)} trades, "
+                        f"win rate {paper.get('win_rate', 0):.0f}%, "
+                        f"PF {paper.get('profit_factor', 0):.2f}"
+                    )
+                open_papers = portfolio_data.get("open_paper_trades", [])
+                if open_papers:
+                    port_summary_lines.append(f"Open paper trades: {len(open_papers)}")
+                    for pt in open_papers[:5]:
+                        port_summary_lines.append(
+                            f"  {pt.get('symbol', '?')} {pt.get('direction', '?')} "
+                            f"({pt.get('strategy', '?')}): R={pt.get('r_multiple', 0):+.1f}"
+                        )
+
+            portfolio_prompt = (
+                "You are a risk analyst on the NCL Night Watch council. "
+                "Review the current portfolio state for risk assessment and awareness. "
+                "This is ANALYSIS ONLY — never suggest specific trades or financial actions.\n\n"
+                f"PORTFOLIO SNAPSHOT:\n" + "\n".join(port_summary_lines) + "\n\n"
+                "Questions to address:\n"
+                "- What is our current risk exposure? Any concentration risks?\n"
+                "- Are any positions requiring immediate attention (large drawdowns, overweight)?\n"
+                "- How are paper trades performing relative to graduation criteria?\n"
+                "- What market signals or macro factors should we watch tomorrow?\n"
+                "- Is position sizing appropriate across the portfolio?\n"
+                "IMPORTANT: Analysis and risk assessment only. No trade recommendations.\n"
+                "Be concise — 5-8 bullet points."
+            )
+
+            synthesis, cost = await asyncio.wait_for(
+                _run_mini_council("Night Watch Portfolio Review", portfolio_prompt, "portfolio"),
+                timeout=COUNCIL_TIMEOUT,
+            )
+            if synthesis:
+                report["portfolio_council"] = synthesis
+                report["councils_run"] += 1
+            report["total_cost_usd"] += cost
+        except asyncio.TimeoutError:
+            report["errors"].append("Portfolio council timed out (5min)")
+            log.error("[NIGHT-WATCH/COUNCIL] Portfolio council timed out")
+        except Exception as e:
+            report["errors"].append(f"Portfolio council failed: {e}")
+            log.error("[NIGHT-WATCH/COUNCIL] Portfolio council failed: %s", e)
+
+        # ── Council 4: Journal & Strategy Review ─────────────────────
+        try:
+            log.info("[NIGHT-WATCH/COUNCIL] Running journal council...")
+            journal_summary_lines = []
+            if not journal_data.get("available"):
+                journal_summary_lines.append(f"Journal not available: {journal_data.get('error', 'not initialized')}")
+            else:
+                analytics = journal_data.get("analytics_summary", {})
+                journal_summary_lines.append(f"Entries (30d): {analytics.get('total_entries', 0)}")
+                journal_summary_lines.append(f"Words written: {analytics.get('total_words', 0):,}")
+                journal_summary_lines.append(f"Current streak: {analytics.get('current_streak', 0)} days")
+                journal_summary_lines.append(f"Avg importance: {analytics.get('avg_importance', 0):.1f}")
+                top_tags = analytics.get("top_tags", {})
+                if top_tags:
+                    journal_summary_lines.append(f"Top tags: {', '.join(list(top_tags.keys())[:8])}")
+                by_type = analytics.get("entries_by_type", {})
+                if by_type:
+                    journal_summary_lines.append(f"Entry types: {json.dumps(by_type)}")
+
+                reflections = journal_data.get("weekly_patterns", [])
+                if reflections:
+                    journal_summary_lines.append("\nRecent reflections:")
+                    for r in reflections[:3]:
+                        journal_summary_lines.append(f"  [{r.get('date', '?')}]: {r.get('summary', 'N/A')[:150]}")
+
+                rq = journal_data.get("research_queue", [])
+                if rq:
+                    journal_summary_lines.append(f"\nResearch queue: {'; '.join(str(q) for q in rq[:5])}")
+                oq = journal_data.get("open_questions", [])
+                if oq:
+                    journal_summary_lines.append(f"Open questions: {'; '.join(str(q) for q in oq[:5])}")
+
+                titles = journal_data.get("recent_entry_titles", [])
+                if titles:
+                    journal_summary_lines.append(f"\nRecent entries: {'; '.join(titles[:8])}")
+
+            journal_prompt = (
+                "You are a strategic thinking analyst on the NCL Night Watch council. "
+                "Review this week's journal patterns, research queues, and decision history "
+                "for an autonomous AI brain operator.\n\n"
+                f"JOURNAL & STRATEGY DATA:\n" + "\n".join(journal_summary_lines) + "\n\n"
+                "Questions to address:\n"
+                "- What themes are emerging across recent journal entries?\n"
+                "- Which research questions remain unresolved and should be prioritized?\n"
+                "- Are there blind spots in the operator's thinking?\n"
+                "- What should be tomorrow's focus areas based on patterns?\n"
+                "- Is the journal practice itself healthy (streak, frequency, depth)?\n"
+                "Be concise — 5-8 bullet points."
+            )
+
+            synthesis, cost = await asyncio.wait_for(
+                _run_mini_council("Night Watch Journal & Strategy Review", journal_prompt, "journal"),
+                timeout=COUNCIL_TIMEOUT,
+            )
+            if synthesis:
+                report["journal_council"] = synthesis
+                report["councils_run"] += 1
+            report["total_cost_usd"] += cost
+        except asyncio.TimeoutError:
+            report["errors"].append("Journal council timed out (5min)")
+            log.error("[NIGHT-WATCH/COUNCIL] Journal council timed out")
+        except Exception as e:
+            report["errors"].append(f"Journal council failed: {e}")
+            log.error("[NIGHT-WATCH/COUNCIL] Journal council failed: %s", e)
+
+        report["duration_seconds"] = round(time.monotonic() - t0, 1)
+
+        log.info(
+            "[NIGHT-WATCH/COUNCIL] Council cycle complete: %d/4 councils, $%.4f, %.1fs",
+            report["councils_run"], report["total_cost_usd"], report["duration_seconds"],
+        )
+
+        await self._log_autonomous_event("night_watch_council", {
+            "councils_run": report["councils_run"],
+            "total_cost_usd": report["total_cost_usd"],
+            "duration_seconds": report["duration_seconds"],
+            "errors": report["errors"],
+        })
+
+        return report
+
     # ─── NIGHT WATCH ANALYST: LLM-powered nightly analysis ─────────
 
     async def _night_watch_analyst(
         self, deterministic_issues: list[str], has_warnings: bool, critical: bool,
         *, memory_report: dict | None = None, intel_report: dict | None = None,
+        council_report: dict | None = None,
     ) -> None:
         """
         LLM-powered analysis phase for Night Watch.
@@ -3191,6 +3808,29 @@ class AutonomousScheduler:
                 collected["intel_cycle"] = "\n".join(ic_lines)
             except Exception as e:
                 collected["intel_cycle"] = f"Error formatting intel cycle report: {e}"
+
+        # ── 4d. Night Watch Council Cycle report ─────────────────────
+        if council_report:
+            try:
+                cc_lines: list[str] = []
+                if council_report.get("error"):
+                    cc_lines.append(f"Council cycle error: {council_report['error']}")
+                else:
+                    cc_lines.append(f"Councils run: {council_report.get('councils_run', 0)}/4")
+                    for domain in ("memory", "intel", "portfolio", "journal"):
+                        synthesis = council_report.get(f"{domain}_council")
+                        if synthesis:
+                            # Truncate each council output for the analyst prompt
+                            cc_lines.append(f"\n--- {domain.upper()} COUNCIL ---")
+                            cc_lines.append(synthesis[:500])
+                    cc_lines.append(f"\nCouncil cycle cost: ${council_report.get('total_cost_usd', 0):.4f}")
+                    cc_lines.append(f"Council cycle duration: {council_report.get('duration_seconds', 0):.1f}s")
+                    errors = council_report.get("errors", [])
+                    if errors:
+                        cc_lines.append(f"Errors ({len(errors)}): " + "; ".join(errors[:5]))
+                collected["council_cycle"] = "\n".join(cc_lines)
+            except Exception as e:
+                collected["council_cycle"] = f"Error formatting council cycle report: {e}"
 
         # ── 5. Awarebot scan results ──────────────────────────────────
         try:
