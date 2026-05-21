@@ -1224,9 +1224,9 @@ class AutonomousScheduler:
           M1: Semantic duplicate detection (FREE)
           M2: Deep re-scoring of unscored units (Haiku, ~$0.15)
           M3: Entity backfill for entity-less units (Haiku, ~$0.10)
-          M4: Stale fact detection via LLM (Haiku, ~$0.015)
+          M4: Stale fact detection via LLM (Haiku + Gemini dual-model, ~$0.02)
           M5: Knowledge graph maintenance (FREE)
-          M6: Entity normalization (Haiku, ~$0.001)
+          M6: Entity normalization (Haiku + Gemini consensus, ~$0.002)
 
         NEVER deletes memory units — all operations are additive or re-scoring.
 
@@ -1547,11 +1547,13 @@ class AutonomousScheduler:
             report["errors"].append(f"M3: {e}")
 
         # ══════════════════════════════════════════════════════════════
-        # Task M4: Stale Fact Detection (HAIKU, ~$0.015)
+        # Task M4: Stale Fact Detection (HAIKU + GEMINI, ~$0.02)
         # ══════════════════════════════════════════════════════════════
         try:
             task_t0 = time.monotonic()
-            log.info("[NIGHT-WATCH/MEMORY] Task M4: Stale fact detection")
+            log.info("[NIGHT-WATCH/MEMORY] Task M4: Stale fact detection (dual-model)")
+
+            google_api_key = os.environ.get("GOOGLE_API_KEY", "")
 
             if not api_key or not knowledge_graph:
                 log.info("[NIGHT-WATCH/MEMORY] M4 skipped — no API key or knowledge graph")
@@ -1580,6 +1582,8 @@ class AutonomousScheduler:
 
                 stale_facts_found = 0
                 m4_cost = 0.0
+                m4_haiku_finds = 0
+                m4_gemini_finds = 0
 
                 for entity, cluster_units in clusters:
                     if time.monotonic() - task_t0 > TASK_TIMEOUT:
@@ -1607,7 +1611,8 @@ class AutonomousScheduler:
                         + "\n".join(unit_texts)
                     )
 
-                    try:
+                    # --- Haiku call ---
+                    async def _m4_haiku(p: str) -> list[dict]:
                         async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
                             resp = await client.post(
                                 "https://api.anthropic.com/v1/messages",
@@ -1619,44 +1624,133 @@ class AutonomousScheduler:
                                 json={
                                     "model": "claude-haiku-4-5-20251001",
                                     "max_tokens": 300,
-                                    "messages": [{"role": "user", "content": prompt}],
+                                    "messages": [{"role": "user", "content": p}],
                                 },
                             )
+                            if resp.status_code != 200:
+                                return []
+                            data = resp.json()
+                            usage = data.get("usage", {})
+                            input_t = usage.get("input_tokens", 0)
+                            output_t = usage.get("output_tokens", 0)
+                            cost = (input_t * 0.25 + output_t * 1.25) / 1_000_000
+                            return [{"_cost": cost, "_source": "haiku"}] + _m4_parse_contradictions(data["content"][0]["text"])
 
-                            if resp.status_code == 200:
-                                data = resp.json()
-                                usage = data.get("usage", {})
-                                input_t = usage.get("input_tokens", 0)
-                                output_t = usage.get("output_tokens", 0)
-                                cost = (input_t * 0.25 + output_t * 1.25) / 1_000_000
-                                m4_cost += cost
+                    # --- Gemini call ---
+                    async def _m4_gemini(p: str) -> list[dict]:
+                        if not google_api_key:
+                            return []
+                        if not await tracker.can_spend("google", 0.001):
+                            return []
+                        async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
+                            resp = await client.post(
+                                "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+                                params={"key": google_api_key},
+                                json={
+                                    "contents": [{"parts": [{"text": p}]}],
+                                    "generationConfig": {"maxOutputTokens": 300},
+                                },
+                            )
+                            if resp.status_code != 200:
+                                return []
+                            data = resp.json()
+                            candidates = data.get("candidates", [])
+                            if not candidates:
+                                return []
+                            parts_list = candidates[0].get("content", {}).get("parts", [])
+                            if not parts_list:
+                                return []
+                            text = parts_list[0].get("text", "")
+                            usage_meta = data.get("usageMetadata", {})
+                            input_t = usage_meta.get("promptTokenCount", 0)
+                            output_t = usage_meta.get("candidatesTokenCount", 0)
+                            cost = (input_t * 0.15 + output_t * 0.60) / 1_000_000
+                            return [{"_cost": cost, "_source": "gemini"}] + _m4_parse_contradictions(text)
 
-                                text = data["content"][0]["text"]
-                                text = re.sub(r"```json\s*", "", text)
-                                text = re.sub(r"```\s*", "", text)
-                                parsed = json.loads(text.strip())
-                                contradictions = parsed.get("contradictions", [])
-                                if contradictions:
-                                    stale_facts_found += len(contradictions)
-                                    log.info(
-                                        "[NIGHT-WATCH/MEMORY] M4: %d contradiction(s) for entity '%s'",
-                                        len(contradictions), entity,
-                                    )
+                    def _m4_parse_contradictions(text: str) -> list[dict]:
+                        text = re.sub(r"```json\s*", "", text)
+                        text = re.sub(r"```\s*", "", text)
+                        try:
+                            parsed = json.loads(text.strip())
+                            return parsed.get("contradictions", [])
+                        except (json.JSONDecodeError, ValueError):
+                            return []
+
+                    try:
+                        # Run Haiku and Gemini in parallel
+                        haiku_result, gemini_result = await asyncio.gather(
+                            _m4_haiku(prompt), _m4_gemini(prompt),
+                            return_exceptions=True,
+                        )
+
+                        # Process Haiku results
+                        haiku_contradictions: list[dict] = []
+                        haiku_cost = 0.0
+                        if isinstance(haiku_result, list) and haiku_result:
+                            meta = haiku_result[0]
+                            if isinstance(meta, dict) and "_cost" in meta:
+                                haiku_cost = meta["_cost"]
+                                haiku_contradictions = haiku_result[1:]
+
+                        # Process Gemini results
+                        gemini_contradictions: list[dict] = []
+                        gemini_cost = 0.0
+                        if isinstance(gemini_result, list) and gemini_result:
+                            meta = gemini_result[0]
+                            if isinstance(meta, dict) and "_cost" in meta:
+                                gemini_cost = meta["_cost"]
+                                gemini_contradictions = gemini_result[1:]
+
+                        # Combine: union of findings from either model
+                        combined_descriptions: set[str] = set()
+                        combined_count = 0
+                        for c in haiku_contradictions:
+                            desc = c.get("description", "")
+                            if desc and desc not in combined_descriptions:
+                                combined_descriptions.add(desc)
+                                combined_count += 1
+                        for c in gemini_contradictions:
+                            desc = c.get("description", "")
+                            if desc and desc not in combined_descriptions:
+                                combined_descriptions.add(desc)
+                                combined_count += 1
+
+                        m4_haiku_finds += len(haiku_contradictions)
+                        m4_gemini_finds += len(gemini_contradictions)
+                        stale_facts_found += combined_count
+
+                        # Track costs and record to tracker
+                        if haiku_cost > 0:
+                            await tracker.record(
+                                "anthropic", haiku_cost, "night_watch_memory",
+                                f"M4 stale fact detection (Haiku) entity='{entity}'",
+                            )
+                        if gemini_cost > 0:
+                            await tracker.record(
+                                "google", gemini_cost, "night_watch_memory",
+                                f"M4 stale fact detection (Gemini) entity='{entity}'",
+                            )
+                        m4_cost += haiku_cost + gemini_cost
+
+                        if combined_count > 0:
+                            log.info(
+                                "[NIGHT-WATCH/MEMORY] M4: entity '%s' — Haiku=%d, Gemini=%d, combined=%d contradictions",
+                                entity, len(haiku_contradictions), len(gemini_contradictions), combined_count,
+                            )
+
                     except Exception as e:
-                        log.debug("[NIGHT-WATCH/MEMORY] M4 LLM call error for '%s': %s", entity, e)
+                        log.debug("[NIGHT-WATCH/MEMORY] M4 dual-model call error for '%s': %s", entity, e)
                         continue
 
+                # Record costs per source (tracked inline per cluster, just add to report)
                 if m4_cost > 0:
-                    await tracker.record(
-                        "anthropic", m4_cost, "night_watch_memory",
-                        f"stale fact detection across {len(clusters)} clusters",
-                    )
                     report["total_cost_usd"] += m4_cost
 
                 report["stale_facts_found"] = stale_facts_found
                 log.info(
-                    "[NIGHT-WATCH/MEMORY] Task M4: found %d stale facts across %d clusters, cost $%.4f",
-                    stale_facts_found, len(clusters), m4_cost,
+                    "[NIGHT-WATCH/MEMORY] Task M4: Haiku found %d issues, Gemini found %d issues, "
+                    "%d combined across %d clusters, cost $%.4f",
+                    m4_haiku_finds, m4_gemini_finds, stale_facts_found, len(clusters), m4_cost,
                 )
 
         except Exception as e:
@@ -1833,8 +1927,9 @@ class AutonomousScheduler:
                         )
                         normalizations += 1
 
-                    # For ambiguous pairs, use ONE Haiku call if budget allows
+                    # For ambiguous pairs, use Haiku AND Gemini — only confirm if BOTH agree
                     if ambiguous and api_key:
+                        google_api_key_m6 = os.environ.get("GOOGLE_API_KEY", "")
                         if await tracker.can_spend("anthropic", 0.001):
                             pairs_text = "\n".join(
                                 f"  {i+1}. \"{a}\" vs \"{b}\""
@@ -1847,10 +1942,17 @@ class AutonomousScheduler:
                                 + pairs_text
                             )
 
-                            try:
-                                async with httpx.AsyncClient(
-                                    timeout=httpx.Timeout(15.0)
-                                ) as client:
+                            def _m6_parse_results(text: str) -> list[bool]:
+                                text = re.sub(r"```json\s*", "", text)
+                                text = re.sub(r"```\s*", "", text)
+                                try:
+                                    parsed = json.loads(text.strip())
+                                    return parsed.get("results", [])
+                                except (json.JSONDecodeError, ValueError):
+                                    return []
+
+                            async def _m6_haiku(p: str) -> tuple[list[bool], float]:
+                                async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
                                     resp = await client.post(
                                         "https://api.anthropic.com/v1/messages",
                                         headers={
@@ -1861,40 +1963,114 @@ class AutonomousScheduler:
                                         json={
                                             "model": "claude-haiku-4-5-20251001",
                                             "max_tokens": 200,
-                                            "messages": [{"role": "user", "content": prompt}],
+                                            "messages": [{"role": "user", "content": p}],
                                         },
                                     )
+                                    if resp.status_code != 200:
+                                        return [], 0.0
+                                    data = resp.json()
+                                    usage = data.get("usage", {})
+                                    input_t = usage.get("input_tokens", 0)
+                                    output_t = usage.get("output_tokens", 0)
+                                    cost = (input_t * 0.25 + output_t * 1.25) / 1_000_000
+                                    return _m6_parse_results(data["content"][0]["text"]), cost
 
-                                    if resp.status_code == 200:
-                                        data = resp.json()
-                                        usage = data.get("usage", {})
-                                        input_t = usage.get("input_tokens", 0)
-                                        output_t = usage.get("output_tokens", 0)
-                                        cost = (input_t * 0.25 + output_t * 1.25) / 1_000_000
-                                        m6_cost += cost
+                            async def _m6_gemini(p: str) -> tuple[list[bool], float]:
+                                if not google_api_key_m6:
+                                    return [], 0.0
+                                if not await tracker.can_spend("google", 0.001):
+                                    return [], 0.0
+                                async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
+                                    resp = await client.post(
+                                        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+                                        params={"key": google_api_key_m6},
+                                        json={
+                                            "contents": [{"parts": [{"text": p}]}],
+                                            "generationConfig": {"maxOutputTokens": 200},
+                                        },
+                                    )
+                                    if resp.status_code != 200:
+                                        return [], 0.0
+                                    data = resp.json()
+                                    candidates = data.get("candidates", [])
+                                    if not candidates:
+                                        return [], 0.0
+                                    parts_list = candidates[0].get("content", {}).get("parts", [])
+                                    if not parts_list:
+                                        return [], 0.0
+                                    text = parts_list[0].get("text", "")
+                                    usage_meta = data.get("usageMetadata", {})
+                                    input_t = usage_meta.get("promptTokenCount", 0)
+                                    output_t = usage_meta.get("candidatesTokenCount", 0)
+                                    cost = (input_t * 0.15 + output_t * 0.60) / 1_000_000
+                                    return _m6_parse_results(text), cost
 
-                                        text = data["content"][0]["text"]
-                                        text = re.sub(r"```json\s*", "", text)
-                                        text = re.sub(r"```\s*", "", text)
-                                        parsed = json.loads(text.strip())
-                                        results = parsed.get("results", [])
+                            try:
+                                haiku_res, gemini_res = await asyncio.gather(
+                                    _m6_haiku(prompt), _m6_gemini(prompt),
+                                    return_exceptions=True,
+                                )
 
-                                        for idx, is_same in enumerate(results):
-                                            if idx < len(ambiguous) and is_same:
-                                                a, b = ambiguous[idx]
-                                                await knowledge_graph.add_relationships(
-                                                    [{"subject": a, "predicate": "SAME_AS", "object": b}]
-                                                )
-                                                normalizations += 1
+                                haiku_results: list[bool] = []
+                                haiku_cost_m6 = 0.0
+                                if isinstance(haiku_res, tuple):
+                                    haiku_results, haiku_cost_m6 = haiku_res
+
+                                gemini_results: list[bool] = []
+                                gemini_cost_m6 = 0.0
+                                if isinstance(gemini_res, tuple):
+                                    gemini_results, gemini_cost_m6 = gemini_res
+
+                                m6_cost += haiku_cost_m6 + gemini_cost_m6
+
+                                # Consensus: only confirm if BOTH models agree
+                                agreed = 0
+                                disagreed = 0
+                                for idx in range(min(len(ambiguous), len(haiku_results))):
+                                    haiku_says = haiku_results[idx] if idx < len(haiku_results) else None
+                                    gemini_says = gemini_results[idx] if idx < len(gemini_results) else None
+
+                                    if haiku_says is True and gemini_says is True:
+                                        # Both agree it's the same entity
+                                        a, b = ambiguous[idx]
+                                        await knowledge_graph.add_relationships(
+                                            [{"subject": a, "predicate": "SAME_AS", "object": b}]
+                                        )
+                                        normalizations += 1
+                                        agreed += 1
+                                    elif haiku_says is True and gemini_says is not True:
+                                        # Haiku-only (no Gemini or disagreement) — fall back to Haiku
+                                        if gemini_says is None:
+                                            a, b = ambiguous[idx]
+                                            await knowledge_graph.add_relationships(
+                                                [{"subject": a, "predicate": "SAME_AS", "object": b}]
+                                            )
+                                            normalizations += 1
+                                        else:
+                                            disagreed += 1
+                                    elif haiku_says is not None and gemini_says is not None:
+                                        if haiku_says != gemini_says:
+                                            disagreed += 1
+
+                                log.info(
+                                    "[NIGHT-WATCH/MEMORY] M6: %d pairs agreed, %d disagreed",
+                                    agreed, disagreed,
+                                )
 
                             except Exception as e:
-                                log.debug("[NIGHT-WATCH/MEMORY] M6 LLM call error: %s", e)
+                                log.debug("[NIGHT-WATCH/MEMORY] M6 dual-model call error: %s", e)
 
                         if m6_cost > 0:
-                            await tracker.record(
-                                "anthropic", m6_cost, "night_watch_memory",
-                                f"entity normalization {normalizations} pairs",
-                            )
+                            if haiku_cost_m6 > 0:
+                                await tracker.record(
+                                    "anthropic", haiku_cost_m6, "night_watch_memory",
+                                    f"entity normalization (Haiku) {normalizations} pairs",
+                                )
+                            if gemini_cost_m6 > 0:
+                                await tracker.record(
+                                    "google", gemini_cost_m6, "night_watch_memory",
+                                    f"entity normalization (Gemini) {normalizations} pairs",
+                                )
                             report["total_cost_usd"] += m6_cost
 
                 report["normalizations"] = normalizations
@@ -1936,13 +2112,13 @@ class AutonomousScheduler:
 
         Runs 6 analysis tasks on intelligence data:
           I1: Cross-source correlation mining (FREE)
-          I2: Coverage blind spot detection (FREE + 1 Haiku)
+          I2: Coverage blind spot detection (FREE + Haiku + Gemini dual-model)
           I3: Signal score calibration (FREE)
-          I4: Prediction calibration analysis (FREE + 1 Haiku)
-          I5: Council topic suggestion (1 Haiku)
-          I6: Cost optimization analysis (1 Haiku)
+          I4: Prediction calibration analysis (FREE + Haiku + Gemini dual-model)
+          I5: Council topic suggestion (Haiku + Gemini dual-model, merged with priority)
+          I6: Cost optimization analysis (Haiku + Gemini consensus)
 
-        Total cost target: ~$0.02/night (4 Haiku calls).
+        Total cost target: ~$0.03/night (4 Haiku + 4 Gemini calls).
 
         Returns:
             Dict with task results and overall stats.
@@ -2015,6 +2191,48 @@ class AutonomousScheduler:
                     "anthropic", cost, "night_watch_intel",
                     f"Night Watch Intel Haiku: {label}",
                     {"model": haiku_model, "phase": "intel", "label": label},
+                )
+                return text, cost
+
+        google_api_key_intel = os.environ.get("GOOGLE_API_KEY", "")
+
+        async def _call_gemini(prompt: str, label: str, max_tokens: int = 1024) -> tuple[str, float]:
+            """Make a Gemini 2.5 Flash call, return (text, cost_usd). Raises on failure."""
+            if not google_api_key_intel:
+                raise RuntimeError("No GOOGLE_API_KEY")
+            if not await tracker.can_spend("google", 0.005):
+                raise RuntimeError("Google budget exceeded")
+            async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
+                resp = await client.post(
+                    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+                    params={"key": google_api_key_intel},
+                    json={
+                        "contents": [{"parts": [{"text": prompt}]}],
+                        "generationConfig": {"maxOutputTokens": max_tokens},
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                candidates = data.get("candidates", [])
+                if not candidates:
+                    raise ValueError(f"Gemini returned no candidates: {list(data.keys())}")
+                parts_list = candidates[0].get("content", {}).get("parts", [])
+                if not parts_list:
+                    raise ValueError("Gemini candidate has no content parts")
+                text = parts_list[0].get("text", "")
+                usage_meta = data.get("usageMetadata", {})
+                input_tokens = usage_meta.get("promptTokenCount", 0)
+                output_tokens = usage_meta.get("candidatesTokenCount", 0)
+                # Gemini 2.5 Flash: $0.15/1M input, $0.60/1M output
+                cost = (input_tokens * 0.15 + output_tokens * 0.60) / 1_000_000
+                log.info(
+                    "[NIGHT-WATCH/INTEL] Gemini call '%s': %d in / %d out tokens, $%.6f",
+                    label, input_tokens, output_tokens, cost,
+                )
+                await tracker.record(
+                    "google", cost, "night_watch_intel",
+                    f"Night Watch Intel Gemini: {label}",
+                    {"model": "gemini-2.5-flash", "phase": "intel", "label": label},
                 )
                 return text, cost
 
@@ -2195,7 +2413,7 @@ class AutonomousScheduler:
 
             report["blind_spots"] = blind_spots[:20]
 
-            # Haiku call for synthesis
+            # Dual-model call for synthesis (Haiku + Gemini in parallel)
             if blind_spots and api_key:
                 try:
                     prompt = (
@@ -2210,16 +2428,102 @@ class AutonomousScheduler:
                         + "\n".join(f"- {t}" for t in covered_topics[:10]) + "\n\n"
                         f"Total signals in last 48h: {recent_count}\n\n"
                         "Given these watched topics and coverage gaps, what intelligence might "
-                        "we be missing? What risks emerge from the blind spots? 3-5 bullet points."
+                        "we be missing? What risks emerge from the blind spots? "
+                        "Return each blind spot as a bullet point starting with '- '."
                     )
-                    text, cost = await asyncio.wait_for(
+
+                    # Run both models in parallel
+                    haiku_task = asyncio.wait_for(
                         _call_haiku(prompt, "I2_blind_spots"), timeout=TASK_TIMEOUT
                     )
-                    blind_spot_analysis = text
-                    report["total_cost_usd"] += cost
+                    gemini_task = asyncio.wait_for(
+                        _call_gemini(prompt, "I2_blind_spots"), timeout=TASK_TIMEOUT
+                    )
+                    haiku_res, gemini_res = await asyncio.gather(
+                        haiku_task, gemini_task, return_exceptions=True,
+                    )
+
+                    haiku_text = ""
+                    gemini_text = ""
+
+                    if isinstance(haiku_res, tuple):
+                        haiku_text, haiku_cost = haiku_res
+                        report["total_cost_usd"] += haiku_cost
+                    elif isinstance(haiku_res, Exception):
+                        log.warning("[NIGHT-WATCH/INTEL] I2 Haiku failed: %s", haiku_res)
+
+                    if isinstance(gemini_res, tuple):
+                        gemini_text, gemini_cost = gemini_res
+                        report["total_cost_usd"] += gemini_cost
+                    elif isinstance(gemini_res, Exception):
+                        log.warning("[NIGHT-WATCH/INTEL] I2 Gemini failed: %s", gemini_res)
+
+                    # Merge blind spot bullet points (union, deduplicated)
+                    def _extract_bullets(text: str) -> list[str]:
+                        return [
+                            line.strip().lstrip("- •*").strip()
+                            for line in text.split("\n")
+                            if line.strip().startswith(("-", "•", "*"))
+                            and len(line.strip()) > 10
+                        ]
+
+                    haiku_bullets = _extract_bullets(haiku_text)
+                    gemini_bullets = _extract_bullets(gemini_text)
+
+                    # Identify high-confidence bullets (flagged by both)
+                    haiku_kw = {b.lower()[:60] for b in haiku_bullets}
+                    gemini_kw = {b.lower()[:60] for b in gemini_bullets}
+
+                    merged_bullets: list[str] = []
+                    high_confidence: list[str] = []
+
+                    for b in haiku_bullets:
+                        merged_bullets.append(b)
+                        # Check if Gemini flagged something similar
+                        b_words = set(b.lower().split())
+                        for gb in gemini_bullets:
+                            gb_words = set(gb.lower().split())
+                            overlap = len(b_words & gb_words) / max(len(b_words | gb_words), 1)
+                            if overlap > 0.4:
+                                high_confidence.append(b)
+                                break
+
+                    for b in gemini_bullets:
+                        # Only add if not already covered
+                        b_words = set(b.lower().split())
+                        already = False
+                        for mb in merged_bullets:
+                            mb_words = set(mb.lower().split())
+                            overlap = len(b_words & mb_words) / max(len(b_words | mb_words), 1)
+                            if overlap > 0.4:
+                                already = True
+                                break
+                        if not already:
+                            merged_bullets.append(b)
+
+                    # Build combined analysis
+                    combined_parts: list[str] = []
+                    if high_confidence:
+                        combined_parts.append(
+                            "HIGH CONFIDENCE blind spots (flagged by both Haiku and Gemini):\n"
+                            + "\n".join(f"- {b}" for b in high_confidence)
+                        )
+                    combined_parts.append(
+                        "ALL identified blind spots (merged):\n"
+                        + "\n".join(f"- {b}" for b in merged_bullets)
+                    )
+                    blind_spot_analysis = "\n\n".join(combined_parts)
+
+                    log.info(
+                        "[NIGHT-WATCH/INTEL] I2: Haiku found %d, Gemini found %d, "
+                        "%d merged (%d high confidence)",
+                        len(haiku_bullets), len(gemini_bullets),
+                        len(merged_bullets), len(high_confidence),
+                    )
+
                 except Exception as e:
-                    report["errors"].append(f"I2 Haiku: {e}")
-                    log.error("[NIGHT-WATCH/INTEL] Task I2 Haiku failed: %s", e)
+                    report["errors"].append(f"I2 dual-model: {e}")
+                    log.error("[NIGHT-WATCH/INTEL] Task I2 dual-model failed: %s", e)
 
             log.info("[NIGHT-WATCH/INTEL] Task I2: %d blind spots out of %d watched topics",
                      len(blind_spots), len(watch_topics))
@@ -2478,7 +2782,7 @@ class AutonomousScheduler:
 
             report["per_model_accuracy"] = per_model_accuracy
 
-            # Haiku call for model reliability assessment
+            # Dual-model call for model reliability assessment (Haiku + Gemini)
             if api_key and model_summary_lines:
                 try:
                     stale_summary = ""
@@ -2498,13 +2802,52 @@ class AutonomousScheduler:
                         "which models are reliable on which topics? What calibration issues "
                         "exist? 3-5 bullet points."
                     )
-                    text, cost = await asyncio.wait_for(
+
+                    # Run both models in parallel
+                    haiku_task = asyncio.wait_for(
                         _call_haiku(prompt, "I4_prediction_calibration"), timeout=TASK_TIMEOUT
                     )
-                    report["total_cost_usd"] += cost
+                    gemini_task = asyncio.wait_for(
+                        _call_gemini(prompt, "I4_prediction_calibration"), timeout=TASK_TIMEOUT
+                    )
+                    haiku_res, gemini_res = await asyncio.gather(
+                        haiku_task, gemini_task, return_exceptions=True,
+                    )
+
+                    haiku_text = ""
+                    gemini_text = ""
+
+                    if isinstance(haiku_res, tuple):
+                        haiku_text, haiku_cost = haiku_res
+                        report["total_cost_usd"] += haiku_cost
+                    elif isinstance(haiku_res, Exception):
+                        log.warning("[NIGHT-WATCH/INTEL] I4 Haiku failed: %s", haiku_res)
+
+                    if isinstance(gemini_res, tuple):
+                        gemini_text, gemini_cost = gemini_res
+                        report["total_cost_usd"] += gemini_cost
+                    elif isinstance(gemini_res, Exception):
+                        log.warning("[NIGHT-WATCH/INTEL] I4 Gemini failed: %s", gemini_res)
+
+                    # Combine assessments — note disagreements
+                    combined_parts: list[str] = []
+                    if haiku_text and gemini_text:
+                        combined_parts.append(f"=== Haiku Assessment ===\n{haiku_text}")
+                        combined_parts.append(f"=== Gemini Assessment ===\n{gemini_text}")
+                        log.info(
+                            "[NIGHT-WATCH/INTEL] I4: Got assessments from both Haiku and Gemini"
+                        )
+                    elif haiku_text:
+                        combined_parts.append(haiku_text)
+                    elif gemini_text:
+                        combined_parts.append(gemini_text)
+
+                    # Store combined calibration in report for Phase 5 synthesis
+                    report["prediction_calibration_analysis"] = "\n\n".join(combined_parts)
+
                 except Exception as e:
-                    report["errors"].append(f"I4 Haiku: {e}")
-                    log.error("[NIGHT-WATCH/INTEL] Task I4 Haiku failed: %s", e)
+                    report["errors"].append(f"I4 dual-model: {e}")
+                    log.error("[NIGHT-WATCH/INTEL] Task I4 dual-model failed: %s", e)
 
             log.info(
                 "[NIGHT-WATCH/INTEL] Task I4: %d predictions, %d models, %d stale",
@@ -2587,28 +2930,93 @@ class AutonomousScheduler:
                         "2. TOPIC: [topic]\n   WHY: [reasoning]\n"
                         "3. TOPIC: [topic]\n   WHY: [reasoning]"
                     )
-                    text, cost = await asyncio.wait_for(
+
+                    # Run both models in parallel
+                    haiku_task = asyncio.wait_for(
                         _call_haiku(prompt, "I5_council_topics"), timeout=TASK_TIMEOUT
                     )
-                    report["total_cost_usd"] += cost
+                    gemini_task = asyncio.wait_for(
+                        _call_gemini(prompt, "I5_council_topics"), timeout=TASK_TIMEOUT
+                    )
+                    haiku_res, gemini_res = await asyncio.gather(
+                        haiku_task, gemini_task, return_exceptions=True,
+                    )
 
-                    # Parse topic suggestions from response
-                    suggestions: list[str] = []
-                    for line_text in text.split("\n"):
-                        line_text = line_text.strip()
-                        if line_text and re.match(r'^\d+\.?\s*TOPIC:', line_text, re.IGNORECASE):
-                            topic_text = re.sub(r'^\d+\.?\s*TOPIC:\s*', '', line_text, flags=re.IGNORECASE).strip()
-                            if topic_text:
-                                suggestions.append(topic_text)
-
-                    if not suggestions:
-                        # Fallback: just split by numbered lines
+                    def _parse_topics(text: str) -> list[str]:
+                        topics: list[str] = []
                         for line_text in text.split("\n"):
                             line_text = line_text.strip()
-                            if re.match(r'^\d+\.', line_text):
-                                suggestions.append(line_text)
+                            if line_text and re.match(r'^\d+\.?\s*TOPIC:', line_text, re.IGNORECASE):
+                                topic_text = re.sub(r'^\d+\.?\s*TOPIC:\s*', '', line_text, flags=re.IGNORECASE).strip()
+                                if topic_text:
+                                    topics.append(topic_text)
+                        if not topics:
+                            for line_text in text.split("\n"):
+                                line_text = line_text.strip()
+                                if re.match(r'^\d+\.', line_text):
+                                    topics.append(line_text)
+                        return topics
 
+                    haiku_topics: list[str] = []
+                    gemini_topics: list[str] = []
+                    haiku_full = ""
+                    gemini_full = ""
+
+                    if isinstance(haiku_res, tuple):
+                        haiku_full, haiku_cost = haiku_res
+                        report["total_cost_usd"] += haiku_cost
+                        haiku_topics = _parse_topics(haiku_full)
+                    elif isinstance(haiku_res, Exception):
+                        log.warning("[NIGHT-WATCH/INTEL] I5 Haiku failed: %s", haiku_res)
+
+                    if isinstance(gemini_res, tuple):
+                        gemini_full, gemini_cost = gemini_res
+                        report["total_cost_usd"] += gemini_cost
+                        gemini_topics = _parse_topics(gemini_full)
+                    elif isinstance(gemini_res, Exception):
+                        log.warning("[NIGHT-WATCH/INTEL] I5 Gemini failed: %s", gemini_res)
+
+                    # Merge: topics from both models get priority boost
+                    haiku_kw_set = {t.lower()[:50] for t in haiku_topics}
+                    gemini_kw_set = {t.lower()[:50] for t in gemini_topics}
+
+                    priority_topics: list[str] = []  # Both models agree
+                    other_topics: list[str] = []     # Only one model
+
+                    seen_lower: set[str] = set()
+                    for t in haiku_topics:
+                        t_lower = t.lower()[:50]
+                        t_words = set(t_lower.split())
+                        # Check if Gemini has a similar topic
+                        matched = False
+                        for gt in gemini_topics:
+                            gt_words = set(gt.lower()[:50].split())
+                            overlap = len(t_words & gt_words) / max(len(t_words | gt_words), 1)
+                            if overlap > 0.3:
+                                matched = True
+                                break
+                        if matched:
+                            priority_topics.append(t)
+                        else:
+                            other_topics.append(t)
+                        seen_lower.add(t_lower)
+
+                    for t in gemini_topics:
+                        t_lower = t.lower()[:50]
+                        if t_lower not in seen_lower:
+                            other_topics.append(t)
+                            seen_lower.add(t_lower)
+
+                    # Priority topics first, then others
+                    suggestions = priority_topics + other_topics
                     report["council_suggestions"] = suggestions[:5]
+
+                    log.info(
+                        "[NIGHT-WATCH/INTEL] I5: Haiku suggested %d, Gemini suggested %d, "
+                        "%d priority (both agree), %d total merged",
+                        len(haiku_topics), len(gemini_topics),
+                        len(priority_topics), len(suggestions),
+                    )
 
                     # Save to file for daytime council scheduling
                     today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -2617,8 +3025,10 @@ class AutonomousScheduler:
                         topics_data = {
                             "date": today_str,
                             "generated_at": datetime.now(timezone.utc).isoformat(),
-                            "suggestions": suggestions,
-                            "full_analysis": text,
+                            "suggestions": suggestions[:5],
+                            "priority_topics": priority_topics,
+                            "haiku_analysis": haiku_full,
+                            "gemini_analysis": gemini_full,
                             "inputs_count": len(suggestion_inputs),
                         }
                         async with aiofiles.open(topics_file, "w") as f:
@@ -2628,8 +3038,8 @@ class AutonomousScheduler:
                         log.error("[NIGHT-WATCH/INTEL] Failed to save council topics: %s", e)
 
                 except Exception as e:
-                    report["errors"].append(f"I5 Haiku: {e}")
-                    log.error("[NIGHT-WATCH/INTEL] Task I5 Haiku failed: %s", e)
+                    report["errors"].append(f"I5 dual-model: {e}")
+                    log.error("[NIGHT-WATCH/INTEL] Task I5 dual-model failed: %s", e)
             else:
                 log.info("[NIGHT-WATCH/INTEL] Task I5: no inputs or no API key — skipping")
 
@@ -2719,16 +3129,92 @@ class AutonomousScheduler:
                         "2. Redundant calls (same data processed twice)\n"
                         "3. Times/patterns of highest spend\n"
                         "4. Project when daily budgets will be consistently exceeded\n\n"
-                        "Give 3-5 specific, actionable recommendations."
+                        "Give 3-5 specific, actionable recommendations. "
+                        "Each recommendation as a bullet point starting with '- '."
                     )
-                    text, cost = await asyncio.wait_for(
+
+                    # Run both models in parallel
+                    haiku_task = asyncio.wait_for(
                         _call_haiku(prompt, "I6_cost_optimization"), timeout=TASK_TIMEOUT
                     )
-                    report["cost_optimization"] = text
-                    report["total_cost_usd"] += cost
+                    gemini_task = asyncio.wait_for(
+                        _call_gemini(prompt, "I6_cost_optimization"), timeout=TASK_TIMEOUT
+                    )
+                    haiku_res, gemini_res = await asyncio.gather(
+                        haiku_task, gemini_task, return_exceptions=True,
+                    )
+
+                    haiku_text = ""
+                    gemini_text = ""
+
+                    if isinstance(haiku_res, tuple):
+                        haiku_text, haiku_cost = haiku_res
+                        report["total_cost_usd"] += haiku_cost
+                    elif isinstance(haiku_res, Exception):
+                        log.warning("[NIGHT-WATCH/INTEL] I6 Haiku failed: %s", haiku_res)
+
+                    if isinstance(gemini_res, tuple):
+                        gemini_text, gemini_cost = gemini_res
+                        report["total_cost_usd"] += gemini_cost
+                    elif isinstance(gemini_res, Exception):
+                        log.warning("[NIGHT-WATCH/INTEL] I6 Gemini failed: %s", gemini_res)
+
+                    # Conservative approach: only flag optimizations both models agree on
+                    def _extract_recs(text: str) -> list[str]:
+                        return [
+                            line.strip().lstrip("- •*0123456789.").strip()
+                            for line in text.split("\n")
+                            if line.strip() and (
+                                line.strip().startswith(("-", "•", "*"))
+                                or re.match(r'^\d+\.', line.strip())
+                            )
+                            and len(line.strip()) > 15
+                        ]
+
+                    haiku_recs = _extract_recs(haiku_text)
+                    gemini_recs = _extract_recs(gemini_text)
+
+                    # Find recommendations both models agree on (word overlap > 30%)
+                    agreed_recs: list[str] = []
+                    haiku_only: list[str] = []
+
+                    for hr in haiku_recs:
+                        hr_words = set(hr.lower().split())
+                        matched = False
+                        for gr in gemini_recs:
+                            gr_words = set(gr.lower().split())
+                            overlap = len(hr_words & gr_words) / max(len(hr_words | gr_words), 1)
+                            if overlap > 0.3:
+                                matched = True
+                                break
+                        if matched:
+                            agreed_recs.append(hr)
+                        else:
+                            haiku_only.append(hr)
+
+                    # Build combined output — consensus first
+                    combined_parts: list[str] = []
+                    if agreed_recs:
+                        combined_parts.append(
+                            "CONSENSUS RECOMMENDATIONS (both Haiku and Gemini agree):\n"
+                            + "\n".join(f"- {r}" for r in agreed_recs)
+                        )
+                    if haiku_only:
+                        combined_parts.append(
+                            "ADDITIONAL (Haiku-only, not confirmed by Gemini):\n"
+                            + "\n".join(f"- {r}" for r in haiku_only[:3])
+                        )
+
+                    report["cost_optimization"] = "\n\n".join(combined_parts) if combined_parts else haiku_text or gemini_text
+
+                    log.info(
+                        "[NIGHT-WATCH/INTEL] I6: Haiku %d recs, Gemini %d recs, %d consensus",
+                        len(haiku_recs), len(gemini_recs), len(agreed_recs),
+                    )
+
                 except Exception as e:
-                    report["errors"].append(f"I6 Haiku: {e}")
-                    log.error("[NIGHT-WATCH/INTEL] Task I6 Haiku failed: %s", e)
+                    report["errors"].append(f"I6 dual-model: {e}")
+                    log.error("[NIGHT-WATCH/INTEL] Task I6 dual-model failed: %s", e)
             else:
                 report["cost_optimization"] = "No API key — skipped LLM analysis"
 
