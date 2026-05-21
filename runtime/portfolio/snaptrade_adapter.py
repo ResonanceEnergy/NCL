@@ -339,11 +339,112 @@ class SnapTradeAdapter:
                     }
                 )
 
+            # ----- Option holdings (separate SnapTrade endpoint) -----
+            try:
+                opt_raw = await asyncio.to_thread(
+                    self._snap.options.list_option_holdings,
+                    user_id=self.user_id,
+                    user_secret=self.user_secret,
+                    account_id=acct_id,
+                )
+                option_holdings = opt_raw.body if hasattr(opt_raw, "body") else opt_raw
+                if not isinstance(option_holdings, list):
+                    option_holdings = []
+            except Exception as exc:
+                logger.debug("No option holdings for account %s: %s", acct_id, exc)
+                option_holdings = []
+
+            for opt in option_holdings:
+                try:
+                    results.append(self._normalise_option(opt, acct_id))
+                except Exception as exc:
+                    logger.warning("Failed to normalise option holding: %s", exc)
+
         return results
 
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _normalise_option(opt: Any, acct_id: str) -> Dict:
+        """Normalise a SnapTrade option holding into the standard position dict.
+
+        SnapTrade option response shape (per holding):
+            symbol.option_symbol.underlying_symbol.symbol  -> e.g. "GLD"
+            symbol.option_symbol.strike_price              -> e.g. 515.0
+            symbol.option_symbol.expiration_date            -> e.g. "2027-03-19"
+            symbol.option_symbol.option_type                -> "CALL" / "PUT"
+            symbol.option_symbol.underlying_symbol.currency.code -> "USD"
+            price                                           -> per-share price
+            units                                           -> number of contracts
+            average_purchase_price                          -> total cost basis
+        """
+        d = opt if isinstance(opt, dict) else (
+            opt.to_dict() if hasattr(opt, "to_dict") else
+            {k: v for k, v in opt.__dict__.items() if not k.startswith("_")}
+            if hasattr(opt, "__dict__") else {}
+        )
+
+        sym_info = d.get("symbol", {}) or {}
+        opt_sym = sym_info.get("option_symbol", {}) or {}
+        underlying = opt_sym.get("underlying_symbol", {}) or {}
+
+        ticker = underlying.get("symbol", "") or underlying.get("raw_symbol", "?")
+        strike = float(opt_sym.get("strike_price", 0) or 0)
+        expiry = str(opt_sym.get("expiration_date", "") or "")
+        opt_type = str(opt_sym.get("option_type", "") or "").upper()
+        description = str(underlying.get("description", ticker) or ticker)
+
+        # Currency from underlying symbol
+        cur_obj = underlying.get("currency", {}) or {}
+        currency = cur_obj.get("code", "USD") if isinstance(cur_obj, dict) else str(getattr(cur_obj, "code", "USD"))
+
+        # Build display symbol: "GLD $515C 03/19/27"
+        type_letter = "C" if "CALL" in opt_type else "P" if "PUT" in opt_type else "?"
+        exp_short = ""
+        if expiry and len(expiry) >= 10:
+            # "2027-03-19" -> "03/19/27"
+            parts = expiry.split("-")
+            if len(parts) == 3:
+                exp_short = f"{parts[1]}/{parts[2]}/{parts[0][2:]}"
+        display_symbol = f"{ticker} ${int(strike)}{type_letter} {exp_short}".strip()
+
+        # Display name: "GLD $515 Call 03/19/27"
+        type_word = "Call" if "CALL" in opt_type else "Put" if "PUT" in opt_type else opt_type
+        display_name = f"{description} ${int(strike)} {type_word} {exp_short}".strip()
+
+        units = float(d.get("units", 0) or 0)
+        price_per_share = float(d.get("price", 0) or 0)
+        total_cost = float(d.get("average_purchase_price", 0) or 0)
+
+        # Options: price is per share, each contract = 100 shares
+        multiplier = 1 if opt_sym.get("is_mini_option", False) else 100
+        mkt_val = round(price_per_share * multiplier * units, 2)
+
+        # avg_cost per contract = total_cost / units
+        avg_cost_per_contract = round(total_cost / units, 2) if units else 0
+        cost_basis = total_cost
+        unrealized_pl = round(mkt_val - cost_basis, 2)
+        unrealized_pl_pct = round((unrealized_pl / cost_basis) * 100, 2) if cost_basis else 0
+
+        return {
+            "symbol": display_symbol,
+            "name": display_name,
+            "broker": "WEALTHSIMPLE",
+            "account_id": acct_id,
+            "quantity": units,
+            "avg_cost": avg_cost_per_contract,
+            "current_price": round(price_per_share * multiplier, 2),
+            "market_value": mkt_val,
+            "unrealized_pl": unrealized_pl,
+            "unrealized_pl_pct": unrealized_pl_pct,
+            "daily_pl": 0,
+            "daily_pl_pct": 0,
+            "currency": currency,
+            "sector": "",
+            "asset_class": "option",
+        }
 
     @staticmethod
     def _infer_account_type(name: str) -> str:
