@@ -128,6 +128,9 @@ from ..review_queue.manager import ReviewQueueManager
 from ..portfolio.portfolio_routes import router as portfolio_router, set_portfolio_manager
 from ..portfolio.paper_routes import router as paper_router, set_paper_engine
 
+# Calendar
+from ..calendar.calendar_routes import calendar_router
+
 # Sprint 4 — Council Runner v1
 from ..council_runner.models import CouncilRunRecord, ReplayConfig
 from ..council_runner.agents import run_parallel_council
@@ -409,6 +412,7 @@ app = FastAPI(
 
 app.include_router(portfolio_router)
 app.include_router(paper_router)
+app.include_router(calendar_router)
 
 # Rate limiting middleware
 if _has_slowapi and _limiter:
