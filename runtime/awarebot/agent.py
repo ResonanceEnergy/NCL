@@ -2493,7 +2493,7 @@ Focus on what requires attention or action."""
         # Initial delay — let scan loops stabilize before heavy YTC work
         await self._interruptible_sleep(600)  # 10 min
 
-        ytc_interval = 43200  # 12 hours
+        ytc_interval = 1800  # 30 minutes
 
         while self._running:
             if EMERGENCY_STOP_EVENT.is_set():

@@ -1000,12 +1000,48 @@ async def get_council_session(
         "topic": session.topic,
         "status": session.status.value,
         "responses": session.responses,
+        "rounds": [
+            {
+                "round_number": r.round_number,
+                "round_type": r.round_type,
+                "responses": r.responses,
+                "timestamp": r.timestamp.isoformat(),
+            }
+            for r in session.rounds
+        ],
         "synthesis": session.synthesis,
         "consensus": session.consensus,
+        "dissents": session.dissents,
         "recommendations": session.recommendations,
         "created_at": session.created_at.isoformat(),
         "completed_at": session.completed_at.isoformat() if session.completed_at else None,
     }
+
+
+@app.get("/council/sessions")
+async def list_council_sessions(
+    authorization: str = Header(default=""),
+) -> dict:
+    """List all in-memory Delphi-MAD council sessions."""
+    _verify_strike_token(authorization)
+    if not brain:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+
+    sessions = []
+    for sid, session in brain.council_sessions.items():
+        sessions.append({
+            "session_id": session.session_id,
+            "topic": session.topic,
+            "status": session.status.value,
+            "consensus": session.consensus or "",
+            "member_count": len(session.members),
+            "round_count": len(session.rounds),
+            "created_at": session.created_at.isoformat(),
+            "completed_at": session.completed_at.isoformat() if session.completed_at else None,
+        })
+    # Sort newest first
+    sessions.sort(key=lambda s: s["created_at"], reverse=True)
+    return {"sessions": sessions, "count": len(sessions)}
 
 
 # ── YouTube Council endpoints ─────────────────────────────────────────────
@@ -2466,24 +2502,50 @@ async def list_council_reports(authorization: str = Header(default="")) -> dict:
     if reports_dir:
         try:
             for report_file in sorted(reports_dir.glob("*.md"), reverse=True):
+                fn = report_file.name
                 stat = report_file.stat()
                 # Read first 200 chars as preview
                 try:
                     preview = report_file.read_text()[:200]
                 except Exception as e:
-                    log.debug("Could not read preview for report %s: %s", report_file.name, e)
+                    log.debug("Could not read preview for report %s: %s", fn, e)
                     preview = ""
-                reports.append(
-                    {
-                        "filename": report_file.name,
-                        "path": str(report_file),
-                        "size_bytes": stat.st_size,
-                        "preview": preview,
-                        "modified_at": datetime.fromtimestamp(
-                            stat.st_mtime
-                        ).isoformat(),
-                    }
-                )
+                report_entry = {
+                    "filename": fn,
+                    "path": str(report_file),
+                    "size_bytes": stat.st_size,
+                    "preview": preview,
+                    "modified_at": datetime.fromtimestamp(
+                        stat.st_mtime
+                    ).isoformat(),
+                }
+                # Enrich with JSON companion data if available
+                json_companion = reports_dir / fn.replace(".md", ".json")
+                if not json_companion.exists():
+                    # Also try without the .md part
+                    json_companion = reports_dir / (fn.rsplit(".", 1)[0] + ".json")
+                if json_companion.exists():
+                    try:
+                        jdata = json.loads(json_companion.read_text())
+                        if isinstance(jdata, dict):
+                            report_entry["topic"] = jdata.get("summary", jdata.get("title", jdata.get("session_id", "")))
+                            report_entry["summary"] = jdata.get("summary", "")
+                            report_entry["session_id"] = jdata.get("session_id", "")
+                            report_entry["channel_count"] = jdata.get("channels_analyzed", jdata.get("channel_count", 0))
+                            report_entry["video_count"] = jdata.get("videos_processed", jdata.get("video_count", 0))
+                            # Extract insight topics for better display
+                            insights = jdata.get("insights", [])
+                            if insights and isinstance(insights, list):
+                                topics = []
+                                for ins in insights[:3]:
+                                    if isinstance(ins, dict):
+                                        topics.append(ins.get("title", ins.get("topic", "")))
+                                    elif isinstance(ins, str):
+                                        topics.append(ins[:60])
+                                report_entry["insight_topics"] = [t for t in topics if t]
+                    except Exception:
+                        pass
+                reports.append(report_entry)
         except Exception as e:
             raise HTTPException(
                 status_code=500,
