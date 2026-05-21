@@ -175,19 +175,32 @@ class SnapTradeAdapter:
             raw_name = str(_get("name", acct_id))
             acct_type = self._infer_account_type(raw_name)
 
-            # Extract balance from account data (balance.total.amount)
+            # Fetch actual balance from dedicated endpoint
+            # (list_user_accounts does NOT include balance data)
             net_liq = 0.0
             cash_balance = 0.0
-            balance_obj = _get("balance", {})
-            if isinstance(balance_obj, dict):
-                total_obj = balance_obj.get("total", {})
-                if isinstance(total_obj, dict):
-                    net_liq = float(total_obj.get("amount", 0) or 0)
-            elif balance_obj:
-                total_obj = getattr(balance_obj, "total", None)
-                if total_obj:
-                    net_liq = float(getattr(total_obj, "amount", 0) or 0)
-            cash_balance = net_liq  # SnapTrade reports total balance; positions add market value
+            try:
+                bal_response = await asyncio.to_thread(
+                    self._snap.account_information.get_user_account_balance,
+                    user_id=self.user_id,
+                    user_secret=self.user_secret,
+                    account_id=acct_id,
+                )
+                bal_list = bal_response.body if hasattr(bal_response, "body") else bal_response
+                if not isinstance(bal_list, list):
+                    bal_list = [bal_list] if bal_list else []
+                for bal_item in bal_list:
+                    b = bal_item if isinstance(bal_item, dict) else (bal_item.__dict__ if hasattr(bal_item, "__dict__") else {})
+                    cur = b.get("currency", {})
+                    if isinstance(cur, dict):
+                        cur_code = cur.get("code", "CAD")
+                    else:
+                        cur_code = str(getattr(cur, "code", "CAD"))
+                    amt = float(b.get("cash", 0) or 0)
+                    cash_balance += amt
+                    net_liq += amt
+            except Exception as exc:
+                logger.warning("SnapTrade balance fetch failed for %s: %s", acct_id, exc)
 
             results.append(
                 {
@@ -262,12 +275,18 @@ class SnapTradeAdapter:
                     symbol_info = pos.get("symbol", {})
                     units = float(pos.get("units", 0) or 0)
                     avg_cost = float(pos.get("average_purchase_price", 0) or 0)
+                    current_price_raw = float(pos.get("price", 0) or 0)
                     mkt_val = float(pos.get("market_value", 0) or 0)
+                    if mkt_val == 0 and current_price_raw > 0 and units > 0:
+                        mkt_val = current_price_raw * units
                 else:
                     symbol_info = getattr(pos, "symbol", None) or {}
                     units = float(getattr(pos, "units", 0) or 0)
                     avg_cost = float(getattr(pos, "average_purchase_price", 0) or 0)
+                    current_price_raw = float(getattr(pos, "price", 0) or 0)
                     mkt_val = float(getattr(pos, "market_value", 0) or 0)
+                    if mkt_val == 0 and current_price_raw > 0 and units > 0:
+                        mkt_val = current_price_raw * units
 
                 if isinstance(symbol_info, dict):
                     symbol = symbol_info.get("symbol", "?")
@@ -276,13 +295,29 @@ class SnapTradeAdapter:
                     symbol = str(getattr(symbol_info, "symbol", symbol_info))
                     name = str(getattr(symbol_info, "description", symbol))
 
-                # Derive current price from market_value / units
-                current_price = round(mkt_val / units, 4) if units else 0
+                # Safety: SnapTrade SDK may return nested objects instead of strings
+                if not isinstance(symbol, str):
+                    symbol = str(getattr(symbol, "symbol", None) or getattr(symbol, "raw_symbol", None) or symbol)
+                if len(symbol) > 20:
+                    # Still got an object repr — try to extract ticker
+                    import re
+                    m = re.search(r"'symbol':\s*'([^']+)'", symbol)
+                    symbol = m.group(1) if m else symbol[:10]
+
+                # Derive current price — prefer raw price field, fall back to mkt_val / units
+                current_price = current_price_raw if current_price_raw > 0 else (round(mkt_val / units, 4) if units else 0)
                 cost_basis = avg_cost * units
                 unrealized_pl = round(mkt_val - cost_basis, 2)
                 unrealized_pl_pct = (
                     round((unrealized_pl / cost_basis) * 100, 2) if cost_basis else 0
                 )
+
+                # Currency may be a nested object, not a plain string
+                pos_currency = pos.get("currency", "CAD") if isinstance(pos, dict) else getattr(pos, "currency", "CAD")
+                if isinstance(pos_currency, dict):
+                    pos_currency = pos_currency.get("code", "CAD")
+                elif not isinstance(pos_currency, str):
+                    pos_currency = str(getattr(pos_currency, "code", "CAD"))
 
                 results.append(
                     {
@@ -298,7 +333,7 @@ class SnapTradeAdapter:
                         "unrealized_pl_pct": unrealized_pl_pct,
                         "daily_pl": 0,
                         "daily_pl_pct": 0,
-                        "currency": "CAD",
+                        "currency": pos_currency,
                         "sector": "",
                         "asset_class": "equity",
                     }

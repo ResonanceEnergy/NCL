@@ -9,6 +9,7 @@ Env config: MOOMOO_HOST, MOOMOO_PORT, MOOMOO_TRADE_ENV, MOOMOO_MARKET, MOOMOO_SE
 import asyncio
 import logging
 import os
+import re
 import socket
 from datetime import datetime, timezone
 from pathlib import Path
@@ -172,7 +173,8 @@ class MoomooAdapter:
             "cash_balance": cash,
             "buying_power": buying_power,
             "unrealized_pl": unrealized,
-            "daily_pl": realized if realized else 0.0,
+            # No true daily P&L field from Moomoo accinfo; realized_pl is cumulative, not daily
+            "daily_pl": 0.0,
             "connected": True,
             "last_sync": self._last_sync,
         }]
@@ -207,7 +209,31 @@ class MoomooAdapter:
             if qty == 0:
                 continue
             symbol = _moomoo_to_ticker(str(row.get("code", "")))
+
+            # -- current price: prefer price field, then nominal_price, then derive from market_val
+            current_price = float(row.get("price", 0) or 0)
+            if current_price == 0:
+                current_price = float(row.get("nominal_price", 0) or 0)
+            market_value = float(row.get("market_val", 0) or 0)
+            if current_price == 0 and qty != 0 and market_value != 0:
+                current_price = market_value / qty
+
+            # -- avg cost: prefer cost_price, then derive from cost basis fields
             cost = float(row.get("cost_price", 0) or 0)
+            if cost == 0 and qty != 0:
+                cost_basis = float(row.get("cost_val", 0) or 0)
+                if cost_basis != 0:
+                    cost = cost_basis / qty
+
+            # -- asset class: detect options via sec_type or symbol pattern
+            sec_type = str(row.get("sec_type", "")).upper()
+            if sec_type in ("OPT", "OPTION", "DRVT"):
+                asset_class = "option"
+            elif re.match(r'^[A-Z]+\d{6}[CP]\d+$', symbol):
+                asset_class = "option"
+            else:
+                asset_class = "equity"
+
             pl_ratio = float(row.get("pl_ratio", 0) or 0)
             unrealized_pct = pl_ratio * 100 if abs(pl_ratio) < 1 else pl_ratio
             today_pl = float(row.get("today_pl_val", 0) or 0)
@@ -220,15 +246,15 @@ class MoomooAdapter:
                 "account_id": account_id,
                 "quantity": qty,
                 "avg_cost": cost,
-                "current_price": float(row.get("nominal_price", 0) or 0),
-                "market_value": float(row.get("market_val", 0) or 0),
+                "current_price": current_price,
+                "market_value": market_value,
                 "unrealized_pl": float(row.get("pl_val", 0) or 0),
                 "unrealized_pl_pct": unrealized_pct,
                 "daily_pl": today_pl,
                 "daily_pl_pct": today_pl_pct,
                 "currency": self._currency,
                 "sector": "",
-                "asset_class": "equity",
+                "asset_class": asset_class,
             })
         return positions
 

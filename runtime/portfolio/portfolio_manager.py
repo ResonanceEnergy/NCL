@@ -40,7 +40,7 @@ _SNAPSHOT_FILE = _DATA_DIR / "snapshots.jsonl"
 
 # FX cache duration
 _FX_CACHE_SECONDS = 86_400  # 24 h
-_FX_FALLBACK_RATE = 0.72  # USD→CAD fallback if Bank of Canada API fails
+_FX_FALLBACK_RATE = 1.3750  # USD→CAD fallback if Bank of Canada API fails
 
 # Bank of Canada Valet API for USD/CAD
 _FX_URL = "https://www.bankofcanada.ca/valet/observations/FXUSDCAD/json?recent=1"
