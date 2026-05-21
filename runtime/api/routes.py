@@ -5318,7 +5318,7 @@ async def autonomous_loops(authorization: str = Header(default="")) -> dict:
          "description": "Daily 10pm ET journal synthesis with intel patterns"},
         {"name": "Night Watch", "id": "ncl-night-watch",
          "interval": 0, "enabled": True,
-         "description": "Nightly 2am ET health audit — checks all services, loops, staleness, costs, connectivity, disk space"},
+         "description": "Nightly 2am ET health audit — deterministic checks (services, loops, staleness, costs, connectivity, disk) + LLM analyst phase (Haiku triage + Sonnet synthesis → daily brief pushed via ntfy)"},
         {"name": "Mandate Purge", "id": "ncl-mandate-purge",
          "interval": 21600, "enabled": True,
          "description": "Purges stale mandates every 6 hours to prevent state explosion"},
