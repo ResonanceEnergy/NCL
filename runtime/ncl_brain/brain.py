@@ -76,7 +76,6 @@ from .models import (
 from .council import CouncilEngine
 from ..memory import MemoryStore
 from ..awarebot import Scanner, FuturePredictor
-from ..paperclip_adapter import PaperclipClient
 from ..swarm.orchestrator import SwarmOrchestrator
 from ..swarm.llm_router import LLMRouter
 from ..swarm.blackboard import Blackboard
@@ -178,8 +177,6 @@ class NCLBrain:
         reddit_client_id: Optional[str] = None,
         reddit_client_secret: Optional[str] = None,
         ollama_host: str = "localhost:11434",
-        paperclip_host: str = "localhost",
-        paperclip_port: int = 8787,
         policy_kernel: Optional[object] = None,
         emergency_stop: Optional[object] = None,
     ) -> None:
@@ -199,8 +196,6 @@ class NCLBrain:
             reddit_client_id: Reddit OAuth client ID
             reddit_client_secret: Reddit OAuth client secret
             ollama_host: Ollama server host:port
-            paperclip_host: Paperclip server hostname
-            paperclip_port: Paperclip server port
         """
         self.data_dir = Path(data_dir).expanduser()
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -216,11 +211,10 @@ class NCLBrain:
         self._events_file_max_bytes = 100 * 1024 * 1024  # 100 MB
         self._events_rotate_backups = 5
 
-        # Initialize Paperclip first (needed by council engine)
-        _pc_base = f"http://{paperclip_host}:{paperclip_port}" if paperclip_host else None
-        self.paperclip = PaperclipClient(
-            base_url=_pc_base,
-        )
+        # Paperclip adapter removed — never deployed a real backend.
+        # Brain runs in degraded mode (in-memory cost tracking, no audit trail).
+        # Council paperclip_client=None disables all Paperclip calls (guard checks).
+        self.paperclip = None
 
         # Initialize subsystems
         self.council_engine = CouncilEngine(
@@ -232,7 +226,7 @@ class NCLBrain:
             openai_api_key=openai_api_key,
             copilot_api_key=copilot_api_key,
             ollama_host=ollama_host,
-            paperclip_client=self.paperclip,  # Inject Paperclip into council
+            paperclip_client=None,
         )
 
         self.memory_store = MemoryStore(self.data_dir)
@@ -248,6 +242,7 @@ class NCLBrain:
             claude_api_key=claude_api_key,
             anthropic_base_url=anthropic_base_url,
             ollama_host=ollama_host,
+            accuracy_file=Path(data_dir).expanduser() / "predictions" / "accuracy.jsonl",
         )
 
         # MWP output directories for stage handoffs (Jake Van Clief protocol)
@@ -303,86 +298,11 @@ class NCLBrain:
         # Start periodic cleanup for zombie council sessions (every 15 min)
         self._cleanup_task = asyncio.create_task(self._periodic_council_cleanup())
 
-        # Register with Paperclip (skip entirely if explicitly disabled)
+        # Paperclip integration removed — never deployed a real backend.
+        # Health endpoint still reports paperclip_connected: False as a status indicator.
         self._paperclip_connected = False
-        if os.getenv("PAPERCLIP_HOST", "localhost") == "":
-            log.info("Paperclip disabled (PAPERCLIP_HOST=\"\") \u2014 skipping registration")
-            await self._log_event("startup", "NCL brain initialized, Paperclip disabled by config")
-            return
-        try:
-            # If company ID is already configured, skip registration — just verify connectivity
-            if self.paperclip.company_id:
-                healthy = await self.paperclip.health_check()
-                if healthy:
-                    self._paperclip_connected = True
-                    log.info(
-                        "Paperclip connected (pre-configured company: %s)",
-                        self.paperclip.company_id,
-                    )
-                else:
-                    log.warning("Paperclip health check failed at startup")
-            else:
-                # No company configured — register fresh
-                company_id = await self.paperclip.register_company()
-                await self.paperclip.register_agent("NCL", "Think, Research, Plan, Decide", "brain")
-                await self.paperclip.register_agent("UNI", "Research cortex", "research")
-                await self.paperclip.register_agent("Awarebot-FPC", "Scanner + predictor", "intelligence")
-                await self.paperclip.register_agent("Strategy", "Mandate generation", "strategy")
-                await self.paperclip.register_agent("Memory", "Living context", "memory")
-                await self._set_budget_policies()
-                self._paperclip_connected = True
-            log.info("NCL brain initialized — Paperclip connected, budgets set")
-            await self._log_event("startup", "NCL brain initialized, Paperclip connected, budgets configured")
-        except Exception as e:
-            log.warning(f"Paperclip registration failed (non-fatal, will retry): {e}")
-            await self._log_event("startup_warning", f"Paperclip unavailable: {e}")
-
-    async def _set_budget_policies(self) -> None:
-        """
-        Set per-agent budget policies in Paperclip on startup.
-
-        Budget allocation from NCL contract ($1,070/month total):
-        - NCL agents: 10% ($107/month → 10700¢)
-        - NCC (execution): 30% ($321/month → 32100¢)
-        - BRS (revenue): 40% ($428/month → 42800¢)
-        - AAC (capital): 20% ($214/month → 21400¢)
-
-        Uses POST /api/companies/:companyId/budgets/policies
-        """
-        paperclip_url = os.getenv("PAPERCLIP_URL", "http://localhost:3100")
-        company_id = os.getenv("PAPERCLIP_COMPANY_ID", "")
-        if not company_id:
-            log.warning("[budget] No PAPERCLIP_COMPANY_ID, skipping budget policies")
-            return
-
-        # Agent budgets (scopeType: "agent", amount in cents per month)
-        agent_budgets = {
-            "NCL": 10700,        # $107/month — brain operations
-            "UNI": 5000,         # $50/month — research cortex
-            "Awarebot-FPC": 3000,  # $30/month — scanner
-            "Strategy": 2000,    # $20/month — mandate generation
-            "Memory": 700,       # $7/month — context storage
-        }
-
-        client = await _get_brain_http_client()
-        for agent_name, budget_cents in agent_budgets.items():
-            try:
-                resp = await client.post(
-                    f"{paperclip_url}/api/companies/{company_id}/budgets/policies",
-                    json={
-                        "scopeType": "agent",
-                        "scopeId": agent_name,
-                        "amount": budget_cents,
-                        "windowKind": "calendar_month",
-                    },
-                    timeout=10.0,
-                )
-                if resp.status_code < 400:
-                    log.info(f"[budget] Set {agent_name} budget: {budget_cents}¢/month")
-                else:
-                    log.warning(f"[budget] Failed to set {agent_name} budget: {resp.status_code}")
-            except Exception as e:
-                log.warning(f"[budget] Budget policy error for {agent_name}: {e}")
+        log.info("NCL brain initialized (Paperclip adapter removed — degraded mode)")
+        await self._log_event("startup", "NCL brain initialized (Paperclip adapter removed)")
 
     async def receive_pump_prompt(self, prompt: PumpPrompt, auto_flow: bool = True) -> dict:
         """
@@ -1170,25 +1090,11 @@ class NCLBrain:
             self.mandates[mandate.mandate_id] = mandate
             await self._persist_mandates_unlocked()
 
-        # Create issue in Paperclip
-        try:
-            issue_id = await self.paperclip.create_mandate_as_issue(
-                mandate_id=mandate.mandate_id,
-                pillar=mandate.pillar.value,
-                title=mandate.title,
-                objective=mandate.objective,
-                priority="high" if mandate.priority >= 7 else "medium" if mandate.priority >= 4 else "low",
-                assigned_agent_id=None,
-                success_criteria=mandate.success_criteria,
-                deadline=mandate.deadline.isoformat() if mandate.deadline else None,
-            )
-            await self._log_event(
-                "mandate_created",
-                f"Mandate {mandate.mandate_id} for {pillar.value}",
-                {"mandate_id": mandate.mandate_id, "issue_id": issue_id, "priority": priority},
-            )
-        except Exception as e:
-            await self._log_event("mandate_error", f"Failed to create Paperclip issue: {e}")
+        await self._log_event(
+            "mandate_created",
+            f"Mandate {mandate.mandate_id} for {pillar.value}",
+            {"mandate_id": mandate.mandate_id, "priority": priority},
+        )
 
         return mandate
 
@@ -1718,7 +1624,6 @@ class NCLBrain:
         await self.council_engine.close()
         await self.scanner.close()
         await self.predictor.close()
-        await self.paperclip.close()
 
     async def _log_event(
         self,
@@ -1775,22 +1680,6 @@ class NCLBrain:
         # Write v1 schema to NDJSON (backwards-compatible dict format)
         async with aiofiles.open(self.events_file, "a") as f:
             await f.write(ncl_event.to_ndjson() + "\n")
-
-        # Log to Paperclip (best-effort; do not raise into caller)
-        try:
-            await self.paperclip.log_activity(
-                action=event_type,
-                entity_type=description,
-                agent_name="NCL",
-                details=metadata,
-            )
-        except Exception as exc:
-            # Avoid log spam when Paperclip is offline; rate-limited via _paperclip_connected
-            if getattr(self, "_paperclip_connected", False):
-                log.warning(f"[paperclip] log_activity failed: {exc}")
-                # Don't flip _paperclip_connected to False here — log_activity
-                # uses the cost-events endpoint, which can 400 due to schema
-                # mismatches independent of the underlying TCP connectivity.
 
         return ncl_event.event_id
 

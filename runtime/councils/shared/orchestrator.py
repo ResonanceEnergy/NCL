@@ -265,7 +265,14 @@ async def _call_claude(system: str, prompt: str, temperature: float = 0.3, max_t
     anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
     if not anthropic_key:
         return ""
+
+    from ...cost_tracker import check_budget, record_cost
+    if not await check_budget("anthropic", 0.25):
+        log.warning("Anthropic daily budget exceeded — orchestrator call blocked")
+        return ""
+
     try:
+        model = os.getenv("COUNCIL_CLAUDE_MODEL", "claude-sonnet-4-20250514")
         client = await _get_claude_client()
         resp = await client.post(
             "https://api.anthropic.com/v1/messages",
@@ -275,7 +282,7 @@ async def _call_claude(system: str, prompt: str, temperature: float = 0.3, max_t
                 "content-type": "application/json",
             },
             json={
-                "model": os.getenv("COUNCIL_CLAUDE_MODEL", "claude-sonnet-4-20250514"),
+                "model": model,
                 "max_tokens": max_tokens,
                 "system": system,
                 "messages": [{"role": "user", "content": prompt}],
@@ -283,7 +290,17 @@ async def _call_claude(system: str, prompt: str, temperature: float = 0.3, max_t
             },
         )
         resp.raise_for_status()
-        return resp.json()["content"][0]["text"]
+        data = resp.json()
+
+        usage = data.get("usage", {})
+        input_t = usage.get("input_tokens", 0)
+        output_t = usage.get("output_tokens", 0)
+        cost = (input_t / 1000 * 0.003) + (output_t / 1000 * 0.015)
+        await record_cost("anthropic", cost, "orchestrator",
+                          f"{model} in={input_t} out={output_t}",
+                          model=model, input_tokens=input_t, output_tokens=output_t)
+
+        return data["content"][0]["text"]
     except Exception as e:
         log.warning(f"Claude call failed: {e}")
         return ""
@@ -294,7 +311,14 @@ async def _call_grok(system: str, prompt: str, temperature: float = 0.5, max_tok
     xai_key = os.getenv("XAI_API_KEY", "")
     if not xai_key:
         return ""
+
+    from ...cost_tracker import check_budget, record_cost
+    if not await check_budget("xai", 0.10):
+        log.warning("xAI daily budget exceeded — orchestrator call blocked")
+        return ""
+
     try:
+        model = os.getenv("COUNCIL_GROK_MODEL", "grok-4")
         client = await _get_grok_client()
         resp = await client.post(
             "https://api.x.ai/v1/chat/completions",
@@ -303,7 +327,7 @@ async def _call_grok(system: str, prompt: str, temperature: float = 0.5, max_tok
                 "Content-Type": "application/json",
             },
             json={
-                "model": os.getenv("COUNCIL_GROK_MODEL", "grok-4"),
+                "model": model,
                 "messages": [
                     {"role": "system", "content": system},
                     {"role": "user", "content": prompt},
@@ -313,7 +337,17 @@ async def _call_grok(system: str, prompt: str, temperature: float = 0.5, max_tok
             },
         )
         resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
+        data = resp.json()
+
+        usage = data.get("usage", {})
+        input_t = usage.get("prompt_tokens", 0)
+        output_t = usage.get("completion_tokens", 0)
+        cost = (input_t / 1000 * 0.005) + (output_t / 1000 * 0.015)
+        await record_cost("xai", cost, "orchestrator",
+                          f"{model} in={input_t} out={output_t}",
+                          model=model, input_tokens=input_t, output_tokens=output_t)
+
+        return data["choices"][0]["message"]["content"]
     except Exception as e:
         log.warning(f"Grok call failed: {e}")
         return ""

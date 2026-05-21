@@ -20,7 +20,7 @@ import logging
 import logging.handlers
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -212,30 +212,113 @@ async def _auto_ingest_report(report: CouncilReport) -> None:
         log.warning(f"[AUTO-INGEST] Individual insight storage failed: {e}")
 
 
+def _load_previously_analyzed_video_ids(days: int = 7) -> set[str]:
+    """Load video IDs from recent YTC report JSONs to avoid re-analyzing them.
+
+    Scans council-reports/ for YouTube council JSON files from the last N days.
+    Only videos analyzed within the `days` window are skipped — older entries
+    are allowed to be re-analyzed.
+    """
+    from .shared.report_writer import REPORTS_DIR
+    seen: set[str] = set()
+    if not REPORTS_DIR.exists():
+        return seen
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    try:
+        for f in sorted(REPORTS_DIR.glob("youtube-council-*.json"), reverse=True):
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+                # Check report timestamp against the days cutoff
+                report_ts = data.get("timestamp", "")
+                if report_ts:
+                    try:
+                        report_dt = datetime.fromisoformat(report_ts.replace("Z", "+00:00"))
+                        if report_dt < cutoff:
+                            # This report (and all older ones) are outside the window
+                            break
+                    except (ValueError, TypeError):
+                        pass
+                else:
+                    # No timestamp — try to infer from filename (youtube-council-YYYYMMDD-HHMMSS)
+                    try:
+                        name_parts = f.stem.split("-")
+                        # Expected: youtube-council-YYYYMMDD-HHMMSS-...
+                        if len(name_parts) >= 4:
+                            date_str = name_parts[2]
+                            file_dt = datetime.strptime(date_str, "%Y%m%d").replace(tzinfo=timezone.utc)
+                            if file_dt < cutoff:
+                                break
+                    except (ValueError, IndexError):
+                        pass
+
+                for vid in data.get("videos", []):
+                    vid_id = vid.get("video_id", "")
+                    if vid_id:
+                        seen.add(vid_id)
+            except Exception:
+                continue
+    except Exception as e:
+        log.warning(f"Could not load previous video IDs for dedup: {e}")
+    if seen:
+        log.info(f"Dedup: loaded {len(seen)} previously analyzed video IDs (last {days} days)")
+    return seen
+
+
 async def run_youtube_council(
     session_id: str,
     dry_run: bool = False,
+    progress_cb: object | None = None,
 ) -> CouncilReport | None:
-    """Run the full YouTube Council pipeline. Returns report for War Room."""
+    """Run the full YouTube Council pipeline. Returns report for War Room.
+
+    Args:
+        progress_cb: Optional callable(step: str, **kwargs) to report progress.
+                     Called with step name and optional videos_found, videos_transcribed, etc.
+    """
     from .youtube.scraper import scrape_recent_videos, download_batch
-    from .youtube.transcriber import transcribe_batch
-    from .youtube.analyzer import analyze_videos
+    from .youtube.transcriber import transcribe_batch, cleanup_old_audio
     from .shared.report_writer import write_report
+    from .shared.models import CouncilReport
+
+    def _progress(step: str, **kwargs):
+        if progress_cb is not None:
+            try:
+                progress_cb(step, **kwargs)
+            except Exception:
+                pass
 
     log.info("=" * 60)
     log.info("  YOUTUBE COUNCIL — Starting session")
     log.info("=" * 60)
 
+    # Cleanup old audio files to prevent unbounded disk growth
+    try:
+        cleanup_old_audio()
+    except Exception as e:
+        log.warning(f"Audio cleanup failed (non-fatal): {e}")
+
     # Step 1: Scrape channel metadata (with Strike Point scoring)
-    # scrape_recent_videos() uses time.sleep() for polite rate limiting, so
-    # it is run in a thread pool to avoid blocking the event loop.
+    _progress("scraping")
     log.info("Step 1/4: Scraping channel feeds (Strike Point targeting)...")
     videos = await asyncio.to_thread(scrape_recent_videos)
     if not videos:
         log.warning("No recent videos found — YouTube Council has nothing to process")
         return None
 
-    log.info(f"Found {len(videos)} videos in the last 24 hours")
+    # Dedup: skip videos already analyzed in previous runs
+    already_seen = _load_previously_analyzed_video_ids()
+    if already_seen:
+        before = len(videos)
+        videos = [v for v in videos if v.get("video_id", v.get("id", "")) not in already_seen]
+        skipped = before - len(videos)
+        if skipped:
+            log.info(f"Dedup: skipped {skipped} previously analyzed videos, {len(videos)} remaining")
+        if not videos:
+            log.info("All recent videos already analyzed — nothing new to process")
+            return None
+
+    log.info(f"Found {len(videos)} new videos to analyze")
+    _progress("downloading", videos_found=len(videos))
 
     if dry_run:
         log.info("[DRY RUN] Skipping download, transcription, and analysis")
@@ -245,7 +328,6 @@ async def run_youtube_council(
         return None
 
     # Step 2: Download audio
-    # download_batch() does blocking yt-dlp I/O; run in thread pool.
     log.info("Step 2/4: Downloading audio...")
     downloaded = await asyncio.to_thread(download_batch, videos)
     if not downloaded:
@@ -253,7 +335,7 @@ async def run_youtube_council(
         return None
 
     # Step 3: Transcribe
-    # transcribe_batch() does blocking Whisper inference; run in thread pool.
+    _progress("transcribing", videos_found=len(videos), videos_transcribed=0)
     log.info("Step 3/4: Transcribing audio...")
     transcribed = await asyncio.to_thread(transcribe_batch, downloaded)
     if not transcribed:
@@ -262,24 +344,70 @@ async def run_youtube_council(
 
     total_duration = sum(t.duration_seconds for _, t in transcribed)
     log.info(f"Transcribed {len(transcribed)} videos ({total_duration / 3600:.1f}h)")
+    _progress("analyzing", videos_found=len(videos), videos_transcribed=len(transcribed))
 
-    # Step 4: Analyze with AI council
-    log.info("Step 4/4: Running AI analysis...")
-    report = await analyze_videos(transcribed, session_id)
+    # Step 4: Per-video AI analysis (one report per video)
+    from .youtube.analyzer import analyze_single_video, synthesize_rollup
+    log.info(f"Step 4/5: Running per-video AI analysis on {len(transcribed)} videos...")
+    per_video_reports: list[CouncilReport] = []
 
-    # Save report
-    md_path, json_path = write_report(report)
-    log.info(f"YouTube Council report saved:")
+    # Concurrency-limited per-video analysis (max 3 concurrent API calls)
+    sem = asyncio.Semaphore(3)
+
+    async def _analyze_one(video_info: dict, transcript, idx: int):
+        async with sem:
+            vid_id = video_info.get("video_id", f"vid{idx}")
+            vid_session = f"{session_id}-{vid_id}"
+            log.info(f"  Analyzing [{idx + 1}/{len(transcribed)}]: {video_info.get('title', 'Untitled')}")
+            _progress("analyzing_video", video_index=idx + 1, video_total=len(transcribed),
+                       video_title=video_info.get("title", ""))
+            try:
+                report = await analyze_single_video(video_info, transcript, vid_session)
+                # Save individual report
+                vid_md, vid_json = write_report(report)
+                log.info(f"  Per-video report saved: {vid_md.name}")
+                # Ingest individual report into memory
+                await _auto_ingest_report(report)
+                return report
+            except Exception as e:
+                log.error(f"  Analysis failed for '{video_info.get('title', '')}': {e}", exc_info=True)
+                return None
+
+    tasks = [
+        _analyze_one(video_info, transcript, i)
+        for i, (video_info, transcript) in enumerate(transcribed)
+    ]
+    results = await asyncio.gather(*tasks)
+    per_video_reports = [r for r in results if r is not None]
+
+    if not per_video_reports:
+        log.warning("All per-video analyses failed — no reports generated")
+        return None
+
+    log.info(f"Per-video analysis complete: {len(per_video_reports)}/{len(transcribed)} succeeded")
+
+    # Step 5: Cross-video rollup synthesis
+    log.info("Step 5/5: Synthesizing cross-video rollup...")
+    _progress("synthesizing_rollup")
+    rollup = await synthesize_rollup(per_video_reports, session_id)
+
+    # Save rollup as the main session report
+    md_path, json_path = write_report(rollup)
+    log.info(f"YouTube Council rollup saved:")
     log.info(f"  Markdown: {md_path}")
     log.info(f"  JSON: {json_path}")
-    log.info(f"  Insights: {len(report.insights)}")
-    log.info(f"  Videos processed: {report.sources_processed}")
-    log.info(f"  Total duration: {report.total_duration_hours:.1f}h")
+    log.info(f"  Total insights: {len(rollup.insights)}")
+    log.info(f"  Videos processed: {rollup.sources_processed}")
+    log.info(f"  Total duration: {rollup.total_duration_hours:.1f}h")
+    log.info(f"  Per-video reports: {len(per_video_reports)}")
 
-    # Auto-ingest into ChromaDB vector store + long-term memory
-    await _auto_ingest_report(report)
+    # Auto-ingest rollup
+    await _auto_ingest_report(rollup)
 
-    return report
+    # Attach per-video reports to rollup for callers that need them
+    rollup._per_video_reports = per_video_reports  # type: ignore[attr-defined]
+
+    return rollup
 
 
 async def run_x_council(

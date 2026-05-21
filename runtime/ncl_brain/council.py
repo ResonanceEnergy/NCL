@@ -724,6 +724,11 @@ class CouncilEngine:
         api_key = self.claude_api_key
         if not api_key:
             raise ValueError("Anthropic API key not configured")
+
+        from ..cost_tracker import check_budget, record_cost
+        if not await check_budget("anthropic", 0.25):
+            raise RuntimeError("Anthropic daily budget exceeded — council call blocked")
+
         try:
             resp = await self.http_client.post(
                 f"{self.anthropic_base_url}/v1/messages",
@@ -748,12 +753,27 @@ class CouncilEngine:
         content = data.get("content", [])
         if not content or not isinstance(content, list):
             raise ValueError(f"Unexpected Claude response: {list(data.keys())}")
+
+        # Record cost
+        usage = data.get("usage", {})
+        input_t = usage.get("input_tokens", 0)
+        output_t = usage.get("output_tokens", 0)
+        cost = (input_t / 1000 * 0.003) + (output_t / 1000 * 0.015)
+        await record_cost("anthropic", cost, "council_run",
+                          f"claude-sonnet in={input_t} out={output_t}",
+                          model="claude-sonnet-4-20250514", input_tokens=input_t, output_tokens=output_t)
+
         return content[0].get("text", "")
 
     async def _call_grok(self, prompt: str) -> str:
         api_key = self.xai_api_key
         if not api_key:
             raise ValueError("xAI API key not configured")
+
+        from ..cost_tracker import check_budget, record_cost
+        if not await check_budget("xai", 0.10):
+            raise RuntimeError("xAI daily budget exceeded — council call blocked")
+
         try:
             resp = await self.http_client.post(
                 "https://api.x.ai/v1/chat/completions",
@@ -761,7 +781,7 @@ class CouncilEngine:
                 json={
                     "model": "grok-3",
                     "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.8,  # Slightly higher for strategist boldness
+                    "temperature": 0.8,
                     "max_tokens": 2048,
                 },
                 timeout=self._api_timeout,
@@ -775,12 +795,26 @@ class CouncilEngine:
         choices = data.get("choices", [])
         if not choices:
             raise ValueError(f"Grok returned no choices: {list(data.keys())}")
+
+        usage = data.get("usage", {})
+        input_t = usage.get("prompt_tokens", 0)
+        output_t = usage.get("completion_tokens", 0)
+        cost = (input_t / 1000 * 0.005) + (output_t / 1000 * 0.015)
+        await record_cost("xai", cost, "council_run",
+                          f"grok-3 in={input_t} out={output_t}",
+                          model="grok-3", input_tokens=input_t, output_tokens=output_t)
+
         return choices[0].get("message", {}).get("content", "")
 
     async def _call_gemini(self, prompt: str) -> str:
         api_key = self.google_api_key
         if not api_key:
             raise ValueError("Google API key not configured")
+
+        from ..cost_tracker import check_budget, record_cost
+        if not await check_budget("google", 0.10):
+            raise RuntimeError("Google daily budget exceeded — council call blocked")
+
         try:
             resp = await self.http_client.post(
                 "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
@@ -800,6 +834,16 @@ class CouncilEngine:
         parts = candidates[0].get("content", {}).get("parts", [])
         if not parts:
             raise ValueError("Gemini candidate has no content parts")
+
+        # Gemini usage metadata
+        usage_meta = data.get("usageMetadata", {})
+        input_t = usage_meta.get("promptTokenCount", 0)
+        output_t = usage_meta.get("candidatesTokenCount", 0)
+        cost = (input_t / 1000 * 0.001) + (output_t / 1000 * 0.004)  # Gemini Flash pricing
+        await record_cost("google", cost, "council_run",
+                          f"gemini-2.5-flash in={input_t} out={output_t}",
+                          model="gemini-2.5-flash", input_tokens=input_t, output_tokens=output_t)
+
         return parts[0].get("text", "")
 
     async def _call_perplexity(self, prompt: str) -> str:

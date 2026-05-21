@@ -366,3 +366,10 @@ Resolved anomalies older than 30 days are moved to `/NCL/shared/intelligence/arc
 ## 2026-05-16 03:14:21Z — 1 anomalies
 - **[reddit/gme_intel/bearish]** (95%) GME vs. GMEBAY - The funding problem, the dilution math, and what could happen when RC makes a new proposal
 
+## 2026-05-20 05:23:40Z — 2 anomalies
+- **[market_data/insider_cluster/bearish]** (92%) AAOI insider cluster: 5 insiders, net -5 ($-31,708,486)
+- **[market_data/insider_cluster/bearish]** (92%) ARTV insider cluster: 5 insiders, net -5 ($-477,890)
+
+## 2026-05-21 01:54:01Z — 1 anomalies
+- **[reddit/retail_yolo/bullish]** (95%) NVDA earnings 600k yolo
+

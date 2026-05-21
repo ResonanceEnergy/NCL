@@ -100,6 +100,61 @@ Output your analysis as JSON matching this exact schema:
   "content_opportunities": "string"
 }"""
 
+SINGLE_VIDEO_SYSTEM_PROMPT = """You are the YouTube Council Analyst for NARTIX — Resonance Energy studio.
+
+Your job: deeply analyze a SINGLE transcribed YouTube video and extract every actionable insight.
+
+Produce:
+1. **Executive Summary** — 2-3 sentence overview of the video's content and significance
+2. **Key Insights** — Extract ALL meaningful insights. Each must have:
+   - title: concise headline
+   - description: 2-3 sentences explaining the insight
+   - category: one of [content, market, geopolitical, tech, music, culture, alt-science, gaming]
+   - confidence: 0.0-1.0 how confident you are in this insight
+   - tags: relevant keywords for convergence detection
+   - actionable: true/false — can NATRIX act on this?
+   - action_suggestion: if actionable, what should be done?
+3. **Key Quotes** — 2-5 notable direct quotes from the video with timestamps
+4. **Content Assessment** — quality, credibility, and relevance to NATRIX operations
+
+Be thorough — this is a deep-dive on a single video. Extract more insights than you would in a batch. Every claim, data point, prediction, and recommendation is worth capturing.
+
+Output your analysis as JSON matching this exact schema:
+{
+  "summary": "string",
+  "insights": [
+    {
+      "title": "string",
+      "description": "string",
+      "category": "content|market|geopolitical|tech|music|culture|alt-science|gaming",
+      "confidence": 0.85,
+      "tags": ["tag1", "tag2"],
+      "actionable": true,
+      "action_suggestion": "string or empty"
+    }
+  ],
+  "key_quotes": "string",
+  "content_assessment": "string"
+}"""
+
+ROLLUP_SYSTEM_PROMPT = """You are the YouTube Council Analyst for NARTIX — Resonance Energy studio.
+
+You have already analyzed each video individually. Now synthesize cross-video patterns.
+
+Given summaries and insights from multiple individual video analyses, produce:
+1. **Executive Summary** — 2-3 sentence overview of ALL content processed in this session
+2. **Cross-Video Patterns** — themes, contradictions, or convergence across videos
+3. **Content Opportunities** — ideas for NATRIX content based on gaps or trends
+4. **Convergence Signals** — where 2+ videos agree on a trend, prediction, or shift
+
+Output your analysis as JSON:
+{
+  "summary": "string",
+  "cross_video_patterns": "string",
+  "content_opportunities": "string",
+  "convergence_signals": "string"
+}"""
+
 
 async def analyze_videos(
     transcribed: list[tuple[dict, Transcript]],
@@ -119,7 +174,14 @@ async def analyze_videos(
             summary="No videos available for analysis.",
         )
 
-    # Build the analysis prompt with all transcripts
+    # Build the analysis prompt with all transcripts.
+    # Dynamically allocate transcript budget based on video count to stay
+    # within ~150K chars total prompt (safe for 200K-token context models).
+    # Old value was 8,000 chars — that lost 50-70% of most videos.
+    TOTAL_TRANSCRIPT_BUDGET = 150_000  # chars across all videos
+    n_videos = len(transcribed)
+    per_video_budget = max(12_000, TOTAL_TRANSCRIPT_BUDGET // max(n_videos, 1))
+
     prompt_parts = []
     videos: list[VideoMeta] = []
     total_duration = 0.0
@@ -148,9 +210,10 @@ async def analyze_videos(
         prompt_parts.append(f"URL: {vid.url}")
         if vid.description:
             prompt_parts.append(f"Description: {vid.description[:300]}")
-        prompt_parts.append(f"\n### Transcript:\n{transcript.timestamped_text[:8000]}")
-        if len(transcript.timestamped_text) > 8000:
-            prompt_parts.append(f"\n[...transcript truncated, {len(transcript.segments)} total segments...]")
+        text = transcript.timestamped_text
+        prompt_parts.append(f"\n### Transcript:\n{text[:per_video_budget]}")
+        if len(text) > per_video_budget:
+            prompt_parts.append(f"\n[...transcript truncated at {per_video_budget} chars, {len(transcript.segments)} total segments...]")
 
     user_prompt = (
         f"Analyze the following {len(transcribed)} YouTube videos "
@@ -160,6 +223,21 @@ async def analyze_videos(
 
     # Call the AI model
     raw_response = await _call_model(user_prompt)
+
+    # Guard: if all model providers failed, don't save a garbage report
+    if not raw_response:
+        log.warning(
+            "All AI providers returned empty responses — skipping report generation "
+            f"for session {session_id} ({len(transcribed)} videos)"
+        )
+        return CouncilReport(
+            council_type=CouncilSource.YOUTUBE,
+            session_id=session_id,
+            sources_processed=len(transcribed),
+            total_duration_hours=total_duration / 3600,
+            summary="Analysis failed — all AI providers returned empty responses.",
+            videos=videos,
+        )
 
     # Parse structured response
     insights, summary, raw_analysis = _parse_analysis(raw_response)
@@ -182,7 +260,196 @@ async def analyze_videos(
     return report
 
 
-async def _call_model(user_prompt: str) -> str:
+async def analyze_single_video(
+    video_info: dict,
+    transcript: Transcript,
+    session_id: str,
+) -> CouncilReport:
+    """
+    Run deep council analysis on a SINGLE video.
+
+    Uses a focused prompt that extracts more insights per video than the
+    batch analyzer. Each video gets its own CouncilReport.
+    """
+    vid = VideoMeta(
+        video_id=video_info.get("video_id", ""),
+        title=video_info.get("title", "Untitled"),
+        channel=video_info.get("channel", "Unknown"),
+        channel_id=video_info.get("channel_id", ""),
+        upload_date=video_info.get("upload_date", ""),
+        duration_seconds=video_info.get("duration", 0),
+        url=video_info.get("url", ""),
+        description=video_info.get("description", ""),
+        view_count=video_info.get("view_count", 0),
+        like_count=video_info.get("like_count", 0),
+        tags=video_info.get("tags", []),
+        thumbnail_url=video_info.get("thumbnail", ""),
+    )
+
+    # Full transcript budget for a single video — no splitting needed
+    text = transcript.timestamped_text
+    per_video_budget = 150_000  # full budget for one video
+
+    prompt_parts = [
+        f"## Video: {vid.title}",
+        f"Channel: {vid.channel} | Duration: {vid.duration_seconds // 60}m | Views: {vid.view_count:,}",
+        f"URL: {vid.url}",
+    ]
+    if vid.description:
+        prompt_parts.append(f"Description: {vid.description[:500]}")
+    prompt_parts.append(f"\n### Transcript:\n{text[:per_video_budget]}")
+    if len(text) > per_video_budget:
+        prompt_parts.append(f"\n[...transcript truncated at {per_video_budget} chars, {len(transcript.segments)} total segments...]")
+
+    user_prompt = (
+        f"Analyze this YouTube video in depth "
+        f"({transcript.duration_seconds / 3600:.1f} hours of content):\n"
+        + "\n".join(prompt_parts)
+    )
+
+    raw_response = await _call_model(user_prompt, system_prompt=SINGLE_VIDEO_SYSTEM_PROMPT)
+
+    # Guard: if all model providers failed, don't save a garbage report
+    if not raw_response:
+        log.warning(
+            f"All AI providers returned empty responses — skipping report for "
+            f"'{vid.title}' (session {session_id})"
+        )
+        return CouncilReport(
+            council_type=CouncilSource.YOUTUBE,
+            session_id=session_id,
+            sources_processed=1,
+            total_duration_hours=transcript.duration_seconds / 3600,
+            summary=f"Analysis failed for '{vid.title}' — all AI providers returned empty responses.",
+            videos=[vid],
+        )
+
+    insights, summary, raw_analysis = _parse_single_video_analysis(raw_response, vid.video_id)
+
+    report = CouncilReport(
+        council_type=CouncilSource.YOUTUBE,
+        session_id=session_id,
+        sources_processed=1,
+        total_duration_hours=transcript.duration_seconds / 3600,
+        insights=insights,
+        summary=summary,
+        raw_analysis=raw_analysis,
+        videos=[vid],
+    )
+
+    log.info(
+        f"Single-video analysis complete: '{vid.title}' — "
+        f"{len(insights)} insights ({transcript.duration_seconds / 60:.0f}m)"
+    )
+    return report
+
+
+async def synthesize_rollup(
+    per_video_reports: list[CouncilReport],
+    session_id: str,
+) -> CouncilReport:
+    """
+    Synthesize a cross-video rollup from individual per-video reports.
+
+    Merges all insights and videos, then runs one more AI call focused on
+    cross-video pattern detection and content opportunities.
+    """
+    if not per_video_reports:
+        return CouncilReport(
+            council_type=CouncilSource.YOUTUBE,
+            session_id=session_id,
+            summary="No videos available for rollup.",
+        )
+
+    # Merge all insights and videos
+    all_insights: list[Insight] = []
+    all_videos: list[VideoMeta] = []
+    total_duration = 0.0
+
+    prompt_parts = []
+    for report in per_video_reports:
+        all_insights.extend(report.insights)
+        all_videos.extend(report.videos)
+        total_duration += report.total_duration_hours
+
+        # Build per-video summary for rollup prompt
+        vid_title = report.videos[0].title if report.videos else "Unknown"
+        vid_channel = report.videos[0].channel if report.videos else "Unknown"
+        insight_titles = [i.title for i in report.insights]
+        prompt_parts.append(
+            f"## {vid_title} ({vid_channel})\n"
+            f"Summary: {report.summary}\n"
+            f"Insights: {'; '.join(insight_titles)}\n"
+        )
+
+    user_prompt = (
+        f"Synthesize cross-video patterns from {len(per_video_reports)} individually-analyzed "
+        f"YouTube videos ({total_duration:.1f} hours total):\n\n"
+        + "\n".join(prompt_parts)
+    )
+
+    raw_response = await _call_model(user_prompt, system_prompt=ROLLUP_SYSTEM_PROMPT)
+
+    # Guard: if all model providers failed, return merged insights without rollup synthesis
+    if not raw_response:
+        log.warning(
+            "All AI providers returned empty responses — skipping rollup synthesis, "
+            "returning merged per-video insights only"
+        )
+        return CouncilReport(
+            council_type=CouncilSource.YOUTUBE,
+            session_id=session_id,
+            sources_processed=len(per_video_reports),
+            total_duration_hours=total_duration,
+            insights=all_insights,
+            summary="Rollup synthesis failed — all AI providers returned empty responses.",
+            videos=all_videos,
+        )
+
+    # Parse rollup — simpler structure (no per-video insights)
+    rollup_summary = ""
+    raw_analysis = ""
+    try:
+        json_str = raw_response
+        if "```json" in raw_response:
+            json_str = raw_response.split("```json")[1].split("```")[0].strip()
+        elif "```" in raw_response:
+            json_str = raw_response.split("```")[1].split("```")[0].strip()
+
+        data = json.loads(json_str)
+        rollup_summary = data.get("summary", "")
+        parts = []
+        if data.get("cross_video_patterns"):
+            parts.append(f"## Cross-Video Patterns\n\n{data['cross_video_patterns']}")
+        if data.get("content_opportunities"):
+            parts.append(f"## Content Opportunities\n\n{data['content_opportunities']}")
+        if data.get("convergence_signals"):
+            parts.append(f"## Convergence Signals\n\n{data['convergence_signals']}")
+        raw_analysis = "\n\n".join(parts)
+    except (json.JSONDecodeError, Exception) as e:
+        log.warning(f"Rollup JSON parse failed: {e} — using raw text")
+        rollup_summary = raw_response[:500]
+        raw_analysis = raw_response
+
+    rollup = CouncilReport(
+        council_type=CouncilSource.YOUTUBE,
+        session_id=session_id,
+        sources_processed=len(per_video_reports),
+        total_duration_hours=total_duration,
+        insights=all_insights,
+        summary=rollup_summary,
+        raw_analysis=raw_analysis,
+        videos=all_videos,
+    )
+
+    log.info(
+        f"Rollup synthesis complete: {len(per_video_reports)} videos, "
+        f"{len(all_insights)} total insights, {total_duration:.1f}h"
+    )
+    return rollup
+
+
+async def _call_model(user_prompt: str, system_prompt: str = ANALYSIS_SYSTEM_PROMPT) -> str:
     """Call AI model(s) with provider fallback chain.
 
     Order: Anthropic Claude → xAI Grok → local Ollama. Each provider is only
@@ -193,7 +460,7 @@ async def _call_model(user_prompt: str) -> str:
 
     if _get_anthropic_key():
         try:
-            text = await _call_anthropic(user_prompt)
+            text = await _call_anthropic(user_prompt, system_prompt)
             if text:
                 return text
         except Exception as e:
@@ -202,7 +469,7 @@ async def _call_model(user_prompt: str) -> str:
 
     if _get_xai_key():
         try:
-            text = await _call_xai(user_prompt)
+            text = await _call_xai(user_prompt, system_prompt)
             if text:
                 return text
         except Exception as e:
@@ -210,7 +477,7 @@ async def _call_model(user_prompt: str) -> str:
             log.warning(f"xAI provider failed, falling through: {e}")
 
     try:
-        text = await _call_ollama(user_prompt)
+        text = await _call_ollama(user_prompt, system_prompt)
         if text:
             return text
     except Exception as e:
@@ -248,8 +515,14 @@ async def _get_yt_client():
     return _yt_client
 
 
-async def _call_anthropic(prompt: str) -> str:
+async def _call_anthropic(prompt: str, system_prompt: str = ANALYSIS_SYSTEM_PROMPT) -> str:
     """Call Anthropic Claude API."""
+    from ...cost_tracker import check_budget, record_cost
+
+    # Budget check
+    if not await check_budget("anthropic", 0.25):
+        raise RuntimeError("Anthropic daily budget exceeded")
+
     try:
         client = await _get_yt_client()
         response = await client.post(
@@ -262,7 +535,7 @@ async def _call_anthropic(prompt: str) -> str:
             json={
                 "model": CLAUDE_MODEL,
                 "max_tokens": 4096,
-                "system": ANALYSIS_SYSTEM_PROMPT,
+                "system": system_prompt,
                 "messages": [{"role": "user", "content": prompt}],
             },
             timeout=120.0,
@@ -270,15 +543,32 @@ async def _call_anthropic(prompt: str) -> str:
         response.raise_for_status()
         data = response.json()
         text = data["content"][0]["text"]
-        log.info(f"Anthropic ({CLAUDE_MODEL}) response: {len(text)} chars")
+
+        # Record actual cost from usage data
+        usage = data.get("usage", {})
+        input_tokens = usage.get("input_tokens", 0)
+        output_tokens = usage.get("output_tokens", 0)
+        cost = (input_tokens / 1000 * 0.003) + (output_tokens / 1000 * 0.015)
+        await record_cost(
+            "anthropic", cost, "ytc_analysis",
+            f"model={CLAUDE_MODEL} in={input_tokens} out={output_tokens}",
+            model=CLAUDE_MODEL, input_tokens=input_tokens, output_tokens=output_tokens,
+        )
+
+        log.info(f"Anthropic ({CLAUDE_MODEL}) response: {len(text)} chars, ${cost:.4f}")
         return text
     except Exception as e:
         log.error(f"Anthropic API ({CLAUDE_MODEL}) failed: {e}")
         raise
 
 
-async def _call_xai(prompt: str) -> str:
+async def _call_xai(prompt: str, system_prompt: str = ANALYSIS_SYSTEM_PROMPT) -> str:
     """Call xAI Grok API (OpenAI-compatible)."""
+    from ...cost_tracker import check_budget, record_cost
+
+    if not await check_budget("xai", 0.10):
+        raise RuntimeError("xAI daily budget exceeded")
+
     try:
         client = await _get_yt_client()
         response = await client.post(
@@ -290,7 +580,7 @@ async def _call_xai(prompt: str) -> str:
             json={
                 "model": GROK_MODEL,
                 "messages": [
-                    {"role": "system", "content": ANALYSIS_SYSTEM_PROMPT},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt},
                 ],
                 "max_tokens": 4096,
@@ -300,38 +590,96 @@ async def _call_xai(prompt: str) -> str:
         response.raise_for_status()
         data = response.json()
         text = data["choices"][0]["message"]["content"]
-        log.info(f"xAI ({GROK_MODEL}) response: {len(text)} chars")
+
+        # Record cost from usage
+        usage = data.get("usage", {})
+        input_tokens = usage.get("prompt_tokens", 0)
+        output_tokens = usage.get("completion_tokens", 0)
+        cost = (input_tokens / 1000 * 0.005) + (output_tokens / 1000 * 0.015)
+        await record_cost(
+            "xai", cost, "ytc_analysis",
+            f"model={GROK_MODEL} in={input_tokens} out={output_tokens}",
+            model=GROK_MODEL, input_tokens=input_tokens, output_tokens=output_tokens,
+        )
+
+        log.info(f"xAI ({GROK_MODEL}) response: {len(text)} chars, ${cost:.4f}")
         return text
     except Exception as e:
         log.error(f"xAI API ({GROK_MODEL}) failed: {e}")
         raise
 
 
-async def _call_ollama(prompt: str) -> str:
-    """Call Ollama local model."""
+async def _call_ollama(prompt: str, system_prompt: str = ANALYSIS_SYSTEM_PROMPT) -> str:
+    """Call Ollama local model via /api/generate (consistent with rest of codebase)."""
     model = OLLAMA_MODEL
     try:
         client = await _get_yt_client()
         response = await client.post(
-            f"{OLLAMA_HOST}/api/chat",
+            f"{OLLAMA_HOST}/api/generate",
             json={
                 "model": model,
-                "messages": [
-                    {"role": "system", "content": ANALYSIS_SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt},
-                ],
+                "system": system_prompt,
+                "prompt": prompt,
                 "stream": False,
             },
             timeout=300.0,
         )
         response.raise_for_status()
         data = response.json()
-        text = data.get("message", {}).get("content", "")
+        text = data.get("response", "")
         log.info(f"Ollama ({model} @ {OLLAMA_HOST}) response: {len(text)} chars")
         return text
     except Exception as e:
         log.error(f"Ollama ({model} @ {OLLAMA_HOST}) failed: {e}")
         raise
+
+
+def _parse_single_video_analysis(raw: str, video_id: str) -> tuple[list[Insight], str, str]:
+    """Parse AI response for a single-video analysis. Links insights to video_id."""
+    if not raw:
+        return [], "Analysis failed — no model response.", ""
+
+    json_str = raw
+    if "```json" in raw:
+        json_str = raw.split("```json")[1].split("```")[0].strip()
+    elif "```" in raw:
+        json_str = raw.split("```")[1].split("```")[0].strip()
+
+    try:
+        data = json.loads(json_str)
+    except json.JSONDecodeError:
+        log.warning("Could not parse JSON from single-video response — using raw text")
+        return [], raw[:500], raw
+
+    insights: list[Insight] = []
+    for item in data.get("insights", []):
+        try:
+            cat = SignalCategory(item.get("category", "content"))
+        except ValueError:
+            cat = SignalCategory.CONTENT
+
+        raw_conf = float(item.get("confidence", 0.5))
+        insights.append(Insight(
+            title=item.get("title", "Untitled"),
+            description=item.get("description", ""),
+            category=cat,
+            confidence=max(0.0, min(1.0, raw_conf)),
+            tags=item.get("tags", []),
+            source_refs=[video_id],  # Link insight to this specific video
+            actionable=bool(item.get("actionable", False)),
+            action_suggestion=item.get("action_suggestion", ""),
+        ))
+
+    summary = data.get("summary", "")
+    raw_analysis = ""
+    key_quotes = data.get("key_quotes", "")
+    content_assessment = data.get("content_assessment", "")
+    if key_quotes:
+        raw_analysis += f"## Key Quotes\n\n{key_quotes}\n\n"
+    if content_assessment:
+        raw_analysis += f"## Content Assessment\n\n{content_assessment}\n\n"
+
+    return insights, summary, raw_analysis
 
 
 def _parse_analysis(raw: str) -> tuple[list[Insight], str, str]:

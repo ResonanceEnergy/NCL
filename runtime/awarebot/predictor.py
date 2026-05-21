@@ -7,7 +7,7 @@ import math
 import os
 import uuid
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -121,7 +121,7 @@ class FuturePredictor:
             _h = _h[len("https://"):]
         self.ollama_host = _h or "localhost:11434"
         self.aac_war_room_url = aac_war_room_url
-        self.http_client = httpx.AsyncClient(timeout=60.0)
+        self.http_client = httpx.AsyncClient(timeout=12.0)
 
         # Accuracy tracking — rolling deque of {"prediction_id": ..., "correct": bool}
         self._outcomes: deque[dict] = deque(maxlen=self._ACCURACY_WINDOW)
@@ -243,18 +243,42 @@ Format your response as JSON with keys: prediction, confidence (0-1), reasoning.
             data = response.json()
             text = data["content"][0]["text"]
 
+            # Try to parse structured JSON from Claude's response
+            parsed_prediction = text
+            parsed_confidence = None
+            parsed_reasoning = None
+            try:
+                # Strip markdown code fences if present
+                clean = text.strip()
+                if clean.startswith("```"):
+                    # Remove opening fence (```json or ```)
+                    clean = clean.split("\n", 1)[1] if "\n" in clean else clean[3:]
+                if clean.endswith("```"):
+                    clean = clean[:-3]
+                clean = clean.strip()
+                structured = json.loads(clean)
+                if isinstance(structured, dict):
+                    parsed_prediction = structured.get("prediction", text)
+                    parsed_confidence = structured.get("confidence")
+                    parsed_reasoning = structured.get("reasoning")
+            except (json.JSONDecodeError, ValueError):
+                pass  # Fall back to raw text
+
             # Compute confidence from data quality: signal count, avg importance,
             # and whether the model returned structured probability ranges.
-            confidence = _compute_model_confidence(
+            confidence = parsed_confidence if isinstance(parsed_confidence, (int, float)) and 0 <= parsed_confidence <= 1 else _compute_model_confidence(
                 signals=signals,
                 response_text=text,
                 base=0.6,
             )
-            return {
+            result = {
                 "model": "claude",
-                "prediction": text,
+                "prediction": parsed_prediction,
                 "confidence": confidence,
             }
+            if parsed_reasoning:
+                result["reasoning"] = parsed_reasoning
+            return result
         except Exception as e:
             logger.warning(f"Claude prediction failed for topic '{topic}': {e}")
             return {
@@ -618,6 +642,43 @@ What is the most likely outcome? Provide 1-2 sentences."""
             "rolling_accuracy": acc,
             "window_size": self._ACCURACY_WINDOW,
         }
+
+    @staticmethod
+    def rotate_prediction_files(
+        data_dir: str | Path = "data",
+        keep_days: int = 30,
+    ) -> dict[str, int]:
+        """
+        Rotate prediction files — move files older than *keep_days* into an
+        ``archive/`` subfolder.  Returns counts of files archived.
+
+        Call at Brain startup or on a daily schedule.
+        """
+        pred_dir = Path(data_dir) / "predictions"
+        archive_dir = pred_dir / "archive"
+        council_archive = pred_dir / "council" / "archive"
+        cutoff = datetime.now(timezone.utc) - timedelta(days=keep_days)
+        archived = {"ensemble": 0, "council": 0}
+
+        for subdir, pattern, key, dest in [
+            (pred_dir, "pred-*.json", "ensemble", archive_dir),
+            (pred_dir / "council", "council-pred-*.json", "council", council_archive),
+        ]:
+            if not subdir.exists():
+                continue
+            dest.mkdir(parents=True, exist_ok=True)
+            for f in subdir.glob(pattern):
+                try:
+                    mtime = datetime.fromtimestamp(f.stat().st_mtime, tz=timezone.utc)
+                    if mtime < cutoff:
+                        f.rename(dest / f.name)
+                        archived[key] += 1
+                except Exception as e:
+                    logger.warning(f"Failed to archive {f.name}: {e}")
+
+        if any(archived.values()):
+            logger.info(f"[PREDICTOR] Rotated prediction files: {archived}")
+        return archived
 
     async def close(self) -> None:
         """Close HTTP client."""

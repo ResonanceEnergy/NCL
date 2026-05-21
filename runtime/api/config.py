@@ -74,6 +74,8 @@ _KEYCHAIN_ENV: dict[str, str] = {
     "PAPERCLIP_AGENT_KEY": "ncl-paperclip-agent",
     "PAPERCLIP_API_KEY": "ncl-paperclip-agent",
     "PAPERCLIP_COMPANY_ID": "ncl-paperclip-company",
+    "REDDIT_CLIENT_ID": "ncl-reddit-client-id",
+    "REDDIT_CLIENT_SECRET": "ncl-reddit-client-secret",
 }
 
 
@@ -187,12 +189,6 @@ class Settings(BaseSettings):
     # ── Local models ──────────────────────────────────────────────────────────
     ollama_host: str = "localhost:11434"
 
-    # ── Paperclip integration ─────────────────────────────────────────────────
-    paperclip_url: str = "http://localhost:3100"
-    paperclip_host: str = "localhost"
-    paperclip_port: int = 3100
-    paperclip_api_key: Optional[str] = None
-
     # ── Digital Labour integration ────────────────────────────────────────────
     digital_labour_path: str = "~/dev/NCL/digital-labour"
 
@@ -209,7 +205,7 @@ class Settings(BaseSettings):
     snaptrade_consumer_key: Optional[str] = None
 
     # ── Scan intervals (seconds) ──────────────────────────────────────────────
-    x_scan_interval: int = 300  # 5 minutes
+    x_scan_interval: int = 1800  # 30 minutes (was 5min — burned $25-36/day)
     youtube_scan_interval: int = 600  # 10 minutes
     reddit_scan_interval: int = 600  # 10 minutes
     prediction_interval: int = 1800  # 30 minutes
@@ -409,11 +405,8 @@ reddit_client_secret: ""
 ollama_host: "localhost:11434"
 
 # Paperclip
-paperclip_host: "localhost"
-paperclip_port: 3100
-
 # Scan Intervals (seconds)
-x_scan_interval: 300
+x_scan_interval: 1800
 youtube_scan_interval: 600
 reddit_scan_interval: 600
 prediction_interval: 1800

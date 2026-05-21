@@ -50,6 +50,16 @@ class Scanner:
         self.reddit_user_agent = reddit_user_agent
         self.http_client = httpx.AsyncClient(timeout=30.0)
 
+        # Browser-style User-Agents for Reddit (bot UAs get 403'd)
+        self._reddit_browser_uas = [
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:125.0) Gecko/20100101 Firefox/125.0",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
+        ]
+        self._reddit_ua_index = 0
+
         # Thread pool for blocking yt-dlp calls
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ytdlp")
 
@@ -80,8 +90,8 @@ class Scanner:
 
             except httpx.HTTPStatusError as e:
                 last_error = e
-                if e.response.status_code in (401, 403):
-                    raise
+                if e.response.status_code in (401, 402, 403):
+                    raise  # 402 = Payment Required (don't waste retries on billing issues)
                 delay = self._base_delay * (2 ** attempt)
                 logger.warning(f"[{platform}] HTTP {e.response.status_code}, retrying in {delay:.1f}s (attempt {attempt + 1})")
                 await asyncio.sleep(delay)
@@ -160,6 +170,13 @@ class Scanner:
             logger.error("[scanner] X_BEARER_TOKEN not configured — X scan disabled. Set in .env")
             return []
 
+        # Budget check before making the API call
+        from ..cost_tracker import check_budget, record_cost
+        est_cost = max_results * 0.01  # ~$0.01 per tweet read
+        if not await check_budget("x_twitter", est_cost):
+            logger.warning(f"[scanner] X daily budget exceeded — skipping query '{query}'")
+            return []
+
         signals = []
         try:
             response = await self._request_with_retry(
@@ -176,6 +193,15 @@ class Scanner:
                 headers={"Authorization": f"Bearer {self.x_bearer_token}"},
             )
             data = response.json()
+
+            # Record cost for this API call
+            tweet_count = len(data.get("data", []))
+            actual_cost = tweet_count * 0.01
+            await record_cost(
+                "x_twitter", actual_cost, "tweet_search",
+                f"query='{query}' results={tweet_count}",
+                query=query, results=tweet_count,
+            )
 
             # Build user lookup for verified status and followers
             users = {}
@@ -325,8 +351,37 @@ class Scanner:
 
         return signals
 
+    def _next_reddit_ua(self) -> str:
+        """Rotate through browser User-Agents to avoid Reddit 403 bot detection."""
+        ua = self._reddit_browser_uas[self._reddit_ua_index % len(self._reddit_browser_uas)]
+        self._reddit_ua_index += 1
+        return ua
+
+    async def _reddit_get_json(self, url: str, params: dict) -> dict:
+        """GET Reddit JSON with browser UA rotation + old.reddit.com fallback."""
+        ua = self._next_reddit_ua()
+        try:
+            response = await self._request_with_retry(
+                "GET", url, platform="reddit",
+                params=params,
+                headers={"User-Agent": ua},
+            )
+            return response.json()
+        except Exception as e:
+            # Fallback to old.reddit.com on 403 or connection errors
+            if "www.reddit.com" in url:
+                fallback_url = url.replace("www.reddit.com", "old.reddit.com")
+                logger.info(f"[scanner] Reddit fallback to old.reddit.com for: {fallback_url}")
+                response = await self._request_with_retry(
+                    "GET", fallback_url, platform="reddit",
+                    params=params,
+                    headers={"User-Agent": self._next_reddit_ua()},
+                )
+                return response.json()
+            raise
+
     async def scan_reddit(self, subreddit: str, max_results: int = 10) -> list[InsightSignal]:
-        """Scan Reddit via RSS with REAL engagement metric extraction."""
+        """Scan Reddit via JSON API with browser UA rotation and old.reddit fallback."""
         signals = []
         try:
             if subreddit.startswith("search:"):
@@ -337,14 +392,7 @@ class Scanner:
                 url = f"https://www.reddit.com/r/{subreddit}/hot.json"
                 params = {"limit": min(max_results, 25)}
 
-            response = await self._request_with_retry(
-                "GET",
-                url,
-                platform="reddit",
-                params=params,
-                headers={"User-Agent": self.reddit_user_agent},
-            )
-            data = response.json()
+            data = await self._reddit_get_json(url, params)
 
             for post in data.get("data", {}).get("children", []):
                 post_data = post.get("data", {})

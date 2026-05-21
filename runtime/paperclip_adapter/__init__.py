@@ -1,5 +1,1 @@
-"""Paperclip integration adapter package."""
-
-from .client import PaperclipClient
-
-__all__ = ["PaperclipClient"]
+# REMOVED — Paperclip adapter was never deployed. Dead code cleaned up.

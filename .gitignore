@@ -178,3 +178,15 @@ accounts.db
 .env
 .env.*
 !.env.example
+
+# Runtime-generated intelligence data
+intelligence-scan/alerts/
+intelligence-scan/council-reports/
+intelligence-scan/snapshots/
+intelligence-scan/youtube-reports/
+
+# Feedback synthesis quarantine
+feedback-synthesis/ncc-reports/.quarantine/
+
+# Nohup output
+nohup.out

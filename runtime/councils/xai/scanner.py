@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import threading
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -50,6 +51,8 @@ class _SlidingWindowLimiter:
     other coroutines aren't blocked during the wait.
     """
 
+    _init_lock = threading.Lock()  # Protects lazy creation of the asyncio.Lock
+
     def __init__(self, calls: int, window_seconds: float) -> None:
         self._calls = calls
         self._window = window_seconds
@@ -58,7 +61,9 @@ class _SlidingWindowLimiter:
 
     def _get_lock(self) -> asyncio.Lock:
         if self._lock is None:
-            self._lock = asyncio.Lock()
+            with _SlidingWindowLimiter._init_lock:
+                if self._lock is None:
+                    self._lock = asyncio.Lock()
         return self._lock
 
     async def acquire(self) -> None:
@@ -138,12 +143,15 @@ _twscrape_breaker = _CircuitBreaker("twscrape", failure_threshold=5, cooldown_se
 # Lazily created; call close_scanner_client() on shutdown.
 _shared_client: Optional["httpx.AsyncClient"] = None
 _client_lock: Optional[asyncio.Lock] = None
+_client_init_lock = threading.Lock()
 
 
 def _get_scanner_lock() -> asyncio.Lock:
     global _client_lock
     if _client_lock is None:
-        _client_lock = asyncio.Lock()
+        with _client_init_lock:
+            if _client_lock is None:
+                _client_lock = asyncio.Lock()
     return _client_lock
 
 
@@ -348,30 +356,36 @@ async def scan_account(
 
     # Try X API v2 first (structured, reliable with Bearer Token)
     if _get_x_bearer_token() and not _x_api_breaker.is_open:
-        posts = await _scan_account_api(handle, since, max_posts)
-        if posts:
+        try:
+            posts = await _scan_account_api(handle, since, max_posts)
+            # Empty results from a quiet account are NOT failures — don't trip breaker
             _x_api_breaker.record_success()
-            return posts
-        else:
+            if posts:
+                return posts
+        except Exception as e:
+            log.warning(f"X API scan_account error for @{handle}: {e}")
             _x_api_breaker.record_failure()
 
     # Fallback 2: twscrape (no API key needed, uses logged-in accounts)
     if _twscrape_available() and not _twscrape_breaker.is_open:
-        posts = await _scan_account_twscrape(handle, since, max_posts)
-        if posts:
+        try:
+            posts = await _scan_account_twscrape(handle, since, max_posts)
             _twscrape_breaker.record_success()
-            return posts
-        else:
+            if posts:
+                return posts
+        except Exception as e:
+            log.warning(f"twscrape scan_account error for @{handle}: {e}")
             _twscrape_breaker.record_failure()
 
     # Fallback 3: Grok for X intelligence
     if _get_xai_api_key() and not _grok_breaker.is_open:
-        posts = await _scan_account_grok(handle, since, max_posts)
-        if posts:
+        try:
+            posts = await _scan_account_grok(handle, since, max_posts)
             _grok_breaker.record_success()
-        else:
+            return posts
+        except Exception as e:
+            log.warning(f"Grok scan_account error for @{handle}: {e}")
             _grok_breaker.record_failure()
-        return posts
 
     log.warning(f"No X API, twscrape, or Grok key — cannot scan @{handle}")
     return []
@@ -389,28 +403,33 @@ async def search_keyword(
     """
 
     if _get_x_bearer_token() and not _x_api_breaker.is_open:
-        posts = await _search_keyword_api(keyword, since, max_posts)
-        if posts:
+        try:
+            posts = await _search_keyword_api(keyword, since, max_posts)
             _x_api_breaker.record_success()
-            return posts
-        else:
+            if posts:
+                return posts
+        except Exception as e:
+            log.warning(f"X API keyword search error for '{keyword}': {e}")
             _x_api_breaker.record_failure()
 
     if _twscrape_available() and not _twscrape_breaker.is_open:
-        posts = await _search_keyword_twscrape(keyword, since, max_posts)
-        if posts:
+        try:
+            posts = await _search_keyword_twscrape(keyword, since, max_posts)
             _twscrape_breaker.record_success()
-            return posts
-        else:
+            if posts:
+                return posts
+        except Exception as e:
+            log.warning(f"twscrape keyword search error for '{keyword}': {e}")
             _twscrape_breaker.record_failure()
 
     if _get_xai_api_key() and not _grok_breaker.is_open:
-        posts = await _search_keyword_grok(keyword, since, max_posts)
-        if posts:
+        try:
+            posts = await _search_keyword_grok(keyword, since, max_posts)
             _grok_breaker.record_success()
-        else:
+            return posts
+        except Exception as e:
+            log.warning(f"Grok keyword search error for '{keyword}': {e}")
             _grok_breaker.record_failure()
-        return posts
 
     log.warning(f"No X API, twscrape, or Grok key — cannot search '{keyword}'")
     return []
@@ -424,21 +443,24 @@ async def scan_trending(since: datetime) -> list[XPost]:
     """
 
     if _get_x_bearer_token() and not _x_api_breaker.is_open:
-        posts = await _scan_trending_api(since)
-        if posts:
+        try:
+            posts = await _scan_trending_api(since)
             _x_api_breaker.record_success()
-            return posts
-        else:
+            if posts:
+                return posts
+        except Exception as e:
+            log.warning(f"X API trending scan error: {e}")
             _x_api_breaker.record_failure()
 
     # twscrape doesn't have a trending endpoint — skip to Grok
     if _get_xai_api_key() and not _grok_breaker.is_open:
-        posts = await _scan_trending_grok(since)
-        if posts:
+        try:
+            posts = await _scan_trending_grok(since)
             _grok_breaker.record_success()
-        else:
+            return posts
+        except Exception as e:
+            log.warning(f"Grok trending scan error: {e}")
             _grok_breaker.record_failure()
-        return posts
 
     log.warning("No X API or Grok key — cannot scan trending")
     return []
@@ -464,10 +486,13 @@ async def _scan_account_api(
         user_resp = await client.get(
             f"https://api.twitter.com/2/users/by/username/{handle}",
             headers={"Authorization": f"Bearer {_get_x_bearer_token()}"},
+            params={"user.fields": "verified,public_metrics"},
         )
         user_resp.raise_for_status()
-        user_id = user_resp.json()["data"]["id"]
-        user_name = user_resp.json()["data"].get("name", handle)
+        user_data = user_resp.json()["data"]
+        user_id = user_data["id"]
+        user_name = user_data.get("name", handle)
+        user_verified = user_data.get("verified", False)
 
         # Get recent tweets (another rate-limit slot)
         await _x_api_limiter.acquire()
@@ -508,6 +533,7 @@ async def _scan_account_api(
                 is_reply=any(r.get("type") == "replied_to" for r in refs),
                 hashtags=[h["tag"] for h in entities.get("hashtags", [])],
                 mentioned_users=[m["username"] for m in entities.get("mentions", [])],
+                verified=user_verified,
             ))
 
         log.info(f"@{handle}: {len(posts)} posts via X API")
@@ -515,7 +541,7 @@ async def _scan_account_api(
 
     except Exception as e:
         log.warning(f"X API scan failed for @{handle}: {e}")
-        return []
+        raise
 
 
 async def _search_keyword_api(
@@ -542,7 +568,7 @@ async def _search_keyword_api(
                 "start_time": since_str,
                 "tweet.fields": "created_at,public_metrics,author_id,entities",
                 "expansions": "author_id",
-                "user.fields": "username,name",
+                "user.fields": "username,name,verified",
             },
         )
         resp.raise_for_status()
@@ -572,6 +598,7 @@ async def _search_keyword_api(
                 impression_count=metrics.get("impression_count", 0),
                 hashtags=[h["tag"] for h in entities.get("hashtags", [])],
                 mentioned_users=[m["username"] for m in entities.get("mentions", [])],
+                verified=author.get("verified", False),
             ))
 
         log.info(f"Keyword '{keyword}': {len(posts)} posts via X API")
@@ -579,7 +606,7 @@ async def _search_keyword_api(
 
     except Exception as e:
         log.warning(f"X API search failed for '{keyword}': {e}")
-        return []
+        raise
 
 
 # Configurable trending proxy queries — used when X API v2 trending
@@ -604,12 +631,19 @@ def get_trending_queries() -> list[str]:
 
 
 async def _scan_trending_api(since: datetime) -> list[XPost]:
-    """Scan trending topics via X API v2. Returns top posts from trends."""
-    # X API v2 trending endpoint requires elevated access — use search as proxy
+    """Scan trending topics via X API v2. Returns top posts from trends.
+
+    NOTE: X API v2 trending endpoint requires elevated access, so this
+    actually runs keyword searches using hardcoded proxy queries. Results
+    are tagged with ``synthetic_trending=True`` so downstream consumers
+    know this is *not* real trending data — it's topic-based search.
+    """
     trending_queries = get_trending_queries()
     posts: list[XPost] = []
     for query in trending_queries:
         batch = await _search_keyword_api(query, since, max_posts=20)
+        for post in batch:
+            post.synthetic_trending = True
         posts.extend(batch)
     return posts
 
@@ -668,7 +702,7 @@ async def _scan_account_twscrape(
 
     except Exception as e:
         log.warning(f"twscrape scan failed for @{handle}: {e}")
-        return []
+        raise
 
 
 async def _search_keyword_twscrape(
@@ -710,7 +744,7 @@ async def _search_keyword_twscrape(
 
     except Exception as e:
         log.warning(f"twscrape search failed for '{keyword}': {e}")
-        return []
+        raise
 
 
 # ── Grok-powered fallbacks ──────────────────────────────────────────────
@@ -909,7 +943,10 @@ def _parse_grok_posts(text: str, default_handle: str) -> list[XPost]:
 
 
 def _extract_number(text: str, prefixes: list[str]) -> int:
-    """Extract a number following any of the given prefixes."""
+    """Extract a number following any of the given prefixes.
+
+    Handles suffixes like K/M and decimal points (e.g. "1.5K" → 1500).
+    """
     for prefix in prefixes:
         if prefix in text:
             after = text.split(prefix)[1].strip()
@@ -917,7 +954,10 @@ def _extract_number(text: str, prefixes: list[str]) -> int:
             for ch in after:
                 if ch.isdigit():
                     num_str += ch
-                elif ch in ",._":
+                elif ch == "." and "." not in num_str:
+                    # Allow one decimal point for values like "1.5K"
+                    num_str += ch
+                elif ch in ",_":
                     continue
                 elif ch in "kK" and num_str:
                     return int(float(num_str) * 1000)
@@ -926,5 +966,5 @@ def _extract_number(text: str, prefixes: list[str]) -> int:
                 else:
                     break
             if num_str:
-                return int(num_str)
+                return int(float(num_str))
     return 0

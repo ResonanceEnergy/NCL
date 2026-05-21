@@ -21,6 +21,7 @@ import asyncio
 import json
 import logging
 import math
+import re
 import time
 from datetime import datetime, timezone, timedelta
 from typing import Any, Optional
@@ -2560,7 +2561,8 @@ class RedditCollector:
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15",
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0",
     ]
-    _ua_index: int = 0
+    # NOTE: _ua_index was previously class-level shared state; now initialised
+    # per-instance in __init__ so concurrent collectors don't share rotation.
 
     # ── Tiered subreddit network ──────────────────────────────────
     # TIER 1: Scanned every cycle (hot + top + rising) — core alpha sources
@@ -2661,8 +2663,8 @@ class RedditCollector:
         "short ladder", "naked short", "reg sho", "threshold list",
     ]
 
-    # Tier 3 rotation tracker
-    _tier3_offset: int = 0
+    # NOTE: _tier3_offset was previously class-level shared state; now
+    # initialised per-instance in __init__.
 
     def __init__(
         self,
@@ -2681,6 +2683,11 @@ class RedditCollector:
             client_id/client_secret/user_agent: explicit OAuth creds (override env)
         """
         import os as _os
+
+        # Per-instance rotation counters (were previously class-level shared state)
+        self._ua_index: int = 0
+        self._tier3_offset: int = 0
+
         if subreddits:
             self.subreddits = subreddits
             self._use_tiers = False
@@ -2754,8 +2761,8 @@ class RedditCollector:
 
     def _next_browser_ua(self) -> str:
         """Return the next browser User-Agent from the rotation pool."""
-        ua = self._BROWSER_UAS[RedditCollector._ua_index % len(self._BROWSER_UAS)]
-        RedditCollector._ua_index += 1
+        ua = self._BROWSER_UAS[self._ua_index % len(self._BROWSER_UAS)]
+        self._ua_index += 1
         return ua
 
     async def _auth_headers(self) -> dict:
@@ -2847,13 +2854,13 @@ class RedditCollector:
             # Rotate through tier 3: pick 5 per scan cycle
             t3_len = len(self.TIER3_SUBS)
             if t3_len > 0:
-                start = RedditCollector._tier3_offset % t3_len
+                start = self._tier3_offset % t3_len
                 rotating = []
                 for i in range(5):
                     rotating.append(self.TIER3_SUBS[(start + i) % t3_len])
                 subs.extend(rotating)
                 if advance_offset:
-                    RedditCollector._tier3_offset += 5
+                    self._tier3_offset += 5
             return subs
 
     async def collect_all(self) -> list[SocialSignal]:
@@ -3001,6 +3008,13 @@ class RedditCollector:
                     log.warning(f"Reddit r/{subreddit}/{sort} fetch failed: {e}")
                     return signals
 
+        # Guard against None data — Reddit may return 404 for both www and
+        # old.reddit URLs (banned/private subs, typos, etc.), in which case
+        # _fetch_json returns None and .get() would throw AttributeError.
+        if data is None:
+            log.debug(f"Reddit r/{subreddit}/{sort} returned no data (404 or empty)")
+            return signals
+
         children = data.get("data", {}).get("children", [])
 
         for post in children:
@@ -3057,7 +3071,6 @@ class RedditCollector:
             confidence = min(0.95, confidence + 0.15)
 
         # Extract ticker mentions ($GME, $AMC, etc.)
-        import re
         tickers = list(set(re.findall(r'\$([A-Z]{1,5})\b', title + " " + selftext)))
 
         # Check for alpha keywords in title/body
@@ -3205,7 +3218,6 @@ class RedditCollector:
             # Normalize flair to tag-safe string
             flair_tag = flair.lower().replace(" ", "_").replace("/", "_")
             # Strip emoji
-            import re
             flair_tag = re.sub(r'[^\w_]', '', flair_tag).strip("_")
             if flair_tag:
                 tags.append(f"flair:{flair_tag}")
@@ -3213,27 +3225,106 @@ class RedditCollector:
             tags.append(f"ticker:{ticker.lower()}")
         return tags
 
-    async def collect_ticker_mentions(self, subreddit: str = "wallstreetbets", limit: int = 100) -> dict[str, int]:
+    # Default subreddits for ticker mention scanning / heatmap.
+    # Configurable via the `subreddits` parameter on collect_ticker_mentions().
+    DEFAULT_TICKER_SCAN_SUBS = [
+        "wallstreetbets",
+        "Superstonk",
+        "options",
+        "stocks",
+        "investing",
+    ]
+
+    # Extra noise tickers to filter when scanning meme / gaming-adjacent subs
+    # where these tickers appear as cultural references, not trade signals.
+    _MEME_SUB_NOISE_TICKERS = {
+        "GME", "AMC", "BBBY", "BB", "NOK", "WISH", "CLOV", "PLTR",
+    }
+    _MEME_SUBS = {
+        "wallstreetbets", "superstonk", "amcstock", "gme",
+        "deepfuckingvalue", "smallstreetbets", "wallstreetbetselite",
+    }
+
+    async def collect_ticker_mentions(
+        self,
+        subreddit: str | None = None,
+        subreddits: list[str] | None = None,
+        limit: int = 100,
+    ) -> dict[str, int]:
         """
-        Scan a subreddit and count ticker mentions.
+        Scan subreddit(s) and count ticker mentions.
         Returns dict of ticker -> mention count, sorted by frequency.
         Useful for detecting emerging retail favorites.
+
+        Args:
+            subreddit: Single subreddit to scan (legacy parameter).
+            subreddits: List of subreddits to scan. Defaults to
+                DEFAULT_TICKER_SCAN_SUBS if neither param is given.
+            limit: Max posts to fetch per subreddit.
         """
-        import re
         ticker_counts: dict[str, int] = {}
+
+        # Resolve scan list: explicit list > single sub > defaults
+        if subreddits:
+            scan_subs = subreddits
+        elif subreddit:
+            scan_subs = [subreddit]
+        else:
+            scan_subs = list(self.DEFAULT_TICKER_SCAN_SUBS)
+
+        for sub in scan_subs:
+            sub_counts = await self._scan_sub_tickers(sub, limit)
+            for ticker, count in sub_counts.items():
+                ticker_counts[ticker] = ticker_counts.get(ticker, 0) + count
+
+        # Sort by count descending
+        return dict(sorted(ticker_counts.items(), key=lambda x: x[1], reverse=True))
+
+    async def _scan_sub_tickers(self, subreddit: str, limit: int) -> dict[str, int]:
+        """Scan a single subreddit for ticker mentions with old.reddit fallback."""
+        ticker_counts: dict[str, int] = {}
+
+        query_params = {"limit": limit, "raw_json": 1}
+        data = None
 
         if self._authed:
             url = f"{self.OAUTH_URL}/r/{subreddit}/hot"
+            headers = await self._auth_headers()
+            try:
+                data = await _fetch_json(
+                    self._client, url, params=query_params,
+                    headers=headers, limiter=self._limiter,
+                )
+            except Exception as e:
+                log.warning(f"Reddit ticker scan r/{subreddit} OAuth failed: {e}")
+                return ticker_counts
         else:
-            url = f"{self.BASE_URL}/r/{subreddit}/hot.json"
-        headers = await self._auth_headers()
-        try:
-            data = await _fetch_json(
-                self._client, url, params={"limit": limit, "raw_json": 1},
-                headers=headers, limiter=self._limiter,
-            )
-        except Exception as e:
-            log.warning(f"Reddit ticker scan failed: {e}")
+            # Unauthenticated: try www first, then old.reddit.com on 403/404
+            for base in (self.BASE_URL, self.FALLBACK_URL):
+                url = f"{base}/r/{subreddit}/hot.json"
+                headers = await self._auth_headers()
+                try:
+                    data = await _fetch_json(
+                        self._client, url, params=query_params,
+                        headers=headers, limiter=self._limiter,
+                    )
+                    if data is not None:
+                        break  # success — don't try fallback
+                except SafeAPIError as e:
+                    if e.status_code in (403, 404) and base == self.BASE_URL:
+                        log.info(
+                            f"Reddit ticker scan r/{subreddit} got {e.status_code} from www, "
+                            f"falling back to old.reddit.com"
+                        )
+                        continue
+                    log.warning(f"Reddit ticker scan r/{subreddit} failed: {e}")
+                    return ticker_counts
+                except Exception as e:
+                    log.warning(f"Reddit ticker scan r/{subreddit} failed: {e}")
+                    return ticker_counts
+
+        if data is None:
+            log.debug(f"Reddit ticker scan r/{subreddit} returned no data")
             return ticker_counts
 
         # Common false positives to filter out
@@ -3241,12 +3332,21 @@ class RedditCollector:
             "DD", "TA", "USA", "CEO", "CFO", "CTO", "IPO", "SEC", "FDA",
             "ETF", "OTC", "IMO", "FYI", "ATH", "ATL", "OG", "USD", "EUR",
             "API", "AI", "EPS", "PE", "IV", "DTE", "ITM", "OTM", "WSB",
-            "GME", "DRS", "MOASS", "PFOF", "FTD", "SI", "YOLO", "LOL",
+            "DRS", "MOASS", "PFOF", "FTD", "SI", "YOLO", "LOL",
             "RIP", "HODL", "BRO", "LMAO", "PDF", "ALL", "NEW", "TOP",
         }
-        # GME is special — keep it for Superstonk context
-        if subreddit.lower() == "superstonk":
-            noise_tickers.discard("GME")
+
+        # For meme/gaming-adjacent subs, add tickers that appear as cultural
+        # references rather than trade signals (GME in Superstonk, AMC in
+        # amcstock, etc.).  For financial subs these are real tickers to keep.
+        sub_lower = subreddit.lower()
+        if sub_lower in self._MEME_SUBS:
+            noise_tickers.update(self._MEME_SUB_NOISE_TICKERS)
+            # Exception: the sub's own namesake ticker IS signal there
+            if sub_lower == "superstonk" or sub_lower == "gme":
+                noise_tickers.discard("GME")
+            elif sub_lower == "amcstock":
+                noise_tickers.discard("AMC")
 
         for post in data.get("data", {}).get("children", []):
             pd = post.get("data", {})
@@ -3256,8 +3356,7 @@ class RedditCollector:
                 if ticker not in noise_tickers:
                     ticker_counts[ticker] = ticker_counts.get(ticker, 0) + 1
 
-        # Sort by count descending
-        return dict(sorted(ticker_counts.items(), key=lambda x: x[1], reverse=True))
+        return ticker_counts
 
     async def close(self):
         await self._client.aclose()

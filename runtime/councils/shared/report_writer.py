@@ -8,6 +8,7 @@ NCL/intelligence-scan/signals/ for the Awarebot-FPC pipeline.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -199,7 +200,12 @@ def _write_signals(report: CouncilReport, date_str: str) -> None:
     signals = []
     seen_signal_ids: set[str] = set()
     for i, insight in enumerate(report.insights):
-        signal_id = f"sig-{date_str}-{report.council_type.value}-{uuid.uuid4().hex[:8]}"
+        # Derive signal ID from content hash so identical insights dedup properly
+        # (uuid4 would generate unique IDs every time, defeating dedup)
+        content_hash = hashlib.sha256(
+            f"{insight.title}:{insight.description}:{insight.category.value}".encode()
+        ).hexdigest()[:8]
+        signal_id = f"sig-{date_str}-{report.council_type.value}-{content_hash}"
         # Deduplicate: skip any signal whose ID has already been recorded
         if signal_id in seen_signal_ids:
             log.debug(f"Skipping duplicate signal_id={signal_id}")
@@ -235,7 +241,8 @@ def _write_alerts(report: CouncilReport) -> None:
 
     high_insights = [i for i in report.insights if i.confidence >= 0.8 and i.actionable]
     for insight in high_insights:
-        ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        now = datetime.now(timezone.utc)
+        ts = now.strftime("%Y%m%d-%H%M%S") + f"-{now.microsecond:06d}"
         alert = {
             "alert_id": f"alert-{ts}-{report.council_type.value}",
             "source": report.council_type.value,

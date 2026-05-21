@@ -52,15 +52,41 @@ Forex: Any = None
 Contract: Any = None
 
 IB_INSYNC_AVAILABLE = False
-try:
-    from ib_insync import IB, Contract, Forex, Option, Stock
+# Lazy import: ib_insync (via eventkit) caches the event loop at import time.
+# Importing at module level before uvicorn starts causes "Future attached to a
+# different loop" errors.  Instead we import inside connect() when uvicorn's
+# loop is already running.  _try_import() is the deferred check.
 
-    IB_INSYNC_AVAILABLE = True
-except (ImportError, RuntimeError):
-    logger.warning(
-        "ib_insync not installed — IBKRAdapter will return empty data. "
-        "Install with: pip install ib_insync"
-    )
+def _try_import_ib_insync():
+    """Import ib_insync at call time (inside a running event loop).
+
+    Python 3.14 removed the implicit event loop from get_event_loop().
+    eventkit (used by ib_insync) calls get_event_loop() at import time.
+    We must register the running loop with the policy before importing.
+    """
+    global IB, Stock, Option, Forex, Contract, IB_INSYNC_AVAILABLE
+    if IB_INSYNC_AVAILABLE:
+        return True
+    try:
+        # Make the current running loop visible to get_event_loop()
+        try:
+            loop = asyncio.get_running_loop()
+            asyncio.get_event_loop_policy().set_event_loop(loop)
+        except RuntimeError:
+            # No running loop — create a temporary one
+            asyncio.set_event_loop(asyncio.new_event_loop())
+
+        from ib_insync import IB as _IB, Contract as _Contract
+        from ib_insync import Forex as _Forex, Option as _Option, Stock as _Stock
+        IB, Stock, Option, Forex, Contract = _IB, _Stock, _Option, _Forex, _Contract
+        IB_INSYNC_AVAILABLE = True
+        return True
+    except ImportError:
+        logger.warning(
+            "ib_insync not installed — IBKRAdapter will return empty data. "
+            "Install with: pip install ib_insync"
+        )
+        return False
 
 
 # ── Asset class mapping ────────────────────────────────────────
@@ -124,7 +150,7 @@ class IBKRAdapter:
         Returns True on success, False if ib_insync is missing.
         Raises ConnectionError on socket/auth failures.
         """
-        if not IB_INSYNC_AVAILABLE:
+        if not _try_import_ib_insync():
             logger.error("ib_insync not installed — cannot connect to IBKR")
             return False
 

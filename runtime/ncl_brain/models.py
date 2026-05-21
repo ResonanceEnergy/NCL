@@ -471,6 +471,38 @@ class MemUnit(BaseModel):
     related_units: list[str] = Field(
         default_factory=list, description="Related memory unit IDs"
     )
+    memory_type: str = Field(
+        default="episodic",
+        description="Memory type: episodic, semantic, procedural, signal, decision, preference",
+    )
+    memory_tier: str = Field(
+        default="SML",
+        description="Decay tier: LML (long-term, slow decay) or SML (short-term, fast decay)",
+    )
+    llm_importance_score: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=10.0,
+        description="LLM-evaluated importance 1-10, None if not yet scored",
+    )
+    entities: list[str] = Field(
+        default_factory=list,
+        description="Extracted entity names for knowledge graph",
+    )
+    relationships: list[dict[str, str]] = Field(
+        default_factory=list,
+        description="Extracted relationships: [{subject, predicate, object}]",
+    )
+    consolidated_from: list[str] = Field(
+        default_factory=list,
+        description="IDs of units merged into this one during consolidation",
+    )
+    reflection_quality: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Quality score from reflection loop (0-1)",
+    )
 
 
 class InsightSignal(BaseModel):

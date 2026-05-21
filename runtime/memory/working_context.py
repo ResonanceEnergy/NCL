@@ -209,20 +209,15 @@ class DailyContextWindow:
         return max(0.0, min(1.0, importance / 100.0))
 
     @staticmethod
-    def compute_relevance(content: str, themes: list[str]) -> float:
+    def _keyword_relevance(content: str, themes: list[str]) -> float:
         """
-        Compute relevance of content to today's themes using keyword overlap.
+        Compute relevance via keyword overlap (fast fallback).
         Returns 0.0 - 1.0.
-
-        For production, this could use vector similarity via ChromaDB,
-        but keyword overlap is fast and works well for the daily assembly.
         """
         if not themes:
-            return 0.5  # Neutral when no themes are set
+            return 0.5
 
-        content_lower = content.lower()
-        content_tokens = set(re.findall(r'[a-z0-9_-]{3,}', content_lower))
-
+        content_tokens = set(re.findall(r'[a-z0-9_-]{3,}', content.lower()))
         if not content_tokens:
             return 0.0
 
@@ -234,12 +229,60 @@ class DailyContextWindow:
             return 0.5
 
         overlap = content_tokens & theme_tokens
-        # Jaccard-like score biased toward theme coverage
         theme_coverage = len(overlap) / max(len(theme_tokens), 1)
         content_density = len(overlap) / max(len(content_tokens), 1)
-
-        # Weighted blend: theme coverage matters more
         return min(1.0, 0.7 * theme_coverage + 0.3 * content_density)
+
+    def compute_relevance(self, content: str, themes: list[str]) -> float:
+        """
+        Compute relevance of content to today's themes.
+
+        Hybrid approach:
+        1. Try ChromaDB vector similarity if memory_store has it (semantic match)
+        2. Always run keyword overlap (exact match)
+        3. Blend: 60% vector + 40% keyword when vector available, else 100% keyword
+        """
+        keyword_score = self._keyword_relevance(content, themes)
+
+        # Try vector similarity via ChromaDB
+        vector_score = None
+        if self.memory_store and hasattr(self.memory_store, '_init_vector_db'):
+            try:
+                if self.memory_store._init_vector_db():
+                    import asyncio
+                    # Build a theme query string for vector search
+                    theme_query = " ".join(themes[:10])
+                    if theme_query:
+                        collection = self.memory_store._chroma_collections.get("default")
+                        if collection:
+                            # Query with content as document, see how close it is to theme query
+                            # ChromaDB doesn't support direct similarity scoring between two texts,
+                            # so we search for content in the collection and check distance
+                            try:
+                                results = collection.query(
+                                    query_texts=[theme_query],
+                                    n_results=50,
+                                    include=["documents", "distances"],
+                                )
+                                if results and results.get("documents") and results["documents"][0]:
+                                    # Check if this content appears in results (approximate match)
+                                    content_prefix = content[:200].lower().strip()
+                                    distances = results.get("distances", [[]])[0]
+                                    documents = results["documents"][0]
+                                    for doc, dist in zip(documents, distances):
+                                        if doc and content_prefix[:80] in doc.lower()[:200]:
+                                            # Cosine distance → similarity: 0 = identical, 2 = opposite
+                                            vector_score = max(0.0, 1.0 - dist)
+                                            break
+                            except Exception:
+                                pass  # Fall through to keyword-only
+            except Exception:
+                pass
+
+        if vector_score is not None:
+            # Blend: 60% vector + 40% keyword
+            return min(1.0, 0.6 * vector_score + 0.4 * keyword_score)
+        return keyword_score
 
     def compute_salience(
         self,
@@ -777,6 +820,97 @@ class DailyContextWindow:
                     return True
             return False
 
+    async def toggle_pin(self, item_id: str) -> Optional[bool]:
+        """Toggle pin on an item. Returns new pin state, or None if not found."""
+        async with self._lock:
+            if not self._current:
+                return None
+            for item in self._current.items:
+                if item.item_id == item_id:
+                    item.pinned = not item.pinned
+                    if item.pinned:
+                        if item_id not in self._current.pinned_ids:
+                            self._current.pinned_ids.append(item_id)
+                    else:
+                        self._current.pinned_ids = [pid for pid in self._current.pinned_ids if pid != item_id]
+                    self._persist()
+                    log.info(f"[WORKING-CTX] Toggle pin {item_id} → {'pinned' if item.pinned else 'unpinned'}")
+                    return item.pinned
+            return None
+
+    async def promote_item(self, content: str, source: str, tags: list[str] = None, item_id: str = None) -> ContextItem:
+        """Promote an item into the context window with high importance."""
+        import uuid
+        async with self._lock:
+            if not self._current:
+                await self.assemble()
+
+            new_id = item_id or f"promoted:{uuid.uuid4().hex[:8]}"
+            now = datetime.now(timezone.utc)
+            item = ContextItem(
+                item_id=new_id,
+                content=content[:500],
+                source=source,
+                category="promoted",
+                salience_score=0.90,
+                importance=85.0,
+                recency_score=1.0,
+                relevance_score=0.95,
+                tags=tags or [],
+                pinned=True,
+                created_at=now.isoformat(),
+                assembled_at=now.isoformat(),
+            )
+            self._current.items.insert(0, item)
+            # Keep within max
+            if len(self._current.items) > MAX_CONTEXT_ITEMS:
+                self._current.items = self._current.items[:MAX_CONTEXT_ITEMS]
+            self._persist()
+            log.info(f"[WORKING-CTX] Promoted item: {new_id}")
+            return item
+
+    async def dismiss_item(self, item_id: str) -> bool:
+        """Remove an item from the context window."""
+        async with self._lock:
+            if not self._current:
+                return False
+            before = len(self._current.items)
+            self._current.items = [i for i in self._current.items if i.item_id != item_id]
+            if len(self._current.items) < before:
+                self._current.pinned_ids = [pid for pid in self._current.pinned_ids if pid != item_id]
+                self._persist()
+                log.info(f"[WORKING-CTX] Dismissed item: {item_id}")
+                return True
+            return False
+
+    async def inject_signal(self, content: str, source: str, importance: float = 50.0, tags: list[str] = None) -> None:
+        """Inject an intelligence signal into the working context (called by Awarebot)."""
+        import uuid
+        item = ContextItem(
+            item_id=f"signal:{uuid.uuid4().hex[:8]}",
+            content=content[:500],
+            source=source,
+            category="signal",
+            salience_score=0.0,  # Will be recomputed
+            importance=importance,
+            recency_score=1.0,
+            relevance_score=0.0,
+            tags=tags or [],
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
+        # Compute relevance against current themes
+        if self._current and self._current.themes:
+            item.relevance_score = self.compute_relevance(content, self._current.themes)
+            item.salience_score = self.compute_salience(
+                item.recency_score,
+                self.compute_importance_normalized(importance),
+                item.relevance_score,
+            )
+        else:
+            item.salience_score = self.compute_importance_normalized(importance) * 0.7
+
+        await self.add_item(item)
+
     async def mark_accessed(self, item_id: str) -> None:
         """Mark an item as accessed (reinforces it for EOD promote/demote)."""
         async with self._lock:
@@ -812,8 +946,44 @@ class DailyContextWindow:
         """
         Mid-day refresh — re-score existing items and pull any new
         high-priority items that arrived since morning assembly.
+
+        Unlike a raw assemble(), this preserves accessed_today and access_count
+        on existing items so the EOD promote/demote cycle has accurate data.
         """
-        return await self.assemble(themes=themes)
+        # Snapshot existing access state before reassembly
+        access_state: dict[str, tuple[bool, int, bool]] = {}
+        async with self._lock:
+            if self._current:
+                for item in self._current.items:
+                    access_state[item.item_id] = (
+                        item.accessed_today,
+                        item.access_count,
+                        item.pinned,
+                    )
+
+        # Run full assembly (acquires its own lock)
+        await self.assemble(themes=themes)
+
+        # Restore access state on items that survived the reassembly
+        if access_state:
+            async with self._lock:
+                if self._current:
+                    restored = 0
+                    for item in self._current.items:
+                        if item.item_id in access_state:
+                            prev_accessed, prev_count, prev_pinned = access_state[item.item_id]
+                            item.accessed_today = item.accessed_today or prev_accessed
+                            item.access_count = max(item.access_count, prev_count)
+                            if prev_pinned:
+                                item.pinned = True
+                                if item.item_id not in self._current.pinned_ids:
+                                    self._current.pinned_ids.append(item.item_id)
+                            restored += 1
+                    if restored > 0:
+                        self._persist()
+                        log.info(f"[WORKING-CTX] Refresh: restored access state for {restored} items")
+
+        return self._current
 
     async def end_of_day(self) -> dict:
         """

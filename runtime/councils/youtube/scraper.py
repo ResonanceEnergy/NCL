@@ -13,7 +13,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import tempfile
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -41,11 +40,14 @@ DEFAULT_CHANNELS: list[str] = [
 ]
 
 # Path to runtime-editable channel config (no code change required to add/remove)
+# Known limitation: no file locking on this config. Concurrent reads during a
+# write could see partial JSON. In practice this is fine — config changes are
+# rare and manual, and the fallback to DEFAULT_CHANNELS handles parse failures.
 NCL_BASE_DIR = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
 CHANNEL_CONFIG_PATH = NCL_BASE_DIR / "config" / "youtube_channels.json"
 
 # How far back to look (hours)
-DEFAULT_LOOKBACK_HOURS = 24
+DEFAULT_LOOKBACK_HOURS = 72
 
 # Maximum total audio duration to download (hours) — prevents runaway
 MAX_TOTAL_DURATION_HOURS = 24
@@ -91,8 +93,16 @@ def get_channel_list() -> list[str]:
                 if cleaned:
                     return cleaned
             log.warning(f"{CHANNEL_CONFIG_PATH} present but has no usable 'channels' list")
-        except (json.JSONDecodeError, OSError) as e:
-            log.warning(f"Failed to read {CHANNEL_CONFIG_PATH}: {e}")
+        except json.JSONDecodeError as e:
+            log.warning(
+                f"Channel config {CHANNEL_CONFIG_PATH} failed to parse: {e} "
+                f"— falling back to {len(DEFAULT_CHANNELS)} default channels"
+            )
+        except OSError as e:
+            log.warning(
+                f"Could not read channel config {CHANNEL_CONFIG_PATH}: {e} "
+                f"— falling back to {len(DEFAULT_CHANNELS)} default channels"
+            )
 
     return DEFAULT_CHANNELS
 

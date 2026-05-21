@@ -115,6 +115,9 @@ class XPost:
     mentioned_users: list[str] = field(default_factory=list)
     thread_id: Optional[str] = None
     synthetic: bool = False  # True when data is AI-generated (e.g. Grok fallback)
+    synthetic_trending: bool = False  # True when sourced from keyword proxy, not real trending API
+    verified: bool = False  # Author is verified on X
+    sentiment: float = 0.0  # -1.0 (bearish) to 1.0 (bullish), 0.0 = neutral/unknown
 
 
 @dataclass

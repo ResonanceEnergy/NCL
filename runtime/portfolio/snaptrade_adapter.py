@@ -106,16 +106,20 @@ class SnapTradeAdapter:
                 client_id=self.client_id,
             )
 
-            # Verify connectivity by fetching account list
-            await asyncio.to_thread(
-                self._snap.account_information.get_all_user_account_balances,
+            # Verify connectivity by listing linked accounts
+            accounts = await asyncio.to_thread(
+                self._snap.account_information.list_user_accounts,
                 user_id=self.user_id,
                 user_secret=self.user_secret,
             )
+            acct_list = accounts.body if hasattr(accounts, "body") else accounts
+            acct_count = len(acct_list) if isinstance(acct_list, list) else 0
 
             self._connected = True
             self._last_sync = datetime.now(timezone.utc).isoformat()
-            logger.info("SnapTrade adapter connected — credentials verified")
+            logger.info(
+                "SnapTrade adapter connected — %d account(s) linked", acct_count
+            )
             return True
 
         except Exception as exc:
@@ -149,11 +153,13 @@ class SnapTradeAdapter:
 
         try:
             raw = await asyncio.to_thread(
-                self._snap.account_information.get_all_user_account_balances,
+                self._snap.account_information.list_user_accounts,
                 user_id=self.user_id,
                 user_secret=self.user_secret,
             )
-            accounts_list: list = raw if isinstance(raw, list) else []
+            accounts_list = raw.body if hasattr(raw, "body") else raw
+            if not isinstance(accounts_list, list):
+                accounts_list = []
         except Exception as exc:
             logger.error("Failed to fetch SnapTrade accounts: %s", exc)
             return []
@@ -163,17 +169,26 @@ class SnapTradeAdapter:
         results: List[Dict] = []
 
         for acct in accounts_list:
-            acct_id = str(acct.get("id", "unknown"))
-            raw_name = str(acct.get("name", acct_id))
+            # Handle both dict and object-style responses
+            _get = acct.get if isinstance(acct, dict) else lambda k, d=None: getattr(acct, k, d)
+            acct_id = str(_get("id", "unknown"))
+            raw_name = str(_get("name", acct_id))
             acct_type = self._infer_account_type(raw_name)
 
-            cash_info = acct.get("cash", {})
-            cash_balance = float(cash_info.get("amount", 0))
-            market_value = float(acct.get("market_value", 0))
-            net_liq = cash_balance + market_value
+            # Extract balance from account data (balance.total.amount)
+            net_liq = 0.0
+            cash_balance = 0.0
+            balance_obj = _get("balance", {})
+            if isinstance(balance_obj, dict):
+                total_obj = balance_obj.get("total", {})
+                if isinstance(total_obj, dict):
+                    net_liq = float(total_obj.get("amount", 0) or 0)
+            elif balance_obj:
+                total_obj = getattr(balance_obj, "total", None)
+                if total_obj:
+                    net_liq = float(getattr(total_obj, "amount", 0) or 0)
+            cash_balance = net_liq  # SnapTrade reports total balance; positions add market value
 
-            # SnapTrade doesn't provide P&L at account level — derive later
-            # from positions if needed; default to 0 here.
             results.append(
                 {
                     "broker": "WEALTHSIMPLE",
@@ -201,51 +216,65 @@ class SnapTradeAdapter:
         """
         Return normalised positions across all linked Wealthsimple accounts.
 
-        Each dict contains:
-            symbol, name, broker, account_id, quantity, avg_cost,
-            current_price, market_value, unrealized_pl, unrealized_pl_pct,
-            daily_pl, daily_pl_pct, currency, sector, asset_class
+        Fetches positions per-account since the SnapTrade SDK requires accountId.
         """
         if not self._connected or not self._snap:
             logger.warning("get_positions called while disconnected — returning []")
             return []
 
+        # First get the list of accounts
         try:
-            raw = await asyncio.to_thread(
-                self._snap.account_information.get_user_holdings,
+            accts_raw = await asyncio.to_thread(
+                self._snap.account_information.list_user_accounts,
                 user_id=self.user_id,
                 user_secret=self.user_secret,
             )
+            accts = accts_raw.body if hasattr(accts_raw, "body") else accts_raw
+            if not isinstance(accts, list):
+                accts = []
         except Exception as exc:
-            logger.error("Failed to fetch SnapTrade holdings: %s", exc)
+            logger.error("Failed to list SnapTrade accounts for positions: %s", exc)
             return []
 
         self._last_sync = datetime.now(timezone.utc).isoformat()
         results: List[Dict] = []
 
-        # Holdings may be grouped by account
-        accounts = raw if isinstance(raw, list) else ([raw] if raw else [])
+        for acct in accts:
+            _get = acct.get if isinstance(acct, dict) else lambda k, d=None: getattr(acct, k, d)
+            acct_id = str(_get("id", "unknown"))
 
-        for entry in accounts:
-            acct_obj = getattr(entry, "account", None) or {}
-            acct_id = str(
-                acct_obj.get("id", "") if isinstance(acct_obj, dict) else getattr(acct_obj, "id", "")
-            ) or "unknown"
-
-            positions = getattr(entry, "positions", None) or []
+            try:
+                pos_raw = await asyncio.to_thread(
+                    self._snap.account_information.get_user_account_positions,
+                    user_id=self.user_id,
+                    user_secret=self.user_secret,
+                    account_id=acct_id,
+                )
+                positions = pos_raw.body if hasattr(pos_raw, "body") else pos_raw
+                if not isinstance(positions, list):
+                    positions = []
+            except Exception as exc:
+                logger.warning("Failed to fetch positions for account %s: %s", acct_id, exc)
+                continue
 
             for pos in positions:
-                symbol_info = getattr(pos, "symbol", None) or {}
+                if isinstance(pos, dict):
+                    symbol_info = pos.get("symbol", {})
+                    units = float(pos.get("units", 0) or 0)
+                    avg_cost = float(pos.get("average_purchase_price", 0) or 0)
+                    mkt_val = float(pos.get("market_value", 0) or 0)
+                else:
+                    symbol_info = getattr(pos, "symbol", None) or {}
+                    units = float(getattr(pos, "units", 0) or 0)
+                    avg_cost = float(getattr(pos, "average_purchase_price", 0) or 0)
+                    mkt_val = float(getattr(pos, "market_value", 0) or 0)
+
                 if isinstance(symbol_info, dict):
                     symbol = symbol_info.get("symbol", "?")
                     name = symbol_info.get("description", symbol)
                 else:
-                    symbol = str(symbol_info)
-                    name = symbol
-
-                units = float(getattr(pos, "units", 0))
-                avg_cost = float(getattr(pos, "average_purchase_price", 0))
-                mkt_val = float(getattr(pos, "market_value", 0))
+                    symbol = str(getattr(symbol_info, "symbol", symbol_info))
+                    name = str(getattr(symbol_info, "description", symbol))
 
                 # Derive current price from market_value / units
                 current_price = round(mkt_val / units, 4) if units else 0

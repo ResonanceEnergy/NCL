@@ -27,10 +27,12 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import itertools
 import json
 import logging
 import math
 import os
+import re
 import time
 import uuid
 from collections import defaultdict, deque
@@ -65,12 +67,13 @@ log = logging.getLogger("ncl.awarebot.agent")
 # CONFIGURATION
 # ═══════════════════════════════════════════════════════════════════════════
 
-# Scoring weights — 5 factors (must sum to 1.0)
-W_RELEVANCE = 0.30
-W_ACTIONABILITY = 0.25
-W_NOVELTY = 0.20
-W_AUTHORITY = 0.15
-W_FRESHNESS = 0.10  # HN-gravity time decay
+# Scoring weights — 6 factors (must sum to 1.0)
+W_CONTEXT_RELEVANCE = 0.30   # Mandate + watch query + working context match
+W_FRESHNESS = 0.20           # How recent
+W_CROSS_SOURCE = 0.15        # Multi-source confirmation
+W_SOURCE_CONFIDENCE = 0.15   # Source authority
+W_ACTIONABILITY = 0.10       # Can NATRIX act on this
+W_NOVELTY = 0.10             # New information vs seen before
 
 # Routing thresholds (step-function)
 THRESHOLD_CRITICAL = 0.75
@@ -277,24 +280,26 @@ def compute_composite_score(
     novelty: float,
     authority: float,
     freshness: float = 0.5,
+    cross_source: float = 0.0,
 ) -> float:
     """
-    Compute weighted composite score from five factors.
+    Compute weighted composite score from six factors.
 
     Pure function — no side effects, fully deterministic.
 
-    Weights: relevance 30%, actionability 25%, novelty 20%,
-             authority 15%, freshness 10%
+    Weights: context_relevance 30%, freshness 20%, cross_source 15%,
+             source_confidence 15%, actionability 10%, novelty 10%
 
     Returns:
         Composite score in [0.0, 1.0]
     """
     score = (
-        W_RELEVANCE * min(1.0, max(0.0, relevance))
+        W_CONTEXT_RELEVANCE * min(1.0, max(0.0, relevance))
+        + W_FRESHNESS * min(1.0, max(0.0, freshness))
+        + W_CROSS_SOURCE * min(1.0, max(0.0, cross_source))
+        + W_SOURCE_CONFIDENCE * min(1.0, max(0.0, authority))
         + W_ACTIONABILITY * min(1.0, max(0.0, actionability))
         + W_NOVELTY * min(1.0, max(0.0, novelty))
-        + W_AUTHORITY * min(1.0, max(0.0, authority))
-        + W_FRESHNESS * min(1.0, max(0.0, freshness))
     )
     return round(min(1.0, max(0.0, score)), 4)
 
@@ -314,6 +319,9 @@ def classify_route_level(composite_score: float) -> str:
 def is_ambiguous(composite_score: float) -> bool:
     """Signals in the 0.30-0.55 zone need LLM reasoning."""
     return THRESHOLD_MEDIUM <= composite_score < THRESHOLD_HIGH
+
+
+# ── Cross-Source & Context Keyword Helpers ──────────────────────────────
 
 
 # ── BM25 Relevance Scoring ──────────────────────────────────────────────
@@ -669,11 +677,114 @@ class Awarebot:
         # ── Signal accumulator for predictions ───────────────────────
         self._prediction_buffer: deque[Signal] = deque(maxlen=500)
 
+        # ── Context keyword cache for mandate/watch-query relevance ──
+        self._context_keywords: set[str] = set()
+        self._keywords_loaded_at: float = 0.0
+
         # ── Persistence ──────────────────────────────────────────────
         self._signals_file = self._data_dir / "intelligence" / "agent_signals.jsonl"
         self._signals_file.parent.mkdir(parents=True, exist_ok=True)
 
         log.info("[AGENT] Awarebot agent initialized")
+
+    # ═══════════════════════════════════════════════════════════════════
+    # WARM START
+    # ═══════════════════════════════════════════════════════════════════
+
+    def _warm_start_buffers(self):
+        """
+        Populate context deques from persisted signal archive on startup.
+
+        Reads agent_signals.jsonl from the end (most recent first), loads
+        signals from the last 48 hours, and routes them into the three
+        context buffers using the same threshold logic as route_signal().
+
+        This prevents empty context windows after a Brain restart.
+        """
+        if not self._signals_file.exists():
+            log.info("[AGENT:WARMSTART] No signal archive found — starting cold")
+            return
+
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
+        loaded = 0
+        skipped_old = 0
+        errors = 0
+
+        # Read all lines — we process in reverse (most recent first)
+        # but append to deques in chronological order so the deque order is correct.
+        signals_to_load: list[Signal] = []
+
+        try:
+            with open(self._signals_file, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        data = json.loads(line)
+                        ts_str = data.get("timestamp")
+                        if not ts_str:
+                            continue
+                        ts = datetime.fromisoformat(ts_str)
+                        # Ensure timezone-aware
+                        if ts.tzinfo is None:
+                            ts = ts.replace(tzinfo=timezone.utc)
+                        if ts < cutoff:
+                            skipped_old += 1
+                            continue
+
+                        sig = Signal(
+                            signal_id=data.get("signal_id", str(uuid.uuid4())),
+                            source=data.get("source", ""),
+                            title=data.get("title", ""),
+                            content=data.get("content", ""),
+                            url=data.get("url"),
+                            timestamp=ts,
+                            relevance=data.get("relevance", 0.0),
+                            actionability=data.get("actionability", 0.0),
+                            novelty=data.get("novelty", 0.0),
+                            authority=data.get("authority", 0.0),
+                            composite_score=data.get("composite_score", 0.0),
+                            route_level=data.get("route_level", ""),
+                            tags=data.get("tags", []),
+                            direction=data.get("direction", "neutral"),
+                            category=data.get("category", ""),
+                            confidence=data.get("confidence", 0.0),
+                        )
+                        signals_to_load.append(sig)
+                    except (json.JSONDecodeError, KeyError, ValueError):
+                        errors += 1
+                        continue
+        except Exception as e:
+            log.warning(f"[AGENT:WARMSTART] Failed to read signal archive: {e}")
+            return
+
+        # Sort chronologically so deque ordering is correct (oldest first)
+        signals_to_load.sort(key=lambda s: s.timestamp)
+
+        for sig in signals_to_load:
+            score = sig.composite_score
+            if score >= THRESHOLD_CRITICAL:
+                self._context_top10.append(sig)
+                self._context_24h.append(sig)
+                self._context_7d.append(sig)
+            elif score >= THRESHOLD_HIGH:
+                self._context_24h.append(sig)
+                self._context_7d.append(sig)
+            elif score >= THRESHOLD_MEDIUM:
+                self._context_7d.append(sig)
+            # Below MEDIUM: skip (same as route_signal LOW behavior)
+
+            # Also populate prediction buffer
+            self._prediction_buffer.append(sig)
+            loaded += 1
+
+        log.info(
+            f"[AGENT:WARMSTART] Loaded {loaded} signals from archive "
+            f"(skipped {skipped_old} old, {errors} errors). "
+            f"Buffers: top10={len(self._context_top10)}, "
+            f"24h={len(self._context_24h)}, 7d={len(self._context_7d)}"
+        )
 
     # ═══════════════════════════════════════════════════════════════════
     # LIFECYCLE
@@ -689,6 +800,10 @@ class Awarebot:
         """
         self._running = True
         self._stats["started_at"] = datetime.now(timezone.utc).isoformat()
+
+        # Warm-start context buffers from persisted signals before loops begin
+        self._warm_start_buffers()
+
         log.info("[AGENT] Starting main event loop with supervisor")
 
         # Task definitions: (coroutine_factory, name)
@@ -699,6 +814,7 @@ class Awarebot:
             (self._context_loop, "awarebot-context"),
             (self._journal_loop, "awarebot-journal"),
             (self._ytc_loop, "awarebot-ytc"),
+            (self._x_liked_loop, "awarebot-x-liked"),
         ]
         restart_counts: dict[str, int] = {name: 0 for _, name in task_defs}
         max_restarts = 3
@@ -813,16 +929,19 @@ class Awarebot:
         log.info("[AGENT:SCAN] Starting scan cycle")
         all_signals: list[Signal] = []
 
-        # Run all source collectors concurrently
+        # Run all source collectors concurrently.
+        # All sources enabled — Awarebot is the single scorer with 6-factor
+        # composite (context_relevance, freshness, cross_source, source_confidence,
+        # actionability, novelty) and tier routing. Low-value signals are filtered
+        # by the scoring thresholds, not by disabling sources.
         tasks = [
-            self._collect_social(),
-            self._collect_google_trends(),
-            self._collect_polymarket(),
-            self._collect_news(),
-            # CryptoCollector disabled — re-enable when rate limiting resolved
-            # self._collect_crypto(),
-            self._collect_unusual_whales(),
-            self._collect_council_reports(),
+            self._collect_social(),             # X + Reddit + YouTube
+            self._collect_google_trends(),      # Google Trends
+            self._collect_polymarket(),         # Prediction markets
+            self._collect_news(),               # NewsAPI / GNews / RSS
+            # self._collect_crypto(),           # DISABLED — CoinGecko rate limiting
+            self._collect_unusual_whales(),     # Options flow / dark pool / congress
+            self._collect_council_reports(),     # council report ingestion
         ]
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -854,19 +973,25 @@ class Awarebot:
         if not self.scanner:
             return signals
 
-        # X queries
-        for query in self._watch_queries.get("x", []):
-            try:
-                await self._rate_limiters["x"].acquire()
-                raw = await self.scanner.scan_x(query, max_results=10)
-                for sig in raw:
-                    s = Signal.from_insight_signal(sig)
-                    s.tags.append("scan:x")
-                    signals.append(s)
-                    self._stats["signals_by_source"]["x"] += 1
-            except Exception as e:
-                log.warning(f"[AGENT:SCAN:X] Query '{query}' failed: {e}")
-                self._stats["source_errors"]["x"] += 1
+        # X queries — ON HOLD per NATRIX directive (May 19, 2026)
+        # X API subscription expired (402). Scanner disabled to stop wasting cycles.
+        # Re-enable by setting X_SCANNER_ENABLED=true in .env
+        x_enabled = os.getenv("X_SCANNER_ENABLED", "false").lower() == "true"
+        if x_enabled:
+            for query in self._watch_queries.get("x", []):
+                try:
+                    await self._rate_limiters["x"].acquire()
+                    raw = await self.scanner.scan_x(query, max_results=10)
+                    for sig in raw:
+                        s = Signal.from_insight_signal(sig)
+                        s.tags.append("scan:x")
+                        signals.append(s)
+                        self._stats["signals_by_source"]["x"] += 1
+                except Exception as e:
+                    log.warning(f"[AGENT:SCAN:X] Query '{query}' failed: {e}")
+                    self._stats["source_errors"]["x"] += 1
+        else:
+            log.warning("[AGENT:SCAN:X] X scanner disabled (X_SCANNER_ENABLED != true)")
 
         # YouTube queries
         for query in self._watch_queries.get("youtube", []):
@@ -882,6 +1007,7 @@ class Awarebot:
                 log.warning(f"[AGENT:SCAN:YT] Query '{query}' failed: {e}")
                 self._stats["source_errors"]["youtube"] += 1
 
+        # NOTE: Awarebot uses lightweight Reddit collection (no sentiment/flair) for speed. Full analysis is in councils/reddit/.
         # Reddit search via RSS (no API credentials needed)
         for query in self._watch_queries.get("reddit", []):
             try:
@@ -1215,7 +1341,18 @@ class Awarebot:
         text = f"{signal.title} {signal.content}"
         bm25_relevance = compute_relevance_bm25(text, all_queries)
         # Blend: 70% BM25, 30% scanner-provided (if any)
-        signal.relevance = 0.7 * bm25_relevance + 0.3 * signal.relevance
+        relevance = 0.7 * bm25_relevance + 0.3 * signal.relevance
+
+        # Add mandate/working-context keyword boost
+        context_keywords = self._get_context_keywords()
+        if context_keywords:
+            signal_text = f"{signal.title} {signal.content} {' '.join(signal.tags)}"
+            signal_tokens = set(t.lower() for t in re.findall(r'\b[a-zA-Z0-9]{3,}\b', signal_text))
+            matches = len(signal_tokens & context_keywords)
+            keyword_score = min(matches / 5.0, 1.0)  # 0=0, 1=0.2, 2=0.4, 3=0.6, 4=0.8, 5+=1.0
+            relevance = 0.5 * relevance + 0.5 * keyword_score  # Blend BM25 with keyword match
+
+        signal.relevance = relevance
 
         # ── NOVELTY: Exponential decay + SimHash near-dupe ──────────
         decay_novelty = compute_novelty_decay(signal, self._simhash_index)
@@ -1254,14 +1391,30 @@ class Awarebot:
         # ── FRESHNESS: HN-gravity time decay ────────────────────────
         freshness = compute_freshness(signal)
 
-        # ── COMPOSITE: 5-factor weighted blend ──────────────────────
+        # ── CROSS-SOURCE: multi-source confirmation ─────────────────
+        cross_source = self._compute_cross_source(
+            f"{signal.title} {signal.content}", signal.source
+        )
+
+        # ── COMPOSITE: 6-factor weighted blend ──────────────────────
         signal.composite_score = compute_composite_score(
             signal.relevance,
             signal.actionability,
             signal.novelty,
             signal.authority,
             freshness,
+            cross_source=cross_source,
         )
+
+        # Store score factors in metadata
+        signal.metadata["score_factors"] = {
+            "context_relevance": round(signal.relevance * 100, 1),
+            "freshness": round(freshness * 100, 1),
+            "cross_source": round(cross_source * 100, 1),
+            "source_confidence": round(signal.authority * 100, 1),
+            "actionability": round(signal.actionability * 100, 1),
+            "novelty": round(signal.novelty * 100, 1),
+        }
 
         # Classify route level
         signal.route_level = classify_route_level(signal.composite_score)
@@ -1465,7 +1618,7 @@ Respond with ONLY a JSON object:
         self._context_7d.append(signal)
 
     async def _store_to_memory(self, signal: Signal, importance: float):
-        """Persist signal to MemoryStore."""
+        """Persist signal to MemoryStore with typed collection routing and entity extraction."""
         if not self.memory_store:
             return
 
@@ -1473,12 +1626,45 @@ Respond with ONLY a JSON object:
             content = f"[{signal.source}] {signal.title}\n{signal.content[:400]}"
             if signal.url:
                 content += f"\nURL: {signal.url}"
-            await self.memory_store.create_unit(
+
+            # Determine memory type from signal characteristics
+            memory_type = "signal"  # Default for awarebot signals
+            source_lower = signal.source.lower()
+            if "council" in source_lower:
+                memory_type = "semantic"
+            elif "prediction" in source_lower:
+                memory_type = "episodic"
+            elif any(t in signal.tags for t in ["decision", "commitment", "approved"]):
+                memory_type = "decision"
+
+            # Fast entity extraction (regex only, no LLM cost)
+            entities = []
+            relationships = []
+            try:
+                from ..memory.entity_extractor import fast_extract_entities, fast_extract_relationships
+                entities = fast_extract_entities(content)
+                relationships = fast_extract_relationships(content)
+            except Exception:
+                pass  # Entity extraction is optional
+
+            unit = await self.memory_store.create_unit(
                 content=content,
                 source=f"awarebot:{signal.source}",
                 importance=importance,
                 tags=signal.tags[:10],
+                memory_type=memory_type,
             )
+
+            # Attach entities and relationships to the unit if extraction succeeded
+            if entities or relationships:
+                try:
+                    unit.entities = entities
+                    unit.relationships = relationships
+                    # Persist the updated unit (async, non-blocking)
+                    asyncio.create_task(self.memory_store.index_unit(unit))
+                except Exception:
+                    pass
+
         except Exception as e:
             log.warning(f"[AGENT:MEMORY] Failed to store signal: {e}")
 
@@ -1507,6 +1693,203 @@ Respond with ONLY a JSON object:
                 log.debug(f"[AGENT:CONTEXT] Working context add_item also failed: {inner_e}")
         except Exception as e:
             log.debug(f"[AGENT:CONTEXT] Working context injection failed: {e}")
+
+    # ═══════════════════════════════════════════════════════════════════
+    # CROSS-SOURCE & CONTEXT KEYWORD SCORING
+    # ═══════════════════════════════════════════════════════════════════
+
+    def _compute_cross_source(self, signal_text: str, signal_source: str) -> float:
+        """Cross-source confirmation score (0-1). Checks if other sources report similar content."""
+        if not signal_text or len(signal_text) < 20:
+            return 0.0
+        tokens = set(t.lower() for t in re.findall(r'\b[a-zA-Z0-9]{3,}\b', signal_text))
+        if len(tokens) < 3:
+            return 0.0
+        confirming_sources = set()
+        for other in self._context_7d:
+            other_source = getattr(other, 'source', '') or ''
+            if other_source == signal_source:
+                continue
+            other_text = getattr(other, 'content', '') or getattr(other, 'title', '') or ''
+            if not other_text:
+                continue
+            other_tokens = set(t.lower() for t in re.findall(r'\b[a-zA-Z0-9]{3,}\b', other_text))
+            if not other_tokens:
+                continue
+            overlap = len(tokens & other_tokens) / min(len(tokens), len(other_tokens))
+            if overlap > 0.30:
+                confirming_sources.add(other_source)
+        count = len(confirming_sources)
+        if count == 0: return 0.0
+        if count == 1: return 0.40
+        if count == 2: return 0.70
+        return 1.0
+
+    def _load_context_keywords(self) -> set[str]:
+        """Load context keywords from mandates, watch queries, and working context."""
+        keywords = set()
+        base = self._data_dir.parent  # NCL root
+
+        # Watch queries
+        wq_file = base / "config" / "watch_queries.json"
+        if not wq_file.exists():
+            wq_file = base / "data" / "watch_queries.json"
+        if wq_file.exists():
+            try:
+                wq = json.loads(wq_file.read_text())
+                for source_queries in wq.values():
+                    if isinstance(source_queries, list):
+                        for q in source_queries:
+                            if isinstance(q, str):
+                                keywords.update(t.lower() for t in re.findall(r'\b[a-zA-Z0-9]{3,}\b', q))
+                            elif isinstance(q, dict):
+                                for v in q.values():
+                                    if isinstance(v, str):
+                                        keywords.update(t.lower() for t in re.findall(r'\b[a-zA-Z0-9]{3,}\b', v))
+            except Exception:
+                pass
+
+        # Mandates
+        mandates_file = base / "data" / "mandates.json"
+        if not mandates_file.exists():
+            mandates_file = base / "data" / "mandates" / "mandates.json"
+        if mandates_file.exists():
+            try:
+                mandates = json.loads(mandates_file.read_text())
+                if isinstance(mandates, dict):
+                    mandates = mandates.get("mandates", mandates.get("items", []))
+                if isinstance(mandates, list):
+                    for m in mandates:
+                        if not isinstance(m, dict):
+                            continue
+                        status = m.get("status", "").lower()
+                        if status not in ("active", "in_progress", "pending", "approved", ""):
+                            continue
+                        for field in ("title", "description", "objective"):
+                            val = m.get(field, "")
+                            if isinstance(val, str):
+                                keywords.update(t.lower() for t in re.findall(r'\b[a-zA-Z0-9]{3,}\b', val))
+                        for tag in m.get("tags", []):
+                            if isinstance(tag, str) and len(tag) >= 3:
+                                keywords.add(tag.lower())
+            except Exception:
+                pass
+
+        # Working context themes
+        wc_file = base / "data" / "working_context" / "today.json"
+        if wc_file.exists():
+            try:
+                wc = json.loads(wc_file.read_text())
+                themes = wc.get("themes", wc.get("topics", wc.get("keywords", [])))
+                if isinstance(themes, list):
+                    for t in themes:
+                        if isinstance(t, str) and len(t) >= 3:
+                            keywords.add(t.lower())
+                elif isinstance(themes, dict):
+                    for v in themes.values():
+                        if isinstance(v, str):
+                            keywords.update(t.lower() for t in re.findall(r'\b[a-zA-Z0-9]{3,}\b', v))
+            except Exception:
+                pass
+
+        return keywords
+
+    def _get_context_keywords(self) -> set[str]:
+        """Get context keywords, refreshing every 10 minutes."""
+        now = time.time()
+        if now - self._keywords_loaded_at > 600:
+            self._context_keywords = self._load_context_keywords()
+            self._keywords_loaded_at = now
+        return self._context_keywords
+
+    # ═══════════════════════════════════════════════════════════════════
+    # TIER ROUTING (Focused / Micro / Macro)
+    # ═══════════════════════════════════════════════════════════════════
+
+    def route_to_tiers(self) -> dict:
+        """Route buffered signals into Focused/Micro/Macro tiers. Single-pass, exclusive assignment."""
+        import datetime
+        now = datetime.datetime.now(datetime.timezone.utc)
+
+        # Gather all signals from deques, deduplicate
+        seen_ids = set()
+        all_signals = []
+        for sig in itertools.chain(self._context_top10, self._context_24h, self._context_7d):
+            sig_id = getattr(sig, 'signal_id', None) or getattr(sig, 'id', id(sig))
+            if sig_id in seen_ids:
+                continue
+            seen_ids.add(sig_id)
+            all_signals.append(sig)
+
+        focused, micro, macro, claimed = [], [], [], set()
+
+        # Pass 1: FOCUSED — score >= 0.75, age < 4h
+        for sig in sorted(all_signals, key=lambda s: (
+            -(s.metadata.get("score_factors", {}).get("cross_source", 0)),
+            -s.composite_score
+        )):
+            if len(focused) >= 10:
+                break
+            age_h = (now - sig.timestamp).total_seconds() / 3600 if hasattr(sig, 'timestamp') and sig.timestamp else 999
+            if sig.composite_score >= 0.75 and age_h < 4:
+                focused.append(sig)
+                claimed.add(id(sig))
+
+        # Pass 2: MICRO — score >= 0.50, age < 24h, not claimed
+        for sig in sorted(all_signals, key=lambda s: -s.composite_score):
+            if len(micro) >= 10:
+                break
+            if id(sig) in claimed:
+                continue
+            age_h = (now - sig.timestamp).total_seconds() / 3600 if hasattr(sig, 'timestamp') and sig.timestamp else 999
+            if sig.composite_score >= 0.50 and age_h < 24:
+                micro.append(sig)
+                claimed.add(id(sig))
+
+        # Pass 3: MACRO — persistent narratives, not claimed
+        narrative_sources = {"council", "journal", "mandate", "morning_brief", "brief"}
+        for sig in sorted(all_signals, key=lambda s: -s.composite_score):
+            if len(macro) >= 10:
+                break
+            if id(sig) in claimed:
+                continue
+            if sig.composite_score < 0.30:
+                continue
+            age_h = (now - sig.timestamp).total_seconds() / 3600 if hasattr(sig, 'timestamp') and sig.timestamp else 999
+            source_lower = (getattr(sig, 'source', '') or '').lower()
+            is_narrative = any(ns in source_lower for ns in narrative_sources)
+            if age_h > 24 or is_narrative:
+                macro.append(sig)
+                claimed.add(id(sig))
+            elif sig.composite_score >= 0.60:
+                macro.append(sig)
+                claimed.add(id(sig))
+
+        def sig_to_dict(s):
+            d = {
+                "signal_id": getattr(s, 'signal_id', None) or str(id(s)),
+                "title": getattr(s, 'title', '') or '',
+                "content": getattr(s, 'content', '') or '',
+                "source": getattr(s, 'source', '') or '',
+                "tags": getattr(s, 'tags', []) or [],
+                "composite_score": getattr(s, 'composite_score', 0),
+                "unified_score": round(getattr(s, 'composite_score', 0) * 100, 1),
+                "route_level": getattr(s, 'route_level', ''),
+                "direction": getattr(s, 'direction', 'neutral'),
+                "url": getattr(s, 'url', ''),
+            }
+            if hasattr(s, 'timestamp') and s.timestamp:
+                d["timestamp"] = s.timestamp.isoformat()
+            if hasattr(s, 'metadata') and isinstance(s.metadata, dict):
+                d["score_factors"] = s.metadata.get("score_factors", {})
+                d["id"] = s.metadata.get("id", d["signal_id"])
+            return d
+
+        return {
+            "focused": {"signals": [sig_to_dict(s) for s in focused], "count": len(focused), "tier": "focused"},
+            "micro": {"signals": [sig_to_dict(s) for s in micro], "count": len(micro), "tier": "micro"},
+            "macro": {"signals": [sig_to_dict(s) for s in macro], "count": len(macro), "tier": "macro"},
+        }
 
     async def _push_alert(self, signal: Signal):
         """Send push notification for critical signals with throttling.
@@ -1646,7 +2029,7 @@ Respond with ONLY a JSON object:
             "avg_composite_score": round(
                 sum(s.composite_score for s in source_signals) / len(source_signals), 3
             ),
-            "top_signals": [s.to_dict() for s in ranked[:5]],
+            "top_signals": [s.to_dict() for s in ranked[:20]],
             "themes": [{"theme": t, "count": c} for t, c in top_themes],
             "direction_breakdown": dict(direction_counts),
             "critical_count": sum(1 for s in source_signals if s.route_level == "CRITICAL"),
@@ -1823,7 +2206,7 @@ Focus on what requires attention or action."""
 
             try:
                 output: PredictionOutput = await self.predictor.predict(insight_signals, topic)
-                predictions.append({
+                pred_record = {
                     "prediction_id": output.prediction_id,
                     "topic": output.topic,
                     "consensus": output.consensus_prediction,
@@ -1833,9 +2216,92 @@ Focus on what requires attention or action."""
                     "warnings": output.warnings,
                     "signal_count": len(cluster_signals),
                     "timestamp": output.timestamp.isoformat(),
-                })
+                }
+                predictions.append(pred_record)
+
+                # ── Side effect 1: Memory storage ──────────────────
+                if self.memory_store:
+                    try:
+                        await self.memory_store.create_unit(
+                            content=(
+                                f"Prediction on '{topic}': "
+                                f"{output.consensus_prediction or 'inconclusive'}"
+                            ),
+                            source="awarebot:predictor",
+                            importance=min(100.0, output.confidence * 100),
+                            tags=["prediction", "autonomous", "ensemble", topic],
+                        )
+                    except Exception as mem_err:
+                        log.warning(f"[AGENT:PREDICT] Memory storage failed: {mem_err}")
+
+                # ── Side effect 2: Disk persistence ────────────────
+                try:
+                    pred_dir = self._data_dir / "predictions"
+                    pred_dir.mkdir(parents=True, exist_ok=True)
+                    pred_file = pred_dir / f"pred-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.json"
+                    pred_data = {
+                        "topic": topic,
+                        "consensus": output.consensus_prediction,
+                        "confidence": output.confidence,
+                        "convergence": output.convergence_signals if output.convergence_signals else [],
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "signal_count": len(cluster_signals),
+                    }
+                    pred_file.write_text(json.dumps(pred_data, indent=2, default=str))
+                except Exception as disk_err:
+                    log.warning(f"[AGENT:PREDICT] Disk persistence failed: {disk_err}")
+
+                # ── Side effect 3: Push notification for high-confidence ──
+                if output.confidence >= 0.6 and self.push_callback:
+                    try:
+                        await self.push_callback({
+                            "type": "prediction_alert",
+                            "title": f"Prediction [{topic}]",
+                            "consensus": output.consensus_prediction or "inconclusive",
+                            "confidence": output.confidence,
+                            "signal_count": len(cluster_signals),
+                            "timestamp": output.timestamp.isoformat(),
+                        })
+                    except Exception:
+                        pass  # Don't crash loop on push failure
+
+                # ── Side effect 4: Council flagging for convergent predictions ──
+                if output.convergence_signals and output.confidence >= 0.8:
+                    try:
+                        # Tag convergent prediction for council review
+                        if self.memory_store:
+                            await self.memory_store.create_unit(
+                                content=(
+                                    f"[COUNCIL FLAG] High-confidence convergent prediction on '{topic}': "
+                                    f"{output.consensus_prediction or 'inconclusive'} "
+                                    f"(confidence={output.confidence:.0%}, "
+                                    f"convergence_signals={output.convergence_signals})"
+                                ),
+                                source="awarebot:predictor:council_flag",
+                                importance=min(100.0, output.confidence * 100),
+                                tags=["prediction", "convergent", "council_flagged", topic],
+                            )
+                        log.info(
+                            f"[AGENT:PREDICT] Flagged convergent prediction for council: "
+                            f"topic={topic}, confidence={output.confidence:.2f}"
+                        )
+                    except Exception as council_err:
+                        log.warning(f"[AGENT:PREDICT] Council flagging failed: {council_err}")
+
             except Exception as e:
                 log.warning(f"[AGENT:PREDICT] Prediction failed for topic '{topic}': {e}")
+
+        # ── Side effect 5: Drain prediction buffer after successful generation ──
+        if predictions and not signals:
+            # Only drain when using the internal buffer (not a caller-provided list).
+            # Use popleft() to preserve signals that arrived during prediction.
+            drain_count = min(len(buffer), len(self._prediction_buffer))
+            for _ in range(drain_count):
+                try:
+                    self._prediction_buffer.popleft()
+                except IndexError:
+                    break
+            log.debug(f"[AGENT:PREDICT] Drained {drain_count} signals from prediction buffer")
 
         log.info(f"[AGENT:PREDICT] Generated {len(predictions)} predictions from {len(clusters)} clusters")
 
@@ -2017,16 +2483,17 @@ Focus on what requires attention or action."""
             await self._interruptible_sleep(self._journal_interval)
 
     async def _ytc_loop(self):
-        """Daily YouTube Council run — scrape, transcribe, analyze, report.
+        """YouTube Council run — scrape, transcribe, analyze, report.
 
-        Runs once per day at the configured interval (default 24h).
-        Triggers the same pipeline as the manual /council/youtube/run endpoint.
-        Initial delay of 30 minutes to let scan loops warm up first.
+        Runs every 12 hours. Scraper lookback is 72h so channels that post
+        every 2-3 days still get caught. Dedup via previously-analyzed IDs
+        prevents reprocessing.
+        Initial delay of 10 minutes to let scan loops warm up first.
         """
         # Initial delay — let scan loops stabilize before heavy YTC work
-        await self._interruptible_sleep(1800)  # 30 min
+        await self._interruptible_sleep(600)  # 10 min
 
-        ytc_interval = 86400  # 24 hours
+        ytc_interval = 43200  # 12 hours
 
         while self._running:
             if EMERGENCY_STOP_EVENT.is_set():
@@ -2041,24 +2508,48 @@ Focus on what requires attention or action."""
                 report = await run_youtube_council(session_id)
 
                 if report:
-                    # Save report JSON
+                    # Save rollup + per-video reports to youtube-reports/
                     ncl_base = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
                     json_dir = ncl_base / "intelligence-scan" / "youtube-reports"
                     loop = asyncio.get_running_loop()
                     await loop.run_in_executor(
                         None, lambda: json_dir.mkdir(parents=True, exist_ok=True)
                     )
+
+                    # Save per-video reports if available
+                    per_video = getattr(report, "_per_video_reports", [])
+                    for vid_report in per_video:
+                        vid_data = vid_report.to_dict()
+                        vid_data.update({
+                            "status": "complete",
+                            "completed_at": datetime.now(timezone.utc).isoformat(),
+                            "auto_triggered": True,
+                            "report_type": "per_video",
+                        })
+                        vid_path = json_dir / f"{vid_report.session_id}.json"
+                        vid_json = json.dumps(vid_data, default=str, indent=2)
+                        async with aiofiles.open(vid_path, "w") as f:
+                            await f.write(vid_json)
+
+                    # Save rollup report
                     out_path = json_dir / f"{session_id}.json"
-                    report_json = json.dumps({
+                    report_data = report.to_dict()
+                    report_data.update({
                         "session_id": session_id,
-                        "title": getattr(report, "title", "YouTube Council Report"),
                         "status": "complete",
                         "completed_at": datetime.now(timezone.utc).isoformat(),
                         "auto_triggered": True,
-                    }, default=str, indent=2)
+                        "report_type": "rollup",
+                        "per_video_count": len(per_video),
+                    })
+                    report_json = json.dumps(report_data, default=str, indent=2)
                     async with aiofiles.open(out_path, "w") as f:
                         await f.write(report_json)
-                    log.info(f"[AGENT:YTC] Auto council run complete: {session_id}")
+
+                    log.info(
+                        f"[AGENT:YTC] Auto council run complete: {session_id} "
+                        f"({len(per_video)} per-video + 1 rollup)"
+                    )
                     self._stats["ytc_runs"] += 1
                 else:
                     log.info(f"[AGENT:YTC] Auto council run produced no report: {session_id}")
@@ -2069,6 +2560,52 @@ Focus on what requires attention or action."""
                 log.error(f"[AGENT:YTC] Auto council run failed: {e}", exc_info=True)
 
             await self._interruptible_sleep(ytc_interval)
+
+    async def _x_liked_loop(self):
+        """Periodic X liked-video scan — fetch likes, download, transcribe, analyze.
+
+        Runs every 6 hours. Only active when X_USER_ACCESS_TOKEN is set
+        (requires OAuth 2.0 user authentication).
+        Initial delay of 45 minutes.
+        """
+        liked_interval = 6 * 3600  # 6 hours
+        await self._interruptible_sleep(2700)  # 45-minute initial delay
+
+        while not self._shutdown_event.is_set():
+            # Only run if OAuth token is available
+            token = os.getenv("X_USER_ACCESS_TOKEN", "")
+            if not token:
+                # Try loading from saved tokens
+                try:
+                    from ..councils.xai.x_oauth import load_access_token
+                    token = load_access_token()
+                except Exception:
+                    pass
+
+            if not token:
+                log.debug("[AGENT:X-LIKED] No X_USER_ACCESS_TOKEN — skipping liked-video scan")
+                await self._interruptible_sleep(liked_interval)
+                continue
+
+            try:
+                session_id = f"xliked-auto-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+                log.info(f"[AGENT:X-LIKED] Starting automatic liked-video scan: {session_id}")
+
+                from ..councils.xai.liked_scanner import run_liked_video_scan
+                reports = await run_liked_video_scan(session_id=session_id)
+
+                if reports:
+                    log.info(f"[AGENT:X-LIKED] Scan complete: {len(reports)} video reports")
+                    self._stats["x_liked_scans"] = self._stats.get("x_liked_scans", 0) + 1
+                else:
+                    log.info(f"[AGENT:X-LIKED] Scan produced no new reports")
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.error(f"[AGENT:X-LIKED] Scan failed: {e}", exc_info=True)
+
+            await self._interruptible_sleep(liked_interval)
 
     # ═══════════════════════════════════════════════════════════════════
     # INTERNAL UTILITIES
@@ -2128,6 +2665,12 @@ Focus on what requires attention or action."""
 
         log.warning("[AGENT] No watch_queries.json found — using empty queries")
         return {"x": [], "youtube": [], "reddit": [], "reddit_subreddits": {}}
+
+    def reload_watch_queries(self):
+        """Hot-reload watch queries from disk without restarting."""
+        self._watch_queries = self._load_watch_queries()
+        query_count = sum(len(v) for v in self._watch_queries.values() if isinstance(v, list))
+        log.info(f"[AGENT] Watch queries reloaded: {query_count} queries across {len(self._watch_queries)} sources")
 
     def _signals_to_intel(self, signals: list[Signal]) -> list[IntelSignal]:
         """Convert unified Signals to IntelSignal for correlator compatibility."""
@@ -2246,9 +2789,52 @@ Focus on what requires attention or action."""
             },
         }
 
-    async def on_demand_brief(self) -> dict[str, Any]:
-        """Trigger an immediate brief generation."""
+    async def on_demand_brief(self, force_refresh: bool = False) -> dict[str, Any]:
+        """Return the latest cached brief, or generate a new one if stale/missing.
+
+        The brief tab in FirstStrike calls this — it should show the latest
+        cached brief instantly instead of regenerating every time (which wastes
+        LLM tokens and makes the user wait).
+
+        A brief is considered "fresh" if it was generated within the last 4 hours.
+        """
+        if not force_refresh:
+            # Try to return cached brief
+            cached = await self._load_latest_brief()
+            if cached:
+                gen_at = cached.get("generated_at", "")
+                if gen_at:
+                    try:
+                        gen_time = datetime.fromisoformat(gen_at.replace("Z", "+00:00"))
+                        age_hours = (datetime.now(timezone.utc) - gen_time).total_seconds() / 3600
+                        if age_hours < 4.0:
+                            cached["cached"] = True
+                            cached["age_hours"] = round(age_hours, 1)
+                            return cached
+                    except Exception:
+                        pass
+
+        # Generate fresh
         return await self.generate_brief()
+
+    async def _load_latest_brief(self) -> dict[str, Any] | None:
+        """Load the most recent brief from the JSONL file."""
+        try:
+            briefs_file = self._data_dir / "intelligence" / "agent_briefs.jsonl"
+            if not briefs_file.exists():
+                return None
+            # Read last line (most recent brief)
+            last_line = None
+            async with aiofiles.open(briefs_file, "r") as f:
+                async for line in f:
+                    stripped = line.strip()
+                    if stripped:
+                        last_line = stripped
+            if last_line:
+                return json.loads(last_line)
+        except Exception as e:
+            log.debug(f"[AGENT:BRIEF] Failed to load cached brief: {e}")
+        return None
 
     async def on_demand_predictions(self) -> dict[str, Any]:
         """Trigger immediate predictions."""
