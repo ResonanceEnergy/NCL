@@ -94,6 +94,10 @@ class UpdateTradeRequest(BaseModel):
     tags: Optional[list] = None
     trailing_stop_pct: Optional[float] = Field(default=None, ge=0, le=50)
     max_hold_days: Optional[int] = Field(default=None, ge=1, le=365)
+    stop_loss: Optional[float] = Field(default=None, gt=0)
+    target_1: Optional[float] = Field(default=None, gt=0)
+    target_2: Optional[float] = Field(default=None, ge=0)
+    target_3: Optional[float] = Field(default=None, ge=0)
 
 
 class UpdatePricesRequest(BaseModel):
@@ -159,6 +163,27 @@ async def close_trade(
     except Exception as e:
         log.exception("Failed to close paper trade: %s", e)
         raise HTTPException(status_code=500, detail=f"Trade close failed: {e}")
+
+
+@router.delete("/trade/{trade_id}")
+async def delete_trade(
+    trade_id: str,
+    authorization: str = Header(default=""),
+) -> dict:
+    """Delete an open paper trade. Closed trades cannot be deleted (historical record)."""
+    _verify(authorization)
+    engine = _require_engine()
+
+    try:
+        engine.delete_trade(trade_id)
+        return {"status": "deleted", "trade_id": trade_id}
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Trade {trade_id} not found")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        log.exception("Failed to delete paper trade: %s", e)
+        raise HTTPException(status_code=500, detail=f"Trade deletion failed: {e}")
 
 
 @router.put("/trade/{trade_id}")

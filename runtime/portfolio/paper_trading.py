@@ -494,17 +494,44 @@ class PaperTradingEngine:
 
         return triggers
 
+    def delete_trade(self, trade_id: str) -> bool:
+        """
+        Delete a paper trade. Only open trades can be deleted.
+
+        Raises KeyError if trade not found, ValueError if trade is closed.
+        Returns True on successful deletion.
+        """
+        trade = self._trades.get(trade_id)
+        if trade is None:
+            raise KeyError(f"Trade {trade_id} not found")
+        if trade.status != "open":
+            raise ValueError(f"Cannot delete closed trade {trade_id} (status: {trade.status})")
+        del self._trades[trade_id]
+        self._save_trades()
+        logger.info("Paper trade deleted: %s %s", trade.symbol, trade_id)
+        return True
+
     def update_trade(self, trade_id: str, updates: Dict[str, Any]) -> Optional[PaperTrade]:
         """Update trade metadata (notes, grade, confidence, tags)."""
         trade = self._trades.get(trade_id)
         if not trade:
             return None
 
+        if trade.status != "open":
+            return None
+
         allowed = {"notes", "confidence", "trade_grade", "rules_followed", "tags",
-                    "trailing_stop_pct", "max_hold_days"}
+                    "trailing_stop_pct", "max_hold_days",
+                    "stop_loss", "target_1", "target_2", "target_3"}
         for key, value in updates.items():
             if key in allowed:
                 setattr(trade, key, value)
+
+        # Recalculate risk metrics if stop or target changed
+        if "stop_loss" in updates or "target_1" in updates:
+            trade.risk_per_share = abs(trade.entry_price - trade.stop_loss)
+            trade.risk_reward_ratio = trade._calc_rr()
+            trade.position_risk_dollars = trade.risk_per_share * abs(trade.quantity)
 
         self._save_trades()
         return trade
@@ -533,12 +560,6 @@ class PaperTradingEngine:
             trades = [t for t in trades if t.strategy.lower() == strategy.lower()]
 
         # Sort: open trades first (by entry date desc), then closed (by exit date desc)
-        trades.sort(
-            key=lambda t: (0 if t.status == "open" else 1,
-                           t.exit_date or t.entry_date),
-            reverse=False,
-        )
-        # Actually sort open first then by date desc
         open_trades = [t for t in trades if t.status == "open"]
         closed_trades = [t for t in trades if t.status != "open"]
         open_trades.sort(key=lambda t: t.entry_date, reverse=True)

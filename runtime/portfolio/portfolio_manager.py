@@ -67,7 +67,7 @@ def _now_et() -> datetime:
     utc_now = _now_utc()
     month = utc_now.month
     # Rough DST: second Sunday of March through first Sunday of November
-    is_dst = 3 < month < 11 or (month == 3 and utc_now.day >= 8) or (month == 11 and utc_now.day < 1)
+    is_dst = 3 < month < 11 or (month == 3 and utc_now.day >= 8) or (month == 11 and utc_now.day <= 7)
     offset = _ET_OFFSET_DST if is_dst else _ET_OFFSET_STD
     return utc_now + offset
 
@@ -133,6 +133,7 @@ class PortfolioManager:
     async def start(self) -> None:
         """Connect all adapters and begin background sync."""
         logger.info("PortfolioManager starting — connecting adapters")
+        self._rotate_snapshots()
         for name, adapter in self._adapters:
             try:
                 await adapter.connect()
@@ -329,6 +330,41 @@ class PortfolioManager:
         except Exception:
             logger.exception("Failed to load snapshots")
         return snapshots
+
+    def _rotate_snapshots(self, keep_days: int = 90) -> None:
+        """Remove snapshot entries older than *keep_days*. Runs at startup."""
+        if not _SNAPSHOT_FILE.exists():
+            return
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=keep_days)).strftime("%Y-%m-%d")
+        kept: list[str] = []
+        removed = 0
+        try:
+            with open(_SNAPSHOT_FILE) as f:
+                for line in f:
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+                    try:
+                        snap = json.loads(stripped)
+                        if snap.get("date", "") >= cutoff:
+                            kept.append(stripped)
+                        else:
+                            removed += 1
+                    except json.JSONDecodeError:
+                        # Keep malformed lines to avoid silent data loss
+                        kept.append(stripped)
+            if removed > 0:
+                with open(_SNAPSHOT_FILE, "w") as f:
+                    for entry in kept:
+                        f.write(entry + "\n")
+                logger.info(
+                    "Snapshot rotation: removed %d entries older than %s, kept %d",
+                    removed, cutoff, len(kept),
+                )
+            else:
+                logger.info("Snapshot rotation: all %d entries within %d-day window", len(kept), keep_days)
+        except Exception:
+            logger.exception("Snapshot rotation failed — file left intact")
 
     # ------------------------------------------------------------------
     # Aggregation helpers

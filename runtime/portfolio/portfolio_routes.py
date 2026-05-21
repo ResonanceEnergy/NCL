@@ -78,16 +78,19 @@ async def portfolio_summary(
         summary = pm.get_summary(base_currency=base_currency)
         return {
             "total_value": summary.get("total_value", 0),
+            "base_currency": summary.get("base_currency", base_currency),
             "daily_pl": summary.get("daily_pl", 0),
             "daily_pl_pct": summary.get("daily_pl_pct", 0),
             "total_pl": summary.get("total_pl", 0),
             "total_pl_pct": summary.get("total_pl_pct", 0),
             "cash_total": summary.get("cash_total", 0),
+            "positions_count": summary.get("positions_count", 0),
             "accounts": summary.get("accounts", []),
             "allocation": summary.get("allocation", {}),
-            "fx_rate": summary.get("fx_rate", 1.0),
+            "fx_rate_usd_cad": summary.get("fx_rate_usd_cad", 1.0),
             "last_sync": summary.get("last_sync"),
             "market_open": summary.get("market_open", False),
+            "brokers_connected": summary.get("brokers_connected", []),
         }
     except HTTPException:
         raise
