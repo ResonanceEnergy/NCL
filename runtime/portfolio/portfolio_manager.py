@@ -379,7 +379,7 @@ class PortfolioManager:
             total += self._to_base(mv, cur, base)
         # Add cash from accounts
         for acct in self._accounts:
-            cash = acct.get("cash", 0.0)
+            cash = acct.get("cash_balance", 0.0)
             cur = acct.get("currency", "USD")
             total += self._to_base(cash, cur, base)
         return total
@@ -387,7 +387,7 @@ class PortfolioManager:
     def _total_cash(self, base: str = "CAD") -> float:
         total = 0.0
         for acct in self._accounts:
-            cash = acct.get("cash", 0.0)
+            cash = acct.get("cash_balance", 0.0)
             cur = acct.get("currency", "USD")
             total += self._to_base(cash, cur, base)
         return total
@@ -453,15 +453,25 @@ class PortfolioManager:
         daily_pl, daily_pl_pct = self._daily_pl(base)
         total_pl, total_pl_pct = self._total_pl(base)
 
-        # Account summary
+        # Account summary — net_liquidation from adapters is cash only for some
+        # brokers (e.g. SnapTrade).  Add position market values per account.
+        _pos_by_acct: dict[str, float] = {}
+        for pos in self._positions:
+            aid = pos.get("account_id", "")
+            mv = self._to_base(pos.get("market_value", 0.0), pos.get("currency", "USD"), base)
+            _pos_by_acct[aid] = _pos_by_acct.get(aid, 0.0) + mv
+
         account_summaries = []
         for acct in self._accounts:
-            acct_value = self._to_base(acct.get("total_value", 0.0), acct.get("currency", "USD"), base)
+            aid = acct.get("account_id", "")
+            cash_val = self._to_base(acct.get("net_liquidation", 0.0), acct.get("currency", "USD"), base)
+            pos_val = _pos_by_acct.get(aid, 0.0)
+            acct_value = cash_val + pos_val
             account_summaries.append({
                 "account_id": acct.get("account_id", ""),
                 "broker": acct.get("broker", ""),
-                "label": acct.get("label", ""),
-                "type": acct.get("type", ""),
+                "label": acct.get("name", ""),
+                "type": acct.get("account_type", ""),
                 "value": round(acct_value, 2),
                 "currency": acct.get("currency", "USD"),
             })
@@ -538,10 +548,10 @@ class PortfolioManager:
             result.append({
                 "account_id": acct.get("account_id", ""),
                 "broker": acct.get("broker", ""),
-                "label": acct.get("label", ""),
-                "type": acct.get("type", ""),
-                "total_value": acct.get("total_value", 0.0),
-                "cash": acct.get("cash", 0.0),
+                "label": acct.get("name", ""),
+                "type": acct.get("account_type", ""),
+                "total_value": acct.get("net_liquidation", 0.0),
+                "cash": acct.get("cash_balance", 0.0),
                 "buying_power": acct.get("buying_power", 0.0),
                 "currency": acct.get("currency", "USD"),
                 "positions_count": acct.get("positions_count", 0),
