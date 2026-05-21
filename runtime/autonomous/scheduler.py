@@ -21,7 +21,7 @@ import json
 import logging
 import os
 import urllib.request
-from collections import deque
+from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -121,6 +121,10 @@ class AutonomousScheduler:
         self._working_context = None  # Initialized eagerly in start()
         self._journal_store: Optional[JournalStore] = None  # Initialized in start()
         self._reflection_engine = None
+
+        # Supervisor state
+        self._restart_counts: dict[str, int] = defaultdict(int)
+        self._supervisor_task: Optional[asyncio.Task] = None
 
         # Council trigger threshold (importance score 0-100)
         self.council_trigger_threshold = 75.0
@@ -242,6 +246,11 @@ class AutonomousScheduler:
                 asyncio.create_task(self._journal_reflection_loop(), name="ncl-journal-reflection")
             )
 
+        # Night Watch — nightly 2am ET health audit
+        self._tasks.append(
+            asyncio.create_task(self._night_watch_loop(), name="ncl-night-watch")
+        )
+
         # Attach a done-callback to every task so a silent crash (unobserved
         # task exception) gets logged instead of disappearing.
         def _task_done(task: asyncio.Task) -> None:
@@ -256,6 +265,30 @@ class AutonomousScheduler:
                 )
         for t in self._tasks:
             t.add_done_callback(_task_done)
+
+        # ── Task factory mapping for supervisor restarts ──────────────
+        self._task_factories: dict[str, Any] = {
+            "ncl-heartbeat": self._heartbeat_loop,
+            "ncl-council-auto": self._council_auto_loop,
+            "ncl-memory": self._memory_consolidation_loop,
+            "ncl-aac-sync": self._aac_sync_loop,
+            "ncl-workspace": self._workspace_health_loop,
+            "ncl-mandate-purge": self._mandate_purge_loop,
+            "ncl-feedback-synth": self._feedback_synthesis_loop,
+            "ncl-working-ctx": self._working_context_loop,
+            "ncl-night-watch": self._night_watch_loop,
+            "ncl-journal-reflection": self._journal_reflection_loop,
+        }
+        # Awarebot agent is restarted via its own .run() method
+        if self.awarebot:
+            self._task_factories["ncl-awarebot-agent"] = self.awarebot.run
+
+        # ── Spawn supervisor (not in self._tasks — supervises itself) ─
+        self._restart_counts.clear()
+        self._supervisor_task = asyncio.create_task(
+            self._supervisor_loop(), name="ncl-supervisor"
+        )
+
         await self._log_autonomous_event("scheduler_started", {
             "loops": [t.get_name() for t in self._tasks],
             "config": {
@@ -277,6 +310,11 @@ class AutonomousScheduler:
         """
         log.warning("[SCHEDULER] stop() called — cancelling %d tasks", len(self._tasks))
         self._stop_event.set()
+        # Cancel the supervisor first so it doesn't try to restart tasks we're stopping
+        if self._supervisor_task and not self._supervisor_task.done():
+            self._supervisor_task.cancel()
+            await asyncio.gather(self._supervisor_task, return_exceptions=True)
+            self._supervisor_task = None
         for task in self._tasks:
             task.cancel()
         if self._tasks:
@@ -302,6 +340,10 @@ class AutonomousScheduler:
             "active_tasks": [t.get_name() for t in self._tasks if not t.done()],
             "signal_buffer_size": len(self._signal_buffer),
             "signal_processor": self.signal_processor.get_stats(),
+            "supervisor": {
+                "active": bool(self._supervisor_task and not self._supervisor_task.done()),
+                "restart_counts": dict(self._restart_counts),
+            },
         }
         if self.awarebot:
             stats["awarebot"] = self.awarebot.get_stats()
@@ -1079,6 +1121,417 @@ class AutonomousScheduler:
 
             # Check every 5 minutes
             await asyncio.sleep(300)
+
+    # ─── LOOP: Night Watch (2am ET nightly health audit) ────────────
+
+    async def _night_watch_loop(self) -> None:
+        """
+        Nightly 2am ET health audit — checks all services, loops, staleness,
+        costs, LLM connectivity, and disk space. Pushes summary via ntfy.
+        """
+        import pytz
+        et = pytz.timezone("US/Eastern")
+
+        log.info("[NIGHT-WATCH] Loop started — will fire at 2:00 AM ET nightly")
+
+        while self._running:
+            if EMERGENCY_STOP_EVENT.is_set():
+                log.critical("[NIGHT-WATCH] Emergency stop active — halting loop")
+                break
+
+            try:
+                # Calculate seconds until next 2am ET
+                now_et = datetime.now(et)
+                target = now_et.replace(hour=2, minute=0, second=0, microsecond=0)
+                if now_et >= target:
+                    target += timedelta(days=1)
+                sleep_secs = (target - now_et).total_seconds()
+                log.info(f"[NIGHT-WATCH] Next run at {target.isoformat()} ({sleep_secs:.0f}s)")
+                await asyncio.sleep(sleep_secs)
+            except asyncio.CancelledError:
+                raise
+
+            # ── Run all checks ────────────────────────────────────────
+            issues: list[str] = []
+            critical = False
+
+            try:
+                await self._nw_run_checks(issues)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.error(f"[NIGHT-WATCH] Check suite crashed: {e}", exc_info=True)
+                issues.append(f"CHECK SUITE CRASH: {type(e).__name__}: {e}")
+
+            # Determine severity
+            critical = any(
+                "CRITICAL" in i or "CRASH" in i or "DEAD" in i
+                for i in issues
+            )
+            has_warnings = len(issues) > 0
+
+            # ── Push notification via ntfy ─────────────────────────────
+            try:
+                await self._nw_push_notification(issues, critical, has_warnings)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.error(f"[NIGHT-WATCH] Push notification failed: {e}", exc_info=True)
+
+            await self._log_autonomous_event("night_watch", {
+                "issues_count": len(issues),
+                "critical": critical,
+                "issues": issues[:20],
+            })
+
+    async def _nw_run_checks(self, issues: list[str]) -> None:
+        """Run all Night Watch health checks, appending issues found."""
+        import httpx
+
+        auth_header = "Bearer QKpHcK8lnL9s4P4mFkwzN4ugLP9sokvBWrmqNcs2ItU"
+
+        async with httpx.AsyncClient(timeout=httpx.Timeout(5.0)) as client:
+            # ── 1. Service health ──────────────────────────────────────
+            try:
+                resp = await client.get(
+                    "http://localhost:8800/health",
+                    headers={"Authorization": auth_header},
+                )
+                if resp.status_code != 200:
+                    issues.append(f"CRITICAL: /health returned HTTP {resp.status_code}")
+                else:
+                    data = resp.json()
+                    status = data.get("status", "unknown")
+                    if status != "ok" and status != "healthy":
+                        issues.append(f"WARNING: /health status={status}")
+            except Exception as e:
+                issues.append(f"CRITICAL: /health unreachable — {type(e).__name__}: {e}")
+
+            # ── 2. Scheduler tasks alive ───────────────────────────────
+            try:
+                dead_tasks = [
+                    t.get_name() for t in self._tasks
+                    if t.done() and t.get_name() != "ncl-night-watch"
+                ]
+                if dead_tasks:
+                    issues.append(f"CRITICAL: DEAD scheduler tasks: {', '.join(dead_tasks)}")
+            except Exception as e:
+                issues.append(f"WARNING: Could not check scheduler tasks — {e}")
+
+            # ── 3. Awarebot sub-tasks alive ────────────────────────────
+            try:
+                if self.awarebot and hasattr(self.awarebot, "_tasks"):
+                    dead_ab = [
+                        t.get_name() for t in self.awarebot._tasks if t.done()
+                    ]
+                    if dead_ab:
+                        issues.append(f"CRITICAL: DEAD awarebot sub-tasks: {', '.join(dead_ab)}")
+                elif not self.awarebot:
+                    issues.append("WARNING: Awarebot not initialized")
+            except Exception as e:
+                issues.append(f"WARNING: Could not check awarebot tasks — {e}")
+
+            # ── 4. Staleness checks ────────────────────────────────────
+            try:
+                resp = await client.get(
+                    "http://localhost:8800/autonomous/status",
+                    headers={"Authorization": auth_header},
+                )
+                if resp.status_code == 200:
+                    auto_data = resp.json()
+                    now_utc = datetime.now(timezone.utc)
+
+                    stale_checks = [
+                        ("last_scan", 10 * 60, "Scan"),
+                        ("last_prediction", 3600, "Prediction"),
+                        ("last_intel_brief", 5 * 3600, "Brief"),
+                    ]
+                    for key, max_age_s, label in stale_checks:
+                        ts_str = auto_data.get(key)
+                        if not ts_str:
+                            issues.append(f"WARNING: {label} timestamp missing (key={key})")
+                            continue
+                        try:
+                            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                            if ts.tzinfo is None:
+                                ts = ts.replace(tzinfo=timezone.utc)
+                            age = (now_utc - ts).total_seconds()
+                            if age > max_age_s:
+                                issues.append(
+                                    f"WARNING: {label} stale — last run {age / 60:.0f}m ago "
+                                    f"(threshold {max_age_s / 60:.0f}m)"
+                                )
+                        except Exception:
+                            pass
+                else:
+                    issues.append(f"WARNING: /autonomous/status returned HTTP {resp.status_code}")
+            except Exception as e:
+                issues.append(f"WARNING: Staleness check failed — {type(e).__name__}: {e}")
+
+            # ── 5. Cost summary ────────────────────────────────────────
+            try:
+                from ..cost_tracker import get_tracker
+                tracker = await get_tracker()
+                summary = await tracker.get_daily_summary()
+                for source, info in summary.get("sources", {}).items():
+                    pct = info.get("percent_used", 0)
+                    if pct >= 80:
+                        issues.append(
+                            f"WARNING: Cost budget {source} at {pct:.0f}% "
+                            f"(${info.get('spent_usd', 0):.2f}/${info.get('budget_usd', 0):.2f})"
+                        )
+            except Exception as e:
+                issues.append(f"WARNING: Cost check failed — {type(e).__name__}: {e}")
+
+            # ── 6. LLM provider connectivity ───────────────────────────
+            llm_endpoints = [
+                ("Anthropic", "https://api.anthropic.com"),
+                ("xAI", "https://api.x.ai"),
+                ("Google", "https://generativelanguage.googleapis.com"),
+            ]
+            for name, url in llm_endpoints:
+                try:
+                    resp = await client.head(url)
+                    # Any HTTP response means TCP connectivity is fine
+                except Exception as e:
+                    issues.append(f"WARNING: {name} API unreachable — {type(e).__name__}: {e}")
+
+        # ── 7. Disk space ──────────────────────────────────────────
+        try:
+            data_path = Path.home() / "NCL" / "data"
+            if not data_path.exists():
+                data_path = self.data_dir
+            st = os.statvfs(str(data_path))
+            free_bytes = st.f_bavail * st.f_frsize
+            free_gb = free_bytes / (1024 ** 3)
+            if free_gb < 1.0:
+                issues.append(f"CRITICAL: Disk space low — {free_gb:.2f} GB free on data volume")
+        except Exception as e:
+            issues.append(f"WARNING: Disk check failed — {type(e).__name__}: {e}")
+
+    async def _nw_push_notification(
+        self, issues: list[str], critical: bool, has_warnings: bool
+    ) -> None:
+        """Push Night Watch results via ntfy."""
+        import httpx
+
+        now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+        if not has_warnings:
+            title = "Night Watch — All Clear"
+            body = f"[{now_str}]\n✅ All systems healthy. No issues detected."
+            priority = "3"
+            tags = "brain,white_check_mark"
+        elif critical:
+            title = "Night Watch — CRITICAL"
+            body = f"[{now_str}]\n\U0001f6a8 {len(issues)} issue(s) found:\n"
+            body += "\n".join(f"  • {i}" for i in issues)
+            priority = "5"
+            tags = "brain,rotating_light"
+        else:
+            title = "Night Watch — Warnings"
+            body = f"[{now_str}]\n⚠️ {len(issues)} issue(s) found:\n"
+            body += "\n".join(f"  • {i}" for i in issues)
+            priority = "4"
+            tags = "brain,warning"
+
+        # Truncate body if too long for ntfy (max ~4KB)
+        if len(body) > 3800:
+            body = body[:3800] + "\n  ... (truncated)"
+
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
+                resp = await client.post(
+                    "https://ntfy.sh/ncl-natrix-intel-7x9k",
+                    content=body.encode("utf-8"),
+                    headers={
+                        "Content-Type": "text/plain; charset=utf-8",
+                        "Title": title.encode("ascii", "replace").decode("ascii"),
+                        "Priority": priority,
+                        "Tags": tags,
+                    },
+                )
+                resp.raise_for_status()
+                log.info(f"[NIGHT-WATCH] Push sent: {title} ({len(issues)} issues)")
+        except Exception as e:
+            log.error(f"[NIGHT-WATCH] ntfy push failed: {e}")
+
+    # ─── SUPERVISOR: Self-healing task monitor ─────────────────────
+
+    async def _supervisor_loop(self) -> None:
+        """
+        Supervisor loop — monitors scheduler tasks every 30 seconds and
+        restarts crashed ones up to max_restarts (3) per task.
+
+        If a task exhausts its restart budget, sends an ntfy alert and
+        leaves it dead. Also monitors Awarebot sub-tasks, but ONLY if
+        the Awarebot's own internal supervisor (its run() method) is dead.
+        """
+        max_restarts = 3
+        check_interval = 30
+
+        log.info("[SUPERVISOR] Supervisor loop started (check every %ds, max %d restarts/task)",
+                 check_interval, max_restarts)
+
+        while self._running:
+            try:
+                await asyncio.sleep(check_interval)
+
+                if not self._running:
+                    break
+
+                # ── Check scheduler tasks ────────────────────────────
+                for i, task in enumerate(list(self._tasks)):
+                    if not task.done():
+                        continue
+
+                    name = task.get_name()
+
+                    # Skip cancelled tasks (normal shutdown)
+                    if task.cancelled():
+                        continue
+
+                    exc = task.exception()
+                    error_str = f"{type(exc).__name__}: {exc}" if exc else "completed unexpectedly"
+
+                    log.warning(
+                        "[SUPERVISOR] Task '%s' is dead: %s", name, error_str
+                    )
+
+                    factory = self._task_factories.get(name)
+                    if not factory:
+                        log.error(
+                            "[SUPERVISOR] No factory for task '%s' — cannot restart", name
+                        )
+                        continue
+
+                    if self._restart_counts[name] < max_restarts:
+                        self._restart_counts[name] += 1
+                        attempt = self._restart_counts[name]
+                        log.warning(
+                            "[SUPERVISOR] Restarting '%s' (attempt %d/%d) after 5s delay",
+                            name, attempt, max_restarts,
+                        )
+                        await asyncio.sleep(5)
+
+                        new_task = asyncio.create_task(factory(), name=name)
+
+                        # Attach the same done-callback for logging
+                        def _task_done(t: asyncio.Task) -> None:
+                            if t.cancelled():
+                                return
+                            e = t.exception()
+                            if e is not None:
+                                log.error(
+                                    "[SCHEDULER] task '%s' DIED: %s: %r",
+                                    t.get_name(), type(e).__name__, e,
+                                    exc_info=e,
+                                )
+                        new_task.add_done_callback(_task_done)
+
+                        # Replace the dead task in the list
+                        self._tasks = [
+                            t for t in self._tasks if t is not task
+                        ]
+                        self._tasks.append(new_task)
+
+                        log.info(
+                            "[SUPERVISOR] Task '%s' restarted successfully (attempt %d/%d)",
+                            name, attempt, max_restarts,
+                        )
+                        await self._log_autonomous_event("supervisor_restart", {
+                            "task": name,
+                            "attempt": attempt,
+                            "max_restarts": max_restarts,
+                            "error": error_str,
+                        })
+                    else:
+                        log.error(
+                            "[SUPERVISOR] Task '%s' has exhausted restart budget (%d/%d) "
+                            "— permanently dead",
+                            name, self._restart_counts[name], max_restarts,
+                        )
+                        await self._send_supervisor_alert(name, error_str)
+                        await self._log_autonomous_event("supervisor_task_dead", {
+                            "task": name,
+                            "restarts_used": self._restart_counts[name],
+                            "error": error_str,
+                        })
+                        # Remove the dead task from the list
+                        self._tasks = [
+                            t for t in self._tasks if t is not task
+                        ]
+
+                # ── Check Awarebot sub-tasks (only if its supervisor is dead) ─
+                if (
+                    self.awarebot
+                    and hasattr(self.awarebot, "_tasks")
+                    and self.awarebot._tasks
+                ):
+                    # The Awarebot agent's run() method IS the supervisor.
+                    # Find the ncl-awarebot-agent task to check if it's alive.
+                    awarebot_agent_alive = any(
+                        t.get_name() == "ncl-awarebot-agent" and not t.done()
+                        for t in self._tasks
+                    )
+
+                    if not awarebot_agent_alive:
+                        # Awarebot supervisor is dead — check its sub-tasks
+                        for sub_task in list(self.awarebot._tasks):
+                            if not sub_task.done():
+                                continue
+
+                            sub_name = sub_task.get_name()
+                            if sub_task.cancelled():
+                                continue
+
+                            sub_exc = sub_task.exception()
+                            sub_error = (
+                                f"{type(sub_exc).__name__}: {sub_exc}"
+                                if sub_exc else "completed unexpectedly"
+                            )
+                            log.warning(
+                                "[SUPERVISOR] Awarebot sub-task '%s' dead (supervisor also dead): %s",
+                                sub_name, sub_error,
+                            )
+                            # We don't restart Awarebot sub-tasks individually —
+                            # the ncl-awarebot-agent task (if restarted) will
+                            # respawn them. Just log and alert.
+                            if self._restart_counts[sub_name] == 0:
+                                self._restart_counts[sub_name] = max_restarts  # Mark as exhausted
+                                await self._send_supervisor_alert(
+                                    f"{sub_name} (awarebot supervisor also dead)", sub_error
+                                )
+
+            except asyncio.CancelledError:
+                log.info("[SUPERVISOR] Supervisor loop cancelled")
+                return
+            except Exception as e:
+                log.error("[SUPERVISOR] Supervisor loop error: %s", e, exc_info=True)
+                # Supervisor must not die — sleep and retry
+                await asyncio.sleep(check_interval)
+
+    async def _send_supervisor_alert(self, task_name: str, error: str) -> None:
+        """Send an urgent ntfy alert when a task exhausts its restart budget."""
+        try:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
+                await client.post(
+                    "https://ntfy.sh/ncl-natrix-intel-7x9k",
+                    content=(
+                        f"Task '{task_name}' has crashed 3 times and will not be restarted.\n\n"
+                        f"Last error: {error}"
+                    ).encode(),
+                    headers={
+                        "Title": "NCL Supervisor Alert",
+                        "Priority": "5",
+                        "Tags": "rotating_light",
+                    },
+                )
+            log.info("[SUPERVISOR] ntfy alert sent for task '%s'", task_name)
+        except Exception as e:
+            log.warning("[SUPERVISOR] Failed to send ntfy alert: %s", e)
 
     # ─── Helpers ───────────────────────────────────────────────
 

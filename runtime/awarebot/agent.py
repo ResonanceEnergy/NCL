@@ -2152,6 +2152,19 @@ Focus on what requires attention or action."""
             )
             response.raise_for_status()
             data = response.json()
+
+            # Track cost
+            try:
+                from ..cost_tracker import record_cost
+                usage = data.get("usage", {})
+                input_t = usage.get("input_tokens", 0)
+                output_t = usage.get("output_tokens", 0)
+                cost_usd = (input_t * 3.0 + output_t * 15.0) / 1_000_000
+                await record_cost("anthropic", cost_usd, "awarebot_brief",
+                                  f"executive summary in={input_t} out={output_t}")
+            except Exception:
+                pass  # Cost tracking should never break the primary flow
+
             return data["content"][0]["text"]
         except Exception as e:
             log.warning(f"[AGENT:BRIEF] LLM summary generation failed: {e}")

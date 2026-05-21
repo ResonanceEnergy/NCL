@@ -777,7 +777,20 @@ async def _scan_account_grok(
             },
         )
         resp.raise_for_status()
-        text = resp.json()["choices"][0]["message"]["content"]
+        data = resp.json()
+        text = data["choices"][0]["message"]["content"]
+
+        # Track cost
+        try:
+            from ...cost_tracker import record_cost
+            usage = data.get("usage", {})
+            input_t = usage.get("prompt_tokens", 0)
+            output_t = usage.get("completion_tokens", 0)
+            cost_usd = (input_t * 2.0 + output_t * 10.0) / 1_000_000
+            await record_cost("xai", cost_usd, "x_scan",
+                              f"grok account scan @{handle} in={input_t} out={output_t}")
+        except Exception:
+            pass
 
         # Parse Grok's response into XPost objects
         posts = _parse_grok_posts(text, handle)
@@ -818,7 +831,20 @@ async def _search_keyword_grok(
             },
         )
         resp.raise_for_status()
-        text = resp.json()["choices"][0]["message"]["content"]
+        data = resp.json()
+        text = data["choices"][0]["message"]["content"]
+
+        # Track cost
+        try:
+            from ...cost_tracker import record_cost
+            usage = data.get("usage", {})
+            input_t = usage.get("prompt_tokens", 0)
+            output_t = usage.get("completion_tokens", 0)
+            cost_usd = (input_t * 2.0 + output_t * 10.0) / 1_000_000
+            await record_cost("xai", cost_usd, "x_scan",
+                              f"grok keyword search '{keyword}' in={input_t} out={output_t}")
+        except Exception:
+            pass
 
         posts = _parse_grok_posts(text, f"search:{keyword}")
         log.info(f"Keyword '{keyword}': {len(posts)} posts via Grok")
@@ -854,7 +880,20 @@ async def _scan_trending_grok(since: datetime) -> list[XPost]:
             },
         )
         resp.raise_for_status()
-        text = resp.json()["choices"][0]["message"]["content"]
+        data = resp.json()
+        text = data["choices"][0]["message"]["content"]
+
+        # Track cost
+        try:
+            from ...cost_tracker import record_cost
+            usage = data.get("usage", {})
+            input_t = usage.get("prompt_tokens", 0)
+            output_t = usage.get("completion_tokens", 0)
+            cost_usd = (input_t * 2.0 + output_t * 10.0) / 1_000_000
+            await record_cost("xai", cost_usd, "x_scan",
+                              f"grok trending scan in={input_t} out={output_t}")
+        except Exception:
+            pass
 
         posts = _parse_grok_posts(text, "trending")
         log.info(f"Trending: {len(posts)} posts via Grok")

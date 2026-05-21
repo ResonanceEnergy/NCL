@@ -183,6 +183,19 @@ Rules:
                 return None
 
             data = resp.json()
+
+            # Track cost
+            try:
+                from ..cost_tracker import record_cost
+                usage = data.get("usage", {})
+                input_t = usage.get("input_tokens", 0)
+                output_t = usage.get("output_tokens", 0)
+                cost_usd = (input_t * 0.25 + output_t * 1.25) / 1_000_000  # Haiku pricing
+                await record_cost("anthropic", cost_usd, "entity_extraction",
+                                  f"entity extraction in={input_t} out={output_t}")
+            except Exception:
+                pass  # Cost tracking should never break the primary flow
+
             text = data.get("content", [{}])[0].get("text", "")
             text = re.sub(r"```json\s*", "", text)
             text = re.sub(r"```\s*", "", text)

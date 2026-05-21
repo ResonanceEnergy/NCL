@@ -7,8 +7,10 @@ from datetime import datetime, timezone, timedelta
 from enum import Enum
 from typing import Any, Optional, Callable
 from pathlib import Path
+import asyncio
 import json
 import logging
+import os
 import uuid as _uuid
 
 from pydantic import BaseModel, Field
@@ -295,3 +297,74 @@ class AvailabilityTracker:
                 cb(alert)
             except Exception as e:
                 log.error(f"Alert callback error: {e}")
+
+
+# ── ntfy push integration ────────────────────────────────────────────
+
+_NTFY_TOPIC = os.getenv("NTFY_TOPIC", "ncl-natrix-intel-7x9k")
+_NTFY_SERVER = os.getenv("NTFY_SERVER", "https://ntfy.sh")
+
+_SEVERITY_TO_PRIORITY = {
+    AlertSeverity.CRITICAL: "5",
+    AlertSeverity.WARNING: "4",
+    AlertSeverity.INFO: "3",
+}
+
+_SEVERITY_TO_TAGS = {
+    AlertSeverity.CRITICAL: "rotating_light,skull",
+    AlertSeverity.WARNING: "warning,chart_with_downwards_trend",
+    AlertSeverity.INFO: "information_source",
+}
+
+
+async def _send_availability_ntfy(title: str, message: str, priority: str = "3", tags: str = "") -> None:
+    """Send a push notification via ntfy.sh for availability alerts."""
+    if not _NTFY_TOPIC:
+        return
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            safe_title = title.encode("ascii", "replace").decode("ascii")
+            await client.post(
+                f"{_NTFY_SERVER}/{_NTFY_TOPIC}",
+                content=message.encode("utf-8"),
+                headers={
+                    "Content-Type": "text/plain; charset=utf-8",
+                    "Title": safe_title,
+                    "Priority": priority,
+                    "Tags": tags or "brain",
+                },
+            )
+        log.info(f"ntfy availability alert sent: {title}")
+    except Exception as e:
+        log.warning(f"ntfy availability alert failed: {e}")
+
+
+def make_ntfy_alert_callback() -> Callable:
+    """Create a callback that sends availability alerts to ntfy.
+
+    The returned callback is synchronous (as required by AvailabilityTracker.on_alert)
+    but schedules the async ntfy POST on the running event loop.
+    """
+
+    def _on_alert(alert: AvailabilityAlert) -> None:
+        priority = _SEVERITY_TO_PRIORITY.get(alert.severity, "3")
+        tags = _SEVERITY_TO_TAGS.get(alert.severity, "brain")
+
+        title = f"NCL {alert.severity.value.upper()}: {alert.workflow}"
+        lines = [
+            f"Type: {alert.alert_type.value.replace('_', ' ').title()}",
+            f"Workflow: {alert.workflow}",
+            f"Current: {alert.current_value:.1f}",
+            f"Threshold: {alert.threshold:.1f}",
+            f"{alert.message}",
+        ]
+        message = "\n".join(lines)
+
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_send_availability_ntfy(title, message, priority, tags))
+        except RuntimeError:
+            log.debug("No running event loop for ntfy alert — skipped")
+
+    return _on_alert

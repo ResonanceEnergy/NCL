@@ -39,8 +39,9 @@ DEFAULT_DAILY_BUDGETS: dict[str, float] = {
     "x_twitter":       2.00,    # Reduced — consider once-daily for morning brief only
     "anthropic":       2.00,    # Claude API — councils, analysis
     "xai":             2.00,    # Grok — council member + fallback
-    "openai":          2.00,    # Whisper transcription (currently dormant)
+    "openai":          2.00,    # GPT-4o — council member + Whisper
     "google":          2.00,    # Gemini — council member
+    "perplexity":      2.00,    # Sonar Pro — council member
     "gnews":           1.00,    # News API
     "unusual_whales":  0.00,    # Subscription — no per-call cost
     "coingecko":       0.00,    # Free tier
@@ -208,7 +209,7 @@ class CostTracker:
                 if "_platform" not in self._warned_sources:
                     self._warned_sources.add("_platform")
                     asyncio.get_event_loop().create_task(
-                        self._send_budget_notification(msg)
+                        self._send_budget_notification(msg, priority="5")
                     )
                 return False
 
@@ -226,6 +227,9 @@ class CostTracker:
                     f"(${current:.4f} / ${budget:.2f})"
                 )
                 log.warning(f"[COST] {warn_msg}")
+                asyncio.get_event_loop().create_task(
+                    self._send_budget_notification(warn_msg, priority="4")
+                )
 
             if current + estimated_usd > budget:
                 msg = (
@@ -238,37 +242,46 @@ class CostTracker:
                 if cap_key not in self._warned_sources:
                     self._warned_sources.add(cap_key)
                     asyncio.get_event_loop().create_task(
-                        self._send_budget_notification(msg)
+                        self._send_budget_notification(msg, priority="5")
                     )
                 return False
 
             return True
 
-    async def _send_budget_notification(self, message: str) -> None:
-        """Send push notification when a budget cap is hit."""
+    async def _send_budget_notification(self, message: str, priority: str = "4") -> None:
+        """Send push notification for budget warnings/caps.
+
+        Args:
+            message: Alert text
+            priority: ntfy priority — "4" for 80% warning, "5" for hard cap
+        """
         try:
             import httpx
             # Try ntfy (lightweight push notification)
-            ntfy_topic = os.getenv("NTFY_TOPIC")
+            ntfy_topic = os.getenv("NTFY_TOPIC", "ncl-natrix-intel-7x9k")
+            ntfy_server = os.getenv("NTFY_SERVER", "https://ntfy.sh")
             if ntfy_topic:
-                ntfy_server = os.getenv("NTFY_SERVER", "https://ntfy.sh")
+                tags = "rotating_light,money_with_wings" if priority == "5" else "warning,money_with_wings"
+                safe_title = "NCL COST ALERT" if priority == "5" else "NCL Cost Warning"
                 async with httpx.AsyncClient(timeout=10.0) as client:
                     await client.post(
                         f"{ntfy_server}/{ntfy_topic}",
-                        content=message.encode(),
+                        content=message.encode("utf-8"),
                         headers={
-                            "Title": "NCL Cost Alert",
-                            "Priority": "high",
-                            "Tags": "money_with_wings,warning",
+                            "Content-Type": "text/plain; charset=utf-8",
+                            "Title": safe_title,
+                            "Priority": priority,
+                            "Tags": tags,
                         },
                     )
-                log.info(f"[COST] Push notification sent via ntfy: {message[:60]}")
+                log.info(f"[COST] ntfy push sent (priority={priority}): {message[:60]}")
                 return
 
             # Try Pushover
             pushover_token = os.getenv("PUSHOVER_APP_TOKEN")
             pushover_user = os.getenv("PUSHOVER_USER_KEY")
             if pushover_token and pushover_user:
+                pushover_priority = 2 if priority == "5" else 1
                 async with httpx.AsyncClient(timeout=10.0) as client:
                     await client.post(
                         "https://api.pushover.net/1/messages.json",
@@ -277,7 +290,7 @@ class CostTracker:
                             "user": pushover_user,
                             "title": "NCL Cost Alert",
                             "message": message,
-                            "priority": 1,
+                            "priority": pushover_priority,
                         },
                     )
                 log.info(f"[COST] Push notification sent via Pushover: {message[:60]}")

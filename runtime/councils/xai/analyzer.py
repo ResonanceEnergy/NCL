@@ -247,7 +247,21 @@ async def _call_model(user_prompt: str) -> str:
                 timeout=120.0,
             )
             resp.raise_for_status()
-            return resp.json()["content"][0]["text"]
+            data = resp.json()
+
+            # Track cost
+            try:
+                from ...cost_tracker import record_cost
+                usage = data.get("usage", {})
+                input_t = usage.get("input_tokens", 0)
+                output_t = usage.get("output_tokens", 0)
+                cost_usd = (input_t * 3.0 + output_t * 15.0) / 1_000_000
+                await record_cost("anthropic", cost_usd, "x_analysis",
+                                  f"x council analysis in={input_t} out={output_t}")
+            except Exception:
+                pass
+
+            return data["content"][0]["text"]
         except Exception as e:
             log.warning(f"Anthropic failed: {e}")
 
@@ -272,7 +286,21 @@ async def _call_model(user_prompt: str) -> str:
                 timeout=120.0,
             )
             resp.raise_for_status()
-            return resp.json()["choices"][0]["message"]["content"]
+            data = resp.json()
+
+            # Track cost
+            try:
+                from ...cost_tracker import record_cost
+                usage = data.get("usage", {})
+                input_t = usage.get("prompt_tokens", 0)
+                output_t = usage.get("completion_tokens", 0)
+                cost_usd = (input_t * 2.0 + output_t * 10.0) / 1_000_000
+                await record_cost("xai", cost_usd, "x_analysis",
+                                  f"grok x council analysis in={input_t} out={output_t}")
+            except Exception:
+                pass
+
+            return data["choices"][0]["message"]["content"]
         except Exception as e:
             log.warning(f"xAI failed: {e}")
 

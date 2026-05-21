@@ -113,7 +113,7 @@ from ..search.indexer import SearchIndexer
 # Sprint 2 — Telemetry, Governance, Evaluation
 from ..telemetry.schema import TelemetryConfig, TelemetryLevel
 from ..telemetry.collector import TelemetryCollector
-from ..telemetry.availability import AvailabilityTracker, AvailabilityConfig
+from ..telemetry.availability import AvailabilityTracker, AvailabilityConfig, make_ntfy_alert_callback
 from ..governance.models import ActionTier, ConsentStatus, PolicyVerdict, Action
 from ..governance.policy_kernel import PolicyKernel
 from ..governance.action_router import ActionRouter
@@ -238,6 +238,8 @@ async def lifespan(app: FastAPI):
     await _telemetry.init()
     _availability = AvailabilityTracker(data_dir=config.data_dir)
     await _availability.init()
+    _availability.on_alert(make_ntfy_alert_callback())
+    log.info("[init] ntfy push callback registered for availability alerts")
 
     # Sprint 2 — Governance
     global _policy_kernel, _action_router, _emergency_stop
@@ -5314,6 +5316,18 @@ async def autonomous_loops(authorization: str = Header(default="")) -> dict:
         {"name": "Journal Reflection", "id": "ncl-journal-reflection",
          "interval": 0, "enabled": True,
          "description": "Daily 10pm ET journal synthesis with intel patterns"},
+        {"name": "Night Watch", "id": "ncl-night-watch",
+         "interval": 0, "enabled": True,
+         "description": "Nightly 2am ET health audit — checks all services, loops, staleness, costs, connectivity, disk space"},
+        {"name": "Mandate Purge", "id": "ncl-mandate-purge",
+         "interval": 21600, "enabled": True,
+         "description": "Purges stale mandates every 6 hours to prevent state explosion"},
+        {"name": "Feedback Synthesis", "id": "ncl-feedback-synth",
+         "interval": 300, "enabled": True,
+         "description": "Consumes pillar feedback reports and produces synthesis notes"},
+        {"name": "Supervisor", "id": "ncl-supervisor",
+         "interval": 30, "enabled": True,
+         "description": "Supervisor loop — monitors and restarts crashed scheduler tasks"},
     ]
 
     # --- Awarebot sub-tasks (spawned inside awarebot agent) ---
@@ -5351,6 +5365,9 @@ async def autonomous_loops(authorization: str = Header(default="")) -> dict:
     for t in _autonomous._tasks:
         if not t.done():
             active_task_names.add(t.get_name())
+    # Check supervisor task (not in self._tasks)
+    if _autonomous._supervisor_task and not _autonomous._supervisor_task.done():
+        active_task_names.add("ncl-supervisor")
     # Also check Awarebot internal tasks
     if _autonomous.awarebot and hasattr(_autonomous.awarebot, "_tasks"):
         for t in _autonomous.awarebot._tasks:
@@ -5865,17 +5882,31 @@ async def chat_endpoint(
     )
 
     # Call Claude for a direct response
+    # Note: _call_claude/_call_grok already record costs with category="council_run".
+    # We tag the call here with category="user_chat" for usage attribution ($0 amount to avoid double-counting).
     council_engine = brain.council_engine
     try:
         response_text = await council_engine._call_claude(
             f"{system_prompt}\n\nNATRIX: {message}"
         )
+        try:
+            from ..cost_tracker import record_cost
+            await record_cost("anthropic", 0.0, "user_chat",
+                              f"chat message: {message[:80]}")
+        except Exception:
+            pass
     except Exception as claude_err:
         log.warning(f"[/chat] Claude failed: {claude_err}, trying Grok fallback")
         try:
             response_text = await council_engine._call_grok(
                 f"{system_prompt}\n\nNATRIX: {message}"
             )
+            try:
+                from ..cost_tracker import record_cost
+                await record_cost("xai", 0.0, "user_chat",
+                                  f"chat fallback: {message[:80]}")
+            except Exception:
+                pass
         except Exception as grok_err:
             log.error(f"[/chat] All LLM calls failed: Claude={claude_err}, Grok={grok_err}")
             response_text = (

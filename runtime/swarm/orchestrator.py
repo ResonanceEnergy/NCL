@@ -653,6 +653,14 @@ class SwarmOrchestrator:
                         "Budget already deallocated for task %s; skipping spend record",
                         task.task_id,
                     )
+                # Bridge swarm spending to persistent JSONL cost ledger
+                try:
+                    from ..cost_tracker import record_cost
+                    cost_usd = result.cost_cents / 100.0
+                    await record_cost("anthropic", cost_usd, "swarm_subtask",
+                                      f"swarm subtask {subtask_id}: {node.title[:80]}")
+                except Exception:
+                    pass
                 async with self._stats_lock:
                     self._total_cost_cents += result.cost_cents
 
@@ -879,6 +887,14 @@ class SwarmOrchestrator:
             response.cost_cents,
             "Result synthesis",
         )
+        # Bridge to persistent JSONL cost ledger
+        try:
+            from ..cost_tracker import record_cost
+            cost_usd = response.cost_cents / 100.0
+            await record_cost("anthropic", cost_usd, "swarm_synthesis",
+                              f"swarm result synthesis for task {task.task_id}")
+        except Exception:
+            pass
         async with self._stats_lock:
             self._total_cost_cents += response.cost_cents
 

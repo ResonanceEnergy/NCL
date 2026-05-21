@@ -229,6 +229,19 @@ KNOWLEDGE GAPS:
         content = data.get("content", [])
         if not content or not isinstance(content, list):
             raise ValueError(f"Unexpected Claude response: {list(data.keys())}")
+
+        # Track cost
+        try:
+            from ..cost_tracker import record_cost
+            usage = data.get("usage", {})
+            input_t = usage.get("input_tokens", 0)
+            output_t = usage.get("output_tokens", 0)
+            cost_usd = (input_t * 3.0 + output_t * 15.0) / 1_000_000
+            await record_cost("anthropic", cost_usd, "uni_synthesis",
+                              f"claude synthesis in={input_t} out={output_t}")
+        except Exception:
+            pass
+
         return content[0].get("text", "")
 
     async def _call_grok(self, prompt: str) -> str:
@@ -251,6 +264,19 @@ KNOWLEDGE GAPS:
         choices = data.get("choices", [])
         if not choices:
             raise ValueError(f"Grok returned no choices: {list(data.keys())}")
+
+        # Track cost
+        try:
+            from ..cost_tracker import record_cost
+            usage = data.get("usage", {})
+            input_t = usage.get("prompt_tokens", 0)
+            output_t = usage.get("completion_tokens", 0)
+            cost_usd = (input_t * 2.0 + output_t * 10.0) / 1_000_000
+            await record_cost("xai", cost_usd, "uni_synthesis",
+                              f"grok-3 synthesis in={input_t} out={output_t}")
+        except Exception:
+            pass
+
         return choices[0].get("message", {}).get("content", "")
 
     async def _call_ollama(self, prompt: str) -> str:

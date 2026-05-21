@@ -243,6 +243,18 @@ Format your response as JSON with keys: prediction, confidence (0-1), reasoning.
             data = response.json()
             text = data["content"][0]["text"]
 
+            # Track cost
+            try:
+                from ..cost_tracker import record_cost
+                usage = data.get("usage", {})
+                input_t = usage.get("input_tokens", 0)
+                output_t = usage.get("output_tokens", 0)
+                cost_usd = (input_t * 3.0 + output_t * 15.0) / 1_000_000
+                await record_cost("anthropic", cost_usd, "prediction",
+                                  f"claude prediction for '{topic}' in={input_t} out={output_t}")
+            except Exception:
+                pass  # Cost tracking should never break the primary flow
+
             # Try to parse structured JSON from Claude's response
             parsed_prediction = text
             parsed_confidence = None

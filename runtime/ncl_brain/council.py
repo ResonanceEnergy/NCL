@@ -871,6 +871,20 @@ class CouncilEngine:
         choices = data.get("choices", [])
         if not choices:
             raise ValueError(f"Perplexity returned no choices: {list(data.keys())}")
+
+        # Track cost
+        try:
+            from ..cost_tracker import record_cost
+            usage = data.get("usage", {})
+            input_t = usage.get("prompt_tokens", 0)
+            output_t = usage.get("completion_tokens", 0)
+            cost = (input_t * 3.0 + output_t * 15.0) / 1_000_000  # sonar-pro pricing
+            await record_cost("perplexity", cost, "council_run",
+                              f"sonar-pro in={input_t} out={output_t}",
+                              model="sonar-pro", input_tokens=input_t, output_tokens=output_t)
+        except Exception:
+            pass
+
         return choices[0].get("message", {}).get("content", "")
 
     async def _call_gpt(self, prompt: str) -> str:
@@ -898,6 +912,20 @@ class CouncilEngine:
         choices = data.get("choices", [])
         if not choices:
             raise ValueError(f"GPT returned no choices: {list(data.keys())}")
+
+        # Track cost
+        try:
+            from ..cost_tracker import record_cost
+            usage = data.get("usage", {})
+            input_t = usage.get("prompt_tokens", 0)
+            output_t = usage.get("completion_tokens", 0)
+            cost = (input_t * 2.5 + output_t * 10.0) / 1_000_000  # GPT-4o pricing
+            await record_cost("openai", cost, "council_run",
+                              f"gpt-4o in={input_t} out={output_t}",
+                              model="gpt-4o", input_tokens=input_t, output_tokens=output_t)
+        except Exception:
+            pass
+
         return choices[0].get("message", {}).get("content", "")
 
     async def _call_copilot(self, prompt: str) -> str:
@@ -946,6 +974,18 @@ class CouncilEngine:
             data = resp.json()
             choices = data.get("choices", [])
             if choices:
+                # Track Azure cost
+                try:
+                    from ..cost_tracker import record_cost
+                    usage = data.get("usage", {})
+                    input_t = usage.get("prompt_tokens", 0)
+                    output_t = usage.get("completion_tokens", 0)
+                    cost = (input_t * 2.5 + output_t * 10.0) / 1_000_000
+                    await record_cost("openai", cost, "council_run",
+                                      f"azure-{azure_deployment} in={input_t} out={output_t}",
+                                      model=azure_deployment, input_tokens=input_t, output_tokens=output_t)
+                except Exception:
+                    pass
                 return choices[0].get("message", {}).get("content", "")
 
         # Fallback: OpenAI direct
@@ -977,6 +1017,20 @@ class CouncilEngine:
         choices = data.get("choices", [])
         if not choices:
             raise ValueError(f"Copilot/OpenAI returned no choices: {list(data.keys())}")
+
+        # Track cost
+        try:
+            from ..cost_tracker import record_cost
+            usage = data.get("usage", {})
+            input_t = usage.get("prompt_tokens", 0)
+            output_t = usage.get("completion_tokens", 0)
+            cost = (input_t * 2.5 + output_t * 10.0) / 1_000_000
+            await record_cost("openai", cost, "council_run",
+                              f"copilot-gpt-4o in={input_t} out={output_t}",
+                              model="gpt-4o", input_tokens=input_t, output_tokens=output_t)
+        except Exception:
+            pass
+
         return choices[0].get("message", {}).get("content", "")
 
     async def _get_ollama_response(self, member: CouncilMember, prompt: str) -> str:
