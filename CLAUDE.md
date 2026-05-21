@@ -242,6 +242,30 @@ If a service doesn't exist (Paperclip, BRS Dashboard), acknowledge it in documen
 
 ---
 
+## Calendar System (added May 21, 2026)
+
+**Backend** (`runtime/calendar/`):
+- `lunar.py` — Moon phase engine (Skyfield + Meeus fallback), 8-phase energy mapping, cycle context
+- `events.py` — Market events: FOMC 2026, options expiry, quad witching, VIX expiry, futures roll, Finnhub economic calendar
+- `local_events.py` — Local events for 7 cities (Edmonton, Calgary, Panama City, San Salvador, Montevideo, Asuncion, Oaxaca). Holidays, Open-Meteo weather alerts, Ticketmaster events, curated JSONL
+- `watchlist.py` — Correlated to-do engine pulling from moon energy, predictions, scanners, council, journal, paper trades, portfolio, calendar events
+- `calendar_routes.py` — FastAPI router: 12 endpoints under `/calendar/`
+
+**API Endpoints**:
+- GET `/calendar/today` — today's moon + events + context
+- GET `/calendar/week` — 7-day view with phases + events
+- GET `/calendar/month` — 30-day view
+- GET `/calendar/moon` — current phase + cycle context
+- GET `/calendar/moon/phases` — upcoming major phases
+- GET `/calendar/energy` — energy state + phase-based todos
+- GET `/calendar/events` — market events with date range + category filter
+- POST `/calendar/events` — add custom event
+- GET `/calendar/categories` — event category metadata
+- GET `/calendar/cities` — available cities list
+- GET `/calendar/local/{city_id}` — local events for a city
+- POST `/calendar/local/events` — add curated local event
+- GET `/calendar/watchlist` — full correlated to-do list
+
 ## Watch Queries (updated May 17, 2026)
 - **X**: AI automation, algo trading, prediction markets, indie game dev, DUBFORGE, Claude, crypto regime, AI startup (8 queries — all failing due to 402)
 - **YouTube**: AI business, crypto trading, indie game dev, AI dev tools, prediction markets, AI music (6 queries)

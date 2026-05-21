@@ -24,6 +24,14 @@ from .events import (
     add_custom_event,
     EVENT_CATEGORIES,
 )
+from .local_events import (
+    get_local_events,
+    get_cities_list,
+    add_local_event,
+    CITIES,
+    LOCAL_EVENT_CATEGORIES,
+)
+from .watchlist import build_watchlist, WATCHLIST_CATEGORIES
 
 log = logging.getLogger("ncl.calendar.routes")
 
@@ -304,3 +312,99 @@ async def list_categories(authorization: str = Header(default="")):
     """List all event categories with their metadata."""
     _verify_strike_token(authorization)
     return {"categories": EVENT_CATEGORIES}
+
+
+# ── Local Events ────────────────────────────────────────────────────
+
+@calendar_router.get("/cities")
+async def list_cities(authorization: str = Header(default="")):
+    """List all available cities for local events tracking."""
+    _verify_strike_token(authorization)
+    return {"cities": get_cities_list()}
+
+
+@calendar_router.get("/local/{city_id}")
+async def city_events(
+    city_id: str,
+    start: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    end: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    authorization: str = Header(default=""),
+):
+    """Get local events for a specific city."""
+    _verify_strike_token(authorization)
+
+    if city_id not in CITIES:
+        raise HTTPException(status_code=404, detail=f"Unknown city: {city_id}")
+
+    today = date.today()
+    s = date.fromisoformat(start) if start else today
+    e = date.fromisoformat(end) if end else today + timedelta(days=30)
+
+    events = await get_local_events(city_id, s, e)
+    city_meta = CITIES[city_id]
+
+    return {
+        "city": city_id,
+        "city_name": city_meta["name"],
+        "country": city_meta["country"],
+        "start": s.isoformat(),
+        "end": e.isoformat(),
+        "events": events,
+        "count": len(events),
+    }
+
+
+@calendar_router.post("/local/events")
+async def create_local_event(request: Request, authorization: str = Header(default="")):
+    """Add a curated local event."""
+    _verify_strike_token(authorization)
+
+    body = await request.json()
+    required = ["date", "title", "city"]
+    for field in required:
+        if field not in body:
+            return {"error": f"Missing required field: {field}"}, 400
+
+    event = add_local_event(body)
+    return {"status": "created", "event": event}
+
+
+@calendar_router.get("/local/categories")
+async def local_categories(authorization: str = Header(default="")):
+    """List local event categories with metadata."""
+    _verify_strike_token(authorization)
+    return {"categories": LOCAL_EVENT_CATEGORIES}
+
+
+# ── Watchlist / Suggested To-Do ──────────────────────────────────────
+
+@calendar_router.get("/watchlist")
+async def get_watchlist(authorization: str = Header(default="")):
+    """
+    Full correlated watchlist/to-do for today.
+    Pulls from moon energy, predictions, scanners, council, journal,
+    paper trades, portfolio, and calendar events.
+    """
+    _verify_strike_token(authorization)
+
+    now = datetime.now(timezone.utc)
+    from .lunar import get_moon_phase, get_cycle_context
+
+    phase = get_moon_phase(now)
+    context = get_cycle_context()
+
+    # Build the watchlist using internal Brain calls
+    todos = await build_watchlist(
+        brain_client=None,  # uses internal HTTP calls
+        moon_phase=phase,
+        cycle_context=context,
+    )
+
+    return {
+        "date": date.today().isoformat(),
+        "energy_mode": phase.get("energy_mode", ""),
+        "phase_name": phase.get("phase_name", ""),
+        "todos": todos,
+        "count": len(todos),
+        "categories": WATCHLIST_CATEGORIES,
+    }
