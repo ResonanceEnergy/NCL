@@ -6642,35 +6642,60 @@ async def update_morning_brief_progress(
 
 @app.get("/intelligence/briefs")
 async def list_intelligence_briefs(limit: int = Query(default=20, ge=1, le=100), authorization: str = Header(default="")) -> dict:
-    """List all historical intelligence briefs (newest first)."""
+    """List all historical intelligence briefs (newest first).
+
+    Reads from BOTH the live Awarebot brief stream (`agent_briefs.jsonl`)
+    AND the legacy IntelligenceEngine stream (`briefs.jsonl`). Awarebot is
+    the active writer; the legacy stream is frozen but kept for history.
+    """
     _verify_strike_token(authorization)
-    if not _intelligence:
-        raise HTTPException(status_code=503, detail="Intelligence engine not initialized")
-    briefs_file = _intelligence._briefs_file
-    if not briefs_file.exists():
+
+    # Both possible sources, in priority order (Awarebot is current).
+    # Brain runs from ~/dev/NCL/ per the launch script; data is at ./data/.
+    candidate_files = []
+    _data_root = Path(os.getenv("NCL_DATA_DIR", "data"))
+    awarebot_briefs = _data_root / "intelligence" / "agent_briefs.jsonl"
+    if awarebot_briefs.exists():
+        candidate_files.append(awarebot_briefs)
+    if _intelligence and getattr(_intelligence, "_briefs_file", None):
+        legacy = Path(_intelligence._briefs_file)
+        if legacy.exists() and legacy.resolve() != awarebot_briefs.resolve():
+            candidate_files.append(legacy)
+
+    if not candidate_files:
         return {"total": 0, "briefs": []}
+
     try:
         entries = []
-        async with aiofiles.open(briefs_file, "r") as f:
-            async for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    d = json.loads(line)
-                    entries.append({
-                        "brief_id": d.get("brief_id", ""),
-                        "brief_type": d.get("brief_type", "daily"),
-                        "timestamp": d.get("timestamp", ""),
-                        "total_signals": d.get("total_signals_processed", 0),
-                        "sectors": len(d.get("sectors", [])),
-                        "predictions": len(d.get("predictions", [])),
-                        "risk_alerts": len(d.get("risk_alerts", [])),
-                        "executive_summary": d.get("executive_summary", "")[:200],
-                    })
-                except json.JSONDecodeError:
-                    continue
-        entries.reverse()  # newest first
+        seen_ids = set()
+        for briefs_file in candidate_files:
+            async with aiofiles.open(briefs_file, "r") as f:
+                async for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        d = json.loads(line)
+                        bid = d.get("brief_id", "")
+                        if bid and bid in seen_ids:
+                            continue
+                        if bid:
+                            seen_ids.add(bid)
+                        entries.append({
+                            "brief_id": bid,
+                            "brief_type": d.get("brief_type", "daily"),
+                            "timestamp": d.get("timestamp", ""),
+                            "total_signals": d.get("total_signals_processed", d.get("total_signals", 0)),
+                            "sectors": len(d.get("sectors", [])) if isinstance(d.get("sectors"), list) else d.get("sectors", 0),
+                            "predictions": len(d.get("predictions", [])) if isinstance(d.get("predictions"), list) else d.get("predictions", 0),
+                            "risk_alerts": len(d.get("risk_alerts", [])) if isinstance(d.get("risk_alerts"), list) else d.get("risk_alerts", 0),
+                            "executive_summary": (d.get("executive_summary", "") or d.get("summary", ""))[:200],
+                            "source_file": briefs_file.name,
+                        })
+                    except json.JSONDecodeError:
+                        continue
+        # Newest first across both streams
+        entries.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
         return {"total": len(entries), "briefs": entries[:limit]}
     except Exception as e:
         log.exception("Endpoint error: %s", e)

@@ -2440,9 +2440,32 @@ Focus on what requires attention or action."""
             await self._interruptible_sleep(self._scan_interval)
 
     async def _brief_loop(self):
-        """Periodic brief generation."""
-        # Initial delay to let signals accumulate
-        await self._interruptible_sleep(self._brief_interval // 2)
+        """Periodic brief generation.
+
+        Initial-delay policy:
+          - If warm-start populated >=20 signals in the 24h buffer, the brief
+            can fire almost immediately (60s settling delay) — no need to
+            wait the full 2h half-interval. This fixes the "brief never
+            fires across rapid restarts" problem where the loop kept resetting
+            its 2h sleep on every Brain restart.
+          - Otherwise (cold start with empty buffer), keep the original
+            half-interval delay so signals can accumulate from scan_cycle.
+        """
+        # Adaptive initial delay
+        prewarmed = len(self._context_24h)
+        if prewarmed >= 20:
+            initial_delay = 60  # 1 minute settle
+            log.info(
+                f"[AGENT:BRIEF] Loop started — warm-start has {prewarmed} signals, "
+                f"first brief in {initial_delay}s, then every {self._brief_interval}s"
+            )
+        else:
+            initial_delay = self._brief_interval // 2
+            log.info(
+                f"[AGENT:BRIEF] Loop started — cold start ({prewarmed} signals), "
+                f"first brief in {initial_delay}s, then every {self._brief_interval}s"
+            )
+        await self._interruptible_sleep(initial_delay)
 
         while self._running:
             if EMERGENCY_STOP_EVENT.is_set():
@@ -2450,11 +2473,15 @@ Focus on what requires attention or action."""
                 break
 
             try:
+                log.info(
+                    f"[AGENT:BRIEF] Firing scheduled brief "
+                    f"(context_24h={len(self._context_24h)} signals)"
+                )
                 await self.generate_brief()
             except asyncio.CancelledError:
                 break
-            except Exception as e:
-                log.error(f"[AGENT:BRIEF] Generation error: {e}", exc_info=True)
+            except Exception:
+                log.exception("[AGENT:BRIEF] Generation error — see traceback")
 
             await self._interruptible_sleep(self._brief_interval)
 

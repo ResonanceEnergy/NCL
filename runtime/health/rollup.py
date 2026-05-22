@@ -148,8 +148,30 @@ def _memory_component(brain) -> dict:
     if store is None:
         return {"status": "yellow", "reason": "memory store unavailable"}
     units = None
+    # Try the canonical accessor first; fall back through 3 layers of attrs
+    # the store may expose (different versions of MemoryStore use different
+    # internal names — units, _units, units_list, _store, etc.).
     try:
-        units = len(getattr(store, "_units", []) or [])
+        if hasattr(store, "get_stats"):
+            try:
+                stats = store.get_stats()
+                if isinstance(stats, dict):
+                    units = (
+                        stats.get("total_units")
+                        or stats.get("count")
+                        or stats.get("units")
+                    )
+            except Exception:
+                units = None
+        if units is None:
+            for attr in ("_units", "units", "_store", "_data"):
+                val = getattr(store, attr, None)
+                if val is not None:
+                    try:
+                        units = len(val)
+                        break
+                    except Exception:
+                        continue
     except Exception:
         units = None
     # Don't compute heavy stats here; rollup runs every 60s.
@@ -159,7 +181,7 @@ def _memory_component(brain) -> dict:
         status = "yellow"
     return {
         "status": status,
-        "units": units,
+        "units": units if units is not None else 0,
         "last_consolidation": None,  # filled by caller from scheduler stats
     }
 
