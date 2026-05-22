@@ -37,7 +37,10 @@ DAILY_SUMMARY_FILE = COST_DIR / "daily_summary.json"
 # Override via environment: NCL_BUDGET_X=5.00, NCL_BUDGET_ANTHROPIC=10.00, etc.
 DEFAULT_DAILY_BUDGETS: dict[str, float] = {
     "x_twitter":       2.00,    # Reduced — consider once-daily for morning brief only
-    "anthropic":       5.00,    # Claude API -- Night Watch (Opus+Sonnet), councils, analysis
+    "anthropic":      15.00,    # Claude API — bumped 5→15 (2026-05-22 audit).
+                                # $5 was hit by 18:00 ET, starving async_writer LLM
+                                # enrichment, importance scoring, entity extraction,
+                                # and chat injection. Still under platform $20/day cap.
     "xai":             2.00,    # Grok — council member + fallback
     "openai":          2.00,    # GPT-4o — council member + Whisper
     "google":          2.00,    # Gemini — council member

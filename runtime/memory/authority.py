@@ -101,8 +101,13 @@ SOURCE_TIER_MAP: dict[str, AuthorityTier] = {
     "journal-entry": AuthorityTier.NATRIX,
     "journal_entry": AuthorityTier.NATRIX,
     "journal": AuthorityTier.NATRIX,                # raw NATRIX journal entries
-    "first-strike-chat": AuthorityTier.NATRIX,      # user messages only
-    "first_strike_chat": AuthorityTier.NATRIX,
+    # Audit 2026-05-22: chat fragments like "health", "Wild" landed at NATRIX(100)
+    # and poisoned ticker searches (TSLA query returned chat noise as top hit).
+    # Demoted to CALENDAR(50) — chat is still high-authority but won't dominate
+    # vector search the way verified pumps/directives do. Pump endpoints +
+    # journal entries remain at full NATRIX(100).
+    "first-strike-chat": AuthorityTier.CALENDAR,    # demoted from NATRIX
+    "first_strike_chat": AuthorityTier.CALENDAR,    # demoted from NATRIX
     # Portfolio events — NATRIX's money is absolute authority. The
     # snapshot/event writers in runtime/portfolio/memory_bridge.py emit
     # source strings under the "portfolio:" namespace; prefix-match

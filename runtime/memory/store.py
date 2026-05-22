@@ -24,7 +24,11 @@ from .authority import tier_for_source as _tier_for_source
 
 # Memory system constraints
 MAX_CONTENT_LENGTH = 50_000     # Max characters per memory unit
-MAX_TOTAL_UNITS = 10_000        # Max total memory units in store
+MAX_TOTAL_UNITS = 25_000        # Max total memory units in store
+# Audit 2026-05-22: bumped 10K → 25K to stop eviction thrash. Awarebot
+# ingest rate (~568/20min) was way above dedup throughput (200/6h merges),
+# so eviction was running every ~4s and burning CPU+IO for no benefit.
+# Real fix is dedup throughput; this raises the ceiling in the meantime.
 MAX_MEMORY_FILE_BYTES = 200 * 1024 * 1024  # 200 MB — trigger compaction above this
 
 # ChromaDB typed collections — one per memory type
