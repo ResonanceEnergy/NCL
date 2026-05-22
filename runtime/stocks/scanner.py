@@ -459,10 +459,19 @@ class StockScanner:
                 # Stop loss: 2× ATR below current price
                 stop_loss = round(float(current_price - 2 * current_atr), 2) if current_atr > 0 else 0.0
 
-                # Graduated profit targets
-                target_1 = round(float(current_price * 1.10), 2)  # +10%
-                target_2 = round(float(current_price * 1.15), 2)  # +15%
-                target_3 = round(float(current_price * 1.25), 2)  # +25%
+                # Audit 2026-05-22 P0: Prior code used fixed +10/+15/+25%
+                # targets which produced R:R < 1.0 on every high-vol name
+                # (where 2×ATR stop > 5% drop). Stated strategy is 1:2
+                # minimum — ATR-based targets keep R:R ≥ 1.5R / 2.5R / 3.5R.
+                if current_atr > 0:
+                    target_1 = round(float(current_price + 3 * current_atr), 2)
+                    target_2 = round(float(current_price + 5 * current_atr), 2)
+                    target_3 = round(float(current_price + 7 * current_atr), 2)
+                else:
+                    # Defensive fallback if ATR unavailable
+                    target_1 = round(float(current_price * 1.10), 2)
+                    target_2 = round(float(current_price * 1.15), 2)
+                    target_3 = round(float(current_price * 1.25), 2)
 
                 # Risk-reward ratio (stop to first target)
                 risk = current_price - stop_loss if stop_loss > 0 else current_atr * 2

@@ -383,10 +383,31 @@ class MoomooAdapter:
                 else:
                     asset_class = "equity"
 
+                # Audit 2026-05-22 P0 fix: Moomoo SDK reports cost_price as
+                # PER-CONTRACT premium (e.g. $13.315 per share) but options
+                # multiplier is 100 — true cost basis = cost_price * qty * 100.
+                # Previous code derived cost_basis = qty * avg_cost downstream,
+                # missing the ×100, poisoning all P&L math.
+                multiplier = 100 if asset_class == "option" else 1
+                cost_basis = cost * qty * multiplier
+
                 pl_ratio = _safe_num(row.get("pl_ratio"))
                 unrealized_pct = pl_ratio * 100 if abs(pl_ratio) < 1 else pl_ratio
+                # Recompute unrealized_pl from market_value - cost_basis;
+                # don't trust raw pl_val (Moomoo bug returns it == market_value
+                # on options, ignoring premium paid).
+                if cost_basis > 0 and market_value > 0:
+                    unrealized_pl = market_value - cost_basis
+                    unrealized_pct = (unrealized_pl / cost_basis) * 100 if cost_basis else 0.0
+                else:
+                    unrealized_pl = _safe_num(row.get("pl_val"))
                 today_pl = _safe_num(row.get("today_pl_val"))
-                today_pl_pct = (today_pl / (cost * qty)) * 100 if cost and qty and today_pl else 0.0
+                # Today's PL also needs ×100 for options (SDK reports per-share)
+                today_pl = today_pl * multiplier if asset_class == "option" else today_pl
+                today_pl_pct = (today_pl / cost_basis) * 100 if cost_basis else 0.0
+                # Clamp absurd values from stale/missing quotes
+                if abs(today_pl_pct) > 100:
+                    today_pl_pct = 0.0
                 row_currency = str(row.get("currency", "") or "").upper() or currency
 
                 positions.append({
@@ -396,9 +417,11 @@ class MoomooAdapter:
                     "account_id": str(acc_id),
                     "quantity": qty,
                     "avg_cost": cost,
+                    "cost_basis": cost_basis,           # NEW — needed for total_pl_pct
+                    "multiplier": multiplier,           # NEW — explicit
                     "current_price": current_price,
                     "market_value": market_value,
-                    "unrealized_pl": _safe_num(row.get("pl_val")),
+                    "unrealized_pl": unrealized_pl,
                     "unrealized_pl_pct": unrealized_pct,
                     "daily_pl": today_pl,
                     "daily_pl_pct": today_pl_pct,

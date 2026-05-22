@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException, Query, Request
 
 log = logging.getLogger(__name__)
 
@@ -222,6 +222,82 @@ async def portfolio_health(
     _verify_strike_token(authorization)
     pm = _require_manager()
     return pm.health()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# POST /portfolio/connect/ibkr   (2026-05-22 audit fix)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.post("/connect/ibkr")
+async def portfolio_connect_ibkr(
+    request: Request,
+    authorization: str = Header(default=""),
+) -> dict:
+    """Patch IBKR adapter settings (host/port/client_id) and (re)connect.
+
+    Body: {"host": "127.0.0.1", "port": 7497, "client_id": 1}
+    Returns: {"connected": bool, "error": str|null, "accounts": int}
+    """
+    _verify_strike_token(authorization)
+    pm = _require_manager()
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    host = body.get("host") or "127.0.0.1"
+    port = int(body.get("port") or 7497)
+    client_id = int(body.get("client_id") or 1)
+    # Find the IBKR adapter on the manager
+    adapter = None
+    for a in getattr(pm, "_adapters", []) or []:
+        if (getattr(a, "broker", "") or "").upper() == "IBKR":
+            adapter = a
+            break
+    if adapter is None:
+        # Brand-new adapter — instantiate
+        try:
+            from .ibkr_adapter import IBKRAdapter
+            adapter = IBKRAdapter(host=host, port=port, client_id=client_id)
+            if not hasattr(pm, "_adapters"):
+                pm._adapters = []
+            pm._adapters.append(adapter)
+        except Exception as e:
+            return {"connected": False, "error": f"adapter unavailable: {e}", "accounts": 0}
+    else:
+        # Patch existing settings
+        try:
+            adapter.host = host
+            adapter.port = port
+            adapter.client_id = client_id
+        except Exception:
+            pass
+    # Attempt connect
+    try:
+        ok = await adapter.connect() if hasattr(adapter, "connect") else False
+        accounts = 0
+        if ok:
+            try:
+                accs = await adapter.get_accounts()
+                accounts = len(accs or [])
+            except Exception:
+                pass
+        return {
+            "connected": bool(ok),
+            "error": None if ok else "connect() returned False — is TWS/IBGateway running on that port?",
+            "host": host,
+            "port": port,
+            "client_id": client_id,
+            "accounts": accounts,
+        }
+    except Exception as e:
+        return {
+            "connected": False,
+            "error": str(e),
+            "host": host,
+            "port": port,
+            "client_id": client_id,
+            "accounts": 0,
+        }
 
 
 # ─────────────────────────────────────────────────────────────────────────────

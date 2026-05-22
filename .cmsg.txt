@@ -1,0 +1,54 @@
+Audit P0 fixes: Moomoo options + total_pl pct + per-account dedup + GOAT R:R + IBKR connect + scanner paths
+
+Fix 1 - runtime/calendar/watchlist.py - broken scanner endpoint paths
+  /scanner/goat -> /stocks/scanner/goat
+  /scanner/bravo -> /stocks/scanner/bravo
+  Calendar watchlist scanner_todos was silently 404ing both. Now flows.
+
+Fix 2 - runtime/portfolio/moomoo_adapter.py - options multiplier P0
+  Moomoo SDK reports cost_price as per-share premium. Options multiplier
+  100 was missing -> cost_basis underrepresented 100x -> total_pl math
+  was poisoned. Now: cost_basis = cost * qty * (100 if option else 1).
+  Recompute unrealized_pl from MV - cost_basis (don't trust raw pl_val
+  which Moomoo bug returns == market_value on options). Also fixes
+  today_pl scaling and clamps absurd daily_pl_pct.
+  New fields on position dict: cost_basis, multiplier.
+
+Fix 3 - runtime/portfolio/portfolio_manager.py - _total_pl cost_basis fallback
+  Was divide-by-zero when adapter didn't set cost_basis (every Moomoo
+  position pre-fix) -> total_pl_pct always 0.0 despite total_pl having
+  real value. Now derives cost_basis from avg_cost * qty * multiplier
+  with sensible defaults (100 for options, 1 otherwise).
+
+Fix 4 - runtime/portfolio/portfolio_manager.py - per-account double-count
+  Moomoo's net_liquidation includes total assets (positions already in).
+  SnapTrade/IBKR's net_liquidation is cash-only and needs positions
+  added back. Previous code added positions to BOTH unconditionally ->
+  Moomoo accounts showed 2.7x over-counted balances in iOS account
+  switcher. Now broker-aware aggregation. Also added positions_count
+  per account.
+
+Fix 5 - runtime/stocks/scanner.py - GOAT R:R math
+  Fixed +10/+15/+25% targets produced R:R < 1.0 on every high-vol name
+  (where 2xATR stop > 5% drop). Stated strategy is 1:2 minimum.
+  Now ATR-based: T1 = +3xATR, T2 = +5xATR, T3 = +7xATR.
+  R:R now lands at 1.5R / 2.5R / 3.5R consistently.
+
+Fix 6 - runtime/portfolio/portfolio_routes.py - POST /portfolio/connect/ibkr
+  New endpoint accepts {host, port, client_id} -> patches IBKR adapter
+  settings, calls connect(), returns {connected, error, accounts}.
+  Unblocks iOS Connect-IBKR UI work (next session). TWS port refused
+  errors now have a code-path to recover from without Brain restart.
+
+Live verification: Ticketmaster + NewsAPI keys firing across cities
+(visible in stderr: app.ticketmaster.com 200 OK + newsapi.org 200 OK
+for panama_city + all 7 cities on this scanner cycle).
+
+Queued for next session:
+- iOS "Connect IBKR" button + broker chip row in PortfolioView header
+- Scanner persistence (JSONL + MemoryStore with authority_tier=SCANNER)
+- UW enrichments to GOAT/BRAVO (IVR gate, flow confirmation, dark pool stops)
+- 3 new UW-inspired scanners (Dark Pool Levels, Gamma Squeeze Detector, 0DTE Reversal)
+- BRAVO risk_pct mislabel fix + portfolio dedup on scanner output
+- Performance dedupe (multiple snapshots per day)
+- ncl-stocks-scan scheduler loop (4h cadence, market-hours only)

@@ -203,7 +203,7 @@ async def _scanner_todos(client, energy_mode: str) -> list[dict]:
     todos = []
     try:
         # GOAT scanner
-        goat = _sync_brain_call(client, "/scanner/goat", "GET")
+        goat = _sync_brain_call(client, "/stocks/scanner/goat", "GET")
         goat_hits = goat.get("results", goat.get("hits", []))
         if goat_hits:
             symbols = [h.get("symbol", "") for h in goat_hits[:5]]
@@ -219,7 +219,7 @@ async def _scanner_todos(client, energy_mode: str) -> list[dict]:
             })
 
         # Bravo scanner
-        bravo = _sync_brain_call(client, "/scanner/bravo", "GET")
+        bravo = _sync_brain_call(client, "/stocks/scanner/bravo", "GET")
         bravo_hits = bravo.get("results", bravo.get("hits", []))
         if bravo_hits:
             symbols = [h.get("symbol", "") for h in bravo_hits[:5]]

@@ -517,12 +517,28 @@ class PortfolioManager:
         return total_pl, pct
 
     def _total_pl(self, base: str = "CAD") -> tuple[float, float]:
-        """Return (total_pl, total_pl_pct) across all positions."""
+        """Return (total_pl, total_pl_pct) across all positions.
+
+        Audit 2026-05-22 P0 fix: cost_basis was missing on adapter-returned
+        positions, falling back to 0 → divide-by-zero → pct always 0.0
+        despite total_pl having real value. Now derives cost_basis from
+        avg_cost * qty * multiplier (defaulting multiplier=100 for options).
+        """
         total_pl = 0.0
         total_cost = 0.0
         for pos in self._positions:
             upl = pos.get("unrealized_pl", 0.0)
             cost = pos.get("cost_basis", 0.0)
+            # Fallback: derive cost_basis if adapter didn't set it.
+            if not cost or cost <= 0:
+                qty = pos.get("quantity", 0.0) or 0.0
+                avg_cost = pos.get("avg_cost", 0.0) or 0.0
+                multiplier = pos.get("multiplier")
+                if multiplier is None:
+                    # Default ×100 for options, ×1 for everything else
+                    asset_class = (pos.get("asset_class") or "").lower()
+                    multiplier = 100 if asset_class == "option" else 1
+                cost = abs(qty) * avg_cost * multiplier
             cur = pos.get("currency", "USD")
             total_pl += self._to_base(upl, cur, base)
             total_cost += self._to_base(cost, cur, base)
@@ -571,18 +587,30 @@ class PortfolioManager:
             mv = self._to_base(pos.get("market_value", 0.0), pos.get("currency", "USD"), base)
             _pos_by_acct[aid] = _pos_by_acct.get(aid, 0.0) + mv
 
+        # Audit 2026-05-22 P0 fix: Moomoo's net_liquidation already includes
+        # position market value (total_assets from SDK). SnapTrade's
+        # net_liquidation is cash-only and needs positions added back.
+        # Previous code added positions to BOTH unconditionally → Moomoo
+        # accounts showed 2.7× over-counted balances in iOS account switcher.
         account_summaries = []
         for acct in self._accounts:
             aid = acct.get("account_id", "")
-            cash_val = self._to_base(acct.get("net_liquidation", 0.0), acct.get("currency", "USD"), base)
+            broker = (acct.get("broker") or "").upper()
+            net_liq = self._to_base(acct.get("net_liquidation", 0.0), acct.get("currency", "USD"), base)
             pos_val = _pos_by_acct.get(aid, 0.0)
-            acct_value = cash_val + pos_val
+            if broker == "MOOMOO":
+                # net_liq IS total assets; positions already counted
+                acct_value = net_liq
+            else:
+                # SnapTrade / IBKR: net_liq is cash-equivalent; add positions
+                acct_value = net_liq + pos_val
             account_summaries.append({
                 "account_id": acct.get("account_id", ""),
                 "broker": acct.get("broker", ""),
                 "label": acct.get("name", ""),
                 "type": acct.get("account_type", ""),
                 "value": round(acct_value, 2),
+                "positions_count": len([p for p in self._positions if p.get("account_id") == aid]),
                 "currency": acct.get("currency", "USD"),
             })
 
