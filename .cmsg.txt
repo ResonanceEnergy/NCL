@@ -1,59 +1,16 @@
-Memory batch 2: iOS tab + authority tiers + budget telemetry + async writer (Sonnet)
+Intel→Memory bridge: pin endpoint accepts JSON body + promote-if-missing
 
-iOS Memory Tab (new):
-- Sources/Views/Memory/MemoryView.swift — root with 4 sub-tabs (TIMELINE/GRAPH/SEARCH/PINNED)
-- Sources/Views/Memory/MemoryTimelineView.swift — grouped-by-day chronological list
-- Sources/Views/Memory/MemorySearchView.swift — Smart (fused) + Keyword modes, source filters
-- Sources/Views/Memory/MemoryPinnedView.swift — Pinned + current working context
-- Sources/Views/Memory/MemoryDetailView.swift — full content + pin/council-this/delete actions
-- Sources/Models/MemoryModels.swift — MemoryUnit/MemoryStats/WorkingContextItem
-- Sources/Services/MemoryAPI.swift — wraps all /memory/* endpoints
-- ContentView.swift +1 tab (Memory) between Intel and Calendar; 7 tabs total
-- KnowledgeGraphView (1700 lines, was orphaned) now reachable via GRAPH sub-tab
+POST/DELETE /memory/working-context/pin now accept an optional JSON body
+in addition to the legacy item_id query param. On POST, if the referenced
+item_id isn't already in working context (typical for an Awarebot signal
+that only lives in tier buffers), the endpoint falls back to
+promote_item(content, source, tags, item_id) which inserts the item with
+pinned=True. Pinned items survive day rollover via the existing
+_carry_forward_pinned() path. DELETE is idempotent.
 
-Authority/provenance tiers (runtime/memory/authority.py):
-- 7 tiers: NATRIX(100) > COUNCIL(80) > BRAIN(60) > CALENDAR(50) > LLM_SINGLE(40) > SCANNER(20) > RAW(10)
-- Source -> tier map for every writer in the system
-- Hooked into MemoryStore.create_unit() — every new unit auto-tagged
-- Salience formula: (0.25*recency + 0.35*importance + 0.25*relevance) * authority_weight + 0.15 * authority_weight
-- FusedRetriever rank reweighting — NATRIX claims beat scanner noise
-- GET /memory/by-authority + POST /memory/backfill-authority endpoints
-- 12 tests / 37 parametrized cases passing
-- Live backfill: 9711 units tagged (3 NATRIX, 441 COUNCIL, 178 BRAIN, 9089 SCANNER)
+This unblocks the iOS Intel→promote-to-memory feature shipped today.
+Signal item_ids use the existing convention: signal:<signal_id>.
 
-Memory budget telemetry (runtime/memory/budget_tracker.py):
-- Per-tier daily token caps: chat_injection 500K, council_context 300K, etc
-- Platform cap 2M tokens/day
-- record() async-safe in-memory + JSONL ledger
-- check_budget() sub-ms gate before LLM/context spend
-- Hooks in routes.py /chat, working_context, fusion reranker, procedural, narrative
-- 3 new endpoints: /memory/budget, /memory/budget/history, /memory/budget/check
-- New scheduler loop ncl-memory-budget (15m rollup + ntfy on cap)
-- 8 tests passing
-
-Async write queue (runtime/memory/async_writer.py):
-- asyncio.Queue with 4 background drainers
-- Awarebot _store_to_memory now enqueues instead of awaiting create_unit
-- LLM enrichment (importance scoring + entity extraction) happens in drainer,
-  not on the hot path. EXPLICITLY SONNET 4.6, NOT Haiku (per directive)
-- Backpressure: drop oldest at queue cap 5000; DLQ ring of 500 for failures
-- importance_scorer + entity_extractor now accept model= kwarg (default Sonnet)
-- 3 new endpoints: /memory/async-writer/{stats,dlq,retry-dlq}
-- Supervisor-wrapped task that keeps the writer alive between drains
-- 10 tests passing
-
-Bug fixes during integration:
-- runtime/health/rollup.py — was incorrectly calling get_stats() expecting dict
-  (it's a coroutine in some implementations); now closes coroutine cleanly
-- ncl-async-writer task wrapper: .start() returns immediately so supervisor
-  thought it died; now wrapped in long-running supervisor loop that keeps
-  drainers alive + ticks stats every 30s
-
-Live verification:
-- 31 scheduler loops registered (was 29)
-- ncl-async-writer ON, ticking, queue_size + drained_total in stats
-- ncl-memory-budget ON, last_run 05:38:52
-- ncl-conflict-arb fired: 199 conflicts found, 86 linked, 5 queued for council
-  on first cycle after restart (Loop 5 from previous batch — now working
-  much harder with authority-weighted units)
-- Brain restarted clean, all 4 iOS devices built + installed
+Also: both CLAUDE.md files refreshed for 2026-05-22 — scheduler table
+rewritten 17→31 loops, memory subsystem section documents new modules,
+new endpoints table updated, fixes-shipped list current.

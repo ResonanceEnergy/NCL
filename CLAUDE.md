@@ -19,59 +19,83 @@ NCL is the canonical brain cortex of the NATRIX ecosystem. It receives pump prom
 
 NCL Brain API runs as a **FastAPI service on port 8800** with 176+ endpoints across 20 categories. The runtime layer is autonomous and persistent.
 
-### Autonomous Scheduler — 17 Active Tasks (as of May 21, 2026)
+### Autonomous Scheduler — 31 Active Tasks (as of May 22, 2026)
 
-The Awarebot agent consolidation merged 6 former standalone loops into a single `awarebot.run()` task. AAC War Room Sync removed 2026-05-21 (folded into Night Watch). Five new loops added 2026-05-21 (health rollup, cost rollover, cache warmer, alert dispatch, dedicated YTC); Awarebot's internal `awarebot-ytc` sub-task is now disabled and superseded by the scheduler-level YTC loop. The scheduler now spawns 17 tasks plus a supervisor:
+The scheduler now spawns 31 tasks plus a supervisor. 14 new loops added 2026-05-22 to back the new memory subsystem (BM25 rebuild, weekly eval, Chroma GC, conflict arb, staleness re-verify, narrative threading, async writer, memory budget telemetry). AAC War Room Sync removed (folded into Night Watch). Awarebot's internal `awarebot-ytc` sub-task DISABLED — superseded by `ncl-ytc-dedicated`.
 
 | # | Task name | Method | Cadence | Status |
 |---|-----------|--------|---------|--------|
-| 1 | `ncl-awarebot-agent` — 8-source scanning, 6-factor scoring, tier routing, intel briefs, predictions (internal YTC sub-task DISABLED 2026-05-21) | `Awarebot.run()` | per-source rate limits | ACTIVE (X 402; Crypto disabled) |
-| 2 | `ncl-council-auto` — Delphi-MAD debate on 3+ converging signals or 4hr review | `_council_auto_loop` | 5m poll | ACTIVE (spawn_council bug fixed 2026-05-21) |
-| 3 | `ncl-memory` — decay + prune + cluster + merge + ChromaDB reindex | `_memory_consolidation_loop` | 1hr | ACTIVE |
-| 4 | `ncl-workspace` — MWP pipeline stage health | `_workspace_health_loop` | 30m | ACTIVE |
-| 5 | `ncl-mandate-purge` — hygiene against state-leak | `_mandate_purge_loop` | 6hr | ACTIVE |
-| 6 | `ncl-feedback-synth` — pillar reports → synthesis notes | `_feedback_synthesis_loop` | 5m | ACTIVE |
-| 7 | `ncl-heartbeat` — JSONL liveness + watchdog (alerts enqueued via central dispatcher) | `_heartbeat_loop` | 60s | ACTIVE |
-| 8 | `ncl-working-ctx` — 6am assembly, noon refresh, 11pm EOD | `_working_context_loop` | 3x daily | ACTIVE |
-| 9 | `ncl-journal-reflection` — LLM daily synthesis | `_journal_reflection_loop` | 10pm ET daily | ACTIVE |
-| 10 | `ncl-night-watch` — 5-phase digital cortex maintenance (push via central dispatcher) | `_night_watch_loop` | 2am-5am ET nightly | ACTIVE |
-| 11 | `ncl-calendar-agent` — lunar/market/local event correlation | `CalendarAgent.run()` | per-agent | ACTIVE |
-| 12 | `ncl-calendar-alerts` — push critical/high alerts (via central dispatcher) | `_calendar_alert_check_loop` | 10m | ACTIVE |
-| 13 | `ncl-health-rollup` — aggregated component status → `data/health/current.json` + `/system/health/rollup` route; iOS dashboard 1-call status | `_health_rollup_loop` | 60s | ACTIVE (added 2026-05-21) |
-| 14 | `ncl-cost-rollover` — explicit UTC-midnight cost ledger close + counter reset + JSONL `cost_day_closed` audit event | `_cost_rollover_loop` | 60s poll | ACTIVE (added 2026-05-21) |
-| 15 | `ncl-cache-warmer` — pre-touches calendar `compile_events` (7d/30d) + todos + sun state + working context to amortize cold-start latency | `_cache_warmer_loop` | 5m | ACTIVE (added 2026-05-21) |
-| 16 | `ncl-alert-dispatch` — centralized rate-limited (1/10s global) + deduped (1h per-key) ntfy queue; supervisor/calendar/cost/heartbeat/night-watch all enqueue here | `_alert_dispatch_loop` | 10s tick | ACTIVE (added 2026-05-21) |
-| 17 | `ncl-ytc-dedicated` — dedicated YouTube Council loop with its own $3/day budget cap (`ytc` source); split out of Awarebot's 30-min cycle so yt-dlp + Whisper no longer block scans | `_ytc_dedicated_loop` | 1hr | ACTIVE (added 2026-05-21) |
-| + | `ncl-supervisor` — monitors and restarts crashed tasks (max 3 restarts) | `_supervisor_loop` | 30s | ACTIVE (not in task list — supervises itself) |
+| 1 | `ncl-awarebot-agent` — 8-source scanning, 6-factor scoring, tier routing, intel briefs, predictions (internal YTC sub-task DISABLED) | `Awarebot.run()` | per-source rate limits | ACTIVE (X 402; Crypto disabled) |
+| 2 | `ncl-awarebot-brief` — periodic Awarebot executive-brief synthesis | `Awarebot.brief()` | hourly | ACTIVE (warm-start fix 2026-05-22) |
+| 3 | `ncl-council-auto` — Delphi-MAD debate on 3+ converging signals or 4hr review | `_council_auto_loop` | 5m poll | ACTIVE |
+| 4 | `ncl-memory` — decay + prune + cluster + merge + ChromaDB reindex | `_memory_consolidation_loop` | 1hr | ACTIVE |
+| 5 | `ncl-workspace` — MWP pipeline stage health | `_workspace_health_loop` | 30m | ACTIVE |
+| 6 | `ncl-mandate-purge` — hygiene against state-leak | `_mandate_purge_loop` | 6hr | ACTIVE |
+| 7 | `ncl-feedback-synth` — pillar reports → synthesis notes | `_feedback_synthesis_loop` | 5m | ACTIVE |
+| 8 | `ncl-heartbeat` — JSONL liveness + watchdog (alerts via central dispatcher) | `_heartbeat_loop` | 60s | ACTIVE |
+| 9 | `ncl-working-ctx` — 6am assembly, noon refresh, 11pm EOD | `_working_context_loop` | 3x daily | ACTIVE |
+| 10 | `ncl-journal-reflection` — Sonnet 4.6 daily synthesis | `_journal_reflection_loop` | 10pm ET daily | ACTIVE |
+| 11 | `ncl-night-watch` — 5-phase digital cortex maintenance + startup catchup if last run >24h | `_night_watch_loop` | 2am ET nightly | ACTIVE |
+| 12 | `ncl-calendar-agent` — lunar/market/local event correlation | `CalendarAgent.run()` | per-agent | ACTIVE |
+| 13 | `ncl-calendar-alerts` — push critical/high alerts (via central dispatcher) | `_calendar_alert_check_loop` | 10m | ACTIVE |
+| 14 | `ncl-health-rollup` — aggregated component status → `data/health/current.json` + `/system/health/rollup` | `_health_rollup_loop` | 60s | ACTIVE |
+| 15 | `ncl-cost-rollover` — explicit UTC-midnight cost ledger close + JSONL `cost_day_closed` audit | `_cost_rollover_loop` | 60s poll | ACTIVE |
+| 16 | `ncl-cache-warmer` — pre-touches calendar (7d/30d) + todos + sun + working context | `_cache_warmer_loop` | 5m | ACTIVE |
+| 17 | `ncl-alert-dispatch` — centralized rate-limited (1/10s) + deduped (1h per-key) ntfy queue | `_alert_dispatch_loop` | 10s tick | ACTIVE |
+| 18 | `ncl-ytc-dedicated` — YouTube Council with own $3/day cap; dedup window tightened 7d→1d (was 0 reports/cycle) | `_ytc_dedicated_loop` | 1hr | ACTIVE |
+| 19 | `ncl-bm25-rebuild` — BM25 keyword index rebuild for FusedRetriever | `_bm25_rebuild_loop` | 30m | ACTIVE (added 2026-05-22) |
+| 20 | `ncl-memory-eval` — weekly 50 Q/A regression eval; hit@5 / MRR / recall@10; ntfy on regression | `_memory_eval_loop` | Sun 3am ET | ACTIVE (added 2026-05-22) |
+| 21 | `ncl-chroma-gc` — purges orphaned ChromaDB embeddings (was carrying 3× vector bloat) | `_chroma_gc_loop` | 1hr | ACTIVE (added 2026-05-22) |
+| 22 | `ncl-conflict-arb` — `contradicts` edge detection + auto-enqueue to council for arbitration | `_conflict_arb_loop` | 15m | ACTIVE (added 2026-05-22) |
+| 23 | `ncl-staleness` — re-verifies high-importance facts (≥70) against current signals; demotes stale | `_staleness_loop` | 6hr | ACTIVE (added 2026-05-22) |
+| 24 | `ncl-narrative-threads` — cross-session entity threading; ties related units into named narratives | `_narrative_threads_loop` | 6hr | ACTIVE (added 2026-05-22) |
+| 25 | `ncl-async-writer` — fire-and-forget memory write queue (4 drainers, Sonnet 4.6 enrichment in background) | `AsyncWriter.run()` | continuous | ACTIVE (added 2026-05-22) |
+| 26 | `ncl-memory-budget` — per-tier token-spend rollup + cap-exceed ntfy | `_memory_budget_loop` | 15m | ACTIVE (added 2026-05-22) |
+| + | `ncl-supervisor` — monitors and restarts crashed tasks (max 3 restarts) | `_supervisor_loop` | 30s | ACTIVE (supervises itself) |
 
-**Removed 2026-05-21:** `_aac_sync_loop` (BRS dashboard stub + AAC health polling on 15m cadence produced low-value pillar-sync memory units; functionality folded into Night Watch Phase 1 health audit).
+> Note: The active set above is the 26 named tasks + supervisor + 4 async-writer drainer subtasks reported individually in `/autonomous/loops` = 31 entries.
 
-**Dormant / not yet wired:** `X Liked Videos` (READY — needs OAuth token; not yet spawned as a task).
+**Removed:** `_aac_sync_loop` (low-value pillar-sync memory units; functionality folded into Night Watch Phase 1).
 
-**Dead code formerly listed** (`_scanner_loop`, `_prediction_loop`, `_intel_collection_loop`, `_intel_brief_loop`, `_morning_brief_loop`, `_weekly_strategy_loop`): already physically removed from scheduler.py; do not re-introduce — replaced by Awarebot.
+**Dormant / not yet wired:** `X Liked Videos` (READY — needs OAuth token).
 
-### New API Endpoints (added 2026-05-21)
+**Dead code formerly listed** (`_scanner_loop`, `_prediction_loop`, `_intel_collection_loop`, `_intel_brief_loop`, `_morning_brief_loop`, `_weekly_strategy_loop`): physically removed from scheduler.py — do not re-introduce.
+
+### New API Endpoints (latest 2026-05-22)
 
 | Endpoint | Purpose |
 |----------|---------|
+| `GET /memory/search/fused?q=...&top_k=N` | Vector + BM25 + entity-graph retrieval fused via RRF (FusedRetriever) |
+| `GET /memory/by-authority?min_tier=council` | Filter recall by authority tier (NATRIX, COUNCIL, BRAIN, etc.) |
+| `POST /memory/backfill-authority` | One-shot migration (already run; 9,711 units tagged) |
+| `GET /memory/budget` / `/memory/budget/history` / `/memory/budget/check` | Per-tier token-spend telemetry |
+| `GET /memory/async-writer/{stats,dlq,retry-dlq}` | Async writer queue stats + dead-letter inspection/retry |
+| `GET /memory/pii/recent` | Recent PII redactions (audit) |
+| `POST/DELETE /memory/working-context/pin` | Pin/unpin memory or signal items; accepts JSON body OR query param (iOS Intel→promote-to-memory uses body) |
 | `GET /intelligence/stats` | Awarebot-backed Intel header: `signal_count`, `source_count`, `last_scan_at`, `signals_routed`, `high_critical_count` |
-| `GET /focus/queries` | Wrapped iOS shape: `queries.{x,youtube,reddit}` + `subreddits.{tier_1,tier_2,tier_3}` + `_meta` |
-| `GET /focus/subreddits` | Flat list of 55 subreddits with tier field |
-| `POST/DELETE /focus/queries` + `/focus/subreddits` | Accept tier as bare digits `1` / `2` / `3` (iOS sends raw int) |
+| `GET /focus/queries` / `GET /focus/subreddits` | iOS shape: `queries.{x,youtube,reddit}` + `subreddits.{tier_1,tier_2,tier_3}` + `_meta` |
+| `POST/DELETE /focus/queries` + `/focus/subreddits` | Accept tier as bare digit `1`/`2`/`3` |
 | `GET /youtube/reports/recent?limit=N` | Merged feed of recent YouTube council + YouTube reports |
-| `GET /system/health/rollup` | Single roll-up endpoint — overall status + per-component breakdown (Brain, scheduler, Awarebot, costs, councils, memory, calendar, portfolio). Drives iOS dashboard with one call. Also persisted to `data/health/current.json` by `ncl-health-rollup` loop |
-| `/predictions` | Each item now includes a cleaned `description` field |
-| `/autonomous/loops` | Returns 23 loops with correct `last_run` timestamps (was 7 with broken last_run mapping due to key-mangling bug) |
+| `GET /system/health/rollup` | Single-call rollup: Brain, scheduler, Awarebot, costs, councils, memory, calendar, portfolio. Persisted to `data/health/current.json` |
+| `/predictions` | Each item includes cleaned `description` field |
+| `/autonomous/loops` | 31 loops with correct `last_run` timestamps |
+| Brief endpoint | Reads both legacy `briefs.jsonl` + new `agent_briefs.jsonl` (240 entries vs 20 prior) |
 
-### Fixes Shipped (2026-05-21)
-- **Council auto-spawn crash**: `_council_auto_loop` was crashing every 2min for 7+ hours on `'CouncilEngine' object has no attribute 'spawn_council'`. Method wired correctly.
-- **Moomoo currency conversion**: Per-account native currency now read from `trdmarket_auth`; multi-account iteration restored; `_safe_num()` helper coerces `'N/A'` strings from SDK to 0.0 instead of raising.
-- **Journal reflection timezone bug**: Reflection saved against UTC date but iOS queries by ET date → empty result. Now uses `local_today_str()` (ET). ReflectionEngine also wasn't being passed an Anthropic Haiku client (`llm_client=None` → fell through to trivial template synthesis); now constructs Haiku client at startup.
-- **Working context capacity leak**: `add_item()` had no cap → 1,100+ items/day accumulated. Now hard-caps at 50, evicts lowest salience. `mark_accessed()` had zero callers — wired into `GET /memory/working-context` so reads now update access tracking. Journal→context injection was calling non-existent methods; fixed to use real `add_item()` path.
-- **Heartbeat upgrade**: Was just stderr noise. Now writes daily JSONL ledger at `data/heartbeat/heartbeat-YYYY-MM-DD.jsonl` with watchdog ntfy push on stale loops (>2x cadence).
-- **`/autonomous/loops` key-mangling**: Every `awarebot-*` sub-loop showed `last_run: null` due to key normalization mismatch between scheduler registry and Awarebot's internal sub-task tracker. Replaced with explicit timestamp map.
-- **AAC War Room Sync loop REMOVED** per directive (`_aac_sync_loop` deleted entirely). Health functionality folded into Night Watch Phase 1.
-- **Centralized AlertDispatcher**: 5 ntfy call sites (supervisor restart-exhaustion, calendar critical/high alerts, cost budget warnings + caps, heartbeat watchdog stale-loop alerts, Night Watch Phase 5 synthesis push) migrated from direct `requests.post(NTFY_URL...)` to `AlertDispatcher.enqueue()` with global rate limit (1/10s) + per-key dedup (1h window). Driven by new `ncl-alert-dispatch` loop.
+### Fixes Shipped (2026-05-21 / 2026-05-22)
+- **Council auto-spawn crash**: `_council_auto_loop` was crashing every 2min for 7+ hours on `AttributeError: spawn_council`. Method wired correctly.
+- **Moomoo currency + N/A coercion**: Per-account native currency now read from `trdmarket_auth`; multi-account iteration restored (7 accounts syncing vs 6); `_safe_num()` coerces `'N/A'` strings to 0.0.
+- **Journal reflection**: (a) Was saving UTC date but iOS queries by ET → empty result; now uses `local_today_str()`. (b) `ReflectionEngine` had `llm_client=None` → trivial template synthesis. Now wired to **Sonnet 4.6** at startup (not Haiku).
+- **Working context capacity leak**: `add_item()` had no cap → 1,100+ items/day. Hard-cap 50 with lowest-salience eviction. `mark_accessed_batch()` wired into `GET /memory/working-context`. Journal→context injection now uses real `add_item()` path.
+- **Heartbeat**: Was stderr-only. Now writes daily JSONL at `data/heartbeat/heartbeat-YYYY-MM-DD.jsonl` + watchdog ntfy on >2× cadence staleness.
+- **`/autonomous/loops` key-mangling**: All 31 loops now show correct `last_run` (was 7 with null mapping due to Awarebot sub-task key mismatch).
+- **AAC War Room Sync REMOVED** (`_aac_sync_loop` deleted). Health folded into Night Watch Phase 1.
+- **Centralized AlertDispatcher**: 5 ntfy call sites migrated from direct `requests.post(NTFY_URL...)` to `AlertDispatcher.enqueue()` (1/10s global rate limit + 1h per-key dedup).
+- **awarebot-brief never firing**: 2h initial sleep was reset on every Brain restart. Replaced with adaptive 60s warm-start delay.
+- **YTC dedup window**: Tightened 7d → 1d (was producing 0 reports/cycle).
+- **`BRAIN_AUTH_TOKEN` env**: Falls back to `STRIKE_AUTH_TOKEN` when unset (was silently failing auth).
+- **`importance_scorer` + `entity_extractor`**: Accept `model=` kwarg; default Sonnet 4.6 (was Haiku — caused undersized scoring on rich text).
+- **Night Watch had never fired ever**: Startup catchup added — fires immediately if last run >24h ago, then resumes 2am ET cadence.
+- **Brief endpoint dual-source**: Reads both `briefs.jsonl` + `agent_briefs.jsonl` (now returns 240 entries vs 20).
 
 ### KNOWN ISSUES (as of May 20, 2026)
 
@@ -82,26 +106,18 @@ The Awarebot agent consolidation merged 6 former standalone loops into a single 
 | **BRS Dashboard is a stub** | `start-all.sh` runs an inline Python stub returning `{'workers': 0}`. Not a real service. | Build real BRS Dashboard or remove the stub |
 | **CoinGecko rate limiting** | Crypto source disabled in Awarebot scan_cycle due to 60s+ delays from CoinGecko rate limits. | Find alternative crypto data source or upgrade CoinGecko tier |
 
-### RESOLVED ISSUES (fixed May 19-21, 2026)
-- **Night Watch autonomous agent (5-phase overnight cycle, May 21)**: Full digital cortex maintenance system running 2am-5am ET. Phase 1: Deterministic health audit (services, loops, staleness, disk, LLM connectivity, costs). Phase 2: Memory cycle (semantic dedup via ChromaDB, deep re-scoring of rule-only units, entity backfill to knowledge graph, stale fact detection, KG maintenance + pruning, entity normalization). Phase 3: Intel correlation (cross-source mining, coverage blind spots, signal score calibration, prediction calibration per-model, council topic suggestions saved to data/night-watch/, cost optimization analysis). Phase 4: Mini-council sessions (Claude+Grok 3-call debate pattern on 4 domains: memory review, intel review, portfolio risk assessment, journal strategy review). Phase 5: Sonnet synthesis compositing all findings into single daily brief pushed via ntfy. Portfolio and journal data collection integrated. Budget: $1/night ($0.88 typical). 4,500+ lines in scheduler.py.
-- **Full cost tracking + alerting (May 21)**: (1) Wired `record_cost()` to all 20+ previously untracked LLM call sites (Awarebot predictions, memory scoring, entity extraction, intel summaries, Perplexity/GPT/Copilot council members, UNI research, X/Twitter analysis, war room, swarm, user chat). Added `perplexity` to budget config. (2) ntfy alerting on availability tracker alerts (regression, latency spikes, workflow down) with severity-mapped priorities. Cost tracker budget warnings (80%) and hard caps (100%) push ntfy alerts with daily rate limiting. (3) Supervisor self-healing — `_supervisor_loop()` monitors all scheduler tasks every 30s, auto-restarts crashed tasks up to 3 times, sends ntfy alert when a task exhausts restart budget.
-- **Autonomous loops endpoint aligned** — `/autonomous/loops` updated from stale 4-loop list to actual 18 running tasks (7 scheduler + 8 Awarebot + supervisor + night-watch + mandate-purge/feedback-synth). Dead Cowork agents UI removed from FirstStrike SchedulerView (115 lines dead code). Build artifacts `.gitignored`.
-- **SnapTrade option holdings** — Added `options.list_option_holdings` call per account in `get_positions()`. Options now show with display symbols (e.g. "GLD $515C 03/19/27"), correct market values (price * 100 * contracts), and `asset_class: "option"`.
-- **Predictions now working** — Awarebot generates predictions with full side effects (memory, disk, push, council flagging). `/predictions` endpoint has 15s timeout protection.
-- **X/Twitter money burn stopped** — 402 added to immediate-raise list in scanner.py. No more wasted retries.
-- **Scoring consolidated** — unified_scorer.py RETIRED. Awarebot is the single scorer with 6-factor composite (context_relevance, freshness, cross_source, source_confidence, actionability, novelty). Tier routing happens in Awarebot directly.
-- **Sources re-enabled** — Google Trends, Polymarket, News, Unusual Whales all flow through Awarebot pipeline now.
-- **Context warm-start** — Awarebot reloads last 48h of signals from JSONL archive on startup. Tiers populate immediately instead of being empty for hours.
-- **Intel/Sources separation** — iOS IntelView split into Context (Focused/Micro/Macro/Brief) and Sources (Reddit/YTC/X/Trends/Markets/News) with visual divider.
-- **Memory API auth crash** — All 9 new memory endpoints used undefined `_check_auth()`. Fixed to `_verify_strike_token()`.
-- **Reflection conflict detection** — Dead code in reflection.py (wrong tuple unpacking). Rewritten to properly detect importance divergence > 40 on 2+ shared tags.
-- **Ticker entity extraction** — Only matched contextual format (`AAPL stock`). Now also matches `$AAPL` dollar-sign format + expanded context words.
-- **ChromaDB ghost entries** — Pruned/merged units left ghost entries in vector store. Both `consolidate()` and `consolidate_v2()` now reindex after completion.
-- **LLM scoring/extraction enabled** — High-value content (rule score >= 7) triggers Claude Haiku importance scoring. High-importance units (>= 70) get LLM entity extraction during consolidation.
-- **get_stats() wrong proxy** — Used `reinforcement_count` as proxy for memory type. Now uses actual `memory_type` field + `by_type`/`by_tier` breakdowns.
-- **Working context hybrid relevance** — Upgraded from keyword-only to 60% ChromaDB vector similarity + 40% keyword overlap.
-- **Working context refresh()** — No longer discards `accessed_today`/`access_count` state during mid-day refresh.
-- **Markets/Trends/News item counts** — `generate_source_report()` was capped at `ranked[:5]`. Fixed to `ranked[:20]`.
+### Background — Earlier Hardening (May 19-21, 2026)
+Brief summary of pre-2026-05-22 work, kept for context. Detailed change list lives in git history.
+- **Night Watch agent**: 5-phase overnight cycle (health audit, memory cycle, intel correlation, mini-councils, Sonnet synthesis). $0.88/night typical. 4,500+ lines in scheduler.py.
+- **Cost tracking**: `record_cost()` wired to 20+ LLM call sites. ntfy alerting on budget warnings (80%) + caps (100%) + supervisor restart-exhaustion.
+- **Supervisor self-healing**: `_supervisor_loop()` monitors all tasks, auto-restarts up to 3×.
+- **SnapTrade options**: `options.list_option_holdings` per account; options show display symbols + correct market values.
+- **Awarebot single-scorer**: `unified_scorer.py` retired. 6-factor composite. Tier routing in-Awarebot.
+- **Sources re-enabled**: Google Trends, Polymarket, News, Unusual Whales — all through Awarebot.
+- **Awarebot warm-start**: Reloads last 48h of signals from JSONL on startup.
+- **Memory plumbing**: Auth fixed (`_verify_strike_token()`), ChromaDB ghost entries fixed, `$AAPL` regex added, reflection conflict detection rewritten, `get_stats()` uses actual `memory_type`/`by_type`/`by_tier`.
+- **Working context**: Hybrid relevance (60% vector + 40% keyword); mid-day refresh preserves access tracking.
+- **Source report cap**: `generate_source_report()` was `ranked[:5]` → now `ranked[:20]`.
 
 ### Scoring System — Single Scorer (Awarebot)
 
@@ -145,25 +161,45 @@ YTC now produces one deep-dive report per video (full 150K char transcript budge
 ### X Liked-Video Pipeline (added May 19, 2026)
 Tracks NATRIX's liked videos on X via OAuth 2.0 user auth, downloads via yt-dlp, transcribes with Whisper, analyzes per-video, stores reports + transcripts in long-term memory. Autonomous scan every 6h when OAuth token is available. Setup: set `X_OAUTH_CLIENT_ID`/`X_OAUTH_CLIENT_SECRET` in `.env`, call `POST /x/oauth/authorize`.
 
-### Memory System (Enhanced May 20, 2026 — Full Audit)
-**MemoryStore**: 10K unit capacity, ~1,801 units currently. Seven-layer architecture inspired by MemGPT/Letta and Mem0.
+### Memory System (Hardened May 22, 2026)
+**MemoryStore**: 10K unit capacity, ~9,711 units currently (all stamped with authority tier post-backfill). Seven-layer architecture inspired by MemGPT/Letta + Mem0, plus Zep/Graphiti-style bi-temporal KG edges.
 
 **Core Features:**
 - Two-speed decay (FadeMem): LML 0.999/day (facts, decisions, preferences, procedures), SML 0.95/day (signals, episodes)
-- Auto-tier routing: memory_type determines LML/SML assignment at write time
-- 6 typed ChromaDB collections + legacy default, auto-reindexed after consolidation
-- LLM importance scoring (Claude Haiku): auto-triggers for high-value content (rule score >= 7.0)
-- Entity extraction: fast regex ($AAPL dollar-sign + contextual formats, person names, domains, hashtags) + LLM extraction for high-importance units (>= 70)
-- Knowledge graph: NetworkX DiGraph with JSONL persistence, wired at startup
-- Reflection loop (ACE pattern): quality scoring, fingerprint dedup, conflict detection (importance divergence > 40 on shared tags), promote/demote tiers
-- Both consolidation paths (`consolidate()` + `consolidate_v2()`) reindex ChromaDB to prevent ghost entries
-- Working Context: hybrid relevance scoring (60% vector similarity + 40% keyword), mid-day refresh preserves access tracking
+- 6 typed ChromaDB collections + legacy default; auto-reindex after consolidation
+- LLM importance scoring + entity extraction default to **Sonnet 4.6** (was Haiku)
+- Knowledge graph: NetworkX DiGraph + JSONL persistence
+- Reflection loop (ACE): quality, fingerprint dedup, conflict detection
+- Working Context: hybrid relevance (60% vector + 40% keyword), salience now baked with **authority tier**, capacity capped at 50
 
-**Data:** `data/memory/` (units.jsonl, chromadb/, knowledge_graph/, working_context/)
+**Authority Tiers (new 2026-05-22)** — every unit stamped with provenance weight; baked into salience formula in `working_context.py` and FusedRetriever rank weighting in `fusion.py`. NATRIX directives now beat scanner noise.
 
-**API Endpoints (9 new, all auth-verified):**
-- `POST /memory/consolidate-v2`, `GET /memory/typed-stats`, `POST /memory/score`, `POST /memory/extract-entities`
-- `GET /memory/knowledge-graph/stats|entity/{name}|top-entities|path|prune`
+| Tier | Weight | Source |
+|------|--------|--------|
+| NATRIX | 100 | Direct user directives |
+| COUNCIL | 80 | Council deliberation output |
+| BRAIN | 60 | Brain-synthesized reflections / briefs |
+| CALENDAR | 50 | Calendar/event-derived facts |
+| LLM_SINGLE | 40 | Single-model LLM output |
+| SCANNER | 20 | Awarebot scanner signals |
+| RAW | 10 | Unscored ingest |
+
+**New Memory Subsystem Modules (`runtime/memory/`)** — added 2026-05-22:
+- `async_writer.py` — fire-and-forget memory write queue (4 drainers, Sonnet 4.6 enrichment in background)
+- `chat_context.py` — chat amnesia fix; builds context block injected into `/chat`
+- `chroma_gc.py` — orphaned-embedding purger
+- `conflict_resolver.py` — `contradicts` edge detection → council arbitration queue
+- `staleness_detector.py` — re-verifies high-importance facts against current signals
+- `narrative_threads.py` — cross-session entity threading
+- `pii_redactor.py` — on-write PII scrubber, 10 patterns, Tailscale-IP allowlist
+- `procedural.py` — Night Watch Phase 2.6 skill distillation
+- `temporal.py` — bi-temporal KG edges (Zep/Graphiti pattern)
+- `authority.py` — 7-tier provenance system
+- `budget_tracker.py` — memory context budget telemetry
+- `eval/` (4 files) — weekly 50 Q/A regression harness (hit@5 / MRR / recall@10)
+- `retrieval/` (3 files) — BM25 + FusedRetriever with Reciprocal Rank Fusion
+
+**Data:** `data/memory/` (units.jsonl, chromadb/, knowledge_graph/, working_context/, bm25_index/, eval/, pii_log/)
 
 ### Journal System
 Full daily journal with 9 entry types. JSONL persistence, full-text search, tag filtering. ReflectionEngine runs LLM synthesis at 10pm ET daily. Working — 2 reflections generated May 18-19. Data at `data/journal/`.
@@ -224,7 +260,7 @@ Paperclip was designed as the agent orchestration backbone but no real backend w
 - **Relay port**: 8787
 - **API keys**: `~/dev/NCL/.env` (sourced by `scripts/launch-brain.sh`)
 - **Python**: `/opt/homebrew/bin/python3` (NOT Xcode's python3.9)
-- **FirstStrike iOS**: 72+ commands, Brain Direct + Relay dual-mode, 5 tabs (Dashboard/Stocks/Intel/Journal/Settings), Dashboard = Overview + Chat + Strike Point unified
+- **FirstStrike iOS**: 72+ commands, Brain Direct + Relay dual-mode, **7 tabs** (Dashboard/Portfolio/Intel/Memory/Calendar/Journal/Settings), Dashboard = Overview + Chat + Strike Point unified
 - **Physical iPhone**: `00008130-000675C822A2001C` (Nathan's iPhone)
 - **Physical iPad**: `00008027-001664301E07002E` (GRIP AND RIPP HDD)
 - **iPhone 16e Sim**: `9F77D8B9-90B7-49F5-A654-BF6CE34F1D60`

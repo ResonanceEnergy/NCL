@@ -5430,32 +5430,80 @@ async def assemble_working_context(
 
 @app.post("/memory/working-context/pin")
 async def pin_working_context_item(
-    item_id: str,
+    item_id: str | None = None,
+    body: dict | None = Body(default=None),
     authorization: str = Header(default=""),
 ) -> dict:
-    """Pin an item to keep it in working context across days."""
+    """Pin an item to keep it in working context across days.
+
+    Accepts either:
+      - Query param ``item_id`` (legacy) — pins an existing context item.
+      - JSON body with at minimum ``item_id`` or a signal payload
+        (``content``/``title`` + optional ``source``/``tags``).
+
+    If the referenced item is not already in the current working context
+    (typical for an Intel-tab signal that lives only in Awarebot's tier
+    buffers), this endpoint promotes the signal into the context with
+    ``pinned=True`` so it survives day rollover via ``_carry_forward_pinned``.
+    """
     _verify_strike_token(authorization)
     if not _autonomous or not getattr(_autonomous, "_working_context", None):
         raise HTTPException(status_code=503, detail="Working context not initialized")
-    success = await _autonomous._working_context.pin_item(item_id)
-    if not success:
-        raise HTTPException(status_code=404, detail=f"Item not found: {item_id}")
-    return {"status": "pinned", "item_id": item_id}
+    wc = _autonomous._working_context
+
+    # Merge body fields over query param (body wins if both provided)
+    payload = dict(body) if isinstance(body, dict) else {}
+    target_id = (payload.get("item_id") or item_id or "").strip()
+
+    # Path 1: item already present in working context → flip pin flag
+    if target_id:
+        if await wc.pin_item(target_id):
+            return {"status": "pinned", "item_id": target_id, "promoted": False}
+
+    # Path 2: signal not yet in context → promote it (pinned=True by default)
+    content = (payload.get("content") or payload.get("title") or "").strip()
+    if not content:
+        # No body to fall back on: surface the not-found from Path 1
+        raise HTTPException(
+            status_code=404,
+            detail=f"Item not found: {target_id or '(no item_id)'}",
+        )
+
+    source = payload.get("source") or "intel-signal"
+    tags = payload.get("tags") or []
+    # Use the caller-provided id (e.g. "signal:<signal_id>") so subsequent
+    # pin-state lookups and unpin calls can address the same item.
+    promote_id = target_id or None
+    item = await wc.promote_item(
+        content=content, source=source, tags=tags, item_id=promote_id,
+    )
+    return {"status": "pinned", "item_id": item.item_id, "promoted": True}
 
 
 @app.delete("/memory/working-context/pin")
 async def unpin_working_context_item(
-    item_id: str,
+    item_id: str | None = None,
+    body: dict | None = Body(default=None),
     authorization: str = Header(default=""),
 ) -> dict:
-    """Unpin an item from working context."""
+    """Unpin an item from working context.
+
+    Accepts the id via query param ``item_id`` or JSON body ``{"item_id": ...}``.
+    Idempotent: returns 200 with ``status=not_found`` if the id is unknown so
+    iOS doesn't need to track local state perfectly.
+    """
     _verify_strike_token(authorization)
     if not _autonomous or not getattr(_autonomous, "_working_context", None):
         raise HTTPException(status_code=503, detail="Working context not initialized")
-    success = await _autonomous._working_context.unpin_item(item_id)
-    if not success:
-        raise HTTPException(status_code=404, detail=f"Item not found: {item_id}")
-    return {"status": "unpinned", "item_id": item_id}
+    payload = dict(body) if isinstance(body, dict) else {}
+    target_id = (payload.get("item_id") or item_id or "").strip()
+    if not target_id:
+        raise HTTPException(status_code=400, detail="item_id is required")
+    success = await _autonomous._working_context.unpin_item(target_id)
+    return {
+        "status": "unpinned" if success else "not_found",
+        "item_id": target_id,
+    }
 
 
 @app.get("/memory/working-context/history")
