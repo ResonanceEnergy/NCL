@@ -571,6 +571,55 @@ class AutonomousScheduler:
             asyncio.create_task(self._dedup_scan_loop(), name="ncl-dedup-scan")
         )
 
+        # ── Startup migrations (one-shot, idempotent, fire after first heartbeat) ──
+        # These two endpoints (kg-cleanup + retag-authority) used to be manual
+        # POSTs after every config change. They're idempotent — cheap when
+        # nothing's drifted, corrective when it has. Run them on every Brain
+        # start so a config change to authority.py or entity_extractor.py
+        # blacklists immediately retags/cleans without operator intervention.
+        async def _startup_migrations():
+            # Wait 90s so Brain is fully booted (Awarebot warmed, routes registered)
+            await asyncio.sleep(90)
+            if not self._running or EMERGENCY_STOP_EVENT.is_set():
+                return
+            log.info("[STARTUP-MIGRATIONS] Running idempotent post-boot migrations")
+            # Call the endpoint handlers directly via the in-process app — same
+            # path the /memory/kg-cleanup and /memory/retag-authority HTTP
+            # routes use, but without going through the network. Idempotent —
+            # the handlers do nothing if everything's already correctly tagged.
+            try:
+                from ..api import routes as _routes
+                token = os.environ.get("STRIKE_AUTH_TOKEN", "")
+                bearer = f"Bearer {token}" if token else ""
+                # KG cleanup — purge URL/domain noise nodes
+                try:
+                    result = await asyncio.wait_for(
+                        _routes.memory_kg_cleanup(authorization=bearer),
+                        timeout=60,
+                    )
+                    self._stats["last_kg_cleanup_at"] = datetime.now(timezone.utc).isoformat()
+                    self._stats["last_kg_cleanup_result"] = str(result)[:200]
+                    log.info(f"[STARTUP-MIGRATIONS] KG cleanup: {str(result)[:200]}")
+                except Exception as e:
+                    log.warning(f"[STARTUP-MIGRATIONS] KG cleanup skipped: {e}")
+                # Authority retag — re-stamps existing units to match current map
+                try:
+                    result = await asyncio.wait_for(
+                        _routes.memory_retag_authority(authorization=bearer),
+                        timeout=180,
+                    )
+                    self._stats["last_authority_retag_at"] = datetime.now(timezone.utc).isoformat()
+                    self._stats["last_authority_retag_result"] = str(result)[:200]
+                    log.info(f"[STARTUP-MIGRATIONS] Authority retag: {str(result)[:200]}")
+                except Exception as e:
+                    log.warning(f"[STARTUP-MIGRATIONS] Authority retag skipped: {e}")
+            except Exception as e:
+                log.warning(f"[STARTUP-MIGRATIONS] Routes module unavailable: {e}")
+            log.info("[STARTUP-MIGRATIONS] Complete")
+        self._tasks.append(
+            asyncio.create_task(_startup_migrations(), name="ncl-startup-migrations")
+        )
+
         # Attach a done-callback to every task so a silent crash (unobserved
         # task exception) gets logged instead of disappearing.
         def _task_done(task: asyncio.Task) -> None:
