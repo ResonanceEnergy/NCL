@@ -50,9 +50,12 @@ log = logging.getLogger("ncl.councils.runner")
 
 # Brain API for memory store ingestion (localhost when in-process or CLI)
 BRAIN_API = os.getenv("NCL_BRAIN_URL", "http://127.0.0.1:8800")
-BRAIN_AUTH_TOKEN = os.getenv("BRAIN_AUTH_TOKEN", "")
+# Brain API auth token — falls back to STRIKE_AUTH_TOKEN (the canonical name
+# used everywhere else in NCL). Setting either env var works; STRIKE_AUTH_TOKEN
+# is preferred so there's one source of truth for Brain auth.
+BRAIN_AUTH_TOKEN = os.getenv("BRAIN_AUTH_TOKEN") or os.getenv("STRIKE_AUTH_TOKEN", "")
 if not BRAIN_AUTH_TOKEN:
-    log.warning("[council-runner] BRAIN_AUTH_TOKEN not set — Brain API calls will fail. Set in .env")
+    log.warning("[council-runner] Neither BRAIN_AUTH_TOKEN nor STRIKE_AUTH_TOKEN set — Brain API calls will fail. Set in .env")
 
 
 async def _auto_ingest_report(report: CouncilReport) -> None:
@@ -212,13 +215,24 @@ async def _auto_ingest_report(report: CouncilReport) -> None:
         log.warning(f"[AUTO-INGEST] Individual insight storage failed: {e}")
 
 
-def _load_previously_analyzed_video_ids(days: int = 7) -> set[str]:
+def _load_previously_analyzed_video_ids(days: int | None = None) -> set[str]:
     """Load video IDs from recent YTC report JSONs to avoid re-analyzing them.
 
     Scans council-reports/ for YouTube council JSON files from the last N days.
     Only videos analyzed within the `days` window are skipped — older entries
     are allowed to be re-analyzed.
+
+    Default dedup window reduced from 7d -> 1d (2026-05-21). With a small channel
+    list (14 channels) the 7d window exhausted candidates within a day and YTC
+    runs produced "no report" every hour for ~10 hours. Override via the
+    NCL_YTC_DEDUP_DAYS env var.
     """
+    import os
+    if days is None:
+        try:
+            days = int(os.getenv("NCL_YTC_DEDUP_DAYS", "1"))
+        except (TypeError, ValueError):
+            days = 1
     from .shared.report_writer import REPORTS_DIR
     seen: set[str] = set()
     if not REPORTS_DIR.exists():
