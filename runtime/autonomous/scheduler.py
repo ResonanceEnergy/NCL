@@ -525,6 +525,15 @@ class AutonomousScheduler:
         except Exception as e:
             log.warning(f"[SCHEDULER] narrative-threads loop disabled: {e}")
 
+        # Loop 10: sliding-window dedup scan (6h — replaces Night Watch M1)
+        # Previously M1 walked the entire 9.7K-unit store in-line inside the
+        # nightly cycle; the comparator double-counted pairs and timed out at
+        # 30 minutes, blowing the entire Night Watch budget. Now lives in its
+        # own loop with a 500-unit sliding window and a 200-merge cap.
+        self._tasks.append(
+            asyncio.create_task(self._dedup_scan_loop(), name="ncl-dedup-scan")
+        )
+
         # Attach a done-callback to every task so a silent crash (unobserved
         # task exception) gets logged instead of disappearing.
         def _task_done(task: asyncio.Task) -> None:
@@ -578,6 +587,8 @@ class AutonomousScheduler:
                 pass
         if hasattr(self, "_narrative_thread_loop"):
             self._task_factories["ncl-narrative-threads"] = self._narrative_thread_loop
+        # ncl-dedup-scan (replaces inline Night Watch M1)
+        self._task_factories["ncl-dedup-scan"] = self._dedup_scan_loop
         # 2026-05-22 batch 2
         if getattr(self, "_async_writer", None) is not None and hasattr(self, "_async_writer_supervisor"):
             self._task_factories["ncl-async-writer"] = self._async_writer_supervisor
@@ -1420,6 +1431,86 @@ class AutonomousScheduler:
             except Exception as e:
                 log.error("[NIGHT-WATCH] Run cycle crashed: %s", e, exc_info=True)
 
+    # ─── LOOP: Sliding-Window Dedup Scan (6h — replaces Night Watch M1) ─
+
+    async def _dedup_scan_loop(self) -> None:
+        """
+        ncl-dedup-scan — every 6h, run a 500-newest-unit dedup pass and merge
+        semantic duplicates above 0.92 cosine similarity.
+
+        This replaces the in-line M1 step that used to run inside Night Watch's
+        Phase 2 memory cycle. M1 was:
+          (a) scoped to ALL units (9.7K-strong, growing) — not just the
+              change frontier;
+          (b) counting each pair twice (both A→B and B→A queries fired); and
+          (c) timing out at 30min, blowing the full Night Watch budget.
+
+        The new loop runs independently with its own cadence and a per-cycle
+        timeout, so M1 mishap can never wedge Night Watch again. Stats land
+        in ``self._stats["last_dedup_scan"]``, ``dedup_scan_runs``,
+        ``dedup_scan_merged``, ``dedup_scan_merged_24h``.
+        """
+        from ..memory.dedup_scanner import run_dedup_scan
+
+        # Startup grace — let bootstrap complete + the first BM25 build finish
+        await asyncio.sleep(120)
+
+        log.info("[DEDUP-SCAN] Loop started — cadence 6h, window 500 newest units")
+        # 24h rolling counter for the "merged_24h" stat (list of (iso_ts, count))
+        rolling_24h: list[tuple[str, int]] = []
+
+        while self._running and not EMERGENCY_STOP_EVENT.is_set():
+            try:
+                result = await run_dedup_scan(
+                    self.brain,
+                    window_size=500,
+                    max_merges=200,
+                )
+
+                now_iso = datetime.now(timezone.utc).isoformat()
+                merged = int(result.get("merged", 0) or 0)
+                self._stats["last_dedup_scan"] = now_iso
+                self._stats["dedup_scan_runs"] = (
+                    self._stats.get("dedup_scan_runs", 0) + 1
+                )
+                self._stats["dedup_scan_merged"] = (
+                    self._stats.get("dedup_scan_merged", 0) + merged
+                )
+                self._stats["last_dedup_scan_candidates"] = int(
+                    result.get("candidates_checked", 0) or 0
+                )
+                self._stats["last_dedup_scan_dupes_found"] = int(
+                    result.get("dupes_found", 0) or 0
+                )
+                self._stats["last_dedup_scan_duration_s"] = float(
+                    result.get("duration_s", 0.0) or 0.0
+                )
+
+                # Maintain 24h rolling merged total
+                rolling_24h.append((now_iso, merged))
+                cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+                rolling_24h[:] = [
+                    (ts, c) for ts, c in rolling_24h
+                    if datetime.fromisoformat(ts) >= cutoff
+                ]
+                self._stats["last_dedup_scan_merged_24h"] = sum(
+                    c for _, c in rolling_24h
+                )
+
+                try:
+                    if hasattr(self, "_log_autonomous_event"):
+                        await self._log_autonomous_event("dedup_scan", result)
+                except Exception:
+                    pass
+
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.error("[DEDUP-SCAN] cycle error: %s", e, exc_info=True)
+
+            # 6h cadence
+            await asyncio.sleep(21600)
+
     # ─── NIGHT WATCH HELPERS: startup catchup support ───────────────
 
     def _night_watch_last_run_age_hours(self) -> Optional[float]:
@@ -1695,96 +1786,33 @@ class AutonomousScheduler:
         log.info("[NIGHT-WATCH/MEMORY] Starting memory maintenance cycle")
 
         # ══════════════════════════════════════════════════════════════
-        # Task M1: Semantic Duplicate Detection (FREE)
+        # Task M1: Semantic Duplicate Detection — OFFLOADED (2026-05-22)
         # ══════════════════════════════════════════════════════════════
+        # M1's in-line implementation was wedging Night Watch:
+        #   - scoped to ALL units (9.7K-strong) instead of the change frontier
+        #   - counted every pair twice (both A→B and B→A queries fired)
+        #   - last cycle reported 11,521 dupes among 9,710 units (i.e. each
+        #     pair counted 2-3x) and timed out at 30 minutes
+        # Now lives in its own loop: `ncl-dedup-scan` (6h, 500-newest window,
+        # 200-merge cap). We just report the 24h rolling merge count here.
         try:
-            task_t0 = time.monotonic()
-            log.info("[NIGHT-WATCH/MEMORY] Task M1: Semantic duplicate detection")
-
-            units = await memory_store._load_all_units()
-            now_utc = datetime.now(timezone.utc)
-            seven_days_ago = now_utc - timedelta(days=7)
-
-            # Separate recent units (last 7 days) from older units
-            recent_units = [u for u in units if u.created_at >= seven_days_ago]
-            older_units = [u for u in units if u.created_at < seven_days_ago]
-
-            duplicates_found = 0
-            duplicate_examples: list[str] = []
-
-            # Try ChromaDB-based similarity detection first
-            chroma_available = memory_store._init_vector_db()
-
-            if chroma_available and hasattr(memory_store, '_chroma_collections'):
-                # For each recent unit, query its collection for similar units
-                for unit in recent_units:
-                    if time.monotonic() - task_t0 > TASK_TIMEOUT:
-                        log.warning("[NIGHT-WATCH/MEMORY] M1 timeout — aborting")
-                        break
-
-                    mem_type = getattr(unit, 'memory_type', 'episodic')
-                    collection = memory_store._get_collection_for_type(mem_type)
-                    if not collection:
-                        continue
-
-                    try:
-                        results = await asyncio.to_thread(
-                            collection.query,
-                            query_texts=[unit.content[:500]],
-                            n_results=5,
-                        )
-                        if results and results["ids"] and results["ids"][0]:
-                            if results.get("distances") and results["distances"][0]:
-                                for idx, (match_id, distance) in enumerate(
-                                    zip(results["ids"][0], results["distances"][0])
-                                ):
-                                    # ChromaDB cosine distance: 0 = identical, 2 = opposite
-                                    # cosine similarity = 1 - (distance / 2)
-                                    similarity = 1.0 - (distance / 2.0)
-                                    if (
-                                        similarity > 0.92
-                                        and match_id != unit.unit_id
-                                    ):
-                                        duplicates_found += 1
-                                        if len(duplicate_examples) < 5:
-                                            duplicate_examples.append(
-                                                f"{unit.unit_id[:8]}... ~ {match_id[:8]}... "
-                                                f"(sim={similarity:.3f})"
-                                            )
-                    except Exception as e:
-                        log.debug("[NIGHT-WATCH/MEMORY] M1 ChromaDB query error: %s", e)
-                        continue
-            else:
-                # Fallback: fingerprint + content prefix comparison
-                reflector = MemoryReflector()
-                older_fingerprints: dict[str, str] = {}
-                for u in older_units:
-                    fp = reflector._fingerprint(u.content)
-                    older_fingerprints[fp] = u.unit_id
-
-                for unit in recent_units:
-                    if time.monotonic() - task_t0 > TASK_TIMEOUT:
-                        log.warning("[NIGHT-WATCH/MEMORY] M1 timeout — aborting")
-                        break
-                    fp = reflector._fingerprint(unit.content)
-                    if fp in older_fingerprints:
-                        duplicates_found += 1
-                        match_id = older_fingerprints[fp]
-                        if len(duplicate_examples) < 5:
-                            duplicate_examples.append(
-                                f"{unit.unit_id[:8]}... ~ {match_id[:8]}... (fingerprint match)"
-                            )
-
-            report["duplicates_found"] = duplicates_found
+            merged_24h = int(self._stats.get("last_dedup_scan_merged_24h", 0) or 0)
+            last_scan = self._stats.get("last_dedup_scan")
+            last_candidates = int(self._stats.get("last_dedup_scan_candidates", 0) or 0)
+            last_dupes = int(self._stats.get("last_dedup_scan_dupes_found", 0) or 0)
+            report["duplicates_found"] = merged_24h  # backwards-compat key
+            report["dedup_scan_merged_24h"] = merged_24h
+            report["dedup_scan_last_run"] = last_scan
+            report["dedup_scan_last_candidates"] = last_candidates
+            report["dedup_scan_last_dupes"] = last_dupes
             log.info(
-                "[NIGHT-WATCH/MEMORY] Task M1: found %d duplicates among %d recent units "
-                "(checked against %d older units)%s",
-                duplicates_found, len(recent_units), len(older_units),
-                f" — examples: {duplicate_examples[:3]}" if duplicate_examples else "",
+                "[NIGHT-WATCH/MEMORY] Task M1 (offloaded): dedicated ncl-dedup-scan "
+                "loop merged %d units in last 24h (last cycle: %s, candidates=%d, "
+                "pairs=%d)",
+                merged_24h, last_scan or "never", last_candidates, last_dupes,
             )
-
         except Exception as e:
-            log.error("[NIGHT-WATCH/MEMORY] Task M1 failed: %s", e)
+            log.error("[NIGHT-WATCH/MEMORY] Task M1 offload report failed: %s", e)
             report["errors"].append(f"M1: {e}")
 
         # ══════════════════════════════════════════════════════════════

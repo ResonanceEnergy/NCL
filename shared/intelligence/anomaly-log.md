@@ -373,3 +373,6 @@ Resolved anomalies older than 30 days are moved to `/NCL/shared/intelligence/arc
 ## 2026-05-21 01:54:01Z — 1 anomalies
 - **[reddit/retail_yolo/bullish]** (95%) NVDA earnings 600k yolo
 
+## 2026-05-22 13:20:01Z — 1 anomalies
+- **[reddit/retail_dd/bullish]** (95%) The top is almost in DD: my harem of women
+

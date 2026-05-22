@@ -208,15 +208,41 @@ class StalenessDetector:
                 threshold = self.STALENESS_THRESHOLDS.get(
                     mem_type, self.STALENESS_THRESHOLDS["episodic"]
                 )
+                # Use created_at as the canonical age signal — the world the
+                # unit describes ages from when it was first recorded, NOT
+                # from the last time the working_context loop touched it.
+                # Previously this used last_accessed and silently produced
+                # `checking 0 candidates` every cycle because mark_accessed_batch
+                # was bumping last_accessed on every working-context refresh,
+                # making every high-importance unit look minutes-old forever.
+                # last_accessed is still consulted as a freshness signal (a
+                # GENUINELY-recent user touch resets the age clock — but the
+                # touch has to be recent vs. the unit's created_at, not vs.
+                # automated context shuffling).
+                created_at = _to_aware(getattr(unit, "created_at", None))
                 last_accessed = _to_aware(getattr(unit, "last_accessed", None))
-                if last_accessed is None:
-                    last_accessed = _to_aware(getattr(unit, "created_at", None))
-                if last_accessed is None:
+                age_anchor = created_at or last_accessed
+                if age_anchor is None:
                     continue
 
-                age_seconds = (now - last_accessed).total_seconds()
+                age_seconds = (now - age_anchor).total_seconds()
                 if age_seconds <= threshold:
                     continue
+
+                # If the unit was MANUALLY reinforced recently (reinforcement_count
+                # > 0 and last_accessed is at least 24h newer than created_at),
+                # treat that explicit retrieval as a freshness signal and skip.
+                # Working-context auto-touches don't bump reinforcement_count.
+                reinforcement_count = int(getattr(unit, "reinforcement_count", 0) or 0)
+                if (
+                    reinforcement_count > 0
+                    and last_accessed is not None
+                    and created_at is not None
+                    and (last_accessed - created_at).total_seconds() > 86400
+                ):
+                    la_age = (now - last_accessed).total_seconds()
+                    if la_age <= threshold:
+                        continue
 
                 content = getattr(unit, "content", "") or ""
                 preview = content.strip().replace("\n", " ")[:160]

@@ -5887,6 +5887,9 @@ async def autonomous_loops(authorization: str = Header(default="")) -> dict:
         {"name": "Narrative Threads", "id": "ncl-narrative-threads",
          "interval": 21600, "enabled": True,
          "description": "6h cross-session narrative threading: link episodes by entity overlap"},
+        {"name": "Dedup Scan", "id": "ncl-dedup-scan",
+         "interval": 21600, "enabled": True,
+         "description": "Sliding-window dedup of 500 newest units, every 6h (replaces Night Watch M1 — 200-merge cap per cycle)"},
         # ── 2026-05-22 batch 2 (async writer + budget telemetry) ──
         {"name": "Async Memory Writer", "id": "ncl-async-writer",
          "interval": 0, "enabled": True,
@@ -5979,6 +5982,7 @@ async def autonomous_loops(authorization: str = Header(default="")) -> dict:
         "ncl-conflict-arb": _autonomous._stats.get("last_conflict_arbitration"),
         "ncl-staleness": _autonomous._stats.get("last_staleness_check"),
         "ncl-narrative-threads": _autonomous._stats.get("last_narrative_threading"),
+        "ncl-dedup-scan": _autonomous._stats.get("last_dedup_scan"),
         "ncl-async-writer": _autonomous._stats.get("last_async_writer_tick") or (_autonomous._async_writer.get_stats().get("last_drain_at") if getattr(_autonomous, "_async_writer", None) else None),
         "ncl-memory-budget": _autonomous._stats.get("last_memory_budget_check"),
         # awarebot sub-tasks — read directly from awarebot stats

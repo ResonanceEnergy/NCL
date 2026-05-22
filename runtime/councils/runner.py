@@ -120,99 +120,137 @@ async def _auto_ingest_report(report: CouncilReport) -> None:
     except Exception as e:
         log.error(f"[AUTO-INGEST] Vector store indexing failed: {e}", exc_info=True)
 
-    # ── 2. Long-Term Memory Store ──────────────────────────────────────
-    try:
-        # Build a rich memory content block from the report
-        insight_summaries = []
-        for i, ins in enumerate(report.insights[:10], 1):
-            insight_summaries.append(
-                f"{i}. [{ins.category.value}] {ins.title} "
-                f"(confidence: {ins.confidence:.0%}): {ins.description[:200]}"
-            )
-
-        memory_content = (
-            f"{'YouTube' if source == 'youtube' else 'X (Twitter)'} Council Report — "
-            f"Session {session_id}\n\n"
-            f"Executive Summary: {(report.summary or 'No summary')[:500]}\n\n"
-            f"Key Insights ({len(report.insights)} total):\n"
-            + "\n".join(insight_summaries)
+    # ── 2. Long-Term Memory Store (async_writer fire-and-forget) ───────
+    # Previously this issued a sync httpx POST to /memory/store per report
+    # plus one per high-confidence insight — typical 5-video YTC run was
+    # 11 sequential HTTP roundtrips at ~200ms each (~2.2s of blocking on
+    # the YTC loop). Replaced with async_writer.enqueue() which returns
+    # immediately. Falls back to direct create_unit() via memory_store
+    # when the async writer isn't initialized, then silently skips if
+    # neither path is reachable (JSONL on disk is the source of truth).
+    insight_summaries = []
+    for i, ins in enumerate(report.insights[:10], 1):
+        insight_summaries.append(
+            f"{i}. [{ins.category.value}] {ins.title} "
+            f"(confidence: {ins.confidence:.0%}): {ins.description[:200]}"
         )
 
-        # Build tags from all insight tags + council metadata
-        all_tags = {"council_report", f"council_{source}", "auto_ingested"}
-        for ins in report.insights:
-            all_tags.update(ins.tags[:5])
+    memory_content = (
+        f"{'YouTube' if source == 'youtube' else 'X (Twitter)'} Council Report — "
+        f"Session {session_id}\n\n"
+        f"Executive Summary: {(report.summary or 'No summary')[:500]}\n\n"
+        f"Key Insights ({len(report.insights)} total):\n"
+        + "\n".join(insight_summaries)
+    )
 
-        payload = {
-            "content": memory_content[:2000],
-            "source": f"council:{source}:{session_id}",
-            "importance": 85.0,
-            "tags": list(all_tags)[:20],
-        }
+    all_tags = {"council_report", f"council_{source}", "auto_ingested"}
+    for ins in report.insights:
+        all_tags.update(ins.tags[:5])
 
-        headers = {"Content-Type": "application/json"}
-        if BRAIN_AUTH_TOKEN:
-            headers["Authorization"] = f"Bearer {BRAIN_AUTH_TOKEN}"
+    rollup_source = f"council:{source}:{session_id}"
+    rollup_meta = {
+        "session_id": session_id,
+        "report_type": "rollup" if getattr(report, "sources_processed", 1) > 1 else "per_video",
+        "insight_count": len(report.insights),
+    }
+    # Per-video reports carry the video id in the session_id suffix
+    if "-" in session_id:
+        try:
+            parent, _, vid_id = session_id.rpartition("-")
+            if parent and vid_id and len(vid_id) < 30:
+                rollup_meta["video_id"] = vid_id
+                rollup_meta["report_type"] = "per_video"
+                rollup_meta["parent_session_id"] = parent
+        except Exception:
+            pass
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f"{BRAIN_API}/memory/store",
-                json=payload,
-                headers=headers,
-                timeout=aiohttp.ClientTimeout(total=10),
-            ) as resp:
-                if resp.status in (200, 201):
-                    result = await resp.json()
-                    log.info(
-                        f"[AUTO-INGEST] Report stored in long-term memory: "
-                        f"unit_id={result.get('unit_id', 'unknown')}"
+    try:
+        from ..memory.async_writer import get_async_writer, WriteRequest
+        try:
+            writer = get_async_writer()
+        except RuntimeError:
+            writer = None
+
+        if writer is not None:
+            await writer.enqueue(WriteRequest(
+                content=memory_content[:2000],
+                source=rollup_source,
+                memory_type="semantic",  # council output = synthesized analysis
+                importance=85.0,
+                tags=list(all_tags)[:20],
+                metadata=rollup_meta,
+            ))
+            log.info(
+                f"[AUTO-INGEST] Report enqueued to async memory writer "
+                f"(source={rollup_source})"
+            )
+        else:
+            # Fallback: direct create_unit via the brain's in-process memory_store
+            # (best-effort; if brain isn't in-process, fall through to skip).
+            brain_obj = None
+            try:
+                from ..api.routes import _brain as brain_obj  # type: ignore
+            except Exception:
+                brain_obj = None
+            if brain_obj is not None and getattr(brain_obj, "memory_store", None):
+                try:
+                    await brain_obj.memory_store.create_unit(
+                        content=memory_content[:2000],
+                        source=rollup_source,
+                        importance=85.0,
+                        tags=list(all_tags)[:20],
+                        memory_type="semantic",
                     )
-                else:
-                    body = await resp.text()
-                    log.warning(
-                        f"[AUTO-INGEST] Memory store returned {resp.status}: {body[:200]}"
-                    )
-    except aiohttp.ClientError as e:
-        log.warning(f"[AUTO-INGEST] Memory store unreachable (Brain API down?): {e}")
+                    log.info("[AUTO-INGEST] Report stored via direct create_unit fallback")
+                except Exception as e:
+                    log.warning(f"[AUTO-INGEST] Direct create_unit fallback failed: {e}")
+            else:
+                log.debug("[AUTO-INGEST] No async writer or in-process brain — JSONL on disk is canonical")
     except Exception as e:
-        log.error(f"[AUTO-INGEST] Memory store ingestion failed: {e}", exc_info=True)
+        log.warning(f"[AUTO-INGEST] async memory enqueue failed (non-fatal): {e}")
 
     # ── 3. Store individual high-confidence insights in memory ─────────
     try:
         high_insights = [i for i in report.insights if i.confidence >= 0.7]
-        stored = 0
         if high_insights:
-            headers = {"Content-Type": "application/json"}
-            if BRAIN_AUTH_TOKEN:
-                headers["Authorization"] = f"Bearer {BRAIN_AUTH_TOKEN}"
+            from ..memory.async_writer import get_async_writer, WriteRequest
+            try:
+                writer = get_async_writer()
+            except RuntimeError:
+                writer = None
 
-            async with aiohttp.ClientSession() as session:
-                for ins in high_insights[:10]:
+            stored = 0
+            for ins in high_insights[:10]:
+                payload_tags = list(ins.tags[:10]) + [
+                    "council_insight", f"council_{source}", "auto_ingested"
+                ]
+                ins_source = f"council:{source}:insight"
+                ins_meta = {
+                    "session_id": session_id,
+                    "insight_title": ins.title,
+                    "category": ins.category.value,
+                    "confidence": ins.confidence,
+                }
+                if writer is not None:
                     try:
-                        payload = {
-                            "content": f"[{ins.category.value}] {ins.title}: {ins.description[:500]}",
-                            "source": f"council:{source}:insight",
-                            "importance": ins.confidence * 100,
-                            "tags": list(ins.tags[:10]) + [
-                                "council_insight", f"council_{source}", "auto_ingested"
-                            ],
-                        }
-                        async with session.post(
-                            f"{BRAIN_API}/memory/store",
-                            json=payload,
-                            headers=headers,
-                            timeout=aiohttp.ClientTimeout(total=5),
-                        ) as resp:
-                            if resp.status in (200, 201):
-                                stored += 1
+                        await writer.enqueue(WriteRequest(
+                            content=f"[{ins.category.value}] {ins.title}: {ins.description[:500]}",
+                            source=ins_source,
+                            memory_type="semantic",
+                            importance=ins.confidence * 100,
+                            tags=payload_tags[:20],
+                            metadata=ins_meta,
+                        ))
+                        stored += 1
                     except Exception as e:
-                        log.warning(f"[AUTO-INGEST] Failed to store insight '{ins.title[:50]}': {e}")
-            log.info(
-                f"[AUTO-INGEST] {stored}/{len(high_insights)} high-confidence insights "
-                f"stored in memory"
-            )
+                        log.debug(f"[AUTO-INGEST] insight enqueue failed: {e}")
+            if stored:
+                log.info(
+                    f"[AUTO-INGEST] {stored}/{len(high_insights)} high-confidence insights "
+                    f"enqueued to async memory writer"
+                )
     except Exception as e:
-        log.warning(f"[AUTO-INGEST] Individual insight storage failed: {e}")
+        log.warning(f"[AUTO-INGEST] Individual insight enqueue failed: {e}")
 
 
 def _load_previously_analyzed_video_ids(days: int | None = None) -> set[str]:

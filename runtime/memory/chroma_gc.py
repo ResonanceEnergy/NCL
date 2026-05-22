@@ -110,24 +110,38 @@ class ChromaGC:
         """
         For each collection, return the IDs stored in ChromaDB but
         absent from units.jsonl.
+
+        Previously this dropped any collection with zero ghosts from the
+        return dict (`if gh:`), which made the audit log unreadable —
+        `ghosts_found={}` could equally mean "no ghosts anywhere" OR "the
+        selector silently mismatched every collection." We now return an
+        entry for every collection (even when empty) so the audit ledger
+        always shows the full topology. The purge step still skips empty
+        lists.
         """
         collections = self._collections()
         if not collections:
+            log.warning("[CHROMA-GC] find_ghost_ids: no ChromaDB collections — _init_vector_db failed or store has none")
             return {}
 
         live = await self._live_unit_ids()
+        if not live:
+            log.warning("[CHROMA-GC] find_ghost_ids: 0 live unit_ids — refusing to compute ghosts to avoid mass-delete")
+            return {}
+
         ghosts: dict[str, list[str]] = {}
 
         for name, collection in collections.items():
             if collection is None:
+                ghosts[name] = []
                 continue
             try:
                 stored = set(await self._collection_all_ids(collection))
                 gh = sorted(stored - live)
-                if gh:
-                    ghosts[name] = gh
+                ghosts[name] = gh
             except Exception as e:
                 log.warning(f"find_ghost_ids({name}) failed: {e}")
+                ghosts[name] = []
         return ghosts
 
     async def purge_ghosts(self, dry_run: bool = False) -> dict:
@@ -414,7 +428,16 @@ async def _chroma_gc_loop(
             ghost_counts = {name: len(ids) for name, ids in ghosts.items()}
             total_ghosts = sum(ghost_counts.values())
 
-            should_purge = any(c > threshold for c in ghost_counts.values())
+            # Purge when EITHER a single collection exceeds the per-collection
+            # threshold OR the total across all collections does. Without the
+            # total trigger, slow steady drift across many collections (e.g.
+            # the legacy `ncl_memory` default + 6 typed collections each
+            # accumulating ~10-20 ghosts) would never cross the per-collection
+            # bar even at hundreds of total ghosts.
+            should_purge = (
+                any(c > threshold for c in ghost_counts.values())
+                or total_ghosts > threshold
+            )
             purge_result: dict = {}
             if should_purge:
                 purge_result = await gc.purge_ghosts(dry_run=False)
