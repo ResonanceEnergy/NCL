@@ -15,6 +15,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Any, Optional
 
 from .models import DailyReflection, JournalInsight, TipEntry
+from .store import local_today_str
 
 log = logging.getLogger("ncl.journal.reflection")
 
@@ -42,7 +43,10 @@ class ReflectionEngine:
 
         Called by scheduler at 10pm ET.
         """
-        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        # Date the reflection is FOR — must be the operator-local date (ET),
+        # not UTC. At 10pm ET (= 02:00 UTC next day) UTC has already rolled
+        # past midnight, but the journaling day is still the current ET day.
+        today = local_today_str()
 
         # Check if already generated today
         existing = await self.journal.get_reflection(today)

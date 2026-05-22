@@ -5,6 +5,7 @@ import html as html_mod
 import ipaddress
 import json
 import os
+import re
 import secrets
 import sys
 import uuid
@@ -343,9 +344,55 @@ async def lifespan(app: FastAPI):
             memory_store=brain.memory_store if brain else None,
             working_context=None,
         )
-        # TODO: Wire up a real LLM client here once available so reflections use AI synthesis
-        # instead of the template fallback. For now, template-based reflections still work.
-        _reflection_engine = ReflectionEngine(_journal_store, llm_client=None)
+
+        # Inline Anthropic client for reflection LLM synthesis.
+        # Mirrors the Haiku call pattern used by night_watch (scheduler.py).
+        # Falls back to template-based reflection if no API key.
+        class _AnthropicReflectionClient:
+            def __init__(self, api_key: str, model: str = "claude-3-5-haiku-20241022"):
+                self.api_key = api_key
+                self.model = model
+
+            async def generate(self, prompt: str, system: str = "") -> str:
+                import httpx
+                async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
+                    resp = await client.post(
+                        "https://api.anthropic.com/v1/messages",
+                        headers={
+                            "x-api-key": self.api_key,
+                            "anthropic-version": "2023-06-01",
+                            "content-type": "application/json",
+                        },
+                        json={
+                            "model": self.model,
+                            "max_tokens": 1200,
+                            "system": system or "You are a journaling synthesis assistant. Return valid JSON only.",
+                            "messages": [{"role": "user", "content": prompt}],
+                        },
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    # Record cost (Haiku 3.5: $0.80 in / $4.00 out per Mtok)
+                    try:
+                        from ..cost_tracker import record_cost
+                        usage = data.get("usage", {}) or {}
+                        i_t = usage.get("input_tokens", 0)
+                        o_t = usage.get("output_tokens", 0)
+                        cost = (i_t * 0.80 + o_t * 4.00) / 1_000_000
+                        if cost > 0:
+                            await record_cost("anthropic", cost, "journal_reflection")
+                    except Exception:
+                        pass
+                    return data["content"][0]["text"]
+
+        _anth_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        _llm_client = _AnthropicReflectionClient(_anth_key) if _anth_key else None
+        if _llm_client:
+            log.info("[lifespan] ReflectionEngine wired with Anthropic Haiku LLM client")
+        else:
+            log.warning("[lifespan] No ANTHROPIC_API_KEY — reflections will use template fallback")
+
+        _reflection_engine = ReflectionEngine(_journal_store, llm_client=_llm_client)
         _context_tips = ContextAwareTips(_journal_store)
         log.info("[lifespan] Journal subsystem initialised")
     except Exception as _exc:
@@ -1258,6 +1305,122 @@ async def list_youtube_reports(
     # Sort all by date descending
     reports.sort(key=lambda r: r.get("date", ""), reverse=True)
     return {"reports": reports[:limit], "count": len(reports[:limit])}
+
+
+@app.get("/youtube/reports/recent")
+async def youtube_reports_recent(
+    limit: int = Query(default=20, ge=1, le=100),
+    authorization: str = Header(default=""),
+) -> dict:
+    """
+    Return the most recent YouTube council reports (per-video + rollups +
+    legacy council reports) in a flat, simple shape for the iOS YTC tab.
+
+    Scans both:
+      - intelligence-scan/youtube-reports/*.json  (newer per-video + rollup)
+      - intelligence-scan/council-reports/*.json  (older / multi-source)
+
+    Sorted by mtime descending.
+    """
+    _verify_strike_token(authorization)
+
+    ncl_base = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
+    candidates: list[tuple[float, Path]] = []
+    for sub in ("youtube-reports", "council-reports"):
+        d = ncl_base / "intelligence-scan" / sub
+        if not d.exists():
+            continue
+        for p in d.glob("*.json"):
+            try:
+                candidates.append((p.stat().st_mtime, p))
+            except OSError:
+                continue
+
+    candidates.sort(key=lambda t: t[0], reverse=True)
+
+    reports: list[dict] = []
+    seen_ids: set[str] = set()
+    for mtime, p in candidates:
+        if len(reports) >= limit:
+            break
+        try:
+            data = json.loads(p.read_text())
+        except Exception:
+            continue
+
+        # Per-video format has a `videos` list with one entry per video
+        videos = data.get("videos") or []
+        first_video = videos[0] if videos else {}
+
+        # Dedup key: filename is unique per report (per-video reports and
+        # the rollup share session_id but have different filenames)
+        dedup_key = p.name
+        if dedup_key in seen_ids:
+            continue
+        seen_ids.add(dedup_key)
+        report_id = data.get("session_id") or p.stem
+
+        # Try multiple fields for compatibility with both old and new shapes
+        title = (
+            first_video.get("title")
+            or data.get("title")
+            or data.get("video_title")
+            or data.get("topic")
+            or p.stem
+        )
+        video_title = (
+            first_video.get("title")
+            or data.get("video_title")
+            or data.get("title")
+            or ""
+        )
+        url = (
+            first_video.get("url")
+            or data.get("video_url")
+            or data.get("url")
+            or ""
+        )
+        summary = (
+            data.get("summary")
+            or data.get("transcript_summary")
+            or data.get("raw_analysis", "")[:500]
+            or ""
+        )
+        published_at = (
+            data.get("completed_at")
+            or data.get("timestamp")
+            or data.get("published_at")
+            or data.get("date")
+            or datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
+        )
+
+        insights = data.get("insights") or []
+        report_type = data.get("report_type", "legacy")
+
+        reports.append({
+            "id": report_id,
+            "title": title,
+            "video_title": video_title,
+            "channel": first_video.get("channel") or data.get("channel") or data.get("channel_name") or "Unknown",
+            "video_id": first_video.get("video_id") or "",
+            "url": url,
+            "published_at": published_at,
+            "summary": summary,
+            "insights_count": len(insights),
+            "duration_hours": data.get("total_duration_hours", 0),
+            "report_type": report_type,
+            "report_path": str(p),
+            "filename": p.name,
+            "auto_triggered": data.get("auto_triggered", False),
+            "status": data.get("status", "complete"),
+        })
+
+    return {
+        "reports": reports,
+        "count": len(reports),
+        "limit": limit,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 @app.get("/council/youtube/reports/{filename}")
@@ -4863,12 +5026,20 @@ async def migrate_memory_types_endpoint(authorization: str = Header(default=""))
 
 
 @app.get("/memory/working-context")
-async def get_working_context(max_items: int = Query(default=50, le=100), authorization: str = Header(default="")) -> dict:
+async def get_working_context(
+    max_items: int = Query(default=50, le=100),
+    mark_accessed: bool = Query(default=True, description="Mark returned items as accessed today (reinforces for EOD)"),
+    authorization: str = Header(default=""),
+) -> dict:
     """
     Get today's daily working context window.
 
     Returns the curated, salience-scored subset of memory that's relevant today.
     Includes council insights, memory units, signals, mandates, and pinned items.
+
+    By default, returned items are marked as accessed_today so the EOD promote/demote
+    cycle reinforces them. Pass ?mark_accessed=false to suppress (read-only dashboards
+    that shouldn't influence reinforcement).
     """
     _verify_strike_token(authorization)
     if not _autonomous or not getattr(_autonomous, "_working_context", None):
@@ -4880,7 +5051,16 @@ async def get_working_context(max_items: int = Query(default=50, le=100), author
             "status": "not_assembled",
             "message": "Working context has not been assembled yet. Will assemble at 6am or call POST /memory/working-context/refresh.",
         }
-    items = [item.to_dict() for item in ctx.items[:max_items]]
+    selected = ctx.items[:max_items]
+    items = [item.to_dict() for item in selected]
+
+    # Reinforce — mark these items as accessed so EOD promote/demote can reward them
+    if mark_accessed and selected:
+        try:
+            await ctx_window.mark_accessed_batch([i.item_id for i in selected])
+        except Exception as e:
+            log.warning(f"[working-context] mark_accessed_batch failed: {e}")
+
     return {
         "date": ctx.date,
         "assembled_at": ctx.assembled_at,
@@ -5308,9 +5488,6 @@ async def autonomous_loops(authorization: str = Header(default="")) -> dict:
         {"name": "Memory Consolidation", "id": "ncl-memory",
          "interval": getattr(_autonomous.config, "memory_consolidation_interval", 7200),
          "enabled": True, "description": "Consolidates and prunes memory store"},
-        {"name": "AAC War Room Sync", "id": "ncl-aac-sync",
-         "interval": 3600, "enabled": True,
-         "description": "Synchronizes with AAC war room data"},
         {"name": "Workspace Health", "id": "ncl-workspace",
          "interval": 1800, "enabled": True,
          "description": "Monitors workspace health and connectivity"},
@@ -5332,6 +5509,22 @@ async def autonomous_loops(authorization: str = Header(default="")) -> dict:
         {"name": "Supervisor", "id": "ncl-supervisor",
          "interval": 30, "enabled": True,
          "description": "Supervisor loop — monitors and restarts crashed scheduler tasks"},
+        # ── New 2026-05-21 loops ──────────────────────────────
+        {"name": "Health Rollup", "id": "ncl-health-rollup",
+         "interval": 60, "enabled": True,
+         "description": "60s aggregated component health → data/health/current.json (iOS dashboard one-call status)"},
+        {"name": "Cost Rollover", "id": "ncl-cost-rollover",
+         "interval": 60, "enabled": True,
+         "description": "Polls UTC date every 60s; explicit midnight close of cost ledger + counter reset"},
+        {"name": "Cache Warmer", "id": "ncl-cache-warmer",
+         "interval": 300, "enabled": True,
+         "description": "Pre-touches calendar compile_events + working-context to amortize cold-start latency"},
+        {"name": "Alert Dispatch", "id": "ncl-alert-dispatch",
+         "interval": 10, "enabled": True,
+         "description": "Centralized rate-limited + deduped ntfy dispatcher (consumes from all alert producers)"},
+        {"name": "YTC Dedicated", "id": "ncl-ytc-dedicated",
+         "interval": 3600, "enabled": True,
+         "description": "Dedicated YouTube Council loop (split from Awarebot) with its own $3/day budget"},
     ]
 
     # --- Awarebot sub-tasks (spawned inside awarebot agent) ---
@@ -5356,9 +5549,9 @@ async def autonomous_loops(authorization: str = Header(default="")) -> dict:
             {"name": "Journal Processing", "id": "awarebot-journal",
              "interval": getattr(_ab, "_journal_interval", 3600),
              "enabled": True, "description": "Processes journal entries and generates tips"},
-            {"name": "YouTube Council", "id": "awarebot-ytc",
-             "interval": 1800, "enabled": True,
-             "description": "Scrapes, transcribes, and analyzes YouTube channels"},
+            {"name": "YouTube Council (legacy)", "id": "awarebot-ytc",
+             "interval": 1800, "enabled": False,
+             "description": "DISABLED 2026-05-21 — superseded by scheduler-level 'ncl-ytc-dedicated' (own $3/day budget)"},
             {"name": "X Liked Posts", "id": "awarebot-x-liked",
              "interval": 3600, "enabled": True,
              "description": "Processes liked posts from X for signal extraction"},
@@ -5378,11 +5571,52 @@ async def autonomous_loops(authorization: str = Header(default="")) -> dict:
             if not t.done():
                 active_task_names.add(t.get_name())
 
+    # Explicit timestamp source map — avoids the brittle string-mangling
+    # that left every awarebot-* loop showing last_run=null even when firing
+    # on cadence. Pulls scheduler shadow stats first, then live awarebot stats.
+    aware_stats = {}
+    if _autonomous.awarebot and hasattr(_autonomous.awarebot, "get_stats"):
+        try:
+            aware_stats = _autonomous.awarebot.get_stats() or {}
+        except Exception:
+            aware_stats = {}
+    elif _autonomous.awarebot and hasattr(_autonomous.awarebot, "_stats"):
+        aware_stats = getattr(_autonomous.awarebot, "_stats", {}) or {}
+
+    timestamp_map = {
+        # scheduler-level
+        "ncl-heartbeat": _autonomous._stats.get("last_heartbeat_at"),
+        "ncl-council-auto": _autonomous._stats.get("last_council"),
+        "ncl-memory": _autonomous._stats.get("last_consolidation"),
+        "ncl-workspace": _autonomous._stats.get("last_workspace_check"),
+        "ncl-working-ctx": _autonomous._stats.get("last_working_ctx"),
+        "ncl-journal-reflection": _autonomous._stats.get("last_journal_reflection"),
+        "ncl-night-watch": _autonomous._stats.get("last_night_watch"),
+        "ncl-mandate-purge": _autonomous._stats.get("last_mandate_purge"),
+        "ncl-feedback-synth": _autonomous._stats.get("last_feedback_synth"),
+        "ncl-supervisor": _autonomous._stats.get("last_supervisor_tick"),
+        "ncl-calendar-agent": _autonomous._stats.get("last_calendar_scan"),
+        "ncl-calendar-alerts": _autonomous._stats.get("last_calendar_alert_check"),
+        # New 2026-05-21 loops
+        "ncl-health-rollup": _autonomous._stats.get("last_health_rollup"),
+        "ncl-cost-rollover": _autonomous._stats.get("last_cost_rollover"),
+        "ncl-cache-warmer": _autonomous._stats.get("last_cache_warm"),
+        "ncl-alert-dispatch": _autonomous._stats.get("last_alert_dispatch_tick"),
+        "ncl-ytc-dedicated": _autonomous._stats.get("last_ytc_dedicated"),
+        # awarebot sub-tasks — read directly from awarebot stats
+        "ncl-awarebot-agent": aware_stats.get("last_scan_at"),
+        "awarebot-scan": aware_stats.get("last_scan_at"),
+        "awarebot-predict": aware_stats.get("last_prediction_at"),
+        "awarebot-brief": aware_stats.get("last_brief_at"),
+        "awarebot-context": aware_stats.get("last_context_at"),
+        "awarebot-journal": aware_stats.get("last_journal_at"),
+        "awarebot-ytc": aware_stats.get("last_ytc_at"),
+        "awarebot-x-liked": aware_stats.get("last_x_liked_at"),
+    }
+
     for loop in loop_definitions:
         loop["active"] = loop["id"] in active_task_names
-        # Try scheduler stats first, then awarebot stats
-        stat_key = f"last_{loop['id'].replace('ncl-', '').replace('awarebot-', '').replace('-', '_')}"
-        loop["last_run"] = _autonomous._stats.get(stat_key)
+        loop["last_run"] = timestamp_map.get(loop["id"])
 
     return {"loops": loop_definitions, "count": len(loop_definitions)}
 
@@ -5688,7 +5922,17 @@ async def context_all_tiers(authorization: str = Header(default="")) -> dict:
 
 _WATCH_QUERIES_PATH = Path("~/dev/NCL/runtime/autonomous/watch_queries.json").expanduser()
 _VALID_SOURCES = {"x", "youtube", "reddit"}
-_VALID_TIERS = {"tier1", "tier2", "tier3"}
+# Accept both legacy ("tier1", "tier2", "tier3") and iOS short forms
+# ("1", "2", "3", "tier_1", "tier_2", "tier_3"). Normalized via _normalize_tier().
+_VALID_TIERS = {"tier1", "tier2", "tier3", "1", "2", "3", "tier_1", "tier_2", "tier_3"}
+
+
+def _normalize_tier(tier: str) -> str:
+    """Convert any accepted tier form into the canonical 'tier1'/'tier2'/'tier3'."""
+    t = tier.strip().lower().replace("_", "")
+    if t in ("1", "2", "3"):
+        return f"tier{t}"
+    return t  # already "tier1"/"tier2"/"tier3"
 
 
 def _load_watch_queries_from_disk() -> dict:
@@ -5711,12 +5955,88 @@ def _reload_awarebot_queries() -> None:
         _autonomous.awarebot.reload_watch_queries()
 
 
+def _shape_focus_payload(data: dict) -> dict:
+    """
+    Shape the raw watch_queries.json into the iOS FocusContextView contract.
+
+    iOS expects:
+      {
+        "queries":     {"x": [...], "youtube": [...], "reddit": [...]},
+        "subreddits":  {"tier_1": [...], "tier_2": [...], "tier_3": [...]},
+        "_meta":       {"total_queries": N, "total_subreddits": N, "last_updated": "..."},
+        # Plus flat compatibility fields for older consumers:
+        "x": [...], "youtube": [...], "reddit": [...], "total": N, "updated_at": "..."
+      }
+    """
+    x = list(data.get("x") or [])
+    yt = list(data.get("youtube") or [])
+    rd = list(data.get("reddit") or [])
+    subs = data.get("reddit_subreddits") or {}
+    tier1 = list(subs.get("tier1") or [])
+    tier2 = list(subs.get("tier2") or [])
+    tier3 = list(subs.get("tier3") or [])
+    meta_raw = data.get("_meta") or {}
+    updated = meta_raw.get("updated") or meta_raw.get("last_updated") or ""
+
+    total_queries = len(x) + len(yt) + len(rd)
+    total_subs = len(tier1) + len(tier2) + len(tier3)
+
+    return {
+        # iOS-expected wrapped shape
+        "queries": {"x": x, "youtube": yt, "reddit": rd},
+        "subreddits": {"tier_1": tier1, "tier_2": tier2, "tier_3": tier3},
+        "_meta": {
+            "total_queries": total_queries,
+            "total_subreddits": total_subs,
+            "last_updated": updated,
+        },
+        # Flat compatibility fields
+        "x": x,
+        "youtube": yt,
+        "reddit": rd,
+        "total": total_queries,
+        "total_queries": total_queries,
+        "total_subreddits": total_subs,
+        "updated_at": updated,
+        # Pass through reddit_subreddits for legacy consumers
+        "reddit_subreddits": subs,
+    }
+
+
 @app.get("/focus/queries")
 async def focus_get_queries(authorization: str = Header(default="")) -> dict:
-    """Return current watch queries (full JSON)."""
+    """
+    Return current watch queries in the iOS FocusContextView shape.
+
+    Loads watch_queries.json from disk on every call (file is tiny — no caching
+    needed) so iOS sees writes immediately after add/delete operations.
+    """
     _verify_strike_token(authorization)
     data = _load_watch_queries_from_disk()
-    return data
+    return _shape_focus_payload(data)
+
+
+@app.get("/focus/subreddits")
+async def focus_get_subreddits(authorization: str = Header(default="")) -> dict:
+    """
+    Return only the tiered subreddit network in the iOS shape.
+
+    Convenience endpoint matching the FocusContextView subreddits section.
+    """
+    _verify_strike_token(authorization)
+    data = _load_watch_queries_from_disk()
+    subs = data.get("reddit_subreddits") or {}
+    tier1 = list(subs.get("tier1") or [])
+    tier2 = list(subs.get("tier2") or [])
+    tier3 = list(subs.get("tier3") or [])
+    meta_raw = data.get("_meta") or {}
+    return {
+        "tier_1": tier1,
+        "tier_2": tier2,
+        "tier_3": tier3,
+        "total": len(tier1) + len(tier2) + len(tier3),
+        "updated_at": meta_raw.get("updated") or meta_raw.get("last_updated") or "",
+    }
 
 
 @app.put("/focus/queries")
@@ -5728,7 +6048,7 @@ async def focus_replace_queries(
     _verify_strike_token(authorization)
     _save_watch_queries_to_disk(body)
     _reload_awarebot_queries()
-    return body
+    return _shape_focus_payload(body)
 
 
 @app.post("/focus/queries/{source}")
@@ -5752,7 +6072,7 @@ async def focus_add_query(
     data[source].append(query)
     _save_watch_queries_to_disk(data)
     _reload_awarebot_queries()
-    return data
+    return _shape_focus_payload(data)
 
 
 @app.delete("/focus/queries/{source}/{index}")
@@ -5772,7 +6092,9 @@ async def focus_remove_query(
     removed = queries.pop(index)
     _save_watch_queries_to_disk(data)
     _reload_awarebot_queries()
-    return {"removed": removed, **data}
+    payload = _shape_focus_payload(data)
+    payload["removed"] = removed
+    return payload
 
 
 @app.post("/focus/subreddits/{tier}")
@@ -5781,22 +6103,23 @@ async def focus_add_subreddit(
     body: dict = Body(...),
     authorization: str = Header(default=""),
 ) -> dict:
-    """Add a subreddit to a tier (tier1, tier2, tier3)."""
+    """Add a subreddit to a tier (accepts 1/2/3, tier1/tier2/tier3, tier_1/tier_2/tier_3)."""
     _verify_strike_token(authorization)
     if tier not in _VALID_TIERS:
         raise HTTPException(status_code=400, detail=f"Invalid tier: {tier}. Must be one of {_VALID_TIERS}")
+    canonical_tier = _normalize_tier(tier)
     subreddit = body.get("subreddit")
     if not subreddit or not isinstance(subreddit, str):
         raise HTTPException(status_code=400, detail="Missing or invalid 'subreddit' string in body")
     data = _load_watch_queries_from_disk()
     subs = data.setdefault("reddit_subreddits", {})
-    tier_list = subs.setdefault(tier, [])
+    tier_list = subs.setdefault(canonical_tier, [])
     if subreddit in tier_list:
-        raise HTTPException(status_code=409, detail=f"Subreddit '{subreddit}' already in {tier}")
+        raise HTTPException(status_code=409, detail=f"Subreddit '{subreddit}' already in {canonical_tier}")
     tier_list.append(subreddit)
     _save_watch_queries_to_disk(data)
     _reload_awarebot_queries()
-    return data
+    return _shape_focus_payload(data)
 
 
 @app.delete("/focus/subreddits/{tier}/{name}")
@@ -5805,19 +6128,20 @@ async def focus_remove_subreddit(
     name: str,
     authorization: str = Header(default=""),
 ) -> dict:
-    """Remove a subreddit from a tier by name."""
+    """Remove a subreddit from a tier by name (accepts 1/2/3, tier1/tier2/tier3, tier_1/tier_2/tier_3)."""
     _verify_strike_token(authorization)
     if tier not in _VALID_TIERS:
         raise HTTPException(status_code=400, detail=f"Invalid tier: {tier}. Must be one of {_VALID_TIERS}")
+    canonical_tier = _normalize_tier(tier)
     data = _load_watch_queries_from_disk()
     subs = data.get("reddit_subreddits", {})
-    tier_list = subs.get(tier, [])
+    tier_list = subs.get(canonical_tier, [])
     if name not in tier_list:
-        raise HTTPException(status_code=404, detail=f"Subreddit '{name}' not found in {tier}")
+        raise HTTPException(status_code=404, detail=f"Subreddit '{name}' not found in {canonical_tier}")
     tier_list.remove(name)
     _save_watch_queries_to_disk(data)
     _reload_awarebot_queries()
-    return data
+    return _shape_focus_payload(data)
 
 
 @app.post("/focus/reload")
@@ -5998,11 +6322,74 @@ async def get_latest_brief(authorization: str = Header(default="")) -> dict:
 
 @app.get("/intelligence/stats")
 async def intelligence_stats(authorization: str = Header(default="")) -> dict:
-    """Get intelligence engine statistics."""
+    """
+    Canonical Intel-header stats endpoint consumed by FirstStrike iOS.
+
+    Aggregates from the live Awarebot agent (single source of truth for the
+    runtime intel pipeline). Falls back to legacy IntelligenceEngine stats
+    when Awarebot is unavailable so iOS still gets shape-compatible data.
+
+    Returned shape (iOS contract):
+      - signal_count        : total signals Awarebot ingested
+      - source_count        : number of distinct sources that produced signals
+      - last_scan_at        : ISO8601 timestamp of the most recent scan cycle
+      - signals_routed      : signals that passed tier routing
+      - high_critical_count : CRITICAL + HIGH level signals
+      - active_sources      : alias for source_count (legacy)
+      - total_signals       : alias for signal_count (legacy)
+      - by_source           : per-source signal counts
+      - by_level            : per-level signal counts
+    """
     _verify_strike_token(authorization)
-    if not _intelligence:
-        raise HTTPException(status_code=503, detail="Intelligence engine not initialized")
-    return _intelligence.get_stats()
+
+    # Prefer Awarebot (the live single-scorer agent that actually runs scans)
+    if _autonomous and _autonomous.awarebot:
+        agent = _autonomous.awarebot
+        stats = agent.get_stats()
+        by_source = stats.get("signals_by_source", {}) or {}
+        by_level = stats.get("signals_by_level", {}) or {}
+        # Count only sources that have produced at least one signal
+        active_sources = sum(1 for v in by_source.values() if v > 0)
+        high_critical = int(by_level.get("CRITICAL", 0)) + int(by_level.get("HIGH", 0))
+        return {
+            "signal_count": int(stats.get("signals_ingested", 0)),
+            "source_count": active_sources,
+            "active_sources": active_sources,
+            "total_signals": int(stats.get("signals_ingested", 0)),
+            "last_scan_at": stats.get("last_scan_at"),
+            "last_scan": stats.get("last_scan_at"),
+            "signals_routed": int(stats.get("signals_routed", 0)),
+            "signals_scored": int(stats.get("signals_scored", 0)),
+            "signals_deduped": int(stats.get("signals_deduped", 0)),
+            "high_critical_count": high_critical,
+            "by_source": by_source,
+            "by_level": by_level,
+            "cycles_completed": int(stats.get("cycles_completed", 0)),
+            "running": bool(stats.get("running", False)),
+            "source": "awarebot",
+        }
+
+    # Legacy fallback — keep iOS rendering even if Awarebot is down
+    if _intelligence:
+        legacy = _intelligence.get_stats()
+        by_source = legacy.get("signals_by_source", {}) or {}
+        active_sources = sum(1 for v in by_source.values() if v > 0)
+        return {
+            "signal_count": int(legacy.get("total_processed", 0)),
+            "source_count": active_sources,
+            "active_sources": active_sources,
+            "total_signals": int(legacy.get("total_processed", 0)),
+            "last_scan_at": legacy.get("last_collection"),
+            "last_scan": legacy.get("last_collection"),
+            "signals_routed": 0,
+            "high_critical_count": 0,
+            "by_source": by_source,
+            "by_level": {},
+            "source": "legacy_intelligence_engine",
+            **legacy,
+        }
+
+    raise HTTPException(status_code=503, detail="Neither Awarebot nor Intelligence engine initialized")
 
 
 @app.get("/intelligence/google-trends/health")
@@ -7939,12 +8326,72 @@ async def list_swarm_agents(authorization: str = Header(default="")) -> dict:
 # the full command set in FirstStrike v2.0.
 
 
+_CONSENSUS_PREFIX_RE = re.compile(r"^\s*\[Consensus:[^\]]*\]\s*", re.IGNORECASE)
+_SINGLE_MODEL_PREFIX_RE = re.compile(r"^\s*\[Single-model\]\s*", re.IGNORECASE)
+_CONSENSUS_TRAILER_RE = re.compile(r"\s*\[[^\]]+(?:concurs|disagrees|agrees)[^\]]*\]\s*", re.IGNORECASE)
+_CONVERGING_TRAILER_RE = re.compile(r"\s*\[Converging[^\]]*\]\s*", re.IGNORECASE)
+_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
+
+
+def _extract_prediction_description(pred: dict) -> str:
+    """
+    Pull a human-readable prediction sentence from a prediction record.
+
+    Strategy:
+      1. Use pre-existing description / claim / prediction field if present.
+      2. Strip the `[Consensus: ...]` prefix and `[xxx concurs]`/`[Converging]`
+         trailers from `consensus`.
+      3. If a fenced JSON block remains, parse it and return the inner
+         `prediction` key.
+      4. Fallback: return the cleaned consensus text.
+    """
+    # 1. Direct fields take priority
+    for k in ("description", "claim", "prediction_text", "prediction"):
+        v = pred.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+
+    consensus = pred.get("consensus") or ""
+    if not isinstance(consensus, str):
+        return ""
+    text = consensus
+
+    # 2. Strip the [Consensus: ...] or [Single-model] prefix
+    text = _CONSENSUS_PREFIX_RE.sub("", text)
+    text = _SINGLE_MODEL_PREFIX_RE.sub("", text)
+    # 3. Strip trailing [xxx concurs@N%] and [Converging themes: ...] markers
+    text = _CONSENSUS_TRAILER_RE.sub("", text)
+    text = _CONVERGING_TRAILER_RE.sub("", text)
+
+    # 4. Look for a fenced JSON block and grab its `prediction` field
+    match = _JSON_FENCE_RE.search(text)
+    if match:
+        try:
+            inner = json.loads(match.group(1))
+            inner_pred = inner.get("prediction")
+            if isinstance(inner_pred, str) and inner_pred.strip():
+                return inner_pred.strip()
+        except json.JSONDecodeError:
+            pass
+        # Strip out the fenced block since we couldn't parse it
+        text = text[: match.start()] + text[match.end():]
+
+    return text.strip()
+
+
 @app.get("/predictions")
 async def list_predictions(
     limit: int = Query(default=20, ge=1, le=100),
     authorization: str = Header(default=""),
 ) -> dict:
-    """List recent predictions — returns cached predictions from disk (fast)."""
+    """
+    List recent predictions — returns cached predictions from disk (fast).
+
+    Each item is enriched with a `description` field containing the cleaned,
+    human-readable prediction text (the `[Consensus: ...]` prefix and
+    trailing meta tags are stripped, and if the inner JSON block has a
+    `prediction` key, that sentence is surfaced).
+    """
     _verify_strike_token(authorization)
 
     predictions = []
@@ -7984,9 +8431,18 @@ async def list_predictions(
         reverse=True,
     )
 
+    sliced = predictions[:limit]
+
+    # Enrich each prediction with a cleaned `description` field
+    for p in sliced:
+        if isinstance(p, dict):
+            desc = _extract_prediction_description(p)
+            if desc:
+                p["description"] = desc
+
     return {
         "status": "ok",
-        "predictions": predictions[:limit],
+        "predictions": sliced,
         "total": len(predictions),
     }
 
@@ -8806,6 +9262,50 @@ async def system_costs_reset():
         tracker._daily_counts.clear()
         tracker._warned_sources.clear()
     return {"status": "reset", "date": datetime.now(timezone.utc).strftime("%Y-%m-%d")}
+
+
+@app.get("/system/health/rollup", tags=["system"])
+async def system_health_rollup(authorization: str = Header(default="")) -> dict:
+    """Return the latest rolled-up component health snapshot.
+
+    Written every 60s by the ``ncl-health-rollup`` scheduler loop.
+    Returns the in-memory copy (O(1)) if available; otherwise re-reads
+    the JSON file on disk; otherwise builds a fresh rollup synchronously.
+    Useful as a single-call status check for the iOS Dashboard.
+    """
+    _verify_strike_token(authorization)
+
+    # 1) In-memory (set by the loop after each successful tick)
+    if _autonomous is not None:
+        cached = getattr(_autonomous, "_latest_health_rollup", None)
+        if cached:
+            return cached
+
+    # 2) Disk fallback
+    try:
+        from pathlib import Path as _P
+        if _autonomous is not None:
+            data_dir = _autonomous.data_dir
+        else:
+            data_dir = _P.home() / "dev" / "NCL" / "data"
+        rollup_file = data_dir / "health" / "current.json"
+        if rollup_file.exists():
+            return json.loads(rollup_file.read_text())
+    except Exception:
+        pass
+
+    # 3) Synchronous build fallback
+    try:
+        from ..health.rollup import build_health_rollup
+        return await build_health_rollup(_autonomous, brain)
+    except Exception as e:
+        return {
+            "overall": "yellow",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "components": {},
+            "warnings": [f"rollup unavailable: {e}"],
+            "errors": [],
+        }
 
 
 # ── API Versioning ─────────────────────────────────────────────────────────

@@ -30,7 +30,7 @@ if _ENV_PATH.exists():
 try:
     from moomoo import (
         RET_OK, OpenQuoteContext, OpenSecTradeContext,
-        SecurityFirm, TrdEnv, TrdMarket,
+        SecurityFirm, TrdEnv, TrdMarket, Currency,
     )
     MOOMOO_AVAILABLE = True
 except ImportError:
@@ -47,9 +47,52 @@ if MOOMOO_AVAILABLE:
     }
 
 CURRENCY_BY_MARKET = {
-    "US": "USD", "HK": "HKD", "SH": "CNY", "SZ": "CNY",
-    "SG": "SGD", "AU": "AUD", "JP": "JPY", "CA": "CAD",
+    "US": "USD", "HK": "HKD", "SH": "CNY", "SZ": "CNY", "CN": "CNH",
+    "SG": "SGD", "AU": "AUD", "JP": "JPY", "CA": "CAD", "MY": "MYR",
 }
+
+
+def _safe_num(val) -> float:
+    """Coerce any Moomoo numeric field to float, treating 'N/A' / 'None' / ''
+    / null as 0.0. The SDK returns the literal string 'N/A' for fields not
+    applicable to an account/position type — float('N/A') would otherwise
+    blow up the entire adapter on the first such row."""
+    if val is None:
+        return 0.0
+    try:
+        s = str(val).strip()
+        if not s or s.upper() in ("N/A", "NA", "NONE", "-", "--"):
+            return 0.0
+        return float(s)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _native_currency_for_markets(market_auth: List[str]) -> str:
+    """Infer native currency from a Moomoo account's authorized markets.
+
+    Moomoo accounts have a native currency tied to the market(s) they trade.
+    A US account is USD, HK is HKD, CN is CNH, etc. `accinfo_query` only
+    accepts a currency the account is entitled to — picking the wrong one
+    triggers "This account does not support converting to this currency".
+    """
+    if not market_auth:
+        return "USD"
+    # First authorized market wins (Moomoo lists primary first)
+    primary = str(market_auth[0]).upper().split(".")[-1]  # e.g. "TrdMarket.US" -> "US"
+    return CURRENCY_BY_MARKET.get(primary, "USD")
+
+
+def _currency_enum(code: str) -> Any:
+    """Map ISO currency string to moomoo Currency enum (defaults to USD)."""
+    if not MOOMOO_AVAILABLE:
+        return None
+    mapping = {
+        "USD": Currency.USD, "HKD": Currency.HKD, "CNH": Currency.CNH,
+        "CNY": Currency.CNH, "JPY": Currency.JPY, "SGD": Currency.SGD,
+        "AUD": Currency.AUD, "CAD": Currency.CAD, "MYR": Currency.MYR,
+    }
+    return mapping.get(code.upper(), Currency.USD)
 
 
 def _moomoo_to_ticker(code: str) -> str:
@@ -144,132 +187,287 @@ class MoomooAdapter:
     # -- Account -----------------------------------------------------------
 
     async def get_accounts(self) -> List[Dict[str, Any]]:
-        """Fetch account summary. Returns [] if disconnected or SDK missing."""
+        """Fetch summary for every connected Moomoo account.
+
+        Iterates over the account list returned by `get_acc_list()` and queries
+        each one in ITS native currency (USD for US accounts, HKD for HK, etc.).
+        The default `accinfo_query` currency is HKD — passing the wrong currency
+        raises "This account does not support converting to this currency".
+        """
         if not MOOMOO_AVAILABLE or not self._connected or not self._trade_ctx:
             return []
         try:
-            data = await asyncio.to_thread(self._fetch_account_sync)
+            account_rows = await asyncio.to_thread(self._fetch_all_accounts_sync)
         except Exception as exc:
-            logger.error("Failed to fetch Moomoo account: %s", exc)
+            logger.error("Failed to fetch Moomoo accounts: %s", exc)
             return []
-        if data is None or data.empty:
+        if not account_rows:
             return []
 
-        row = data.iloc[0]
         self._last_sync = datetime.now(timezone.utc).isoformat()
-        net_liq = float(row.get("total_assets", 0) or 0)
-        cash = float(row.get("cash", 0) or 0)
-        unrealized = float(row.get("unrealized_pl", 0) or 0)
-        realized = float(row.get("realized_pl", 0) or 0)
-        buying_power = float(row.get("power", 0) or row.get("max_power_short", 0) or 0)
+        accounts: List[Dict[str, Any]] = []
+        for entry in account_rows:
+            row = entry["info"]
+            acc_id = entry["acc_id"]
+            native_currency = entry["currency"]
+            trd_env = entry["trd_env"]
+            acc_type = entry["acc_type"]
 
-        return [{
-            "broker": "MOOMOO",
-            "account_id": str(row.get("acc_id", "moomoo-default")),
-            "name": f"Moomoo {self._market}",
-            "account_type": self._trade_env_str.lower(),
-            "currency": self._currency,
-            "net_liquidation": net_liq,
-            "cash_balance": cash,
-            "buying_power": buying_power,
-            "unrealized_pl": unrealized,
-            # No true daily P&L field from Moomoo accinfo; realized_pl is cumulative, not daily
-            "daily_pl": 0.0,
-            "connected": True,
-            "last_sync": self._last_sync,
-        }]
+            net_liq = _safe_num(row.get("total_assets"))
+            cash = _safe_num(row.get("cash"))
+            unrealized = _safe_num(row.get("unrealized_pl"))
+            buying_power = _safe_num(row.get("power")) or _safe_num(row.get("max_power_short"))
 
-    def _fetch_account_sync(self):
-        trd_env = TrdEnv.SIMULATE if self._trade_env_str == "SIMULATE" else TrdEnv.REAL
-        ret, data = self._trade_ctx.accinfo_query(trd_env=trd_env)
-        if ret != RET_OK:
-            raise RuntimeError(f"accinfo_query failed: {data}")
-        return data
+            label_market = entry["primary_market"]
+            accounts.append({
+                "broker": "MOOMOO",
+                "account_id": str(acc_id),
+                "name": f"Moomoo {label_market} ({acc_type})" if acc_type else f"Moomoo {label_market}",
+                "account_type": (trd_env or self._trade_env_str).lower(),
+                "currency": native_currency,
+                "net_liquidation": net_liq,
+                "cash_balance": cash,
+                "buying_power": buying_power,
+                "unrealized_pl": unrealized,
+                # No true daily P&L field from Moomoo accinfo; realized_pl is cumulative, not daily
+                "daily_pl": 0.0,
+                "connected": True,
+                "last_sync": self._last_sync,
+            })
+        return accounts
+
+    def _list_accounts_sync(self) -> List[Dict[str, Any]]:
+        """Pull the raw account list, return list of dicts keyed by acc_id."""
+        ret, data = self._trade_ctx.get_acc_list()
+        if ret != RET_OK or data is None or data.empty:
+            raise RuntimeError(f"get_acc_list failed: {data}")
+        accounts: List[Dict[str, Any]] = []
+        target_env = TrdEnv.SIMULATE if self._trade_env_str == "SIMULATE" else TrdEnv.REAL
+        for _, row in data.iterrows():
+            acc_env = str(row.get("trd_env", ""))
+            if acc_env and acc_env != target_env:
+                continue
+            market_auth = list(row.get("trdmarket_auth", []) or [])
+            native_currency = _native_currency_for_markets(market_auth)
+            primary_market = (
+                str(market_auth[0]).upper().split(".")[-1] if market_auth else self._market
+            )
+            accounts.append({
+                "acc_id": int(row["acc_id"]),
+                "trd_env": acc_env or target_env,
+                "acc_type": str(row.get("acc_type", "")),
+                "market_auth": market_auth,
+                "primary_market": primary_market,
+                "currency": native_currency,
+            })
+        return accounts
+
+    def _fetch_all_accounts_sync(self) -> List[Dict[str, Any]]:
+        """For each account, run accinfo_query in its native currency.
+        Returns list of {acc_id, currency, primary_market, trd_env, info(row)}."""
+        results: List[Dict[str, Any]] = []
+        try:
+            account_list = self._list_accounts_sync()
+        except Exception as exc:
+            logger.error("Could not list Moomoo accounts: %s", exc)
+            return results
+
+        target_env = TrdEnv.SIMULATE if self._trade_env_str == "SIMULATE" else TrdEnv.REAL
+        for acc in account_list:
+            acc_id = acc["acc_id"]
+            currency_str = acc["currency"]
+            currency_enum = _currency_enum(currency_str)
+            try:
+                ret, data = self._trade_ctx.accinfo_query(
+                    trd_env=target_env,
+                    acc_id=acc_id,
+                    currency=currency_enum,
+                )
+                if ret != RET_OK:
+                    # Some accounts only accept HKD even when the primary market
+                    # implies otherwise; fall back to HKD then USD before giving up.
+                    fallback_chain = ["HKD", "USD"]
+                    if currency_str in fallback_chain:
+                        fallback_chain.remove(currency_str)
+                    recovered = False
+                    for fallback in fallback_chain:
+                        f_ret, f_data = self._trade_ctx.accinfo_query(
+                            trd_env=target_env,
+                            acc_id=acc_id,
+                            currency=_currency_enum(fallback),
+                        )
+                        if f_ret == RET_OK and f_data is not None and not f_data.empty:
+                            data = f_data
+                            currency_str = fallback
+                            recovered = True
+                            logger.info(
+                                "Moomoo acc %s queried in %s (native %s rejected)",
+                                acc_id, fallback, acc["currency"],
+                            )
+                            break
+                    if not recovered:
+                        logger.warning(
+                            "Moomoo acc %s skipped: accinfo_query failed for currency %s: %s",
+                            acc_id, currency_str, data,
+                        )
+                        continue
+                if data is None or data.empty:
+                    continue
+                # SDK populates `currency` column with whatever it returned in
+                results.append({
+                    "acc_id": acc_id,
+                    "trd_env": acc.get("trd_env"),
+                    "acc_type": acc.get("acc_type"),
+                    "primary_market": acc.get("primary_market"),
+                    "currency": currency_str,
+                    "info": data.iloc[0].to_dict(),
+                })
+            except Exception as exc:
+                logger.warning(
+                    "Moomoo acc %s accinfo_query raised: %s", acc_id, exc
+                )
+                continue
+        return results
 
     # -- Positions ---------------------------------------------------------
 
     async def get_positions(self) -> List[Dict[str, Any]]:
-        """Fetch current positions. Returns [] if disconnected or SDK missing."""
+        """Fetch current positions across every connected Moomoo account.
+        Returns [] if disconnected or SDK missing."""
         if not MOOMOO_AVAILABLE or not self._connected or not self._trade_ctx:
             return []
         try:
-            data = await asyncio.to_thread(self._fetch_positions_sync)
+            grouped = await asyncio.to_thread(self._fetch_positions_sync)
         except Exception as exc:
             logger.error("Failed to fetch Moomoo positions: %s", exc)
             return []
-        if data is None or data.empty:
+        if not grouped:
             return []
 
         self._last_sync = datetime.now(timezone.utc).isoformat()
-        account_id = await self._resolve_account_id()
         positions: List[Dict[str, Any]] = []
 
-        for _, row in data.iterrows():
-            qty = float(row.get("qty", 0) or 0)
-            if qty == 0:
+        for group in grouped:
+            data = group["data"]
+            acc_id = group["acc_id"]
+            currency = group["currency"]
+            if data is None or data.empty:
                 continue
-            symbol = _moomoo_to_ticker(str(row.get("code", "")))
+            for _, row in data.iterrows():
+                qty = _safe_num(row.get("qty"))
+                if qty == 0:
+                    continue
+                symbol = _moomoo_to_ticker(str(row.get("code", "")))
 
-            # -- current price: prefer price field, then nominal_price, then derive from market_val
-            current_price = float(row.get("price", 0) or 0)
-            if current_price == 0:
-                current_price = float(row.get("nominal_price", 0) or 0)
-            market_value = float(row.get("market_val", 0) or 0)
-            if current_price == 0 and qty != 0 and market_value != 0:
-                current_price = market_value / qty
+                # -- current price: prefer price field, then nominal_price, then derive from market_val
+                current_price = _safe_num(row.get("price"))
+                if current_price == 0:
+                    current_price = _safe_num(row.get("nominal_price"))
+                market_value = _safe_num(row.get("market_val"))
+                if current_price == 0 and qty != 0 and market_value != 0:
+                    current_price = market_value / qty
 
-            # -- avg cost: prefer cost_price, then derive from cost basis fields
-            cost = float(row.get("cost_price", 0) or 0)
-            if cost == 0 and qty != 0:
-                cost_basis = float(row.get("cost_val", 0) or 0)
-                if cost_basis != 0:
-                    cost = cost_basis / qty
+                # -- avg cost: prefer cost_price, then average_cost, then diluted_cost
+                cost = _safe_num(row.get("cost_price"))
+                if cost == 0:
+                    cost = _safe_num(row.get("average_cost"))
+                if cost == 0:
+                    cost = _safe_num(row.get("diluted_cost"))
 
-            # -- asset class: detect options via sec_type or symbol pattern
-            sec_type = str(row.get("sec_type", "")).upper()
-            if sec_type in ("OPT", "OPTION", "DRVT"):
-                asset_class = "option"
-            elif re.match(r'^[A-Z]+\d{6}[CP]\d+$', symbol):
-                asset_class = "option"
-            else:
-                asset_class = "equity"
+                # -- asset class: detect options via sec_type or symbol pattern
+                sec_type = str(row.get("sec_type", "")).upper()
+                if sec_type in ("OPT", "OPTION", "DRVT"):
+                    asset_class = "option"
+                elif re.match(r'^[A-Z]+\d{6}[CP]\d+$', symbol):
+                    asset_class = "option"
+                else:
+                    asset_class = "equity"
 
-            pl_ratio = float(row.get("pl_ratio", 0) or 0)
-            unrealized_pct = pl_ratio * 100 if abs(pl_ratio) < 1 else pl_ratio
-            today_pl = float(row.get("today_pl_val", 0) or 0)
-            today_pl_pct = (today_pl / (cost * qty)) * 100 if cost and qty and today_pl else 0.0
+                pl_ratio = _safe_num(row.get("pl_ratio"))
+                unrealized_pct = pl_ratio * 100 if abs(pl_ratio) < 1 else pl_ratio
+                today_pl = _safe_num(row.get("today_pl_val"))
+                today_pl_pct = (today_pl / (cost * qty)) * 100 if cost and qty and today_pl else 0.0
+                row_currency = str(row.get("currency", "") or "").upper() or currency
 
-            positions.append({
-                "symbol": symbol,
-                "name": str(row.get("stock_name", symbol)),
-                "broker": "MOOMOO",
-                "account_id": account_id,
-                "quantity": qty,
-                "avg_cost": cost,
-                "current_price": current_price,
-                "market_value": market_value,
-                "unrealized_pl": float(row.get("pl_val", 0) or 0),
-                "unrealized_pl_pct": unrealized_pct,
-                "daily_pl": today_pl,
-                "daily_pl_pct": today_pl_pct,
-                "currency": self._currency,
-                "sector": "",
-                "asset_class": asset_class,
-            })
+                positions.append({
+                    "symbol": symbol,
+                    "name": str(row.get("stock_name", symbol)),
+                    "broker": "MOOMOO",
+                    "account_id": str(acc_id),
+                    "quantity": qty,
+                    "avg_cost": cost,
+                    "current_price": current_price,
+                    "market_value": market_value,
+                    "unrealized_pl": _safe_num(row.get("pl_val")),
+                    "unrealized_pl_pct": unrealized_pct,
+                    "daily_pl": today_pl,
+                    "daily_pl_pct": today_pl_pct,
+                    "currency": row_currency,
+                    "sector": "",
+                    "asset_class": asset_class,
+                })
         return positions
 
-    def _fetch_positions_sync(self):
-        trd_env = TrdEnv.SIMULATE if self._trade_env_str == "SIMULATE" else TrdEnv.REAL
-        ret, data = self._trade_ctx.position_list_query(trd_env=trd_env)
-        if ret != RET_OK:
-            raise RuntimeError(f"position_list_query failed: {data}")
-        return data
+    def _fetch_positions_sync(self) -> List[Dict[str, Any]]:
+        """Query positions per account in its native currency."""
+        results: List[Dict[str, Any]] = []
+        try:
+            account_list = self._list_accounts_sync()
+        except Exception as exc:
+            logger.error("Could not list Moomoo accounts for positions: %s", exc)
+            return results
+
+        target_env = TrdEnv.SIMULATE if self._trade_env_str == "SIMULATE" else TrdEnv.REAL
+        for acc in account_list:
+            acc_id = acc["acc_id"]
+            currency_str = acc["currency"]
+            currency_enum = _currency_enum(currency_str)
+            try:
+                ret, data = self._trade_ctx.position_list_query(
+                    trd_env=target_env,
+                    acc_id=acc_id,
+                    currency=currency_enum,
+                )
+                if ret != RET_OK:
+                    # Same currency fallback chain as accinfo
+                    fallback_chain = ["USD", "HKD"]
+                    if currency_str in fallback_chain:
+                        fallback_chain.remove(currency_str)
+                    recovered = False
+                    for fallback in fallback_chain:
+                        f_ret, f_data = self._trade_ctx.position_list_query(
+                            trd_env=target_env,
+                            acc_id=acc_id,
+                            currency=_currency_enum(fallback),
+                        )
+                        if f_ret == RET_OK:
+                            data = f_data
+                            currency_str = fallback
+                            recovered = True
+                            break
+                    if not recovered:
+                        logger.warning(
+                            "Moomoo acc %s positions skipped: %s", acc_id, data
+                        )
+                        continue
+                results.append({
+                    "acc_id": acc_id,
+                    "currency": currency_str,
+                    "data": data,
+                })
+            except Exception as exc:
+                logger.warning(
+                    "Moomoo acc %s position_list_query raised: %s", acc_id, exc
+                )
+                continue
+        return results
 
     async def _resolve_account_id(self) -> str:
+        """Backwards-compat helper — returns the first known account id."""
         try:
-            data = await asyncio.to_thread(self._fetch_account_sync)
-            if data is not None and not data.empty:
-                return str(data.iloc[0].get("acc_id", "moomoo-default"))
+            accounts = await asyncio.to_thread(self._list_accounts_sync)
+            if accounts:
+                return str(accounts[0]["acc_id"])
         except Exception:
             pass
         return "moomoo-default"

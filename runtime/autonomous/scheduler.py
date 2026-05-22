@@ -3,14 +3,32 @@ NCL Autonomous Scheduler
 ========================
 
 Background task scheduler that makes NCL a true autonomous second brain.
-Runs continuous loops for:
+Spawns 17 long-running asyncio tasks (as of 2026-05-21):
 
-1. Intelligence Scanning (Awarebot) — X/YouTube/Reddit monitoring
-2. Future Prediction — Ensemble forecasting with convergence detection
-3. Council Auto-Spawn — Triggers council deliberation on high-signal events
-4. Memory Consolidation — Periodic merge and decay processing
-5. AAC War Room Sync — Pulls market regime data from AAC forecasters
-6. MWP Workspace Health — Monitors pipeline stage health
+  1. Awarebot agent           — unified intel pipeline (replaces scanner,
+                                 prediction, intel collection, brief loops)
+  2. Council Auto-Spawn       — fires Delphi-MAD debates on signal convergence
+                                 or scheduled 4hr strategic review
+  3. Memory Consolidation     — decay + dedup + prune + KG maintenance
+  4. Workspace Health         — MWP pipeline stage observability
+  5. Mandate Purge            — hygiene against state-leak (max 1k mandates)
+  6. Feedback Synthesis       — consumes pillar reports → synthesis notes
+  7. Heartbeat                — 60s liveness JSONL + watchdog ntfy alerts
+  8. Working Context          — 6am assemble / noon refresh / 11pm EOD
+  9. Journal Reflection       — 10pm ET LLM daily synthesis
+ 10. Night Watch              — 2-5am ET 5-phase digital cortex maintenance
+ 11. Calendar Agent           — lunar/market/local-event correlation
+ 12. Calendar Alerts          — pushes critical/high alerts via ntfy
+ 13. Health Roll-up           — 60s aggregated component status to data/health
+ 14. Cost Rollover            — UTC-midnight cost ledger close + reset
+ 15. Cache Warmer             — 5m cold-start latency mitigation for cal+ctx
+ 16. Alert Dispatch           — rate-limited+deduped centralized ntfy pump
+ 17. YTC Dedicated            — hourly YouTube Council (split from Awarebot)
+
+Plus a supervisor task that monitors and restarts crashed loops up to 3x.
+
+REMOVED 2026-05-21:
+  - _aac_sync_loop (pillar polling; folded into Night Watch health audit)
 
 All intervals are configurable via ncl.yaml or environment variables.
 """
@@ -35,6 +53,8 @@ from ..journal.store import JournalStore
 from ..journal.reflection_engine import ReflectionEngine, ContextAwareTips
 from ..awarebot.agent import Awarebot
 from ..memory.working_context import DailyContextWindow
+from ..notifications import get_alert_dispatcher, enqueue_alert
+from ..health.rollup import build_health_rollup, write_rollup_atomic
 
 log = logging.getLogger("ncl.autonomous")
 
@@ -98,20 +118,42 @@ class AutonomousScheduler:
             "predictions_run": 0,
             "councils_auto_spawned": 0,
             "memory_consolidations": 0,
-            "aac_syncs": 0,
             "high_signals_detected": 0,
             "started_at": None,
             "last_scan": None,
             "last_prediction": None,
             "last_council": None,
             "last_consolidation": None,
-            "last_aac_sync": None,
             "intel_briefs_generated": 0,
             "intel_collections_run": 0,
             "intel_alerts_pushed": 0,
             "last_intel_brief": None,
             "last_intel_collection": None,
+            # ── Heartbeat / watchdog state ────────────────────────
+            "last_heartbeat_at": None,
+            "heartbeat_count": 0,
+            "stale_loops": [],  # list of {loop, last_fire_at, age_s, threshold_s}
+            # ── 2026-05-21 new loops ─────────────────────────────
+            "last_health_rollup": None,
+            "health_rollups_written": 0,
+            "last_cost_rollover": None,
+            "cost_rollovers_count": 0,
+            "last_cache_warm": None,
+            "cache_warms_count": 0,
+            "last_alert_dispatch_tick": None,
+            "last_ytc_dedicated": None,
+            "ytc_dedicated_runs": 0,
         }
+
+        # Heartbeat watchdog config — alert dedup + last alert-fired tracking
+        self._heartbeat_alert_sent: dict[str, str] = {}  # loop_name -> ISO date last alerted
+        self._heartbeat_dir = self.data_dir / "heartbeat"
+        self._heartbeat_dir.mkdir(parents=True, exist_ok=True)
+
+        # Latest health rollup (overwritten by _health_rollup_loop each minute).
+        # Persisted to data/health/current.json, but also kept in memory so
+        # /system/health/rollup can answer in O(1) without a disk read.
+        self._latest_health_rollup: Optional[dict] = None
 
         # Signal buffer — bounded deque to prevent unbounded accumulation
         # Capped at 1000 entries; oldest signals are dropped automatically
@@ -201,11 +243,28 @@ class AutonomousScheduler:
                 memory_store=self.brain.memory_store if self.brain else None,
                 working_context=self._working_context,
                 journal_store=None,  # Set below after JournalStore init
+                # YTC moved to scheduler-level ncl-ytc-dedicated loop (2026-05-21)
+                # so it has its own cost cap and doesn't block the 30-min scan cycle.
+                disable_internal_ytc=True,
             )
             log.info("  Awarebot agent: ACTIVE (unified intelligence pipeline)")
         except Exception as e:
             log.error(f"  Awarebot agent: FAILED to initialize: {e}")
             self.awarebot = None
+
+        # ── Initialize Calendar Agent ─────────────────────────────────
+        # Calendar agent runs lunar/market/local-event correlation and
+        # emits critical alerts (Kp>=7, CME, prediction-due-today).
+        try:
+            from ..calendar.calendar_agent import get_calendar_agent
+            self.calendar_agent = get_calendar_agent()
+            log.info("[SCHEDULER] Calendar agent loaded")
+        except Exception as e:
+            self.calendar_agent = None
+            log.warning("[SCHEDULER] Calendar agent unavailable: %s", e)
+
+        # Dedup set for critical-alert push notifications
+        self._pushed_calendar_alerts: set[str] = set()
 
         # Journal system
         try:
@@ -214,7 +273,52 @@ class AutonomousScheduler:
                 memory_store=self.brain.memory_store if self.brain else None,
                 working_context=self._working_context,
             )
-            self._reflection_engine = ReflectionEngine(self._journal_store)
+            # Inline Anthropic Haiku client so the autonomous reflection loop
+            # generates real LLM synthesis (not template fallback) when
+            # ANTHROPIC_API_KEY is set. Mirrors the client wired in
+            # routes.lifespan for the manual /journal/reflect endpoint.
+            _anth_key = os.environ.get("ANTHROPIC_API_KEY", "")
+            _llm_client = None
+            if _anth_key:
+                class _AnthropicReflectionClient:
+                    def __init__(self, api_key: str, model: str = "claude-3-5-haiku-20241022"):
+                        self.api_key = api_key
+                        self.model = model
+
+                    async def generate(self, prompt: str, system: str = "") -> str:
+                        import httpx
+                        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
+                            resp = await client.post(
+                                "https://api.anthropic.com/v1/messages",
+                                headers={
+                                    "x-api-key": self.api_key,
+                                    "anthropic-version": "2023-06-01",
+                                    "content-type": "application/json",
+                                },
+                                json={
+                                    "model": self.model,
+                                    "max_tokens": 1200,
+                                    "system": system or "You are a journaling synthesis assistant. Return valid JSON only.",
+                                    "messages": [{"role": "user", "content": prompt}],
+                                },
+                            )
+                            resp.raise_for_status()
+                            data = resp.json()
+                            try:
+                                from ..cost_tracker import record_cost
+                                usage = data.get("usage", {}) or {}
+                                cost = (usage.get("input_tokens", 0) * 0.80
+                                        + usage.get("output_tokens", 0) * 4.00) / 1_000_000
+                                if cost > 0:
+                                    await record_cost("anthropic", cost, "journal_reflection")
+                            except Exception:
+                                pass
+                            return data["content"][0]["text"]
+                _llm_client = _AnthropicReflectionClient(_anth_key)
+                log.info("  Journal reflection LLM: Claude 3.5 Haiku")
+            else:
+                log.warning("  Journal reflection LLM: NONE (template fallback) — set ANTHROPIC_API_KEY")
+            self._reflection_engine = ReflectionEngine(self._journal_store, llm_client=_llm_client)
             # Wire journal store into Awarebot for cross-referencing
             if self.awarebot:
                 self.awarebot.journal_store = self._journal_store
@@ -226,7 +330,6 @@ class AutonomousScheduler:
         self._tasks = [
             asyncio.create_task(self._council_auto_loop(), name="ncl-council-auto"),
             asyncio.create_task(self._memory_consolidation_loop(), name="ncl-memory"),
-            asyncio.create_task(self._aac_sync_loop(), name="ncl-aac-sync"),
             asyncio.create_task(self._workspace_health_loop(), name="ncl-workspace"),
             asyncio.create_task(self._mandate_purge_loop(), name="ncl-mandate-purge"),
             asyncio.create_task(self._feedback_synthesis_loop(), name="ncl-feedback-synth"),
@@ -240,6 +343,15 @@ class AutonomousScheduler:
                 asyncio.create_task(self.awarebot.run(), name="ncl-awarebot-agent")
             )
 
+        # Calendar agent — class-based with .run() (same pattern as Awarebot)
+        if self.calendar_agent:
+            self._tasks.append(
+                asyncio.create_task(self.calendar_agent.run(), name="ncl-calendar-agent")
+            )
+            self._tasks.append(
+                asyncio.create_task(self._calendar_alert_check_loop(), name="ncl-calendar-alerts")
+            )
+
         # Journal reflection task (needs _journal_store to exist)
         if self._journal_store and self._reflection_engine:
             self._tasks.append(
@@ -249,6 +361,28 @@ class AutonomousScheduler:
         # Night Watch — nightly 2am ET health audit
         self._tasks.append(
             asyncio.create_task(self._night_watch_loop(), name="ncl-night-watch")
+        )
+
+        # ── New autonomous loops (2026-05-21) ─────────────────────────
+        # Loop 1: 60s rolled-up component status → data/health/current.json
+        self._tasks.append(
+            asyncio.create_task(self._health_rollup_loop(), name="ncl-health-rollup")
+        )
+        # Loop 2: UTC-midnight cost ledger close + counter reset
+        self._tasks.append(
+            asyncio.create_task(self._cost_rollover_loop(), name="ncl-cost-rollover")
+        )
+        # Loop 3: warm calendar + working-context caches every 5 min
+        self._tasks.append(
+            asyncio.create_task(self._cache_warmer_loop(), name="ncl-cache-warmer")
+        )
+        # Loop 4: centralized rate-limited ntfy dispatcher
+        self._tasks.append(
+            asyncio.create_task(self._alert_dispatch_loop(), name="ncl-alert-dispatch")
+        )
+        # Loop 5: dedicated YouTube Council — split from Awarebot, own budget
+        self._tasks.append(
+            asyncio.create_task(self._ytc_dedicated_loop(), name="ncl-ytc-dedicated")
         )
 
         # Attach a done-callback to every task so a silent crash (unobserved
@@ -271,17 +405,27 @@ class AutonomousScheduler:
             "ncl-heartbeat": self._heartbeat_loop,
             "ncl-council-auto": self._council_auto_loop,
             "ncl-memory": self._memory_consolidation_loop,
-            "ncl-aac-sync": self._aac_sync_loop,
             "ncl-workspace": self._workspace_health_loop,
             "ncl-mandate-purge": self._mandate_purge_loop,
             "ncl-feedback-synth": self._feedback_synthesis_loop,
             "ncl-working-ctx": self._working_context_loop,
             "ncl-night-watch": self._night_watch_loop,
             "ncl-journal-reflection": self._journal_reflection_loop,
+            # New 2026-05-21 loops
+            "ncl-health-rollup": self._health_rollup_loop,
+            "ncl-cost-rollover": self._cost_rollover_loop,
+            "ncl-cache-warmer": self._cache_warmer_loop,
+            "ncl-alert-dispatch": self._alert_dispatch_loop,
+            "ncl-ytc-dedicated": self._ytc_dedicated_loop,
         }
         # Awarebot agent is restarted via its own .run() method
         if self.awarebot:
             self._task_factories["ncl-awarebot-agent"] = self.awarebot.run
+
+        # Calendar agent + its alert-check sidecar
+        if self.calendar_agent:
+            self._task_factories["ncl-calendar-agent"] = self.calendar_agent.run
+            self._task_factories["ncl-calendar-alerts"] = self._calendar_alert_check_loop
 
         # ── Spawn supervisor (not in self._tasks — supervises itself) ─
         self._restart_counts.clear()
@@ -416,23 +560,30 @@ class AutonomousScheduler:
                 if council_needed:
                     log.info(f"[COUNCIL-AUTO] Spawning autonomous council: {council_trigger}")
                     try:
-                        # Create a synthetic pump prompt for the council
-                        session = await self.brain.council_engine.spawn_council(
+                        # spawn_council_session() is the high-level brain wrapper.
+                        # It calls council_engine.spawn_session() + run_debate(),
+                        # persists, and returns a CouncilSession Pydantic model.
+                        # (Was calling non-existent council_engine.spawn_council —
+                        # AttributeError raised on every spawn attempt before this fix.)
+                        topic = f"autonomous:{council_trigger}"
+                        session = await self.brain.spawn_council_session(
+                            topic=topic,
                             prompt=council_prompt,
-                            context={
-                                "trigger": council_trigger,
-                                "autonomous": True,
-                                "signal_count": len(council_flags) if council_flags else 0,
-                                "timestamp": now.isoformat(),
-                            },
+                            members=None,  # default full membership
                         )
 
                         if session:
+                            consensus_text = (session.consensus or "")[:500]
+                            agreement_pct = (
+                                session.consensus_score.agreement_pct
+                                if session.consensus_score else 0.0
+                            )
+
                             # Store council output in memory
                             await self.brain.memory_store.create_unit(
                                 content=(
                                     f"Autonomous council ({council_trigger}): "
-                                    f"{session.get('consensus', '')[:500]}"
+                                    f"{consensus_text}"
                                 ),
                                 source=f"autonomous:council:{council_trigger}",
                                 importance=90.0,
@@ -445,13 +596,17 @@ class AutonomousScheduler:
                             self._stats["councils_auto_spawned"] += 1
                             self._stats["last_council"] = now.isoformat()
 
-                            log.info(f"[COUNCIL-AUTO] Session complete — "
-                                     f"consensus={session.get('consensus_score', 0):.0f}%")
+                            log.info(
+                                f"[COUNCIL-AUTO] Session complete — "
+                                f"consensus={agreement_pct:.0f}% "
+                                f"id={session.session_id}"
+                            )
 
                             await self._log_autonomous_event("council_auto_spawned", {
                                 "trigger": council_trigger,
-                                "consensus_score": session.get("consensus_score", 0),
-                                "mandates_proposed": len(session.get("mandates", [])),
+                                "session_id": session.session_id,
+                                "consensus_score": agreement_pct,
+                                "recommendations": len(session.recommendations or []),
                             })
 
                     except Exception as e:
@@ -523,111 +678,14 @@ class AutonomousScheduler:
 
             await asyncio.sleep(self.config.memory_consolidation_interval)
 
-    # ─── LOOP 5: AAC War Room Sync ─────────────────────────────
-
-    async def _aac_sync_loop(self) -> None:
-        """
-        Pull market regime data from AAC forecasters.
-
-        Queries AAC's health endpoint and market data APIs to sync:
-        - Current market regime classification
-        - Crypto regime signals (8 formulas)
-        - Stock opportunity rankings
-        - Prediction market positions
-        - P&L and risk metrics
-
-        Stores as memory units for council access.
-        """
-        await asyncio.sleep(120)  # Wait for services to stabilize
-
-        while self._running:
-            if EMERGENCY_STOP_EVENT.is_set():
-                log.critical("[AAC-SYNC] Emergency stop active — halting loop")
-                break
-            try:
-                aac_data = {}
-
-                # Try AAC health endpoint.
-                # json.loads() is called on the event loop after each to_thread()
-                # HTTP call completes. These are small health/status responses
-                # (typically <10 KB) so parsing on the event loop is acceptable;
-                # wrapping in a second to_thread() would add overhead without
-                # meaningful benefit.
-                try:
-                    aac_health = await asyncio.to_thread(
-                        self._http_get, "http://localhost:8080/health"
-                    )
-                    if aac_health:
-                        aac_data["health"] = json.loads(aac_health)
-                except Exception:
-                    pass
-
-                # Try AAC War Room URL if configured
-                war_room_url = self.config.aac_war_room_url
-                if war_room_url:
-                    try:
-                        regime_data = await asyncio.to_thread(
-                            self._http_get, f"{war_room_url}/regime"
-                        )
-                        if regime_data:
-                            aac_data["market_regime"] = json.loads(regime_data)
-                    except Exception:
-                        pass
-
-                    try:
-                        positions_data = await asyncio.to_thread(
-                            self._http_get, f"{war_room_url}/positions"
-                        )
-                        if positions_data:
-                            aac_data["positions"] = json.loads(positions_data)
-                    except Exception:
-                        pass
-
-                # Try NCC Master for execution status
-                try:
-                    ncc_health = await asyncio.to_thread(
-                        self._http_get, "http://localhost:8765/health"
-                    )
-                    if ncc_health:
-                        aac_data["ncc_status"] = json.loads(ncc_health)
-                except Exception:
-                    pass
-
-                # Try BRS Dashboard for revenue metrics
-                try:
-                    brs_data = await asyncio.to_thread(
-                        self._http_get, "http://localhost:8000/matrix/sitrep"
-                    )
-                    if brs_data:
-                        aac_data["brs_sitrep"] = json.loads(brs_data)
-                except Exception:
-                    pass
-
-                if aac_data:
-                    # Store pillar sync data in memory
-                    await self.brain.memory_store.create_unit(
-                        content=(
-                            f"Pillar sync: reached {list(aac_data.keys())} at "
-                            f"{datetime.now(timezone.utc).isoformat()}"
-                        ),
-                        source="autonomous:aac_sync",
-                        importance=40.0,
-                        tags=["aac", "sync", "pillar_status", "autonomous"],
-                    )
-
-                    self._stats["aac_syncs"] += 1
-                    self._stats["last_aac_sync"] = datetime.now(timezone.utc).isoformat()
-
-                    log.info(f"[AAC-SYNC] Pillar sync complete — "
-                             f"reached: {list(aac_data.keys())}")
-
-            except asyncio.CancelledError:
-                raise
-            except Exception as e:
-                log.error(f"[AAC-SYNC] Sync error: {e}", exc_info=True)
-
-            # Sync every 15 minutes
-            await asyncio.sleep(900)
+    # ─── LOOP 5 (REMOVED 2026-05-21): AAC War Room Sync ───────
+    # _aac_sync_loop deleted per NATRIX directive. Polled BRS
+    # dashboard stub + AAC health on a 15min cadence and produced
+    # low-value "pillar sync" memory units (importance=40). AAC/BRS
+    # health checks are now folded into the Night Watch deterministic
+    # health audit (Phase 1) and the workspace health loop. Removed
+    # from self._tasks, self._task_factories, and stats counters
+    # (aac_syncs, last_aac_sync).
 
     # ─── LOOP 6: Workspace Health ──────────────────────────────
 
@@ -3406,6 +3464,22 @@ class AutonomousScheduler:
         if len(body) > 3800:
             body = body[:3800] + "\n  ... (truncated)"
 
+        # Migrated 2026-05-21: enqueue via central AlertDispatcher.
+        try:
+            enqueue_alert(
+                title=title,
+                body=body,
+                priority=priority,
+                tags=tags,
+                # Night Watch runs once per night — dedup by date so accidental
+                # double-invocations within an hour collapse.
+                dedup_key=f"night-watch:{datetime.now(timezone.utc).date().isoformat()}:{priority}",
+                source="night_watch",
+            )
+            log.info(f"[NIGHT-WATCH] Push enqueued: {title} ({len(issues)} issues)")
+            return
+        except Exception as enq_err:
+            log.warning(f"[NIGHT-WATCH] dispatcher unavailable, direct POST fallback: {enq_err}")
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
                 resp = await client.post(
@@ -3419,7 +3493,7 @@ class AutonomousScheduler:
                     },
                 )
                 resp.raise_for_status()
-                log.info(f"[NIGHT-WATCH] Push sent: {title} ({len(issues)} issues)")
+                log.info(f"[NIGHT-WATCH] Push sent (fallback): {title} ({len(issues)} issues)")
         except Exception as e:
             log.error(f"[NIGHT-WATCH] ntfy push failed: {e}")
 
@@ -4634,27 +4708,38 @@ class AutonomousScheduler:
             nw_title = "NCL Night Watch Daily Brief"
 
         # ── 3. Push via ntfy ──────────────────────────────────────────
+        # Migrated 2026-05-21 to enqueue via central AlertDispatcher.
         try:
-            # Truncate for ntfy (max ~4KB)
             push_body = synthesis_text
             if len(push_body) > 3800:
                 push_body = push_body[:3800] + "\n\n... (truncated — full brief saved to disk)"
-
             push_body += f"\n\nLLM analysis cost: ${total_llm_cost:.4f}"
 
-            async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
-                resp = await client.post(
-                    "https://ntfy.sh/ncl-natrix-intel-7x9k",
-                    content=push_body.encode("utf-8"),
-                    headers={
-                        "Content-Type": "text/plain; charset=utf-8",
-                        "Title": nw_title.encode("ascii", "replace").decode("ascii"),
-                        "Priority": nw_priority,
-                        "Tags": nw_tags,
-                    },
+            try:
+                enqueue_alert(
+                    title=nw_title,
+                    body=push_body,
+                    priority=nw_priority,
+                    tags=nw_tags,
+                    dedup_key=f"night-watch-analyst:{datetime.now(timezone.utc).date().isoformat()}",
+                    source="night_watch",
                 )
-                resp.raise_for_status()
-                log.info("[NIGHT-WATCH] Analyst brief pushed via ntfy: %s", nw_title)
+                log.info("[NIGHT-WATCH] Analyst brief enqueued: %s", nw_title)
+            except Exception as enq_err:
+                log.warning("[NIGHT-WATCH] dispatcher unavailable, direct POST fallback: %s", enq_err)
+                async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
+                    resp = await client.post(
+                        "https://ntfy.sh/ncl-natrix-intel-7x9k",
+                        content=push_body.encode("utf-8"),
+                        headers={
+                            "Content-Type": "text/plain; charset=utf-8",
+                            "Title": nw_title.encode("ascii", "replace").decode("ascii"),
+                            "Priority": nw_priority,
+                            "Tags": nw_tags,
+                        },
+                    )
+                    resp.raise_for_status()
+                    log.info("[NIGHT-WATCH] Analyst brief pushed via ntfy (fallback): %s", nw_title)
         except Exception as e:
             log.error("[NIGHT-WATCH] Analyst ntfy push failed: %s", e)
 
@@ -4821,49 +4906,400 @@ class AutonomousScheduler:
                 await asyncio.sleep(check_interval)
 
     async def _send_supervisor_alert(self, task_name: str, error: str) -> None:
-        """Send an urgent ntfy alert when a task exhausts its restart budget."""
+        """Enqueue an urgent ntfy alert when a task exhausts its restart budget.
+
+        Migrated 2026-05-21 to the centralized AlertDispatcher
+        (rate-limited + deduped). Falls back to direct ntfy POST on
+        any dispatcher import failure so we never silently swallow a
+        supervisor death.
+        """
+        body = (
+            f"Task '{task_name}' has crashed 3 times and will not be restarted.\n\n"
+            f"Last error: {error}"
+        )
+        try:
+            enqueue_alert(
+                title="NCL Supervisor Alert",
+                body=body,
+                priority="5",
+                tags="rotating_light",
+                dedup_key=f"supervisor:{task_name}",
+                source="supervisor",
+            )
+            log.info("[SUPERVISOR] ntfy alert enqueued for task '%s'", task_name)
+            return
+        except Exception as e:
+            log.warning("[SUPERVISOR] dispatcher unavailable, direct POST fallback: %s", e)
+        # Fallback path — only fires if AlertDispatcher import broke.
         try:
             import httpx
-
             async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
                 await client.post(
                     "https://ntfy.sh/ncl-natrix-intel-7x9k",
-                    content=(
-                        f"Task '{task_name}' has crashed 3 times and will not be restarted.\n\n"
-                        f"Last error: {error}"
-                    ).encode(),
+                    content=body.encode(),
                     headers={
                         "Title": "NCL Supervisor Alert",
                         "Priority": "5",
                         "Tags": "rotating_light",
                     },
                 )
-            log.info("[SUPERVISOR] ntfy alert sent for task '%s'", task_name)
+            log.info("[SUPERVISOR] ntfy alert sent (fallback) for task '%s'", task_name)
         except Exception as e:
             log.warning("[SUPERVISOR] Failed to send ntfy alert: %s", e)
 
+    # ─── Calendar Agent — Critical Alert Push Loop ───────────────────
+
+    async def _calendar_alert_check_loop(self) -> None:
+        """
+        Poll the Calendar agent's critical_alerts.jsonl every 10 minutes.
+
+        For each unprocessed alert with severity in {"critical", "high"},
+        push it via ntfy. Dedup via self._pushed_calendar_alerts so the
+        same alert isn't pushed twice across restarts of this loop.
+        """
+        import httpx
+
+        check_interval = 600  # 10 minutes
+        alerts_path = self.data_dir / "calendar" / "critical_alerts.jsonl"
+
+        log.info(
+            "[CALENDAR-ALERTS] Critical alert loop started (poll every %ds, file=%s)",
+            check_interval, alerts_path,
+        )
+
+        # Brief initial delay so the calendar agent has time to spin up
+        await asyncio.sleep(30)
+
+        while self._running:
+            if EMERGENCY_STOP_EVENT.is_set():
+                log.critical("[CALENDAR-ALERTS] Emergency stop active — halting loop")
+                break
+
+            try:
+                if not alerts_path.exists():
+                    await asyncio.sleep(check_interval)
+                    continue
+
+                # Read JSONL append-only ledger
+                try:
+                    async with aiofiles.open(alerts_path, "r") as f:
+                        raw = await f.read()
+                except Exception as read_err:
+                    log.warning("[CALENDAR-ALERTS] Failed to read %s: %s", alerts_path, read_err)
+                    await asyncio.sleep(check_interval)
+                    continue
+
+                for line in raw.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        alert = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+
+                    severity = (alert.get("severity") or "").lower()
+                    if severity not in ("critical", "high"):
+                        continue
+
+                    # Dedup key: prefer explicit id, otherwise compose from fields
+                    alert_id = (
+                        alert.get("id")
+                        or alert.get("alert_id")
+                        or f"{alert.get('timestamp','')}|{alert.get('type','')}|{alert.get('title','')}"
+                    )
+                    if not alert_id or alert_id in self._pushed_calendar_alerts:
+                        continue
+
+                    title = alert.get("title") or f"Calendar {severity.upper()} Alert"
+                    body = alert.get("message") or alert.get("body") or json.dumps(alert, default=_json_safe)
+                    priority = "5" if severity == "critical" else "4"
+                    tags = "rotating_light" if severity == "critical" else "warning"
+
+                    try:
+                        # Migrated 2026-05-21: enqueue via central dispatcher
+                        # (rate limit + dedup). Falls back to direct POST on
+                        # dispatcher import failure.
+                        try:
+                            enqueue_alert(
+                                title=str(title)[:200],
+                                body=str(body)[:3500],
+                                priority=priority,
+                                tags=tags,
+                                dedup_key=f"calendar:{alert_id}",
+                                source="calendar_alerts",
+                            )
+                        except Exception as enq_err:
+                            log.warning(
+                                "[CALENDAR-ALERTS] dispatcher unavailable, direct POST: %s",
+                                enq_err,
+                            )
+                            async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
+                                await client.post(
+                                    "https://ntfy.sh/ncl-natrix-intel-7x9k",
+                                    content=str(body)[:3500].encode(),
+                                    headers={
+                                        "Title": str(title)[:200],
+                                        "Priority": priority,
+                                        "Tags": tags,
+                                    },
+                                )
+                        self._pushed_calendar_alerts.add(alert_id)
+                        log.info(
+                            "[CALENDAR-ALERTS] Enqueued %s alert: %s",
+                            severity, title,
+                        )
+                    except Exception as push_err:
+                        log.warning(
+                            "[CALENDAR-ALERTS] Failed to push alert '%s': %s",
+                            alert_id, push_err,
+                        )
+
+            except asyncio.CancelledError:
+                log.info("[CALENDAR-ALERTS] Loop cancelled")
+                return
+            except Exception as e:
+                log.error("[CALENDAR-ALERTS] Loop error: %s", e, exc_info=True)
+
+            await asyncio.sleep(check_interval)
+
     # ─── Helpers ───────────────────────────────────────────────
 
-    # ─── LOOP 9: Heartbeat ──────────────────────────────────────────
+    # ─── LOOP 9: Heartbeat + Watchdog ──────────────────────────────
+
+    # Watchdog: per-loop maximum staleness before WARN/ERROR/ntfy.
+    # Keyed by the stats-dict key holding the loop's last-fire ISO timestamp.
+    _WATCHDOG_THRESHOLDS = {
+        # (stats_key, max_age_seconds, human_label)
+        "last_scan":               (15 * 60,   "Awarebot scan"),
+        "last_prediction":         (90 * 60,   "Prediction"),
+        "last_consolidation":      (2 * 3600,  "Memory consolidation"),
+        "last_intel_brief":        (6 * 3600,  "Intel brief"),
+        "last_journal_reflection": (26 * 3600, "Journal reflection"),
+        # last_aac_sync watchdog removed with _aac_sync_loop (2026-05-21)
+    }
+
+    def _build_heartbeat_record(self) -> dict:
+        """Compose a single heartbeat JSONL record.
+        Pulls timestamps from scheduler stats + awarebot stats so the ledger is
+        a single source of truth for liveness across all loops."""
+        now = datetime.now(timezone.utc)
+        active = [t.get_name() for t in self._tasks if not t.done()]
+        dead = [t.get_name() for t in self._tasks if t.done()]
+
+        aware = {}
+        if self.awarebot:
+            try:
+                aware = self.awarebot.get_stats() or {}
+            except Exception:
+                aware = {}
+
+        # Pull last-fire timestamps from awarebot into scheduler stats so the
+        # watchdog has a single dict to inspect.
+        if aware.get("last_scan_at"):
+            self._stats["last_scan"] = aware["last_scan_at"]
+        if aware.get("last_prediction_at"):
+            self._stats["last_prediction"] = aware["last_prediction_at"]
+        if aware.get("last_brief_at"):
+            self._stats["last_intel_brief"] = aware["last_brief_at"]
+
+        return {
+            "ts": now.isoformat(),
+            "active_tasks": active,
+            "dead_tasks": dead,
+            "signal_buffer": len(self._signal_buffer),
+            "scans": self._stats["scans_completed"],
+            "predictions": self._stats["predictions_run"],
+            "councils": self._stats["councils_auto_spawned"],
+            "memory_consolidations": self._stats["memory_consolidations"],
+            "aware_cycles": int(aware.get("cycles_completed", 0)),
+            "last_scan_at": self._stats.get("last_scan"),
+            "last_prediction_at": self._stats.get("last_prediction"),
+            "last_consolidation_at": self._stats.get("last_consolidation"),
+            "last_intel_brief_at": self._stats.get("last_intel_brief"),
+            "last_journal_reflection_at": self._stats.get("last_journal_reflection"),
+        }
+
+    def _check_watchdog(self, record: dict) -> list[dict]:
+        """Return list of stale-loop descriptors. Each item:
+        {loop, last_fire_at, age_s, threshold_s}."""
+        now = datetime.now(timezone.utc)
+        stale: list[dict] = []
+        for key, (max_age, label) in self._WATCHDOG_THRESHOLDS.items():
+            ts_str = self._stats.get(key)
+            if not ts_str:
+                # Never fired — only stale if scheduler has been up long enough
+                started = self._stats.get("started_at")
+                if started:
+                    try:
+                        s = datetime.fromisoformat(started.replace("Z", "+00:00"))
+                        if s.tzinfo is None:
+                            s = s.replace(tzinfo=timezone.utc)
+                        if (now - s).total_seconds() > max_age:
+                            stale.append({
+                                "loop": label,
+                                "key": key,
+                                "last_fire_at": None,
+                                "age_s": int((now - s).total_seconds()),
+                                "threshold_s": max_age,
+                            })
+                    except Exception:
+                        pass
+                continue
+            try:
+                ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                age = (now - ts).total_seconds()
+                if age > max_age:
+                    stale.append({
+                        "loop": label,
+                        "key": key,
+                        "last_fire_at": ts_str,
+                        "age_s": int(age),
+                        "threshold_s": max_age,
+                    })
+            except Exception:
+                continue
+        return stale
+
+    async def _heartbeat_push_alert(self, stale: list[dict]) -> None:
+        """Push ntfy alert for stale loops, deduped to once per loop per UTC day.
+
+        Migrated 2026-05-21 to use the central AlertDispatcher (which has
+        its own 1-hour per-dedup-key cooldown). The per-day local dedup
+        is kept as an extra safety net.
+        """
+        today = datetime.now(timezone.utc).date().isoformat()
+        new_alerts = [s for s in stale if self._heartbeat_alert_sent.get(s["key"]) != today]
+        if not new_alerts:
+            return
+        title = f"Heartbeat watchdog — {len(new_alerts)} stale loop(s)"
+        body_lines = [f"[{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}]"]
+        for s in new_alerts:
+            body_lines.append(
+                f"  • {s['loop']}: {s['age_s'] // 60}m old "
+                f"(threshold {s['threshold_s'] // 60}m)"
+            )
+        body = "\n".join(body_lines)
+        # Preferred path: enqueue.
+        try:
+            keys = ",".join(sorted(s["key"] for s in new_alerts))
+            enqueue_alert(
+                title=title,
+                body=body,
+                priority="4",
+                tags="brain,warning,zzz",
+                dedup_key=f"heartbeat:{today}:{keys}",
+                source="heartbeat",
+            )
+            for s in new_alerts:
+                self._heartbeat_alert_sent[s["key"]] = today
+            log.warning("[HEARTBEAT] ntfy alert enqueued for %d stale loop(s)", len(new_alerts))
+            return
+        except Exception as enq_err:
+            log.warning("[HEARTBEAT] dispatcher unavailable, direct POST fallback: %s", enq_err)
+        # Fallback path
+        import httpx
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(10.0)) as client:
+                resp = await client.post(
+                    "https://ntfy.sh/ncl-natrix-intel-7x9k",
+                    content=body.encode("utf-8"),
+                    headers={
+                        "Content-Type": "text/plain; charset=utf-8",
+                        "Title": title.encode("ascii", "replace").decode("ascii"),
+                        "Priority": "4",
+                        "Tags": "brain,warning,zzz",
+                    },
+                )
+                resp.raise_for_status()
+            for s in new_alerts:
+                self._heartbeat_alert_sent[s["key"]] = today
+            log.warning("[HEARTBEAT] ntfy alert sent for %d stale loop(s)", len(new_alerts))
+        except Exception as e:
+            log.error("[HEARTBEAT] ntfy alert failed: %s", e)
+
+    def _heartbeat_ledger_path(self) -> Path:
+        """Daily-rotated ledger file: data/heartbeat/heartbeat-YYYY-MM-DD.jsonl."""
+        date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        return self._heartbeat_dir / f"heartbeat-{date_str}.jsonl"
 
     async def _heartbeat_loop(self) -> None:
-        """Log a heartbeat every 60 seconds so operators can verify the scheduler
-        is alive without checking individual loop stats."""
+        """Heartbeat + watchdog loop.
+
+        Every 60s:
+          - Build a JSON liveness record (tasks, counters, last-fire timestamps).
+          - Append to data/heartbeat/heartbeat-YYYY-MM-DD.jsonl (rotated daily).
+          - Run watchdog: detect loops exceeding their staleness threshold.
+          - Log DEBUG every tick; one INFO summary every 10 minutes.
+          - On stale-loop detection: log ERROR + (deduped) ntfy push.
+        """
+        # INFO throttle: emit on first tick + every 10 minutes thereafter so the
+        # historical "[SCHEDULER][HEARTBEAT] alive" line format is preserved for
+        # any downstream log scrapers, just at 10x lower frequency.
+        info_interval_ticks = 10
+        tick = 0
         while self._running:
             if EMERGENCY_STOP_EVENT.is_set():
                 log.critical("[HEARTBEAT] Emergency stop active — halting loop")
                 break
             try:
-                active = [t.get_name() for t in self._tasks if not t.done()]
-                log.info(
-                    "[SCHEDULER][HEARTBEAT] alive — active_tasks=%d signal_buffer=%d "
-                    "scans=%d predictions=%d councils=%d",
-                    len(active),
-                    len(self._signal_buffer),
-                    self._stats["scans_completed"],
-                    self._stats["predictions_run"],
-                    self._stats["councils_auto_spawned"],
+                record = self._build_heartbeat_record()
+                self._stats["last_heartbeat_at"] = record["ts"]
+                self._stats["heartbeat_count"] += 1
+
+                # Watchdog evaluation
+                stale = self._check_watchdog(record)
+                self._stats["stale_loops"] = stale
+                record["stale_loops"] = stale
+
+                # Write JSONL ledger (one tiny line per minute, rotated daily)
+                try:
+                    async with aiofiles.open(self._heartbeat_ledger_path(), "a") as f:
+                        await f.write(json.dumps(record, default=_json_safe) + "\n")
+                except Exception as werr:
+                    log.warning("[HEARTBEAT] ledger write failed: %s", werr)
+
+                # Per-tick DEBUG (silent unless DEBUG logging is enabled)
+                log.debug(
+                    "[SCHEDULER][HEARTBEAT] tick=%d alive — active_tasks=%d signal_buffer=%d "
+                    "scans=%d predictions=%d councils=%d stale=%d",
+                    self._stats["heartbeat_count"],
+                    len(record["active_tasks"]),
+                    record["signal_buffer"],
+                    record["scans"],
+                    record["predictions"],
+                    record["councils"],
+                    len(stale),
                 )
+
+                # Throttled INFO (every 10 ticks ≈ 10 minutes) — preserves
+                # original line format so downstream parsers still match.
+                if tick % info_interval_ticks == 0:
+                    log.info(
+                        "[SCHEDULER][HEARTBEAT] alive — active_tasks=%d signal_buffer=%d "
+                        "scans=%d predictions=%d councils=%d",
+                        len(record["active_tasks"]),
+                        record["signal_buffer"],
+                        record["scans"],
+                        record["predictions"],
+                        record["councils"],
+                    )
+
+                # Stale-loop escalation
+                if stale:
+                    log.error(
+                        "[HEARTBEAT][WATCHDOG] %d stale loop(s): %s",
+                        len(stale),
+                        ", ".join(f"{s['loop']}({s['age_s']}s)" for s in stale),
+                    )
+                    try:
+                        await self._heartbeat_push_alert(stale)
+                    except Exception as perr:
+                        log.warning("[HEARTBEAT] push alert failed: %s", perr)
+
+                tick += 1
             except asyncio.CancelledError:
                 raise
             except Exception as e:
@@ -5007,3 +5443,394 @@ class AutonomousScheduler:
         except Exception:
             return None
         return None
+
+    # ═══════════════════════════════════════════════════════════════════
+    # NEW AUTONOMOUS LOOPS (added 2026-05-21)
+    # ═══════════════════════════════════════════════════════════════════
+
+    async def _health_rollup_loop(self) -> None:
+        """LOOP 13 — 60s aggregated component health → data/health/current.json.
+
+        Aggregates scheduler / awarebot / portfolio / memory / cost /
+        calendar / journal into one snapshot for the iOS Dashboard and
+        external ops checks. Atomic-writes the JSON every minute.
+        """
+        health_dir = self.data_dir / "health"
+        log.info("[HEALTH-ROLLUP] loop started (60s cadence → %s/current.json)", health_dir)
+
+        while self._running:
+            if EMERGENCY_STOP_EVENT.is_set():
+                log.critical("[HEALTH-ROLLUP] Emergency stop active — halting loop")
+                break
+            try:
+                rollup = await build_health_rollup(self, self.brain)
+                try:
+                    await asyncio.to_thread(write_rollup_atomic, rollup, health_dir)
+                except Exception as werr:
+                    log.warning("[HEALTH-ROLLUP] write failed: %s", werr)
+                self._stats["last_health_rollup"] = rollup["timestamp"]
+                self._stats["health_rollups_written"] = (
+                    self._stats.get("health_rollups_written", 0) + 1
+                )
+                # Stash latest in memory for the /system/health/rollup route
+                self._latest_health_rollup = rollup
+                log.debug(
+                    "[HEALTH-ROLLUP] tick — overall=%s warnings=%d errors=%d",
+                    rollup.get("overall"),
+                    len(rollup.get("warnings", [])),
+                    len(rollup.get("errors", [])),
+                )
+            except asyncio.CancelledError:
+                log.info("[HEALTH-ROLLUP] cancelled")
+                raise
+            except Exception as e:
+                log.error("[HEALTH-ROLLUP] error: %s", e, exc_info=True)
+            try:
+                await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                raise
+
+    async def _cost_rollover_loop(self) -> None:
+        """LOOP 14 — UTC midnight cost ledger close + reset.
+
+        Polls every 60s for a UTC date change. On rollover:
+          - Append a ``cost_day_closed`` event to ``data/costs/cost_ledger.jsonl``
+            with the closing per-source totals.
+          - Reset in-memory daily counters (the tracker resets lazily on
+            ``can_spend`` / ``record``; this makes the boundary explicit).
+          - Log INFO with the day's total and top source.
+        """
+        # Defensive: initialize the "last seen" UTC date on first tick so we
+        # don't fire on Brain startup right before/after midnight.
+        last_seen_date: Optional[str] = None
+        log.info("[COST-ROLLOVER] loop started (polls UTC date every 60s)")
+
+        # Import lazily to avoid circular imports at module load.
+        try:
+            from ..cost_tracker import get_tracker, LEDGER_FILE
+        except Exception as e:
+            log.error("[COST-ROLLOVER] cost_tracker import failed: %s", e)
+            return
+
+        while self._running:
+            if EMERGENCY_STOP_EVENT.is_set():
+                log.critical("[COST-ROLLOVER] Emergency stop active — halting loop")
+                break
+            try:
+                today = datetime.utcnow().date().isoformat()
+                if last_seen_date is None:
+                    last_seen_date = today
+                elif today != last_seen_date:
+                    log.info(
+                        "[COST-ROLLOVER] UTC date rolled %s → %s — closing day",
+                        last_seen_date, today,
+                    )
+                    try:
+                        tracker = await get_tracker()
+                        # Snapshot the day we're closing BEFORE reset.
+                        async with tracker._lock:
+                            closing_totals = dict(tracker._daily_totals)
+                            closing_counts = dict(tracker._daily_counts)
+                            closing_date = tracker._current_date or last_seen_date
+
+                        total_usd = round(sum(closing_totals.values()), 6)
+                        top_source = (
+                            max(closing_totals.items(), key=lambda kv: kv[1])
+                            if closing_totals else (None, 0.0)
+                        )
+
+                        # Append explicit close event to JSONL (audit trail).
+                        close_event = {
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "date": closing_date,
+                            "event": "cost_day_closed",
+                            "total_usd": total_usd,
+                            "total_calls": sum(closing_counts.values()),
+                            "by_source": {
+                                src: {
+                                    "spent_usd": round(amt, 6),
+                                    "calls": closing_counts.get(src, 0),
+                                }
+                                for src, amt in closing_totals.items()
+                            },
+                            "top_source": top_source[0],
+                            "top_source_usd": round(top_source[1], 6),
+                        }
+                        try:
+                            LEDGER_FILE.parent.mkdir(parents=True, exist_ok=True)
+                            def _append():
+                                with open(LEDGER_FILE, "a") as f:
+                                    f.write(json.dumps(close_event) + "\n")
+                            await asyncio.to_thread(_append)
+                        except Exception as wer:
+                            log.warning("[COST-ROLLOVER] ledger flush failed: %s", wer)
+
+                        # Explicit reset (cost_tracker also does this lazily).
+                        async with tracker._lock:
+                            tracker._daily_totals.clear()
+                            tracker._daily_counts.clear()
+                            tracker._warned_sources.clear()
+                            tracker._current_date = today
+
+                        log.info(
+                            "[COST-ROLLOVER] %s closed: $%.4f across %d calls — top source: %s ($%.4f)",
+                            closing_date, total_usd, sum(closing_counts.values()),
+                            top_source[0] or "(none)", top_source[1],
+                        )
+                        self._stats["last_cost_rollover"] = datetime.now(timezone.utc).isoformat()
+                        self._stats["cost_rollovers_count"] = (
+                            self._stats.get("cost_rollovers_count", 0) + 1
+                        )
+                    except Exception as re:
+                        log.error("[COST-ROLLOVER] rollover failed: %s", re, exc_info=True)
+                    last_seen_date = today
+            except asyncio.CancelledError:
+                log.info("[COST-ROLLOVER] cancelled")
+                raise
+            except Exception as e:
+                log.error("[COST-ROLLOVER] tick error: %s", e, exc_info=True)
+            try:
+                await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                raise
+
+    async def _cache_warmer_loop(self) -> None:
+        """LOOP 15 — 5m cache warmer for cold-start latency mitigation.
+
+        Pre-touches the calendar agent's compiled-events cache (7d, 30d),
+        todos, sun state, and the WorkingContext current snapshot so the
+        first iOS call after Brain restart isn't a 30s wait.
+        """
+        log.info("[CACHE-WARMER] loop started (300s cadence)")
+        # Give the rest of init a head start so we don't fight cold imports.
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            raise
+
+        while self._running:
+            if EMERGENCY_STOP_EVENT.is_set():
+                log.critical("[CACHE-WARMER] Emergency stop active — halting loop")
+                break
+            try:
+                # ── Calendar agent caches ──────────────────────────
+                try:
+                    from ..calendar.calendar_agent import get_calendar_agent
+                    cal = get_calendar_agent()
+                except Exception as e:
+                    cal = None
+                    log.debug("[CACHE-WARMER] calendar agent unavailable: %s", e)
+                if cal is not None:
+                    for window in (7, 30):
+                        try:
+                            await cal.compile_events("edmonton", window)
+                        except Exception as e:
+                            log.debug(
+                                "[CACHE-WARMER] compile_events(edmonton,%d) failed: %s",
+                                window, e,
+                            )
+                    try:
+                        await cal.get_todos("edmonton", 7)
+                    except Exception as e:
+                        log.debug("[CACHE-WARMER] get_todos failed: %s", e)
+                    try:
+                        await cal.get_sun_state("edmonton")
+                    except Exception as e:
+                        log.debug("[CACHE-WARMER] get_sun_state failed: %s", e)
+
+                # ── Working context ────────────────────────────────
+                if self._working_context is not None:
+                    try:
+                        # get_current() is a fast, in-memory accessor that keeps
+                        # the daily snapshot warm.
+                        self._working_context.get_current()
+                        # Also pre-render context text so ChromaDB pages stay hot.
+                        self._working_context.get_context_text(max_items=10)
+                    except Exception as e:
+                        log.debug("[CACHE-WARMER] working context warm failed: %s", e)
+
+                self._stats["last_cache_warm"] = datetime.now(timezone.utc).isoformat()
+                self._stats["cache_warms_count"] = (
+                    self._stats.get("cache_warms_count", 0) + 1
+                )
+                log.debug("[CACHE-WARMER] cycle complete")
+            except asyncio.CancelledError:
+                log.info("[CACHE-WARMER] cancelled")
+                raise
+            except Exception as e:
+                log.error("[CACHE-WARMER] error: %s", e, exc_info=True)
+            try:
+                await asyncio.sleep(300)
+            except asyncio.CancelledError:
+                raise
+
+    async def _alert_dispatch_loop(self) -> None:
+        """LOOP 16 — drives the centralized AlertDispatcher.
+
+        The dispatcher's own ``dispatch_loop()`` is an infinite worker
+        that pops queued alerts, respects a global rate limit and
+        per-dedup-key cooldown, and POSTs to ntfy. We wrap it here so
+        the supervisor can restart on crash and the standard
+        ``_running`` / ``EMERGENCY_STOP_EVENT`` semantics apply.
+        """
+        log.info("[ALERT-DISPATCH] loop starting — supervising AlertDispatcher.dispatch_loop()")
+        dispatcher = get_alert_dispatcher()
+
+        # Update tick timestamp every ~10s for the /autonomous/loops endpoint.
+        async def _heartbeat_ticker():
+            while True:
+                self._stats["last_alert_dispatch_tick"] = datetime.now(timezone.utc).isoformat()
+                try:
+                    await asyncio.sleep(10)
+                except asyncio.CancelledError:
+                    return
+
+        ticker = asyncio.create_task(_heartbeat_ticker(), name="alert-dispatch-ticker")
+        try:
+            # Watch EMERGENCY_STOP — wrap dispatch in a stop-aware shield.
+            dispatch_task = asyncio.create_task(
+                dispatcher.dispatch_loop(), name="alert-dispatch-worker"
+            )
+            while self._running:
+                if EMERGENCY_STOP_EVENT.is_set():
+                    log.critical("[ALERT-DISPATCH] Emergency stop active — halting loop")
+                    dispatch_task.cancel()
+                    break
+                if dispatch_task.done():
+                    # If the worker died, let the supervisor restart THIS loop.
+                    exc = dispatch_task.exception()
+                    if exc:
+                        log.error("[ALERT-DISPATCH] worker died: %s", exc)
+                        raise exc
+                    log.warning("[ALERT-DISPATCH] worker exited cleanly — re-spawning")
+                    dispatch_task = asyncio.create_task(
+                        dispatcher.dispatch_loop(), name="alert-dispatch-worker"
+                    )
+                try:
+                    await asyncio.sleep(5)
+                except asyncio.CancelledError:
+                    dispatch_task.cancel()
+                    raise
+        finally:
+            ticker.cancel()
+            try:
+                await asyncio.gather(ticker, return_exceptions=True)
+            except Exception:
+                pass
+
+    async def _ytc_dedicated_loop(self) -> None:
+        """LOOP 17 — dedicated YouTube Council cycle (split from Awarebot).
+
+        Runs every 3600s (1h). Uses ``run_youtube_council`` from the
+        councils runner (the same implementation Awarebot used to call)
+        so we don't duplicate logic. Records cost to the ``ytc`` source
+        which has its own $3/day cap in ``cost_tracker.DEFAULT_DAILY_BUDGETS``.
+        """
+        from ..cost_tracker import check_budget, record_cost
+
+        log.info("[YTC-DEDICATED] loop started (3600s cadence)")
+        # Initial delay so other Brain startup work completes first.
+        try:
+            await asyncio.sleep(300)  # 5 min
+        except asyncio.CancelledError:
+            raise
+
+        ytc_interval = 3600  # 1 hour
+
+        while self._running:
+            if EMERGENCY_STOP_EVENT.is_set():
+                log.critical("[YTC-DEDICATED] Emergency stop active — halting loop")
+                break
+
+            try:
+                # Budget gate — block if YTC budget exhausted for the day.
+                if not await check_budget("ytc", 0.10):
+                    log.warning("[YTC-DEDICATED] ytc daily budget exhausted — skipping cycle")
+                    try:
+                        await asyncio.sleep(ytc_interval)
+                        continue
+                    except asyncio.CancelledError:
+                        raise
+
+                session_id = f"ytc-dedicated-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+                log.info(f"[YTC-DEDICATED] Starting YouTube Council run: {session_id}")
+
+                from ..councils.runner import run_youtube_council
+                report = await run_youtube_council(session_id)
+
+                if report:
+                    ncl_base = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
+                    json_dir = ncl_base / "intelligence-scan" / "youtube-reports"
+                    loop = asyncio.get_running_loop()
+                    await loop.run_in_executor(
+                        None, lambda: json_dir.mkdir(parents=True, exist_ok=True)
+                    )
+
+                    per_video = getattr(report, "_per_video_reports", [])
+                    for vid_report in per_video:
+                        vid_data = vid_report.to_dict()
+                        vid_data.update({
+                            "status": "complete",
+                            "completed_at": datetime.now(timezone.utc).isoformat(),
+                            "auto_triggered": True,
+                            "report_type": "per_video",
+                            "spawned_by": "ncl-ytc-dedicated",
+                        })
+                        vid_path = json_dir / f"{vid_report.session_id}.json"
+                        async with aiofiles.open(vid_path, "w") as f:
+                            await f.write(json.dumps(vid_data, default=str, indent=2))
+
+                    out_path = json_dir / f"{session_id}.json"
+                    report_data = report.to_dict()
+                    report_data.update({
+                        "session_id": session_id,
+                        "status": "complete",
+                        "completed_at": datetime.now(timezone.utc).isoformat(),
+                        "auto_triggered": True,
+                        "report_type": "rollup",
+                        "per_video_count": len(per_video),
+                        "spawned_by": "ncl-ytc-dedicated",
+                    })
+                    async with aiofiles.open(out_path, "w") as f:
+                        await f.write(json.dumps(report_data, default=str, indent=2))
+
+                    # Conservative per-video estimate; tighten later if usage data exposed.
+                    est_cost = max(0.05, 0.05 * max(1, len(per_video)))
+                    try:
+                        await record_cost(
+                            "ytc", est_cost, "ytc_per_video",
+                            detail=f"{len(per_video)} videos + 1 rollup ({session_id})",
+                        )
+                    except Exception as ce:
+                        log.warning("[YTC-DEDICATED] record_cost failed: %s", ce)
+
+                    log.info(
+                        f"[YTC-DEDICATED] run complete: {session_id} "
+                        f"({len(per_video)} per-video + 1 rollup, est ${est_cost:.4f})"
+                    )
+                    self._stats["last_ytc_dedicated"] = datetime.now(timezone.utc).isoformat()
+                    self._stats["ytc_dedicated_runs"] = (
+                        self._stats.get("ytc_dedicated_runs", 0) + 1
+                    )
+                    # Also write to awarebot stats for the iOS UI which already
+                    # reads aware_stats['last_ytc_at'].
+                    if self.awarebot is not None:
+                        try:
+                            self.awarebot._stats["last_ytc_at"] = self._stats["last_ytc_dedicated"]
+                            self.awarebot._stats["ytc_runs"] = (
+                                self.awarebot._stats.get("ytc_runs", 0) + 1
+                            )
+                        except Exception:
+                            pass
+                else:
+                    log.info(f"[YTC-DEDICATED] run produced no report: {session_id}")
+            except asyncio.CancelledError:
+                log.info("[YTC-DEDICATED] cancelled")
+                raise
+            except Exception as e:
+                log.error(f"[YTC-DEDICATED] run failed: {e}", exc_info=True)
+
+            try:
+                await asyncio.sleep(ytc_interval)
+            except asyncio.CancelledError:
+                raise

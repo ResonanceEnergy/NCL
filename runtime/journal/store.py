@@ -36,6 +36,31 @@ _MAX_FILE_BYTES = 10 * 1024 * 1024  # 10 MB rotation threshold
 _ROTATE_BACKUP_COUNT = 5
 
 
+def _local_tz():
+    """
+    Return the configured local timezone for "today" calculations.
+
+    Defaults to America/New_York since NATRIX operates in ET and the
+    reflection loop fires at 10pm ET. Override with NCL_TIMEZONE env var.
+    Falls back to UTC if pytz is unavailable.
+    """
+    try:
+        import pytz
+        return pytz.timezone(os.environ.get("NCL_TIMEZONE", "America/New_York"))
+    except Exception:
+        return timezone.utc
+
+
+def local_today() -> date:
+    """Return today's date in the configured local (ET by default) timezone."""
+    return datetime.now(_local_tz()).date()
+
+
+def local_today_str() -> str:
+    """Return today's date in the configured local timezone as YYYY-MM-DD."""
+    return local_today().strftime("%Y-%m-%d")
+
+
 class JournalStore:
     """
     Persistent journal with search, analytics, and brain integration.
@@ -157,10 +182,19 @@ class JournalStore:
         entries = await self._load_entries()
         results = []
 
+        tz = _local_tz()
         for e in reversed(entries):  # Most recent first
-            if date_from and e.timestamp.date() < date_from:
+            # Convert entry timestamp to local-timezone date for filtering so a
+            # 7am ET entry written on May 21 doesn't get bucketed into UTC's
+            # May 21 (still correct) AND a 10pm ET entry written on May 21 at
+            # 02:00 UTC May 22 still counts as May 21.
+            try:
+                e_local_date = e.timestamp.astimezone(tz).date()
+            except Exception:
+                e_local_date = e.timestamp.date()
+            if date_from and e_local_date < date_from:
                 continue
-            if date_to and e.timestamp.date() > date_to:
+            if date_to and e_local_date > date_to:
                 continue
             if entry_type and e.entry_type.value != entry_type:
                 continue
@@ -173,8 +207,8 @@ class JournalStore:
         return results
 
     async def get_today_entries(self) -> list[JournalEntry]:
-        """Get all entries from today."""
-        today = datetime.now(timezone.utc).date()
+        """Get all entries from today (operator-local timezone, default ET)."""
+        today = local_today()
         return await self.get_entries(date_from=today, date_to=today, limit=100)
 
     async def search(self, query: str, limit: int = 20) -> list[JournalEntry]:
@@ -376,19 +410,35 @@ class JournalStore:
         if self.working_context is None:
             return
         try:
-            item = {
-                "source": "journal",
-                "type": entry.entry_type.value,
-                "title": entry.title or entry.content[:80],
-                "content": entry.content[:400],
-                "importance": entry.importance,
-                "tags": entry.tags[:5],
-                "timestamp": entry.timestamp.isoformat(),
-            }
-            if hasattr(self.working_context, "inject_item"):
-                await self.working_context.inject_item(item)
-            elif hasattr(self.working_context, "_items"):
-                self.working_context._items.append(item)
+            # Use the real DailyContextWindow API: add_item(ContextItem).
+            # Fall back to inject_signal for content-only push if add_item missing.
+            content_text = entry.title or entry.content[:80]
+            full_content = f"[JOURNAL {entry.entry_type.value.upper()}] {content_text}: {entry.content[:300]}"
+            tags = (entry.tags[:5] if entry.tags else []) + ["journal", entry.entry_type.value]
+
+            if hasattr(self.working_context, "add_item"):
+                from ..memory.working_context import ContextItem
+                ctx_item = ContextItem(
+                    item_id=f"journal:{entry.entry_id}",
+                    content=full_content[:500],
+                    source="journal",
+                    category="journal",
+                    salience_score=0.0,
+                    importance=float(entry.importance),
+                    recency_score=0.95,
+                    relevance_score=0.0,
+                    tags=tags,
+                    created_at=entry.timestamp.isoformat(),
+                    metadata={"entry_id": entry.entry_id, "entry_type": entry.entry_type.value},
+                )
+                await self.working_context.add_item(ctx_item)
+            elif hasattr(self.working_context, "inject_signal"):
+                await self.working_context.inject_signal(
+                    content=full_content,
+                    source="journal",
+                    importance=float(entry.importance),
+                    tags=tags,
+                )
         except Exception as e:
             log.warning(f"Failed to inject journal entry to context: {e}")
 

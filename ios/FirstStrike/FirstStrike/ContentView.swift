@@ -7,6 +7,7 @@ struct ContentView: View {
     enum Tab: String, CaseIterable {
         case chat = "Chat"
         case intel = "Intel"
+        case calendar = "Calendar"
         case council = "Council"
         case settings = "Settings"
 
@@ -14,6 +15,7 @@ struct ContentView: View {
             switch self {
             case .chat: return "bubble.left.and.bubble.right.fill"
             case .intel: return "brain.head.profile"
+            case .calendar: return "calendar"
             case .council: return "person.3.fill"
             case .settings: return "gearshape.fill"
             }
@@ -51,6 +53,8 @@ struct ContentView: View {
             ChatView()
         case .intel:
             IntelligenceView()
+        case .calendar:
+            CalendarView()
         case .council:
             CouncilView()
         case .settings:

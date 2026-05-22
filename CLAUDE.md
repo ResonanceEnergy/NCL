@@ -19,26 +19,59 @@ NCL is the canonical brain cortex of the NATRIX ecosystem. It receives pump prom
 
 NCL Brain API runs as a **FastAPI service on port 8800** with 176+ endpoints across 20 categories. The runtime layer is autonomous and persistent.
 
-### Autonomous Scheduler — 11 Active Tasks (as of May 2026)
+### Autonomous Scheduler — 17 Active Tasks (as of May 21, 2026)
 
-The Awarebot agent consolidation merged 6 former standalone loops into a single `awarebot.run()` task. The scheduler now spawns 11 tasks:
+The Awarebot agent consolidation merged 6 former standalone loops into a single `awarebot.run()` task. AAC War Room Sync removed 2026-05-21 (folded into Night Watch). Five new loops added 2026-05-21 (health rollup, cost rollover, cache warmer, alert dispatch, dedicated YTC); Awarebot's internal `awarebot-ytc` sub-task is now disabled and superseded by the scheduler-level YTC loop. The scheduler now spawns 17 tasks plus a supervisor:
 
-| # | Task | Cadence | Status |
-|---|------|---------|--------|
-| 1 | **Awarebot agent** — 8-source scanning, 6-factor scoring, tier routing, intel briefs, predictions | X: 5m, Reddit: RSS, YT: 10m, others: per-source rate limits | ACTIVE (X returns 402; Crypto disabled) |
-| 2 | **Council Auto-Spawn** — triggers on 3+ converging signals or 4hr review | event-driven | ACTIVE |
-| 3 | **Memory Consolidation** — decay + prune + cluster + merge | 1hr | ACTIVE |
-| 4 | **AAC War Room Sync** | 15m | ACTIVE |
-| 5 | **Workspace Health** | 30m | ACTIVE |
-| 6 | **Mandate Purge** | 6hr | ACTIVE |
-| 7 | **Feedback Synthesis** | 5m | ACTIVE |
-| 8 | **Heartbeat** | 60s | ACTIVE |
-| 9 | **Working Context** — 6am assembly, noon refresh, 11pm EOD | 3x daily | ACTIVE |
-| 10 | **Journal Reflection** — LLM synthesis | 10pm ET daily | ACTIVE |
-| 11 | **X Liked Videos** — OAuth liked-tweet scan, video download, transcribe, analyze | 6hr | READY (needs OAuth token) |
+| # | Task name | Method | Cadence | Status |
+|---|-----------|--------|---------|--------|
+| 1 | `ncl-awarebot-agent` — 8-source scanning, 6-factor scoring, tier routing, intel briefs, predictions (internal YTC sub-task DISABLED 2026-05-21) | `Awarebot.run()` | per-source rate limits | ACTIVE (X 402; Crypto disabled) |
+| 2 | `ncl-council-auto` — Delphi-MAD debate on 3+ converging signals or 4hr review | `_council_auto_loop` | 5m poll | ACTIVE (spawn_council bug fixed 2026-05-21) |
+| 3 | `ncl-memory` — decay + prune + cluster + merge + ChromaDB reindex | `_memory_consolidation_loop` | 1hr | ACTIVE |
+| 4 | `ncl-workspace` — MWP pipeline stage health | `_workspace_health_loop` | 30m | ACTIVE |
+| 5 | `ncl-mandate-purge` — hygiene against state-leak | `_mandate_purge_loop` | 6hr | ACTIVE |
+| 6 | `ncl-feedback-synth` — pillar reports → synthesis notes | `_feedback_synthesis_loop` | 5m | ACTIVE |
+| 7 | `ncl-heartbeat` — JSONL liveness + watchdog (alerts enqueued via central dispatcher) | `_heartbeat_loop` | 60s | ACTIVE |
+| 8 | `ncl-working-ctx` — 6am assembly, noon refresh, 11pm EOD | `_working_context_loop` | 3x daily | ACTIVE |
+| 9 | `ncl-journal-reflection` — LLM daily synthesis | `_journal_reflection_loop` | 10pm ET daily | ACTIVE |
+| 10 | `ncl-night-watch` — 5-phase digital cortex maintenance (push via central dispatcher) | `_night_watch_loop` | 2am-5am ET nightly | ACTIVE |
+| 11 | `ncl-calendar-agent` — lunar/market/local event correlation | `CalendarAgent.run()` | per-agent | ACTIVE |
+| 12 | `ncl-calendar-alerts` — push critical/high alerts (via central dispatcher) | `_calendar_alert_check_loop` | 10m | ACTIVE |
+| 13 | `ncl-health-rollup` — aggregated component status → `data/health/current.json` + `/system/health/rollup` route; iOS dashboard 1-call status | `_health_rollup_loop` | 60s | ACTIVE (added 2026-05-21) |
+| 14 | `ncl-cost-rollover` — explicit UTC-midnight cost ledger close + counter reset + JSONL `cost_day_closed` audit event | `_cost_rollover_loop` | 60s poll | ACTIVE (added 2026-05-21) |
+| 15 | `ncl-cache-warmer` — pre-touches calendar `compile_events` (7d/30d) + todos + sun state + working context to amortize cold-start latency | `_cache_warmer_loop` | 5m | ACTIVE (added 2026-05-21) |
+| 16 | `ncl-alert-dispatch` — centralized rate-limited (1/10s global) + deduped (1h per-key) ntfy queue; supervisor/calendar/cost/heartbeat/night-watch all enqueue here | `_alert_dispatch_loop` | 10s tick | ACTIVE (added 2026-05-21) |
+| 17 | `ncl-ytc-dedicated` — dedicated YouTube Council loop with its own $3/day budget cap (`ytc` source); split out of Awarebot's 30-min cycle so yt-dlp + Whisper no longer block scans | `_ytc_dedicated_loop` | 1hr | ACTIVE (added 2026-05-21) |
+| + | `ncl-supervisor` — monitors and restarts crashed tasks (max 3 restarts) | `_supervisor_loop` | 30s | ACTIVE (not in task list — supervises itself) |
 
-**Dead code** (methods exist in scheduler.py but NOT spawned — replaced by Awarebot):
-`_scanner_loop`, `_prediction_loop`, `_intel_collection_loop`, `_intel_brief_loop`, `_morning_brief_loop`, `_weekly_strategy_loop`
+**Removed 2026-05-21:** `_aac_sync_loop` (BRS dashboard stub + AAC health polling on 15m cadence produced low-value pillar-sync memory units; functionality folded into Night Watch Phase 1 health audit).
+
+**Dormant / not yet wired:** `X Liked Videos` (READY — needs OAuth token; not yet spawned as a task).
+
+**Dead code formerly listed** (`_scanner_loop`, `_prediction_loop`, `_intel_collection_loop`, `_intel_brief_loop`, `_morning_brief_loop`, `_weekly_strategy_loop`): already physically removed from scheduler.py; do not re-introduce — replaced by Awarebot.
+
+### New API Endpoints (added 2026-05-21)
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /intelligence/stats` | Awarebot-backed Intel header: `signal_count`, `source_count`, `last_scan_at`, `signals_routed`, `high_critical_count` |
+| `GET /focus/queries` | Wrapped iOS shape: `queries.{x,youtube,reddit}` + `subreddits.{tier_1,tier_2,tier_3}` + `_meta` |
+| `GET /focus/subreddits` | Flat list of 55 subreddits with tier field |
+| `POST/DELETE /focus/queries` + `/focus/subreddits` | Accept tier as bare digits `1` / `2` / `3` (iOS sends raw int) |
+| `GET /youtube/reports/recent?limit=N` | Merged feed of recent YouTube council + YouTube reports |
+| `GET /system/health/rollup` | Single roll-up endpoint — overall status + per-component breakdown (Brain, scheduler, Awarebot, costs, councils, memory, calendar, portfolio). Drives iOS dashboard with one call. Also persisted to `data/health/current.json` by `ncl-health-rollup` loop |
+| `/predictions` | Each item now includes a cleaned `description` field |
+| `/autonomous/loops` | Returns 23 loops with correct `last_run` timestamps (was 7 with broken last_run mapping due to key-mangling bug) |
+
+### Fixes Shipped (2026-05-21)
+- **Council auto-spawn crash**: `_council_auto_loop` was crashing every 2min for 7+ hours on `'CouncilEngine' object has no attribute 'spawn_council'`. Method wired correctly.
+- **Moomoo currency conversion**: Per-account native currency now read from `trdmarket_auth`; multi-account iteration restored; `_safe_num()` helper coerces `'N/A'` strings from SDK to 0.0 instead of raising.
+- **Journal reflection timezone bug**: Reflection saved against UTC date but iOS queries by ET date → empty result. Now uses `local_today_str()` (ET). ReflectionEngine also wasn't being passed an Anthropic Haiku client (`llm_client=None` → fell through to trivial template synthesis); now constructs Haiku client at startup.
+- **Working context capacity leak**: `add_item()` had no cap → 1,100+ items/day accumulated. Now hard-caps at 50, evicts lowest salience. `mark_accessed()` had zero callers — wired into `GET /memory/working-context` so reads now update access tracking. Journal→context injection was calling non-existent methods; fixed to use real `add_item()` path.
+- **Heartbeat upgrade**: Was just stderr noise. Now writes daily JSONL ledger at `data/heartbeat/heartbeat-YYYY-MM-DD.jsonl` with watchdog ntfy push on stale loops (>2x cadence).
+- **`/autonomous/loops` key-mangling**: Every `awarebot-*` sub-loop showed `last_run: null` due to key normalization mismatch between scheduler registry and Awarebot's internal sub-task tracker. Replaced with explicit timestamp map.
+- **AAC War Room Sync loop REMOVED** per directive (`_aac_sync_loop` deleted entirely). Health functionality folded into Night Watch Phase 1.
+- **Centralized AlertDispatcher**: 5 ntfy call sites (supervisor restart-exhaustion, calendar critical/high alerts, cost budget warnings + caps, heartbeat watchdog stale-loop alerts, Night Watch Phase 5 synthesis push) migrated from direct `requests.post(NTFY_URL...)` to `AlertDispatcher.enqueue()` with global rate limit (1/10s) + per-key dedup (1h window). Driven by new `ncl-alert-dispatch` loop.
 
 ### KNOWN ISSUES (as of May 20, 2026)
 

@@ -576,6 +576,7 @@ class Awarebot:
         predictor: Optional[FuturePredictor] = None,
         scanner: Optional[Scanner] = None,
         push_callback: Optional[Any] = None,
+        disable_internal_ytc: bool = False,
     ):
         """
         Initialize the unified Awarebot agent.
@@ -589,8 +590,13 @@ class Awarebot:
             predictor: FuturePredictor for ensemble predictions
             scanner: Scanner for X/YouTube/Reddit social scanning
             push_callback: Async callable for push notifications
+            disable_internal_ytc: When True, skip spawning the internal
+                ``awarebot-ytc`` sub-task. The scheduler-level
+                ``ncl-ytc-dedicated`` loop owns YTC instead. Default False
+                preserves backward compatibility.
         """
         self.config = config
+        self.disable_internal_ytc = disable_internal_ytc
         self.memory_store = memory_store
         self.working_context = working_context
         self.journal_store = journal_store
@@ -816,6 +822,12 @@ class Awarebot:
             (self._ytc_loop, "awarebot-ytc"),
             (self._x_liked_loop, "awarebot-x-liked"),
         ]
+        if self.disable_internal_ytc:
+            task_defs = [(f, n) for (f, n) in task_defs if n != "awarebot-ytc"]
+            log.info(
+                "[AGENT] Internal YTC sub-task disabled — "
+                "scheduler 'ncl-ytc-dedicated' loop owns YouTube Council"
+            )
         restart_counts: dict[str, int] = {name: 0 for _, name in task_defs}
         max_restarts = 3
 

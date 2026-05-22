@@ -5,13 +5,15 @@ All endpoints require Strike authentication via _verify_strike_token().
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import secrets
 from datetime import date, datetime, timedelta, timezone
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 
 from .lunar import (
     get_moon_phase,
@@ -408,3 +410,383 @@ async def get_watchlist(authorization: str = Header(default="")):
         "count": len(todos),
         "categories": WATCHLIST_CATEGORIES,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────
+# v2 endpoints — Calendar Agent + city preferences
+# ─────────────────────────────────────────────────────────────────────
+
+def _utc_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _err_response(detail: str, status_code: int = 500) -> JSONResponse:
+    """Uniform JSON error envelope (never let exceptions leak)."""
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "error": detail,
+            "generated_at": _utc_iso(),
+        },
+    )
+
+
+def _maybe_await(value):
+    """Return value if it's a coroutine to be awaited, else wrap as awaited."""
+    return value
+
+
+async def _call_maybe_async(fn, *args, **kwargs):
+    """Call fn (sync or async) and return its result."""
+    result = fn(*args, **kwargs)
+    if asyncio.iscoroutine(result):
+        result = await result
+    return result
+
+
+def _get_calendar_agent_or_none():
+    """Lazy import calendar_agent so missing module doesn't break route registration."""
+    try:
+        from .calendar_agent import get_calendar_agent  # type: ignore
+        return get_calendar_agent()
+    except Exception as exc:  # pragma: no cover - import failure path
+        log.warning("calendar_agent unavailable: %s", exc)
+        return None
+
+
+def _get_cities_pref_or_none():
+    """Lazy import cities_pref so missing module doesn't break route registration."""
+    try:
+        from . import cities_pref  # type: ignore
+        return cities_pref
+    except Exception as exc:  # pragma: no cover - import failure path
+        log.warning("cities_pref unavailable: %s", exc)
+        return None
+
+
+# ── Sun / Space Weather ──────────────────────────────────────────────
+
+@calendar_router.get("/sun")
+async def calendar_sun(
+    city_id: str = Query("edmonton", description="City id for sun times"),
+    authorization: str = Header(default=""),
+):
+    """Sun times + space weather (sunspots, aurora, CME alerts, Schumann)."""
+    _verify_strike_token(authorization)
+    try:
+        agent = _get_calendar_agent_or_none()
+        if agent is None:
+            return _err_response("calendar_agent module unavailable", 503)
+        data = await _call_maybe_async(agent.get_sun_state, city_id)
+        if not isinstance(data, dict):
+            data = {"value": data}
+        data.setdefault("fetched_at", _utc_iso())
+        data.setdefault("generated_at", _utc_iso())
+        return data
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.exception("calendar/sun failed")
+        return _err_response(f"sun fetch failed: {exc}")
+
+
+# ── Compiled events (deduped + correlated + escalated) ──────────────
+
+@calendar_router.get("/events/compiled")
+async def calendar_events_compiled(
+    city_id: str = Query("edmonton", description="City id"),
+    window: int = Query(7, description="Window in days (7 or 30)"),
+    authorization: str = Header(default=""),
+):
+    """Pre-compiled events with correlations and escalation already applied."""
+    _verify_strike_token(authorization)
+    try:
+        if window not in (7, 30):
+            raise HTTPException(status_code=400, detail="window must be 7 or 30")
+        agent = _get_calendar_agent_or_none()
+        if agent is None:
+            return _err_response("calendar_agent module unavailable", 503)
+        data = await _call_maybe_async(agent.get_compiled_events, city_id, window)
+        if not isinstance(data, dict):
+            data = {"events": data or []}
+        events = data.get("events", []) or []
+        correlations = data.get("correlations", []) or []
+        result = {
+            "city_id": city_id,
+            "window_days": window,
+            "events": events,
+            "correlations": correlations,
+            "count": data.get("count", len(events)),
+            "generated_at": data.get("generated_at", _utc_iso()),
+            "stale": bool(data.get("stale", False)),
+        }
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.exception("calendar/events/compiled failed")
+        return _err_response(f"compiled events failed: {exc}")
+
+
+# ── Todos (correlated to-do list) ────────────────────────────────────
+
+@calendar_router.get("/todos")
+async def calendar_todos(
+    city_id: str = Query("edmonton", description="City id"),
+    window: int = Query(7, description="Window in days (7 or 30)"),
+    authorization: str = Header(default=""),
+):
+    """Correlated to-do list for the calendar tab."""
+    _verify_strike_token(authorization)
+    try:
+        if window not in (7, 30):
+            raise HTTPException(status_code=400, detail="window must be 7 or 30")
+        agent = _get_calendar_agent_or_none()
+        if agent is None:
+            return _err_response("calendar_agent module unavailable", 503)
+        data = await _call_maybe_async(agent.get_todos, city_id, window)
+        if not isinstance(data, dict):
+            data = {"todos": data or []}
+        todos = data.get("todos", []) or []
+        result = {
+            "city_id": city_id,
+            "window_days": window,
+            "todos": todos,
+            "count": data.get("count", len(todos)),
+            "generated_at": data.get("generated_at", _utc_iso()),
+            "stale": bool(data.get("stale", False)),
+        }
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.exception("calendar/todos failed")
+        return _err_response(f"todos fetch failed: {exc}")
+
+
+# ── Dashboard (one-shot mega-endpoint) ───────────────────────────────
+
+@calendar_router.get("/dashboard")
+async def calendar_dashboard(
+    city_id: str = Query("edmonton", description="City id"),
+    authorization: str = Header(default=""),
+):
+    """One-shot dashboard payload for the iOS Calendar tab initial load."""
+    _verify_strike_token(authorization)
+    try:
+        agent = _get_calendar_agent_or_none()
+        cities_pref = _get_cities_pref_or_none()
+
+        # City metadata — prefer cities_pref lookup, fall back to CITIES dict
+        city_meta: Dict[str, Any] = {}
+        if cities_pref is not None and hasattr(cities_pref, "get_city_meta"):
+            try:
+                city_meta = await _call_maybe_async(cities_pref.get_city_meta, city_id) or {}
+            except Exception as exc:
+                log.warning("cities_pref.get_city_meta failed: %s", exc)
+        if not city_meta:
+            city_meta = CITIES.get(city_id, {"id": city_id, "name": city_id})
+
+        # Moon context (always available — uses local lunar module)
+        try:
+            moon = get_cycle_context()
+        except Exception as exc:
+            log.warning("get_cycle_context failed: %s", exc)
+            moon = {"error": str(exc)}
+
+        if agent is None:
+            # Degraded response — moon + city only, agent-dependent fields empty
+            return {
+                "city": city_meta,
+                "moon": moon,
+                "sun": {"error": "calendar_agent unavailable"},
+                "events_7d": {"events": [], "count": 0, "generated_at": _utc_iso()},
+                "events_30d": {"events": [], "count": 0, "generated_at": _utc_iso()},
+                "todos_7d": {"todos": [], "count": 0, "generated_at": _utc_iso()},
+                "todos_30d": {"todos": [], "count": 0, "generated_at": _utc_iso()},
+                "agent_status": {"available": False, "reason": "calendar_agent module unavailable"},
+                "generated_at": _utc_iso(),
+            }
+
+        # Run agent sub-calls in parallel
+        async def _safe(coro, fallback):
+            try:
+                return await coro
+            except Exception as exc:
+                log.warning("dashboard sub-call failed: %s", exc)
+                return fallback
+
+        sun_task = _safe(_call_maybe_async(agent.get_sun_state, city_id), {"error": "sun fetch failed"})
+        events7_task = _safe(_call_maybe_async(agent.get_compiled_events, city_id, 7), {"events": [], "count": 0})
+        events30_task = _safe(_call_maybe_async(agent.get_compiled_events, city_id, 30), {"events": [], "count": 0})
+        todos7_task = _safe(_call_maybe_async(agent.get_todos, city_id, 7), {"todos": [], "count": 0})
+        todos30_task = _safe(_call_maybe_async(agent.get_todos, city_id, 30), {"todos": [], "count": 0})
+        status_task = _safe(
+            _call_maybe_async(getattr(agent, "get_status", lambda: {"available": True})),
+            {"available": True, "warning": "no get_status method"},
+        )
+
+        sun, events7, events30, todos7, todos30, agent_status = await asyncio.gather(
+            sun_task, events7_task, events30_task, todos7_task, todos30_task, status_task
+        )
+
+        def _shape_events(d):
+            if not isinstance(d, dict):
+                d = {"events": d or []}
+            evs = d.get("events", []) or []
+            return {
+                "events": evs,
+                "count": d.get("count", len(evs)),
+                "generated_at": d.get("generated_at", _utc_iso()),
+            }
+
+        def _shape_todos(d):
+            if not isinstance(d, dict):
+                d = {"todos": d or []}
+            tds = d.get("todos", []) or []
+            return {
+                "todos": tds,
+                "count": d.get("count", len(tds)),
+                "generated_at": d.get("generated_at", _utc_iso()),
+            }
+
+        return {
+            "city": city_meta,
+            "moon": moon,
+            "sun": sun if isinstance(sun, dict) else {"value": sun},
+            "events_7d": _shape_events(events7),
+            "events_30d": _shape_events(events30),
+            "todos_7d": _shape_todos(todos7),
+            "todos_30d": _shape_todos(todos30),
+            "agent_status": agent_status if isinstance(agent_status, dict) else {"value": agent_status},
+            "generated_at": _utc_iso(),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.exception("calendar/dashboard failed")
+        return _err_response(f"dashboard failed: {exc}")
+
+
+# ── City preference ──────────────────────────────────────────────────
+
+@calendar_router.post("/city/select")
+async def calendar_city_select(request: Request, authorization: str = Header(default="")):
+    """Set the default city for calendar views."""
+    _verify_strike_token(authorization)
+    try:
+        body = await request.json()
+        if not isinstance(body, dict) or not body.get("city_id"):
+            raise HTTPException(status_code=400, detail="Missing required field: city_id")
+        city_id = str(body["city_id"]).strip()
+
+        cities_pref = _get_cities_pref_or_none()
+        if cities_pref is None:
+            return _err_response("cities_pref module unavailable", 503)
+
+        if hasattr(cities_pref, "set_preferred_city"):
+            await _call_maybe_async(cities_pref.set_preferred_city, city_id)
+        else:
+            return _err_response("cities_pref.set_preferred_city missing", 503)
+
+        # Resolve metadata to echo back
+        city_meta: Dict[str, Any] = {}
+        if hasattr(cities_pref, "get_city_meta"):
+            try:
+                city_meta = await _call_maybe_async(cities_pref.get_city_meta, city_id) or {}
+            except Exception as exc:
+                log.warning("cities_pref.get_city_meta failed: %s", exc)
+        if not city_meta:
+            city_meta = CITIES.get(city_id, {"id": city_id, "name": city_id})
+
+        return {
+            "status": "set",
+            "city_id": city_id,
+            "city_meta": city_meta,
+            "generated_at": _utc_iso(),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.exception("calendar/city/select failed")
+        return _err_response(f"city select failed: {exc}")
+
+
+@calendar_router.get("/city/current")
+async def calendar_city_current(authorization: str = Header(default="")):
+    """Return the currently selected default city."""
+    _verify_strike_token(authorization)
+    try:
+        cities_pref = _get_cities_pref_or_none()
+        if cities_pref is None:
+            return _err_response("cities_pref module unavailable", 503)
+
+        if not hasattr(cities_pref, "get_default_city"):
+            return _err_response("cities_pref.get_default_city missing", 503)
+
+        city_id = await _call_maybe_async(cities_pref.get_default_city)
+        city_id = str(city_id) if city_id else "edmonton"
+
+        city_meta: Dict[str, Any] = {}
+        if hasattr(cities_pref, "get_city_meta"):
+            try:
+                city_meta = await _call_maybe_async(cities_pref.get_city_meta, city_id) or {}
+            except Exception as exc:
+                log.warning("cities_pref.get_city_meta failed: %s", exc)
+        if not city_meta:
+            city_meta = CITIES.get(city_id, {"id": city_id, "name": city_id})
+
+        return {
+            "city_id": city_id,
+            "city_meta": city_meta,
+            "generated_at": _utc_iso(),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.exception("calendar/city/current failed")
+        return _err_response(f"city current failed: {exc}")
+
+
+# ── Force refresh ────────────────────────────────────────────────────
+
+@calendar_router.post("/refresh")
+async def calendar_refresh(request: Request, authorization: str = Header(default="")):
+    """Force a calendar_agent.scan_cycle() to run now (no cache)."""
+    _verify_strike_token(authorization)
+    try:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        city_id = body.get("city_id")
+
+        agent = _get_calendar_agent_or_none()
+        if agent is None:
+            return _err_response("calendar_agent module unavailable", 503)
+
+        if not hasattr(agent, "scan_cycle"):
+            return _err_response("calendar_agent.scan_cycle missing", 503)
+
+        if city_id:
+            try:
+                summary = await _call_maybe_async(agent.scan_cycle, city_id)
+            except TypeError:
+                # scan_cycle may not accept city_id
+                summary = await _call_maybe_async(agent.scan_cycle)
+        else:
+            summary = await _call_maybe_async(agent.scan_cycle)
+
+        if not isinstance(summary, dict):
+            summary = {"result": summary}
+        summary.setdefault("generated_at", _utc_iso())
+        if city_id:
+            summary.setdefault("city_id", city_id)
+        return summary
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.exception("calendar/refresh failed")
+        return _err_response(f"refresh failed: {exc}")

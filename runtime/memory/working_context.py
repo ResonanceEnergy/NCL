@@ -923,8 +923,33 @@ class DailyContextWindow:
                     self._persist()
                     return
 
+    async def mark_accessed_batch(self, item_ids: list[str]) -> int:
+        """Mark multiple items as accessed in one persist (used by GET endpoint).
+
+        Returns count of items successfully marked.
+        """
+        if not item_ids:
+            return 0
+        async with self._lock:
+            if not self._current:
+                return 0
+            id_set = set(item_ids)
+            marked = 0
+            for item in self._current.items:
+                if item.item_id in id_set:
+                    item.accessed_today = True
+                    item.access_count += 1
+                    marked += 1
+            if marked:
+                self._persist()
+            return marked
+
     async def add_item(self, item: ContextItem) -> None:
-        """Manually add an item to today's context (e.g., from chat or command)."""
+        """Manually add an item to today's context (e.g., from chat or command).
+
+        Enforces MAX_CONTEXT_ITEMS cap by evicting the lowest-salience, non-pinned
+        item if needed (prevents unbounded growth from Awarebot inject_signal).
+        """
         async with self._lock:
             if not self._current:
                 now = datetime.now(timezone.utc)
@@ -939,8 +964,19 @@ class DailyContextWindow:
 
             item.assembled_at = datetime.now(timezone.utc).isoformat()
             self._current.items.append(item)
+
+            # Enforce cap — evict lowest-salience non-pinned items if oversize
+            if len(self._current.items) > MAX_CONTEXT_ITEMS:
+                # Sort: pinned first (kept), then by salience desc
+                self._current.items.sort(key=lambda x: (x.pinned, x.salience_score), reverse=True)
+                evicted = self._current.items[MAX_CONTEXT_ITEMS:]
+                self._current.items = self._current.items[:MAX_CONTEXT_ITEMS]
+                evicted_ids = {e.item_id for e in evicted}
+                # Drop any pinned_ids that got evicted (shouldn't, but be safe)
+                self._current.pinned_ids = [pid for pid in self._current.pinned_ids if pid not in evicted_ids]
+
             self._persist()
-            log.info(f"[WORKING-CTX] Added item: {item.item_id}")
+            log.debug(f"[WORKING-CTX] Added item: {item.item_id} (total={len(self._current.items)})")
 
     async def refresh(self, themes: Optional[list[str]] = None) -> DailyContext:
         """

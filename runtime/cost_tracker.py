@@ -50,6 +50,7 @@ DEFAULT_DAILY_BUDGETS: dict[str, float] = {
     "ollama":          0.00,    # Local — free
     "youtube_data":    0.00,    # Free tier (quota-based)
     "reddit":          0.00,    # Free (RSS + public API)
+    "ytc":             3.00,    # Dedicated YouTube Council loop — per-video LLM cost cap
 }
 
 # Hard platform-wide daily cap (all sources combined)
@@ -255,9 +256,32 @@ class CostTracker:
             message: Alert text
             priority: ntfy priority — "4" for 80% warning, "5" for hard cap
         """
+        # Preferred path: enqueue via centralized AlertDispatcher (rate limited + deduped).
+        # Falls back to direct HTTP POST if the dispatcher import fails (test envs, etc.).
+        try:
+            from .notifications import enqueue_alert  # local import to avoid cycles
+            tags = "rotating_light,money_with_wings" if priority == "5" else "warning,money_with_wings"
+            safe_title = "NCL COST ALERT" if priority == "5" else "NCL Cost Warning"
+            # Dedup at the cost layer: one warn + one cap per source per day handled by
+            # _warned_sources; here we add a short cooldown so even repeated invocations
+            # within the same minute coalesce.
+            dedup = f"cost:{priority}:{message[:40]}"
+            enqueue_alert(
+                title=safe_title,
+                body=message,
+                priority=priority,
+                tags=tags,
+                dedup_key=dedup,
+                source="cost_tracker",
+            )
+            log.info(f"[COST] ntfy alert enqueued (priority={priority}): {message[:60]}")
+            return
+        except Exception as enq_err:
+            log.warning(f"[COST] AlertDispatcher unavailable, falling back to direct POST: {enq_err}")
+
         try:
             import httpx
-            # Try ntfy (lightweight push notification)
+            # Fallback: direct ntfy
             ntfy_topic = os.getenv("NTFY_TOPIC", "ncl-natrix-intel-7x9k")
             ntfy_server = os.getenv("NTFY_SERVER", "https://ntfy.sh")
             if ntfy_topic:

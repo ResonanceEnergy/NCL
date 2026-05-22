@@ -204,9 +204,17 @@ class PortfolioManager:
             accounts: list[dict] = []
             positions: list[dict] = []
 
+            # Reconnect disconnected adapters before syncing
             for name, adapter in self._adapters:
                 if not adapter.connected:
-                    continue
+                    try:
+                        await adapter.connect()
+                        if adapter.connected:
+                            logger.info('Reconnected adapter %s', name)
+                    except Exception:
+                        logger.debug('Adapter %s still unavailable', name)
+                    if not adapter.connected:
+                        continue
                 try:
                     broker_accounts = await adapter.get_accounts()
                     for acct in broker_accounts:
