@@ -477,20 +477,42 @@ class AutonomousScheduler:
         except Exception as e:
             log.warning(f"[SCHEDULER] chroma-gc loop disabled: {e}")
 
-        # Loop 5: conflict arbitration (15min — flag contradictory units)
+        # Loop 5: conflict arbitration — adaptive cadence (5m burst / 10m
+        # busy / 15m calm). Audit 2026-05-22 bumped per-cycle cap 5 -> 50
+        # and added a quality filter (importance_divergence > 40 AND
+        # >=3 shared entities) so we don't drown council in low-signal
+        # contradictions.
         try:
-            from ..memory.conflict_resolver import ConflictResolver, run_conflict_arbitration_cycle
+            from ..memory.conflict_resolver import (
+                ConflictResolver, run_conflict_arbitration_cycle,
+                CADENCE_BURST_S, CADENCE_BUSY_S, CADENCE_CALM_S,
+                BACKLOG_BURST, BACKLOG_BUSY,
+            )
             self._conflict_resolver = ConflictResolver(
                 self.brain.memory_store,
                 knowledge_graph=getattr(self.brain, "knowledge_graph", None),
             )
             async def _conflict_arb_loop():
+                cadence = CADENCE_CALM_S
                 while self._running and not EMERGENCY_STOP_EVENT.is_set():
                     try:
-                        await run_conflict_arbitration_cycle(self.brain, self._stats)
+                        summary = await run_conflict_arbitration_cycle(
+                            self.brain, self._stats,
+                        )
+                        # Pick the next cadence from the backlog the cycle
+                        # just reported. Burst when we're catching up.
+                        backlog = (summary or {}).get("backlog", 0)
+                        if backlog > BACKLOG_BURST:
+                            cadence = CADENCE_BURST_S
+                        elif backlog > BACKLOG_BUSY:
+                            cadence = CADENCE_BUSY_S
+                        else:
+                            cadence = CADENCE_CALM_S
+                        self._stats["conflict_arb_cadence_s"] = cadence
+                        self._stats["conflict_arb_backlog"] = backlog
                     except Exception as e:
                         log.exception(f"[CONFLICT-ARB] cycle failed: {e}")
-                    await asyncio.sleep(900)
+                    await asyncio.sleep(cadence)
             self._conflict_arb_loop = _conflict_arb_loop
             self._tasks.append(
                 asyncio.create_task(_conflict_arb_loop(), name="ncl-conflict-arb")
@@ -524,6 +546,21 @@ class AutonomousScheduler:
             )
         except Exception as e:
             log.warning(f"[SCHEDULER] narrative-threads loop disabled: {e}")
+
+        # CLAUDE.md refresh loop — 24h cadence. Keeps system-doc-derived
+        # memory units fresh so the eval harness can find facts like
+        # "why is X disabled". Idempotent via content_hash dedupe.
+        try:
+            from ..memory.claude_md_bootstrap import claude_md_refresh_loop
+            self._claude_md_refresh_loop = lambda: claude_md_refresh_loop(self.brain)
+            self._tasks.append(
+                asyncio.create_task(
+                    self._claude_md_refresh_loop(),
+                    name="ncl-claude-md-refresh",
+                )
+            )
+        except Exception as e:
+            log.warning(f"[SCHEDULER] claude-md-refresh loop disabled: {e}")
 
         # Loop 10: sliding-window dedup scan (6h — replaces Night Watch M1)
         # Previously M1 walked the entire 9.7K-unit store in-line inside the
@@ -589,6 +626,9 @@ class AutonomousScheduler:
             self._task_factories["ncl-narrative-threads"] = self._narrative_thread_loop
         # ncl-dedup-scan (replaces inline Night Watch M1)
         self._task_factories["ncl-dedup-scan"] = self._dedup_scan_loop
+        # ncl-claude-md-refresh (24h refresh of system-doc memory units)
+        if hasattr(self, "_claude_md_refresh_loop"):
+            self._task_factories["ncl-claude-md-refresh"] = self._claude_md_refresh_loop
         # 2026-05-22 batch 2
         if getattr(self, "_async_writer", None) is not None and hasattr(self, "_async_writer_supervisor"):
             self._task_factories["ncl-async-writer"] = self._async_writer_supervisor

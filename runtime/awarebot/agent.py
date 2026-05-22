@@ -494,6 +494,33 @@ def compute_freshness(signal: Signal) -> float:
     return round(min(1.0, raw * 10.0), 4)
 
 
+# Direction keyword sets — kept small + lowercase for cheap match.
+_BULL_TERMS = frozenset({
+    "bullish", "rally", "surge", "uptrend", "gain", "rise", "rises", "rose",
+    "increase", "increases", "increased", "upside", "higher", "outperform",
+    "beat", "beating", "exceed", "moon", "breakout",
+})
+_BEAR_TERMS = frozenset({
+    "bearish", "crash", "drop", "drops", "dropped", "fall", "falls", "fell",
+    "decline", "declines", "declined", "downside", "lower", "underperform",
+    "miss", "missed", "downturn", "pullback", "breakdown", "sell-off", "selloff",
+})
+
+
+def _classify_direction(text: str) -> str:
+    """Cheap keyword classifier — bullish | bearish | neutral | mixed."""
+    if not text:
+        return "neutral"
+    words = re.findall(r"[a-zA-Z][a-zA-Z\-]+", text.lower())
+    bull = sum(1 for w in words if w in _BULL_TERMS)
+    bear = sum(1 for w in words if w in _BEAR_TERMS)
+    if bull == 0 and bear == 0:
+        return "neutral"
+    if bull > 0 and bear > 0 and abs(bull - bear) <= 1:
+        return "mixed"
+    return "bullish" if bull > bear else "bearish"
+
+
 def compute_authority(source: str, metadata: dict[str, Any]) -> float:
     """
     Compute source authority score using real engagement data when available.
@@ -2359,13 +2386,32 @@ Focus on what requires attention or action."""
                     pred_dir = self._data_dir / "predictions"
                     pred_dir.mkdir(parents=True, exist_ok=True)
                     pred_file = pred_dir / f"pred-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.json"
+                    # New fields (2026-05-22) — iOS PredictionDetailView
+                    # requires direction/linked_signals/models. Derive
+                    # them at write time so /predictions doesn't have to
+                    # re-parse.
+                    models = [
+                        v.get("model") or k
+                        for k, v in (output.component_predictions or {}).items()
+                        if v.get("confidence", 0) > 0
+                        and "Unable to generate" not in str(v.get("prediction", ""))
+                    ]
+                    direction = _classify_direction(output.consensus_prediction or "")
+                    linked_signals = [
+                        getattr(s, "signal_id", None) for s in cluster_signals
+                    ]
+                    linked_signals = [s for s in linked_signals if s]
                     pred_data = {
+                        "prediction_id": output.prediction_id,
                         "topic": topic,
                         "consensus": output.consensus_prediction,
                         "confidence": output.confidence,
                         "convergence": output.convergence_signals if output.convergence_signals else [],
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                         "signal_count": len(cluster_signals),
+                        "linked_signals": linked_signals,
+                        "models": models,
+                        "direction": direction,
                     }
                     pred_file.write_text(json.dumps(pred_data, indent=2, default=str))
                 except Exception as disk_err:

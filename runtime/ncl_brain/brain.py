@@ -207,6 +207,11 @@ class NCLBrain:
         self._pending_dispatches_file = self.data_dir / "pending_dispatches.json"
         self._council_sessions_file = self.data_dir / "council_sessions.json"
 
+        # Council quality metrics — counts per terminal status (complete /
+        # failed / synthesizing-stuck). Exposed via /council/quality so we
+        # can surface accepted vs rejected at the pipeline boundary.
+        self._council_quality: dict[str, int] = {}
+
         # Event log rotation: rotate events.ndjson when it exceeds 100 MB
         self._events_file_max_bytes = 100 * 1024 * 1024  # 100 MB
         self._events_rotate_backups = 5
@@ -999,8 +1004,33 @@ class NCLBrain:
             {"session_id": session.session_id},
         )
 
-        # Run debate
-        session = await self.council_engine.run_debate(session)
+        # Run debate. Always persist the final state — even on partial failure
+        # the engine returns the session with status=COMPLETE/FAILED + any
+        # rounds collected. Previously the file was written ONLY at spawn
+        # (status=DEBATING) so every session stayed forever stuck "debating".
+        # Quality metric: count completed vs failed sessions for telemetry.
+        try:
+            session = await self.council_engine.run_debate(session)
+        except Exception as e:
+            log.exception(f"[spawn_council_session] run_debate crashed: {e}")
+            session.status = CouncilStatus.FAILED
+            session.completed_at = datetime.now(timezone.utc)
+            if not session.synthesis:
+                session.synthesis = f"Debate crashed: {type(e).__name__}: {e}"
+            self._council_quality.setdefault("failed", 0)
+            self._council_quality["failed"] += 1
+        else:
+            self._council_quality.setdefault(session.status.value, 0)
+            self._council_quality[session.status.value] += 1
+
+        # CRITICAL: re-persist final state so on-disk file moves
+        # debating → completed / failed.  Without this the file is stale
+        # forever (the root cause of every session being stuck "debating"
+        # since 2026-05-17).
+        async with self._council_sessions_lock:
+            self.council_sessions[session.session_id] = session
+            await self._persist_council_sessions_unlocked()
+
         await self._log_event(
             "council_completed",
             f"Council session {session.session_id} completed",
@@ -1008,16 +1038,19 @@ class NCLBrain:
                 "topic": topic,
                 "consensus": session.consensus,
                 "recommendations": session.recommendations,
+                "status": session.status.value,
             },
         )
 
-        # Store insights in memory
-        await self.memory_store.create_unit(
-            content=f"Council consensus: {session.consensus}",
-            source=f"council:{session.session_id}",
-            importance=70.0,
-            tags=["council", "consensus", topic.lower()],
-        )
+        # Store insights in memory — only if we have real consensus, not a
+        # crash message. Avoids polluting memory with "Synthesis error" rows.
+        if session.consensus and session.status == CouncilStatus.COMPLETE:
+            await self.memory_store.create_unit(
+                content=f"Council consensus: {session.consensus}",
+                source=f"council:{session.session_id}",
+                importance=70.0,
+                tags=["council", "consensus", topic.lower()],
+            )
 
         return session
 

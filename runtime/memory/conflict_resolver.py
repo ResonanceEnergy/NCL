@@ -41,11 +41,24 @@ import aiofiles
 log = logging.getLogger("ncl.memory.conflict_resolver")
 
 # ── Tuning constants ─────────────────────────────────────────────────────────
-MAX_COUNCIL_QUEUE_PER_CYCLE = 5      # Cost-control cap per arbitration cycle
+# Audit 2026-05-22: prior cap of 5/cycle vs 14,800 backlog = ~58 days to
+# drain. Bumped to 50/cycle plus adaptive cadence (5min when burst,
+# 15min when calm) and a quality filter (only queue conflicts with
+# importance_divergence > 40 AND shared_entities >= 3).
+MAX_COUNCIL_QUEUE_PER_CYCLE = 50
 HIGH_SEVERITY_IMPORTANCE = 60.0      # Both units must be >= this to count "high"
 CRITICAL_SEVERITY_IMPORTANCE = 75.0  # Both >= this AND >=2 entities overlap → critical
 DEFAULT_WINDOW_HOURS = 24
 OVERLAP_WINDOW_HOURS = 24            # Time gap between two units must be <= this
+COUNCIL_IMPORTANCE_DIVERGENCE = 40.0 # min |imp_a - imp_b| to queue for council
+COUNCIL_MIN_SHARED_ENTITIES = 3      # min overlap to promote to council
+
+# Adaptive cadence thresholds for the scheduler loop (seconds).
+CADENCE_BURST_S = 300     # backlog > 1000 -> 5min cycles
+CADENCE_BUSY_S = 600      # backlog > 100  -> 10min cycles
+CADENCE_CALM_S = 900      # default        -> 15min cycles
+BACKLOG_BURST = 1000
+BACKLOG_BUSY = 100
 
 # ── Polarity dictionaries ────────────────────────────────────────────────────
 BULLISH_TOKENS = {
@@ -170,10 +183,28 @@ def _classify_severity(unit_a: Any, unit_b: Any, shared_entities: set[str]) -> s
     return "low"
 
 
+# Soft cap on append-only JSONL ledger files. Once exceeded the file is
+# rotated to ``<name>.1`` (oldest dropped) so the index can't grow unbounded
+# — root cause of ``contradicts_index.jsonl`` hitting 30 MB and contributing
+# to Brain RSS pressure / OOM SIGKILL loop.
+_JSONL_ROTATE_BYTES = int(os.environ.get("NCL_JSONL_ROTATE_BYTES", 5 * 1024 * 1024))
+
+
+def _maybe_rotate(path: Path) -> None:
+    try:
+        if path.exists() and path.stat().st_size > _JSONL_ROTATE_BYTES:
+            backup = path.with_suffix(path.suffix + ".1")
+            if backup.exists():
+                backup.unlink()
+            path.rename(backup)
+    except OSError as e:
+        log.warning("[JSONL-ROTATE] %s rotation failed: %s", path, e)
+
+
 async def _atomic_append_jsonl(path: Path, record: dict) -> None:
-    """Append-only JSONL writer (single line, flush). Atomic at the line level
-    for POSIX append semantics."""
+    """Append-only JSONL writer with soft 5 MB rotation guard."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    _maybe_rotate(path)
     line = json.dumps(record, default=str, ensure_ascii=False) + "\n"
     async with aiofiles.open(path, mode="a", encoding="utf-8") as f:
         await f.write(line)
@@ -447,25 +478,46 @@ async def run_conflict_arbitration_cycle(
     # 3. Link contradictions in KG + sidecar
     linked = await resolver.link_contradicts(high_conflicts)
 
-    # 4. Queue critical ones for council (capped)
-    critical = [c for c in high_conflicts if c.get("severity") == "critical"]
+    # 4. Quality filter for council — only conflicts where there's a real
+    #    disagreement worth multi-LLM deliberation. Council bandwidth is
+    #    finite; lower-severity contradictions stay logged but unpromoted.
+    council_candidates = []
+    for c in high_conflicts:
+        if c.get("severity") not in ("critical", "high"):
+            continue
+        imps = c.get("importances", [0.0, 0.0])
+        try:
+            divergence = abs(float(imps[0]) - float(imps[1]))
+        except (TypeError, ValueError, IndexError):
+            divergence = 0.0
+        shared = c.get("shared_entities", []) or []
+        if divergence < COUNCIL_IMPORTANCE_DIVERGENCE:
+            continue
+        if len(shared) < COUNCIL_MIN_SHARED_ENTITIES:
+            continue
+        council_candidates.append(c)
+
     queued = 0
-    for c in critical[:max_council_queue]:
+    for c in council_candidates[:max_council_queue]:
         result = await resolver.queue_for_council(c)
         if result.get("queued"):
             queued += 1
 
-    # 5. Persist tick summary
+    # 5. Persist tick summary (include backlog so the scheduler can pick
+    #    the right cadence next tick).
     ts = datetime.now(timezone.utc).isoformat()
+    backlog = max(0, len(all_conflicts) - queued)
     summary = {
         "ts": ts,
         "window_hours": window_hours,
         "found": len(all_conflicts),
         "high": len(high_conflicts),
         "linked": linked,
-        "critical": len(critical),
+        "critical": len([c for c in high_conflicts if c.get("severity") == "critical"]),
+        "council_candidates": len(council_candidates),
         "queued_for_council": queued,
         "cap": max_council_queue,
+        "backlog": backlog,
     }
     try:
         data_dir = Path(getattr(memory_store, "data_dir", "data/memory")).expanduser()

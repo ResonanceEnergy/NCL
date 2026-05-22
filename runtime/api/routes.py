@@ -734,6 +734,7 @@ async def receive_pump_prompt(
 
     # Validate body has at least a prompt or intent
     if not body.get("prompt") and not body.get("intent"):
+        _pump_count("rejected")
         raise HTTPException(status_code=400, detail="Missing required field: 'prompt' or 'intent'")
 
     # Accept simple { "prompt": "text" } from dashboard and convert to PumpPrompt
@@ -750,7 +751,11 @@ async def receive_pump_prompt(
         try:
             prompt = PumpPrompt(**body)
         except Exception as e:
+            _pump_count("rejected")
             raise HTTPException(status_code=422, detail=f"Invalid PumpPrompt: {e}")
+
+    # Quality: accepted pump
+    _pump_count("submitted", prompt.prompt_id)
 
     if auto_flow:
         # Council pipeline can run for several minutes (multi-LLM rebuttal rounds
@@ -818,6 +823,83 @@ async def list_pending_pumps(
         }
 
     return {"pending_count": len(pending), "pending": pending}
+
+
+# In-process pump quality counters. Lives at module scope so the simple
+# /pump/health monitor can read them without poking at brain internals.
+_PUMP_QUALITY = {
+    "submitted_total": 0,
+    "submitted_today": 0,
+    "rejected_total": 0,
+    "rejected_today": 0,
+    "last_submission_at": None,
+    "last_submission_id": None,
+    "_today_date": None,
+}
+
+
+def _pump_count(kind: str, pump_id: str | None = None) -> None:
+    """Increment pump counters with daily-rollover semantics."""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if _PUMP_QUALITY["_today_date"] != today:
+        _PUMP_QUALITY["_today_date"] = today
+        _PUMP_QUALITY["submitted_today"] = 0
+        _PUMP_QUALITY["rejected_today"] = 0
+    if kind == "submitted":
+        _PUMP_QUALITY["submitted_total"] += 1
+        _PUMP_QUALITY["submitted_today"] += 1
+        _PUMP_QUALITY["last_submission_at"] = datetime.now(timezone.utc).isoformat()
+        _PUMP_QUALITY["last_submission_id"] = pump_id
+    elif kind == "rejected":
+        _PUMP_QUALITY["rejected_total"] += 1
+        _PUMP_QUALITY["rejected_today"] += 1
+
+
+@app.get("/pump/health")
+async def pump_health(
+    authorization: str = Header(default=""),
+) -> dict:
+    """Per-process pump-pipeline quality telemetry.
+
+    Exposes accepted/rejected counters + last-submission time so the iOS
+    Dashboard (or a watchdog) can tell whether the pipeline is actually
+    flowing — pipelines that stop accepting pumps for >24h are a P0 signal.
+    Also reads ``mandate-generation/input/`` directly to confirm the
+    file-side pump path (used by relay_server) is also alive.
+    """
+    _verify_strike_token(authorization)
+
+    # File-side health: count files in mandate-generation/{input,processed,failed}
+    file_health: dict = {}
+    try:
+        ncl_base = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
+        for sub in ("input", "processed", "failed"):
+            d = ncl_base / "mandate-generation" / sub
+            if d.exists():
+                files = sorted(d.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+                file_health[sub] = {
+                    "count": len(files),
+                    "newest_at": datetime.fromtimestamp(files[0].stat().st_mtime, tz=timezone.utc).isoformat() if files else None,
+                    "newest_name": files[0].name if files else None,
+                }
+            else:
+                file_health[sub] = {"count": 0, "newest_at": None, "newest_name": None}
+    except Exception as e:
+        file_health = {"error": str(e)}
+
+    return {
+        "submitted_total": _PUMP_QUALITY["submitted_total"],
+        "submitted_today": _PUMP_QUALITY["submitted_today"],
+        "rejected_total": _PUMP_QUALITY["rejected_total"],
+        "rejected_today": _PUMP_QUALITY["rejected_today"],
+        "last_submission_at": _PUMP_QUALITY["last_submission_at"],
+        "last_submission_id": _PUMP_QUALITY["last_submission_id"],
+        "acceptance_pct": (
+            round(100.0 * _PUMP_QUALITY["submitted_total"] /
+                  max(1, _PUMP_QUALITY["submitted_total"] + _PUMP_QUALITY["rejected_total"]), 1)
+        ),
+        "file_pipeline": file_health,
+    }
 
 
 @app.get("/pump/review/{pump_id}")
@@ -1097,6 +1179,35 @@ async def list_council_sessions(
     return {"sessions": sessions, "count": len(sessions)}
 
 
+@app.get("/council/quality")
+async def council_quality(
+    authorization: str = Header(default=""),
+) -> dict:
+    """Per-status counter (complete/failed/synthesizing) since Brain start.
+
+    Quality metric for the council pipeline: accepted (complete with consensus)
+    vs rejected (failed / quorum_failure / synthesis_error). Lets us monitor
+    whether councils are producing good-enough output to act on.
+    """
+    _verify_strike_token(authorization)
+    if not brain:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+    counts = dict(getattr(brain, "_council_quality", {}))
+    # Also rollup current on-disk state
+    on_disk = {"complete": 0, "failed": 0, "debating": 0, "synthesizing": 0}
+    for sess in brain.council_sessions.values():
+        on_disk[sess.status.value] = on_disk.get(sess.status.value, 0) + 1
+    total = sum(on_disk.values()) or 1
+    accepted = on_disk.get("complete", 0)
+    return {
+        "since_start": counts,
+        "current_state": on_disk,
+        "accepted_count": accepted,
+        "rejected_count": total - accepted,
+        "accepted_pct": round(100.0 * accepted / total, 1),
+    }
+
+
 # ── YouTube Council endpoints ─────────────────────────────────────────────
 # Channel subscription management + report access for FirstStrike YTC tab.
 
@@ -1310,6 +1421,7 @@ async def list_youtube_reports(
 @app.get("/youtube/reports/recent")
 async def youtube_reports_recent(
     limit: int = Query(default=20, ge=1, le=100),
+    include_legacy: bool = Query(default=False),
     authorization: str = Header(default=""),
 ) -> dict:
     """
@@ -1320,7 +1432,9 @@ async def youtube_reports_recent(
       - intelligence-scan/youtube-reports/*.json  (newer per-video + rollup)
       - intelligence-scan/council-reports/*.json  (older / multi-source)
 
-    Sorted by mtime descending.
+    Dedup (2026-05-22): for every video_id seen, keep ONE report — preferring
+    the one with the most insights, then the newest mtime. Pass
+    `include_legacy=true` to re-include duplicate legacy entries.
     """
     _verify_strike_token(authorization)
 
@@ -1338,10 +1452,11 @@ async def youtube_reports_recent(
 
     candidates.sort(key=lambda t: t[0], reverse=True)
 
-    reports: list[dict] = []
-    seen_ids: set[str] = set()
+    raw_reports: list[dict] = []
+    seen_filenames: set[str] = set()
     for mtime, p in candidates:
-        if len(reports) >= limit:
+        if len(raw_reports) >= max(limit * 3, 60):
+            # Read enough to dedup well — at most 3x limit candidates.
             break
         try:
             data = json.loads(p.read_text())
@@ -1352,12 +1467,9 @@ async def youtube_reports_recent(
         videos = data.get("videos") or []
         first_video = videos[0] if videos else {}
 
-        # Dedup key: filename is unique per report (per-video reports and
-        # the rollup share session_id but have different filenames)
-        dedup_key = p.name
-        if dedup_key in seen_ids:
+        if p.name in seen_filenames:
             continue
-        seen_ids.add(dedup_key)
+        seen_filenames.add(p.name)
         report_id = data.get("session_id") or p.stem
 
         # Try multiple fields for compatibility with both old and new shapes
@@ -1396,13 +1508,14 @@ async def youtube_reports_recent(
 
         insights = data.get("insights") or []
         report_type = data.get("report_type", "legacy")
+        video_id = first_video.get("video_id") or data.get("video_id") or ""
 
-        reports.append({
+        raw_reports.append({
             "id": report_id,
             "title": title,
             "video_title": video_title,
             "channel": first_video.get("channel") or data.get("channel") or data.get("channel_name") or "Unknown",
-            "video_id": first_video.get("video_id") or "",
+            "video_id": video_id,
             "url": url,
             "published_at": published_at,
             "summary": summary,
@@ -1413,13 +1526,58 @@ async def youtube_reports_recent(
             "filename": p.name,
             "auto_triggered": data.get("auto_triggered", False),
             "status": data.get("status", "complete"),
+            "_mtime": mtime,
         })
 
+    raw_count = len(raw_reports)
+
+    # --- Dedup pass: keep best report per video_id ---
+    dedup_count = 0
+    if include_legacy:
+        deduped = raw_reports
+    else:
+        best_by_vid: dict[str, dict] = {}
+        no_vid: list[dict] = []
+        for r in raw_reports:
+            vid = r.get("video_id") or ""
+            if not vid:
+                # Rollups + non-video reports always pass through
+                no_vid.append(r)
+                continue
+            current = best_by_vid.get(vid)
+            if current is None:
+                best_by_vid[vid] = r
+                continue
+            # Tie-break: more insights wins; else newer mtime wins;
+            # else per_video beats legacy.
+            if r["insights_count"] > current["insights_count"]:
+                best_by_vid[vid] = r
+            elif r["insights_count"] == current["insights_count"]:
+                if r.get("_mtime", 0) > current.get("_mtime", 0):
+                    best_by_vid[vid] = r
+                elif r.get("report_type") == "per_video" and current.get("report_type") == "legacy":
+                    best_by_vid[vid] = r
+        deduped = list(best_by_vid.values()) + no_vid
+        dedup_count = len(raw_reports) - len(deduped)
+
+    # Sort and slice
+    deduped.sort(key=lambda r: r.get("_mtime", 0), reverse=True)
+    sliced = deduped[:limit]
+    # Strip internal `_mtime` from response
+    for r in sliced:
+        r.pop("_mtime", None)
+
     return {
-        "reports": reports,
-        "count": len(reports),
+        "reports": sliced,
+        "count": len(sliced),
         "limit": limit,
         "updated_at": datetime.now(timezone.utc).isoformat(),
+        "_meta": {
+            "filter_applied": {"include_legacy": include_legacy, "limit": limit},
+            "raw_count": raw_count,
+            "filtered_count": len(sliced),
+            "dedup_count": dedup_count,
+        },
     }
 
 
@@ -5249,6 +5407,76 @@ async def backfill_authority_endpoint(
         return {"status": "error", "error": str(e)}
 
 
+@app.post("/memory/retag-authority")
+async def retag_authority_endpoint(
+    authorization: str = Header(default=""),
+) -> dict:
+    """Force-re-apply the SOURCE_TIER_MAP to every unit.
+
+    Use after editing the tier map (e.g. demoting portfolio:snapshot from
+    NATRIX to BRAIN). Unlike /memory/backfill-authority, this overwrites
+    already-stamped units.
+    """
+    _verify_strike_token(authorization)
+    if not brain or not brain.memory_store:
+        return {"error": "Memory store not available"}
+    try:
+        from ..memory.authority import retag_authority_tiers
+        result = await retag_authority_tiers(brain.memory_store)
+        return {"status": "ok", **result}
+    except Exception as e:
+        log.error(f"Authority retag failed: {e}")
+        return {"status": "error", "error": str(e)}
+
+
+@app.post("/memory/bootstrap-claude-md")
+async def bootstrap_claude_md_endpoint(
+    authorization: str = Header(default=""),
+) -> dict:
+    """One-shot CLAUDE.md ingestion.
+
+    Reads ~/dev/NCL/CLAUDE.md and ~/Projects/FirstStrike/CLAUDE.md, splits
+    each on `##` headers, and creates a procedural MemUnit per section at
+    BRAIN(60) authority. Idempotent — dedupes by content_hash.
+    """
+    _verify_strike_token(authorization)
+    if not brain or not brain.memory_store:
+        return {"error": "Memory store not available"}
+    try:
+        from ..memory.claude_md_bootstrap import bootstrap_claude_md
+        result = await bootstrap_claude_md(brain.memory_store)
+        return {"status": "ok", **result}
+    except Exception as e:
+        log.error(f"CLAUDE.md bootstrap failed: {e}", exc_info=True)
+        return {"status": "error", "error": str(e)}
+
+
+@app.post("/memory/kg-cleanup")
+async def kg_cleanup_endpoint(
+    authorization: str = Header(default=""),
+) -> dict:
+    """Purge blacklisted entities (URL stems, sector buckets) from the KG.
+
+    One-shot. Removes nodes that fail the entity blacklist and their
+    incident edges, then re-classifies surviving nodes against the
+    current entity_extractor classifier.
+    """
+    _verify_strike_token(authorization)
+    if not brain or not brain.memory_store:
+        return {"error": "Memory store not available"}
+    kg = getattr(brain.memory_store, "_knowledge_graph", None) or getattr(
+        brain, "knowledge_graph", None
+    )
+    if kg is None:
+        return {"error": "Knowledge graph not initialized"}
+    try:
+        result = await kg.cleanup_blacklisted()
+        return {"status": "ok", **result}
+    except Exception as e:
+        log.error(f"KG cleanup failed: {e}", exc_info=True)
+        return {"status": "error", "error": str(e)}
+
+
 # ── Async Memory Writer (fire-and-forget queue) ─────────────────────────
 @app.get("/memory/async-writer/stats")
 async def get_async_writer_stats(authorization: str = Header(default="")) -> dict:
@@ -8806,6 +9034,72 @@ _CONSENSUS_TRAILER_RE = re.compile(r"\s*\[[^\]]+(?:concurs|disagrees|agrees)[^\]
 _CONVERGING_TRAILER_RE = re.compile(r"\s*\[Converging[^\]]*\]\s*", re.IGNORECASE)
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
 
+# Parse model names from "[Consensus: 3 models, lead=claude@72%]" + "[xxx concurs@N%]"
+_CONSENSUS_LEAD_RE = re.compile(r"\[Consensus:\s*\d+\s*models?\s*,\s*lead=([\w\-]+)", re.IGNORECASE)
+_CONSENSUS_MEMBER_RE = re.compile(r"\[([\w\-]+)\s+(?:concurs|disagrees|agrees)", re.IGNORECASE)
+_SINGLE_MODEL_NAME_RE = re.compile(r"\[Single-model(?::\s*([\w\-]+))?\]", re.IGNORECASE)
+
+# Direction classifier keyword sets (kept in sync with awarebot.agent)
+_PRED_BULL_TERMS = frozenset({
+    "bullish", "rally", "surge", "uptrend", "gain", "rise", "rises", "rose",
+    "increase", "increases", "increased", "upside", "higher", "outperform",
+    "beat", "beating", "exceed", "moon", "breakout",
+})
+_PRED_BEAR_TERMS = frozenset({
+    "bearish", "crash", "drop", "drops", "dropped", "fall", "falls", "fell",
+    "decline", "declines", "declined", "downside", "lower", "underperform",
+    "miss", "missed", "downturn", "pullback", "breakdown", "sell-off", "selloff",
+})
+
+
+def _classify_prediction_direction(text: str) -> str:
+    """bullish | bearish | neutral | mixed — keyword classifier."""
+    if not text:
+        return "neutral"
+    words = re.findall(r"[a-zA-Z][a-zA-Z\-]+", text.lower())
+    bull = sum(1 for w in words if w in _PRED_BULL_TERMS)
+    bear = sum(1 for w in words if w in _PRED_BEAR_TERMS)
+    if bull == 0 and bear == 0:
+        return "neutral"
+    if bull > 0 and bear > 0 and abs(bull - bear) <= 1:
+        return "mixed"
+    return "bullish" if bull > bear else "bearish"
+
+
+def _extract_prediction_models(pred: dict) -> list[str]:
+    """
+    Return contributing model names. Prefers the pre-stored `models`
+    field, falls back to scraping the `[Consensus: ...]` prefix +
+    `[xxx concurs@N%]` trailers for legacy records.
+    """
+    stored = pred.get("models")
+    if isinstance(stored, list) and stored:
+        clean = [str(m).strip().lower() for m in stored if isinstance(m, str) and m]
+        if clean:
+            return clean
+
+    consensus = pred.get("consensus") or ""
+    if not isinstance(consensus, str):
+        return []
+
+    found: list[str] = []
+    m = _CONSENSUS_LEAD_RE.search(consensus)
+    if m:
+        found.append(m.group(1).lower())
+    found.extend(t.lower() for t in _CONSENSUS_MEMBER_RE.findall(consensus))
+    sm = _SINGLE_MODEL_NAME_RE.search(consensus)
+    if sm and sm.group(1):
+        found.append(sm.group(1).lower())
+
+    # Dedup preserving order
+    seen: set[str] = set()
+    out: list[str] = []
+    for name in found:
+        if name not in seen:
+            seen.add(name)
+            out.append(name)
+    return out
+
 
 def _extract_prediction_description(pred: dict) -> str:
     """
@@ -8907,17 +9201,40 @@ async def list_predictions(
 
     sliced = predictions[:limit]
 
-    # Enrich each prediction with a cleaned `description` field
+    # Enrich each prediction — description, direction, models, linked_signals
+    # are required by iOS PredictionDetailView. Backfill in-place for legacy
+    # records that were persisted before the schema was extended.
     for p in sliced:
-        if isinstance(p, dict):
-            desc = _extract_prediction_description(p)
-            if desc:
-                p["description"] = desc
+        if not isinstance(p, dict):
+            continue
+        desc = _extract_prediction_description(p)
+        if desc:
+            p["description"] = desc
+
+        if not p.get("models"):
+            p["models"] = _extract_prediction_models(p)
+
+        if not p.get("direction"):
+            p["direction"] = _classify_prediction_direction(
+                p.get("description") or p.get("consensus") or ""
+            )
+
+        # linked_signals is a true backfill gap — old records don't have
+        # the source signal IDs. Surface an empty list so iOS doesn't have
+        # to defend against a missing key.
+        if "linked_signals" not in p or not isinstance(p.get("linked_signals"), list):
+            p["linked_signals"] = []
 
     return {
         "status": "ok",
         "predictions": sliced,
         "total": len(predictions),
+        "_meta": {
+            "filter_applied": {"limit": limit},
+            "raw_count": len(predictions),
+            "filtered_count": len(sliced),
+            "dedup_count": 0,
+        },
     }
 
 
@@ -9780,6 +10097,123 @@ async def system_health_rollup(authorization: str = Header(default="")) -> dict:
             "warnings": [f"rollup unavailable: {e}"],
             "errors": [],
         }
+
+
+@app.get("/system/memory-profile", tags=["system"])
+async def system_memory_profile(
+    top_n: int = Query(default=20, ge=1, le=200),
+    authorization: str = Header(default=""),
+) -> dict:
+    """Top-N Python object types by count, plus key in-process buffer sizes.
+
+    Cheap profiler intended to track down the slow OOM that's been driving
+    macOS jetsam to SIGKILL the Brain (4,982 restarts in 5 days at audit).
+    Uses ``gc.get_objects()`` + Counter — no objgraph dependency required.
+
+    Tail rates of interest:
+    - ``chromadb_disk_mb``      — embedding store size on disk
+    - ``contradicts_index_mb``  — unbounded JSONL (known unbounded growth)
+    - ``working_context_count`` — capped at 50 by store.py, here for sanity
+    - ``signal_buffer_24h``     — capped via maxlen by Awarebot agent
+    - ``council_sessions_count``— capped by _COUNCIL_SESSIONS_MAX
+    """
+    _verify_strike_token(authorization)
+    import gc, sys
+    from collections import Counter
+
+    rss_mb = None
+    vms_mb = None
+    try:
+        import resource as _r
+        # ru_maxrss is in bytes on macOS, kilobytes on Linux. We're on macOS.
+        rss_mb = round(_r.getrusage(_r.RUSAGE_SELF).ru_maxrss / (1024 * 1024), 1)
+    except Exception:
+        pass
+
+    # Type histogram (top N)
+    types = Counter()
+    objs = gc.get_objects()
+    for o in objs:
+        types[type(o).__name__] += 1
+    top_types = [{"type": t, "count": c} for t, c in types.most_common(top_n)]
+    total_objects = len(objs)
+    del objs  # release ref so the counter result isn't padded
+
+    # In-process buffer sizes
+    buffers: dict = {}
+    if brain is not None:
+        try:
+            buffers["council_sessions_count"] = len(brain.council_sessions)
+        except Exception:
+            pass
+        try:
+            ms = brain.memory_store
+            ms_stats = await ms.get_stats()
+            buffers["memory_units"] = ms_stats.get("total_units")
+            buffers["memory_by_tier"] = ms_stats.get("by_tier", {})
+        except Exception as e:
+            buffers["memory_units_error"] = str(e)
+        try:
+            wc = getattr(brain, "working_context", None)
+            if wc is not None:
+                items = getattr(wc, "items", None) or {}
+                buffers["working_context_count"] = len(items)
+        except Exception:
+            pass
+        try:
+            buffers["pending_dispatches"] = len(brain._pending_dispatches)
+        except Exception:
+            pass
+
+    if _autonomous is not None:
+        try:
+            ab = getattr(_autonomous, "awarebot", None)
+            if ab is not None:
+                buffers["signal_buffer_24h"] = len(ab._context_24h)
+                buffers["signal_buffer_7d"] = len(ab._context_7d)
+        except Exception:
+            pass
+
+    # On-disk sizes for known unbounded growth
+    disk: dict = {}
+    try:
+        base = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
+        for label, rel in [
+            ("chromadb_disk_mb", "data/memory/chromadb"),
+            ("contradicts_index_mb", "data/memory/contradicts_index.jsonl"),
+            ("kg_dir_mb", "data/memory/knowledge_graph"),
+            ("bm25_dir_mb", "data/memory/bm25"),
+            ("brain_stderr_mb", "logs/ncl-brain-stderr.log"),
+        ]:
+            p = base / rel
+            if p.is_file():
+                disk[label] = round(p.stat().st_size / (1024 * 1024), 1)
+            elif p.is_dir():
+                total = 0
+                for f in p.rglob("*"):
+                    if f.is_file():
+                        try:
+                            total += f.stat().st_size
+                        except OSError:
+                            pass
+                disk[label] = round(total / (1024 * 1024), 1)
+    except Exception as e:
+        disk["error"] = str(e)
+
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "rss_mb": rss_mb,
+        "vms_mb": vms_mb,
+        "total_objects": total_objects,
+        "top_types": top_types,
+        "buffers": buffers,
+        "disk": disk,
+        "recommendation": (
+            "If RSS > 3GB consistently: add SoftResourceLimits ResidentSetSize=4294967296 "
+            "to the brain plist and restart. If contradicts_index_mb > 50MB: it's "
+            "unbounded — see runtime/memory/conflict_resolver.py append path."
+        ),
+    }
 
 
 # ── API Versioning ─────────────────────────────────────────────────────────

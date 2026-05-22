@@ -108,18 +108,24 @@ SOURCE_TIER_MAP: dict[str, AuthorityTier] = {
     # journal entries remain at full NATRIX(100).
     "first-strike-chat": AuthorityTier.CALENDAR,    # demoted from NATRIX
     "first_strike_chat": AuthorityTier.CALENDAR,    # demoted from NATRIX
-    # Portfolio events — NATRIX's money is absolute authority. The
-    # snapshot/event writers in runtime/portfolio/memory_bridge.py emit
-    # source strings under the "portfolio:" namespace; prefix-match
-    # rules below catch anything new added later.
-    "portfolio": AuthorityTier.NATRIX,
-    "portfolio:snapshot": AuthorityTier.NATRIX,
+    # Portfolio events.
+    # Audit 2026-05-22: NATRIX(100) count was 286 units, dominated by
+    # `portfolio:snapshot` (background aggregate telemetry, not a directive)
+    # and chat fragments. Snapshots demoted to BRAIN(60) — they are
+    # synthesized aggregates from broker adapters, not user-initiated
+    # actions. Real position events (opened/closed/significant_move) stay
+    # at NATRIX because they reflect what NATRIX actually traded.
+    # Per the audit spec: ONLY direct user trades (position_opened /
+    # position_closed) stay at NATRIX. Everything else under portfolio:* is
+    # broker-derived telemetry / aggregate analytics and lives at BRAIN.
+    "portfolio": AuthorityTier.BRAIN,                   # bare prefix — fallback for new portfolio:* keys
+    "portfolio:snapshot": AuthorityTier.BRAIN,          # was NATRIX; demoted 2026-05-22
     "portfolio:position_opened": AuthorityTier.NATRIX,
     "portfolio:position_closed": AuthorityTier.NATRIX,
-    "portfolio:significant_move": AuthorityTier.NATRIX,
-    "portfolio:quantity_change": AuthorityTier.NATRIX,
-    "portfolio:account_change": AuthorityTier.NATRIX,
-    "portfolio:buying_power_risk": AuthorityTier.NATRIX,
+    "portfolio:significant_move": AuthorityTier.BRAIN,  # was NATRIX; demoted 2026-05-22
+    "portfolio:quantity_change": AuthorityTier.BRAIN,   # was NATRIX; demoted 2026-05-22
+    "portfolio:account_change": AuthorityTier.BRAIN,    # was NATRIX; demoted 2026-05-22
+    "portfolio:buying_power_risk": AuthorityTier.BRAIN, # was NATRIX; demoted 2026-05-22
 
     # ---- COUNCIL (80) -------------------------------------------------
     "council-decision": AuthorityTier.COUNCIL,
@@ -154,6 +160,10 @@ SOURCE_TIER_MAP: dict[str, AuthorityTier] = {
     "night_watch": AuthorityTier.BRAIN,
     "morning-brief": AuthorityTier.BRAIN,
     "morning_brief": AuthorityTier.BRAIN,
+    # 2026-05-22: CLAUDE.md is system-doc-derived procedural knowledge —
+    # not a NATRIX directive, but high-trust how-the-system-works facts.
+    "claude-md": AuthorityTier.BRAIN,
+    "claude_md": AuthorityTier.BRAIN,
 
     # ---- CALENDAR (50) -----------------------------------------------
     "calendar-event": AuthorityTier.CALENDAR,
@@ -332,6 +342,87 @@ def tier_at_least(tier: AuthorityTier | int, floor: AuthorityTier | int | str) -
 # ---------------------------------------------------------------------------
 # Backfill migration
 # ---------------------------------------------------------------------------
+
+
+async def retag_authority_tiers(memory_store: "MemoryStore") -> dict:
+    """Force-re-apply the current SOURCE_TIER_MAP to every persisted unit.
+
+    Unlike :func:`backfill_authority_tiers` (which is idempotent and leaves
+    already-stamped units alone), this walks the store and OVERWRITES every
+    ``metadata.authority_tier`` so that map edits (e.g. demoting
+    ``portfolio:snapshot`` from NATRIX(100) to BRAIN(60)) propagate to
+    historical units.
+
+    Persists by atomic rewrite via the store's ``_rewrite_units()``.
+
+    Returns
+    -------
+    dict
+        ``{
+            "scanned": int,
+            "updated": int,           # number whose tier actually changed
+            "unchanged": int,
+            "before_by_tier": {tier_name: count, ...},
+            "after_by_tier": {tier_name: count, ...},
+        }``
+    """
+    await memory_store._acquire_write()
+    try:
+        units = await memory_store._load_all_units()
+        if not units:
+            zero = {t.name.lower(): 0 for t in AuthorityTier}
+            return {
+                "scanned": 0,
+                "updated": 0,
+                "unchanged": 0,
+                "before_by_tier": zero,
+                "after_by_tier": dict(zero),
+            }
+
+        before: Counter[str] = Counter()
+        after: Counter[str] = Counter()
+        updated = 0
+        unchanged = 0
+
+        for unit in units:
+            meta = getattr(unit, "metadata", None)
+            if not isinstance(meta, dict):
+                meta = {}
+                unit.metadata = meta
+
+            try:
+                prev_int = int(meta.get("authority_tier", AuthorityTier.RAW))
+                prev_tier = AuthorityTier(prev_int)
+            except (ValueError, TypeError):
+                prev_tier = AuthorityTier.RAW
+            before[prev_tier.name.lower()] += 1
+
+            new_tier = tier_for_source(unit.source)
+            meta["authority_tier"] = int(new_tier)
+            after[new_tier.name.lower()] += 1
+
+            if int(new_tier) != int(prev_tier):
+                updated += 1
+            else:
+                unchanged += 1
+
+        await memory_store._rewrite_units(units)
+        log.info(
+            "authority retag: updated=%d unchanged=%d scanned=%d",
+            updated, unchanged, len(units),
+        )
+
+        return {
+            "scanned": len(units),
+            "updated": updated,
+            "unchanged": unchanged,
+            "before_by_tier": {t.name.lower(): before.get(t.name.lower(), 0)
+                               for t in AuthorityTier},
+            "after_by_tier": {t.name.lower(): after.get(t.name.lower(), 0)
+                              for t in AuthorityTier},
+        }
+    finally:
+        memory_store._release_write()
 
 
 async def backfill_authority_tiers(memory_store: "MemoryStore") -> dict:

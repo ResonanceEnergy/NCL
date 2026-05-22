@@ -252,8 +252,19 @@ class FusedRetriever:
 
         reweighted.sort(key=lambda x: x[1], reverse=True)
 
+        # 2026-05-22 cross-cutting quality directive: drop sub-threshold
+        # noise so the top-k surfaces real matches. Tunable via env so
+        # eval / debugging can lower it temporarily.
+        import os
+        try:
+            min_fused = float(os.environ.get("NCL_FUSION_MIN_SCORE", "0.0"))
+        except ValueError:
+            min_fused = 0.0
+
         results: list[dict] = []
         for uid, final_score, raw_score, aw, br in reweighted[: max(top_k, 1)]:
+            if final_score < min_fused:
+                continue
             unit = units_by_id[uid]
             meta = getattr(unit, "metadata", None) or {}
             tier_val = int(meta.get("authority_tier",
@@ -262,6 +273,9 @@ class FusedRetriever:
                 tier_name = AuthorityTier(tier_val).name.lower()
             except ValueError:
                 tier_name = "raw"
+            # Surface the Awarebot route level (focused/micro/macro) so
+            # callers can filter without a second store lookup.
+            awarebot_tier = meta.get("tier") or meta.get("route_level")
             results.append({
                 "unit_id": uid,
                 "content": (unit.content[:500] + ("…" if len(unit.content) > 500 else "")),
@@ -275,6 +289,8 @@ class FusedRetriever:
                 "authority_tier": tier_val,
                 "authority_tier_name": tier_name,
                 "authority_weight": round(aw, 3),
+                "tier": awarebot_tier,
+                "signal_id": meta.get("signal_id"),
                 "signal_breakdown": br,
             })
 

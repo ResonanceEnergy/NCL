@@ -504,29 +504,88 @@ async def calendar_sun(
 async def calendar_events_compiled(
     city_id: str = Query("edmonton", description="City id"),
     window: int = Query(7, description="Window in days (7 or 30)"),
+    exclude_window: int = Query(
+        -1,
+        description=(
+            "Exclude events with date < today + N days. "
+            "Default: window=30 auto-excludes the first 7 days (iOS 7-day tab "
+            "already shows them). Pass 0 to disable, or any explicit N to override."
+        ),
+    ),
+    scanner_cap: float = Query(
+        0.30,
+        description="Max fraction of total events that may come from scanner source (0..1).",
+    ),
+    min_quality_score: float = Query(
+        0.50,
+        description="Global minimum quality (0..1) for an event to be included.",
+    ),
     authorization: str = Header(default=""),
 ):
-    """Pre-compiled events with correlations and escalation already applied."""
+    """Pre-compiled events with correlations + quality filters applied.
+
+    Quality pipeline (order):
+      1. exclude first N days (default 7 for window=30, 0 for window=7)
+      2. dedup scanner signals per ticker-per-date
+      3. dedup same-title-within-same-date across sources
+      4. per-source quality threshold + global ``min_quality_score``
+      5. cap scanner share of total at ``scanner_cap`` (default 30%)
+
+    Response carries ``metadata.source_distribution`` and ``metadata.metrics``
+    so the client can render a "Showing X events: N market, N scanner..."
+    footer.
+    """
     _verify_strike_token(authorization)
     try:
         if window not in (7, 30):
             raise HTTPException(status_code=400, detail="window must be 7 or 30")
+        # Default exclude_window: skip the first 7 days when viewing 30-day,
+        # because the iOS 7-day tab already covers them. Caller can pass 0 to
+        # disable, or any explicit value to override.
+        if exclude_window < 0:
+            exclude_window = 7 if window == 30 else 0
         agent = _get_calendar_agent_or_none()
         if agent is None:
             return _err_response("calendar_agent module unavailable", 503)
         data = await _call_maybe_async(agent.compile_events, city_id, window)
         if not isinstance(data, dict):
             data = {"events": data or []}
-        events = data.get("events", []) or []
+        raw_events = data.get("events", []) or []
         correlations = data.get("correlations", []) or []
+
+        # Apply quality filters (exclude_window + dedup + quality + scanner-cap).
+        try:
+            from .events_compiler import apply_quality_filters
+            filtered = apply_quality_filters(
+                raw_events,
+                exclude_window=int(exclude_window),
+                scanner_cap=float(scanner_cap),
+                min_quality_score=float(min_quality_score),
+            )
+            events = filtered["events"]
+            metrics = filtered["metrics"]
+            source_distribution = filtered["source_distribution"]
+        except Exception as filt_exc:
+            log.warning("calendar/events/compiled filter failed, returning raw: %s", filt_exc)
+            events = raw_events
+            metrics = {"events_total": len(raw_events), "filter_error": str(filt_exc)}
+            source_distribution = {}
+
         result = {
             "city_id": city_id,
             "window_days": window,
             "events": events,
             "correlations": correlations,
-            "count": data.get("count", len(events)),
+            "count": len(events),
             "generated_at": data.get("generated_at", _utc_iso()),
             "stale": bool(data.get("stale", False)),
+            "metadata": {
+                "source_distribution": source_distribution,
+                "metrics": metrics,
+                "exclude_window": int(exclude_window),
+                "scanner_cap": float(scanner_cap),
+                "min_quality_score": float(min_quality_score),
+            },
         }
         return result
     except HTTPException:

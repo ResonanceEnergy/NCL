@@ -42,6 +42,24 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+# ── Hard-fail startup check for httpx ────────────────────────────────────
+# Every notification + Brain feedback path uses httpx. Without it the orch
+# silently degrades to "file fallback" forever and pretends to work
+# (root cause behind the 30+ hours of stale logs ending 2026-05-21).
+# Fail loudly so launchd restarts visibly + the operator sees the cause.
+try:
+    import httpx  # noqa: F401 — imported here so launchd surfaces ImportError
+except ImportError as _exc:
+    sys.stderr.write(
+        f"\n[FATAL] strike_point_orchestrator: httpx is not installed in "
+        f"{sys.executable}.\n"
+        f"  Cause: launched python ({sys.executable}) is missing httpx.\n"
+        f"  Fix:   {sys.executable} -m pip install --break-system-packages httpx\n"
+        f"  Or:    set ProgramArguments[0] in the plist to /opt/homebrew/bin/python3\n"
+        f"  Underlying error: {_exc}\n"
+    )
+    sys.exit(78)  # EX_CONFIG — config error so launchd's KeepAlive backs off
+
 # ── Config ────────────────────────────────────────────────────────────────
 
 NCL_BASE = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
@@ -689,8 +707,57 @@ async def dispatch_mandate(mandate: dict) -> dict:
         raise
 
 
+_VALID_PILLARS = ("NCL", "NCC", "BRS", "AAC")
+
+
+def _infer_pillar(mandate: dict) -> str:
+    """Best-effort pillar inference.
+
+    Older mandate JSON shapes use ``authority_chain`` ('NATRIX → NCL → NCC')
+    instead of an explicit ``pillar``. Newer ones may put the executor in
+    ``task_list[*].owner``. Pick the last NCL/NCC/BRS/AAC token in the
+    authority chain (the actual executor), then fall back to the first owner.
+    """
+    raw = mandate.get("pillar")
+    if isinstance(raw, str) and raw.strip().upper() in _VALID_PILLARS:
+        return raw.strip().upper()
+
+    chain = mandate.get("authority_chain", "")
+    if isinstance(chain, str) and chain:
+        tokens = re.findall(r"[A-Z]{2,4}", chain.upper())
+        # Walk right-to-left so the most-downstream pillar wins.
+        for tok in reversed(tokens):
+            if tok in _VALID_PILLARS:
+                return tok
+
+    task_list = mandate.get("task_list", {})
+    if isinstance(task_list, dict):
+        for phase_tasks in task_list.values():
+            if isinstance(phase_tasks, list):
+                for t in phase_tasks:
+                    owner = (t or {}).get("owner", "").upper()
+                    if owner in _VALID_PILLARS:
+                        return owner
+    return ""
+
+
+# Per-process counters — surfaced via /system/orchestrator-quality when wired.
+_ORCH_QUALITY = {
+    "accepted": 0,
+    "rejected_invalid_pillar": 0,
+    "rejected_invalid_priority": 0,
+    "rejected_invalid_id": 0,
+    "rejected_missing_title": 0,
+    "pillar_inferred_from_chain": 0,
+}
+
+
 def _validate_mandate(mandate: dict) -> dict:
-    """Validate mandate against ncl-ncc-contract schema."""
+    """Validate mandate against ncl-ncc-contract schema.
+
+    Quality filter: rejects malformed mandates early so they don't propagate
+    into NCC. Counts each reject reason in ``_ORCH_QUALITY``.
+    """
     errors = []
 
     mandate_id = mandate.get("mandate_id", "")
@@ -698,19 +765,32 @@ def _validate_mandate(mandate: dict) -> dict:
     _MANDATE_ID_RE = re.compile(r"^MANDATE-[a-zA-Z0-9_-]+$")
     if not mandate_id or not _MANDATE_ID_RE.match(mandate_id):
         errors.append(f"Invalid mandate_id format: '{mandate_id}' (expected MANDATE-<alphanumeric>)")
+        _ORCH_QUALITY["rejected_invalid_id"] += 1
 
     priority = mandate.get("priority_level", "")
     if priority not in ("P1", "P2", "P3", "P4"):
         errors.append(f"Invalid priority: '{priority}' (expected P1-P4)")
+        _ORCH_QUALITY["rejected_invalid_priority"] += 1
 
-    pillar = mandate.get("pillar", "")
-    if pillar.upper() not in ("NCL", "NCC", "BRS", "AAC"):
-        errors.append(f"Invalid pillar: '{pillar}' (expected NCL/NCC/BRS/AAC)")
+    # NEW: tolerate older mandate shapes that use authority_chain instead of
+    # an explicit `pillar` field. Infer + write it back so downstream code
+    # gets a normalised mandate. Only reject if we genuinely cannot determine.
+    inferred = _infer_pillar(mandate)
+    if not inferred:
+        errors.append(f"Invalid pillar: '{mandate.get('pillar', '')}' (expected NCL/NCC/BRS/AAC; also tried authority_chain + task_list owners)")
+        _ORCH_QUALITY["rejected_invalid_pillar"] += 1
+    elif mandate.get("pillar", "").upper() != inferred:
+        # Mutate the mandate so dispatcher uses the inferred pillar everywhere.
+        mandate["pillar"] = inferred
+        _ORCH_QUALITY["pillar_inferred_from_chain"] += 1
 
     if not mandate.get("title") and not mandate.get("objective"):
         errors.append("Missing title or objective")
+        _ORCH_QUALITY["rejected_missing_title"] += 1
 
-    return {"valid": len(errors) == 0, "errors": errors}
+    if not errors:
+        _ORCH_QUALITY["accepted"] += 1
+    return {"valid": len(errors) == 0, "errors": errors, "quality": dict(_ORCH_QUALITY)}
 
 
 def _is_coding_mandate(mandate: dict) -> bool:

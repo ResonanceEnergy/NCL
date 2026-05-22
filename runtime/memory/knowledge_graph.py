@@ -127,10 +127,17 @@ class KnowledgeGraph:
         """
         Add entity nodes to the graph. Updates mention_count if entity exists.
 
+        2026-05-22 audit: applies the shared entity blacklist (URL stems,
+        yfinance sector buckets) so the noise never lands in the graph
+        again.
+
         Returns number of new entities added.
         """
         if not self._ensure_graph():
             return 0
+
+        # Lazy import — entity_extractor owns the blacklist.
+        from .entity_extractor import _is_blacklisted_entity
 
         added = 0
         now = datetime.now(timezone.utc).isoformat()
@@ -140,6 +147,8 @@ class KnowledgeGraph:
                 if not entity or len(entity) < 2:
                     continue
                 entity = entity.strip()
+                if _is_blacklisted_entity(entity):
+                    continue
 
                 if self._graph.has_node(entity):
                     # Update existing node
@@ -172,10 +181,16 @@ class KnowledgeGraph:
         Each relationship: {"subject": str, "predicate": str, "object": str}
         Merges with existing edges (increments weight, appends timestamp).
 
+        2026-05-22 audit: drops edges whose subject OR object is a
+        blacklisted entity (URL stem, sector bucket). This is what was
+        producing 21K edges of (trends.google.com)->(*)->DISPUTED_BY noise.
+
         Returns number of new edges added.
         """
         if not self._ensure_graph():
             return 0
+
+        from .entity_extractor import _is_blacklisted_entity
 
         added = 0
         now = datetime.now(timezone.utc).isoformat()
@@ -187,6 +202,8 @@ class KnowledgeGraph:
                 obj = rel.get("object", "").strip()
 
                 if not subject or not obj or len(subject) < 2 or len(obj) < 2:
+                    continue
+                if _is_blacklisted_entity(subject) or _is_blacklisted_entity(obj):
                     continue
 
                 # Ensure nodes exist
@@ -355,13 +372,97 @@ class KnowledgeGraph:
 
     @staticmethod
     def _infer_entity_type(entity: str) -> str:
-        """Infer entity type from name pattern."""
-        if entity.startswith("$"):
-            return "ticker"
-        if entity.startswith("#"):
-            return "hashtag"
-        if "." in entity and not entity.endswith("."):
-            return "domain"
-        if entity[0].isupper() and " " in entity:
-            return "person_or_org"
-        return "concept"
+        """Infer entity type from name pattern.
+
+        2026-05-22 audit: delegates to entity_extractor._classify_entity so
+        known tickers (TSLA/AAPL/...) are recognized without needing the
+        '$' prefix, and so the classifier is single-sourced.
+        """
+        try:
+            from .entity_extractor import _classify_entity
+            return _classify_entity(entity)
+        except Exception:
+            # Defensive fallback — original heuristic
+            if not entity:
+                return "concept"
+            if entity.startswith("$"):
+                return "ticker"
+            if entity.startswith("#"):
+                return "hashtag"
+            if "." in entity and not entity.endswith("."):
+                return "domain"
+            if entity[0].isupper() and " " in entity:
+                return "person_or_org"
+            return "concept"
+
+    async def cleanup_blacklisted(self) -> dict:
+        """One-shot purge: remove every node + incident edge that fails the
+        current entity blacklist (URL stems, yfinance sector buckets, etc).
+
+        Persists atomically via ``_persist_to_disk()``.
+
+        Returns
+        -------
+        dict
+            ``{"removed_nodes": int, "removed_edges": int, "scanned_nodes": int,
+               "scanned_edges": int, "reclassified_nodes": int}``
+        """
+        if not self._ensure_graph():
+            return {
+                "removed_nodes": 0,
+                "removed_edges": 0,
+                "scanned_nodes": 0,
+                "scanned_edges": 0,
+                "reclassified_nodes": 0,
+            }
+
+        from .entity_extractor import _is_blacklisted_entity, _classify_entity
+
+        async with self._lock:
+            scanned_nodes = self._graph.number_of_nodes()
+            scanned_edges = self._graph.number_of_edges()
+
+            # Pass 1 — collect blacklisted node IDs
+            bad_nodes = [
+                n for n in self._graph.nodes()
+                if _is_blacklisted_entity(str(n))
+            ]
+
+            # Pass 2 — remove incident edges (sum of in+out degree to bad
+            # nodes is the edge-removal count, but networkx will handle dedup)
+            removed_edges = 0
+            for n in bad_nodes:
+                removed_edges += self._graph.in_degree(n) + self._graph.out_degree(n)
+            # Self-loops were double-counted; harmless small overcount.
+
+            # Pass 3 — drop the nodes (this also drops their edges in nx)
+            for n in bad_nodes:
+                self._graph.remove_node(n)
+
+            # Pass 4 — re-classify surviving nodes whose entity_type was the
+            # wrong bucket (eg yfinance sectors got 'person_or_org'). We do
+            # this rather than dropping them in case any caller is querying.
+            reclassified = 0
+            for node_id, data in self._graph.nodes(data=True):
+                old_type = data.get("entity_type", "unknown")
+                new_type = _classify_entity(str(node_id))
+                if old_type != new_type:
+                    self._graph.nodes[node_id]["entity_type"] = new_type
+                    reclassified += 1
+
+            await self._persist_to_disk()
+
+        log.info(
+            "[KG-CLEANUP] removed %d/%d nodes, %d/%d edges; reclassified %d nodes",
+            len(bad_nodes), scanned_nodes,
+            removed_edges, scanned_edges,
+            reclassified,
+        )
+
+        return {
+            "removed_nodes": len(bad_nodes),
+            "removed_edges": removed_edges,
+            "scanned_nodes": scanned_nodes,
+            "scanned_edges": scanned_edges,
+            "reclassified_nodes": reclassified,
+        }

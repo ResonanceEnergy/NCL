@@ -102,6 +102,7 @@ class MemoryStore:
         importance: float = 50.0,
         tags: Optional[list[str]] = None,
         memory_type: str = "episodic",
+        metadata: Optional[dict] = None,
     ) -> MemUnit:
         """
         Create and persist a new memory unit.
@@ -114,6 +115,12 @@ class MemoryStore:
             memory_type: Memory type — "episodic", "semantic", "procedural",
                          "signal", "decision", or "preference". Controls
                          auto-tier assignment (LML vs SML) and decay rate.
+            metadata: Optional provenance/runtime bag. Caller-supplied keys
+                are preserved; ``authority_tier`` is auto-stamped from
+                ``source`` if missing. Awarebot uses this to carry
+                ``tier`` (focused/micro/macro), ``composite_score``, and
+                ``signal_id`` so retrieval can filter by Awarebot route
+                level without an extra join.
 
         Returns:
             Created MemUnit
@@ -162,6 +169,27 @@ class MemoryStore:
         if not isinstance(meta, dict):
             meta = {}
             unit.metadata = meta
+        # 2026-05-22: caller-supplied metadata is merged FIRST so Awarebot's
+        # `route_level`/`tier`/`signal_id` make it onto the unit. Then the
+        # authority_tier auto-stamp runs (caller can override authority_tier
+        # explicitly if they really want to; otherwise it falls back to
+        # source-derived).
+        if metadata:
+            for k, v in metadata.items():
+                if k not in meta:
+                    meta[k] = v
+        # Normalize Awarebot's `route_level` -> `tier` so downstream queries
+        # have a single canonical key. Both stay populated for compat.
+        if "tier" not in meta and "route_level" in meta:
+            rl = str(meta.get("route_level") or "").strip().lower()
+            if rl in {"focused", "micro", "macro"}:
+                meta["tier"] = rl
+            elif rl in {"critical", "high"}:
+                meta["tier"] = "focused"
+            elif rl == "medium":
+                meta["tier"] = "micro"
+            elif rl == "low":
+                meta["tier"] = "macro"
         if "authority_tier" not in meta:
             meta["authority_tier"] = int(_tier_for_source(source))
 

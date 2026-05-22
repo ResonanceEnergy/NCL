@@ -823,8 +823,249 @@ async def compile_unified_events(
     return events
 
 
+# ─────────────────────────────────────────────────────────────────────
+# Quality / dedup / cap filters (post-compile)
+# ─────────────────────────────────────────────────────────────────────
+
+# Per-source quality threshold. Score domain mirrors `impact` mapped 0..1.
+# A source can be filtered out below its threshold even if it survives global
+# `min_quality_score`. Scanner needs a higher bar than journal entries.
+_DEFAULT_SOURCE_QUALITY_THRESHOLD = {
+    "scanner": 0.75,    # importance_score >= 80 (see _IMPACT_TO_SCORE)
+    "intel": 0.40,
+    "journal": 0.35,
+    "council": 0.45,
+    "prediction": 0.40,
+    "portfolio": 0.50,
+    "market": 0.30,
+    "local": 0.20,
+    "moon": 0.10,
+    "sun": 0.10,
+}
+
+# impact -> 0..1 score for filtering (matches importance domain)
+_IMPACT_TO_SCORE = {
+    "low": 0.25,
+    "medium": 0.55,
+    "high": 0.80,
+    "critical": 0.95,
+}
+
+
+def _event_quality_score(ev: dict) -> float:
+    """Map an event to a 0..1 quality score.
+
+    Prefers raw.importance_score (scanner / journal importance) when present,
+    falls back to `impact` enum -> score mapping.
+    """
+    raw = ev.get("raw") or {}
+    imp = raw.get("importance_score")
+    if isinstance(imp, (int, float)):
+        # importance is typically 0..100 in scanner output
+        return max(0.0, min(1.0, float(imp) / 100.0))
+    j_imp = raw.get("importance")
+    if isinstance(j_imp, (int, float)):
+        # journal importance is 0..1
+        return max(0.0, min(1.0, float(j_imp)))
+    return _IMPACT_TO_SCORE.get(ev.get("impact", "low"), 0.25)
+
+
+def _dedup_scanner_by_ticker_date(events: list[dict]) -> list[dict]:
+    """Collapse multiple scanner signals about the same ticker on the same
+    date into a single entry (highest-impact wins; merges tickers/entities).
+    """
+    out: list[dict] = []
+    seen: dict[tuple, dict] = {}
+    impact_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    for ev in events:
+        if ev.get("source") != "scanner":
+            out.append(ev)
+            continue
+        date_str = ev.get("date", "")
+        tickers = ev.get("tickers") or []
+        key_t = tuple(sorted(tickers)) if tickers else ("__no_ticker__", ev.get("title", "")[:80])
+        key = (date_str, key_t)
+        prior = seen.get(key)
+        if prior is None:
+            seen[key] = ev
+            out.append(ev)
+            continue
+        # Keep higher-impact one; merge entities/tickers metadata
+        if impact_rank.get(ev.get("impact", "low"), 9) < impact_rank.get(prior.get("impact", "low"), 9):
+            # current ev wins — replace in-place in out list
+            idx = out.index(prior)
+            merged_entities = sorted(set((prior.get("entities") or []) + (ev.get("entities") or [])))
+            merged_tickers = sorted(set((prior.get("tickers") or []) + (ev.get("tickers") or [])))
+            ev2 = dict(ev)
+            ev2["entities"] = merged_entities
+            ev2["tickers"] = merged_tickers
+            ev2.setdefault("raw", {})["dedup_collapsed"] = (ev2["raw"].get("dedup_collapsed", 0) + 1)
+            out[idx] = ev2
+            seen[key] = ev2
+        else:
+            # prior wins — fold this one's metadata into prior
+            prior["entities"] = sorted(set((prior.get("entities") or []) + (ev.get("entities") or [])))
+            prior["tickers"] = sorted(set((prior.get("tickers") or []) + (ev.get("tickers") or [])))
+            prior.setdefault("raw", {})["dedup_collapsed"] = (prior["raw"].get("dedup_collapsed", 0) + 1)
+    return out
+
+
+def _dedup_same_title_24h(events: list[dict]) -> list[dict]:
+    """Collapse events sharing the same normalized title on the same date
+    into a single entry. The surviving entry gets a `sources` list of all
+    contributing source names.
+    """
+    out: list[dict] = []
+    seen: dict[tuple, dict] = {}
+    impact_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    for ev in events:
+        title_key = (ev.get("title") or "").strip().lower()[:120]
+        if not title_key:
+            out.append(ev)
+            continue
+        key = (ev.get("date", ""), title_key)
+        prior = seen.get(key)
+        if prior is None:
+            ev_copy = dict(ev)
+            ev_copy.setdefault("sources", [ev.get("source", "")])
+            seen[key] = ev_copy
+            out.append(ev_copy)
+            continue
+        # merge — append source, keep higher-impact details
+        prior_sources = prior.setdefault("sources", [prior.get("source", "")])
+        if ev.get("source") and ev.get("source") not in prior_sources:
+            prior_sources.append(ev.get("source"))
+        if impact_rank.get(ev.get("impact", "low"), 9) < impact_rank.get(prior.get("impact", "low"), 9):
+            prior["impact"] = ev.get("impact", prior.get("impact"))
+            if ev.get("description") and len(ev.get("description", "")) > len(prior.get("description", "")):
+                prior["description"] = ev["description"]
+    return out
+
+
+def _cap_scanner_share(events: list[dict], max_share: float = 0.30) -> list[dict]:
+    """Enforce that scanner-sourced events make up at most `max_share` of the
+    total. Lowest-quality scanner items are dropped first.
+    """
+    if max_share >= 1.0 or not events:
+        return events
+    non_scanner = [e for e in events if e.get("source") != "scanner"]
+    scanner = [e for e in events if e.get("source") == "scanner"]
+    if not scanner:
+        return events
+    # Allowed scanner count s.t. s / (s + n) <= max_share  =>  s <= n * max/(1-max)
+    n = len(non_scanner)
+    if max_share <= 0.0:
+        allowed = 0
+    else:
+        allowed = int(n * max_share / max(1e-9, 1.0 - max_share))
+    if len(scanner) <= allowed:
+        return events
+    scanner.sort(key=_event_quality_score, reverse=True)
+    kept_scanner = scanner[:allowed]
+    out = non_scanner + kept_scanner
+    impact_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    out.sort(
+        key=lambda e: (
+            e.get("date", ""),
+            impact_rank.get(e.get("impact", "low"), 9),
+            e.get("source", ""),
+        )
+    )
+    return out
+
+
+def _exclude_first_n_days(events: list[dict], exclude_days: int, today: Optional[date] = None) -> list[dict]:
+    """Drop events with date < today + exclude_days. Used by 30-day view to
+    skip the 7 days already shown in the 7-day tab.
+    """
+    if exclude_days <= 0:
+        return events
+    today = today or date.today()
+    cutoff = today + timedelta(days=int(exclude_days))
+    out = []
+    for ev in events:
+        d = _coerce_date(ev.get("date"))
+        if d is None or d >= cutoff:
+            out.append(ev)
+    return out
+
+
+def _source_distribution(events: list[dict]) -> dict:
+    dist: dict[str, int] = {}
+    for ev in events:
+        s = ev.get("source", "unknown") or "unknown"
+        dist[s] = dist.get(s, 0) + 1
+    return dist
+
+
+def apply_quality_filters(
+    events: list[dict],
+    *,
+    exclude_window: int = 0,
+    scanner_cap: float = 0.30,
+    min_quality_score: float = 0.50,
+    per_source_quality: Optional[dict] = None,
+    today: Optional[date] = None,
+) -> dict:
+    """Apply the full filter pipeline to a raw compiled-events list.
+
+    Returns a dict with the filtered events plus metrics for observability.
+    """
+    events_total = len(events)
+
+    # 1. exclude first N days (e.g., 30-day view skipping the 7-day overlap)
+    e1 = _exclude_first_n_days(events, exclude_window, today=today)
+
+    # 2. dedup scanner per ticker-per-date
+    e2 = _dedup_scanner_by_ticker_date(e1)
+
+    # 3. dedup any same-title within same-date across sources
+    e3 = _dedup_same_title_24h(e2)
+    events_after_dedup = len(e3)
+
+    # 4. per-source quality threshold + global min_quality_score
+    thresholds = dict(_DEFAULT_SOURCE_QUALITY_THRESHOLD)
+    if per_source_quality:
+        thresholds.update(per_source_quality)
+
+    e4: list[dict] = []
+    for ev in e3:
+        score = _event_quality_score(ev)
+        src = ev.get("source", "")
+        # Per-source threshold OVERRIDES global min_quality_score so that
+        # curated low-impact sources (e.g., local festivals) aren't filtered
+        # out by a global scanner-tuned bar.
+        if src in thresholds:
+            bar = thresholds[src]
+        else:
+            bar = min_quality_score
+        if score >= bar:
+            e4.append(ev)
+    events_after_quality_filter = len(e4)
+
+    # 5. cap scanner share of total
+    e5 = _cap_scanner_share(e4, max_share=scanner_cap)
+
+    distribution = _source_distribution(e5)
+    return {
+        "events": e5,
+        "metrics": {
+            "events_total": events_total,
+            "events_after_exclude_window": len(e1),
+            "events_after_dedup": events_after_dedup,
+            "events_after_quality_filter": events_after_quality_filter,
+            "events_after_scanner_cap": len(e5),
+            "exclude_window": int(exclude_window),
+            "scanner_cap": scanner_cap,
+            "min_quality_score": min_quality_score,
+        },
+        "source_distribution": distribution,
+    }
+
+
 __all__ = [
     "compile_brain_events",
     "compile_unified_events",
     "get_cached_compile",
+    "apply_quality_filters",
 ]

@@ -76,6 +76,73 @@ ENTITY_LLM_TRIGGER = 70.0           # importance >= 70 => worth Sonnet extract
 # ═══════════════════════════════════════════════════════════════════════════
 
 
+# Retry tuning for 429/529 (rate limit / overload) — 3 attempts with
+# exponential backoff and jitter, then DLQ. Authentication errors
+# (401/403/404) skip retry and DLQ immediately.
+_RETRYABLE_HTTP = frozenset({429, 529, 503, 502})
+_FATAL_HTTP = frozenset({401, 403, 404})
+_RETRY_DELAYS_S = (5.0, 15.0, 30.0)
+
+
+async def _retry_with_jitter(coro_factory, *, label: str = "anthropic_call"):
+    """Call ``coro_factory()`` with exponential-backoff retries.
+
+    Retries on transient HTTP (429/529/503/502). Re-raises immediately
+    on fatal HTTP (401/403/404) — those are configuration errors and
+    retrying makes the problem worse (rate-limits the bad call further,
+    burns budget).
+
+    The factory is invoked per attempt so each retry rebuilds the request
+    (avoids stale auth headers, etc.). The wrapped coroutine should raise
+    httpx.HTTPStatusError or any exception that carries a ``response``
+    attribute with a ``status_code``.
+
+    Returns the wrapped result, or raises the last exception.
+    """
+    import random
+    last_exc: Optional[BaseException] = None
+    for attempt, base in enumerate((0.0,) + _RETRY_DELAYS_S):
+        if base > 0:
+            # Jitter ±25% to spread retry storms across pods
+            jitter = base * random.uniform(0.75, 1.25)
+            await asyncio.sleep(jitter)
+        try:
+            return await coro_factory()
+        except BaseException as e:
+            last_exc = e
+            status = None
+            resp = getattr(e, "response", None)
+            if resp is not None:
+                status = getattr(resp, "status_code", None)
+            # Some clients raise the status inline
+            if status is None:
+                status = getattr(e, "status_code", None)
+            if status in _FATAL_HTTP:
+                log.warning(
+                    "[ASYNC_WRITER:%s] fatal HTTP %s — no retry",
+                    label, status,
+                )
+                raise
+            if status in _RETRYABLE_HTTP and attempt < len(_RETRY_DELAYS_S):
+                log.info(
+                    "[ASYNC_WRITER:%s] transient HTTP %s — retry %d/%d",
+                    label, status, attempt + 1, len(_RETRY_DELAYS_S),
+                )
+                continue
+            # Non-HTTP exception (network, JSON parse) — let retry continue
+            if attempt < len(_RETRY_DELAYS_S):
+                log.debug(
+                    "[ASYNC_WRITER:%s] transient error '%s' — retry %d/%d",
+                    label, type(e).__name__, attempt + 1, len(_RETRY_DELAYS_S),
+                )
+                continue
+            raise
+    # Should not reach here, but be safe
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError(f"{label} exhausted retries without exception")
+
+
 @dataclass
 class WriteRequest:
     """A single fire-and-forget memory write."""
@@ -136,8 +203,14 @@ class AsyncMemoryWriter:
             "batches_total": 0,
             "llm_scoring_calls": 0,
             "llm_scoring_budget_skips": 0,
+            "llm_scoring_skipped_other": 0,
+            "llm_scoring_fatal_skips": 0,
             "llm_entity_calls": 0,
             "llm_entity_budget_skips": 0,
+            "llm_entity_skipped_other": 0,
+            "llm_entity_fatal_skips": 0,
+            "enrichment_skipped_budget": 0,
+            "enrichment_skipped_other": 0,
             "dropped_oldest_total": 0,
             "dlq_size": 0,
             "started_at": None,
@@ -488,11 +561,28 @@ class AsyncMemoryWriter:
             tags=(req.tags or [])[:10],
         )
 
-        # Authority tier stamping
+        # Authority tier stamping + producer metadata lift
         meta = getattr(unit, "metadata", None)
         if not isinstance(meta, dict):
             meta = {}
             unit.metadata = meta
+        # 2026-05-22 fix: lift producer metadata (Awarebot route_level /
+        # signal_id / composite_score) onto the unit so the search results
+        # can surface `tier` (focused/micro/macro) without a join.
+        if req.metadata:
+            for k, v in req.metadata.items():
+                if k not in meta:
+                    meta[k] = v
+        if "tier" not in meta and "route_level" in meta:
+            rl = str(meta.get("route_level") or "").strip().lower()
+            if rl in {"focused", "micro", "macro"}:
+                meta["tier"] = rl
+            elif rl in {"critical", "high"}:
+                meta["tier"] = "focused"
+            elif rl == "medium":
+                meta["tier"] = "micro"
+            elif rl == "low":
+                meta["tier"] = "macro"
         if "authority_tier" not in meta:
             meta["authority_tier"] = int(_tier_for_source(req.source))
 
@@ -546,14 +636,29 @@ class AsyncMemoryWriter:
         # Step 2 — LLM entity extraction (only when importance >= 70)
         await self._maybe_extract_entities(req)
 
-        # Step 3 — persist
-        unit = await self.memory_store.create_unit(
-            content=req.content,
-            source=req.source,
-            importance=req.importance,
-            tags=req.tags[:10] if req.tags else [],
-            memory_type=req.memory_type,
-        )
+        # Step 3 — persist (single-item path; carry metadata so Awarebot's
+        # route_level + signal_id land on the unit even on the fallback path).
+        try:
+            unit = await self.memory_store.create_unit(
+                content=req.content,
+                source=req.source,
+                importance=req.importance,
+                tags=req.tags[:10] if req.tags else [],
+                memory_type=req.memory_type,
+                metadata=req.metadata or None,
+            )
+        except TypeError:
+            # Backwards compat: older create_unit signatures without metadata=
+            unit = await self.memory_store.create_unit(
+                content=req.content,
+                source=req.source,
+                importance=req.importance,
+                tags=req.tags[:10] if req.tags else [],
+                memory_type=req.memory_type,
+            )
+            if req.metadata and unit is not None and isinstance(getattr(unit, "metadata", None), dict):
+                for k, v in req.metadata.items():
+                    unit.metadata.setdefault(k, v)
 
         # Step 4 — attach entities to the persisted unit (best effort)
         if req.entities and unit is not None:
@@ -591,43 +696,76 @@ class AsyncMemoryWriter:
             req.importance = max(0.0, min(100.0, rule_score * 10.0))
             return
 
-        # Budget gate — never block a write because the cost gate is closed
+        # Budget gate — never block a write because the cost gate is closed.
+        # On budget exhaustion we skip the Sonnet pass and fall back to the
+        # rule-based score, which is good enough to keep the unit findable.
         try:
             from ..cost_tracker import check_budget
             if not await check_budget("anthropic", SONNET_PER_CALL_EST):
                 self._stats["llm_scoring_budget_skips"] += 1
+                self._stats["enrichment_skipped_budget"] += 1
                 req.importance = max(0.0, min(100.0, rule_score * 10.0))
                 return
         except Exception as e:
             log.debug("[ASYNC_WRITER] budget check failed (allow): %s", e)
 
+        # Retry-wrapped Sonnet call. 429/529/503 -> exp backoff w/ jitter,
+        # 401/403/404 -> immediate fatal skip + ntfy. Any other exception
+        # bumps `enrichment_skipped_other` and uses the rule-only score.
+        from .importance_scorer import score_memory
+
+        async def _score_call():
+            try:
+                return await score_memory(
+                    req.content, req.source, req.tags,
+                    use_llm=True, model=SONNET_MODEL,
+                )
+            except TypeError:
+                return await score_memory(
+                    req.content, req.source, req.tags, use_llm=True,
+                )
+
         try:
-            from .importance_scorer import score_memory
-            scoring = await score_memory(
-                req.content, req.source, req.tags,
-                use_llm=True, model=SONNET_MODEL,
-            )
+            scoring = await _retry_with_jitter(_score_call, label="score_memory")
             self._stats["llm_scoring_calls"] += 1
             req.importance = max(0.0, min(100.0, scoring["final_score"]))
             inferred = scoring.get("memory_type")
             if inferred and inferred != "episodic":
                 req.memory_type = inferred
-        except TypeError:
-            # Backward compat: score_memory without model kwarg
-            try:
-                from .importance_scorer import score_memory
-                scoring = await score_memory(
-                    req.content, req.source, req.tags, use_llm=True,
-                )
-                self._stats["llm_scoring_calls"] += 1
-                req.importance = max(0.0, min(100.0, scoring["final_score"]))
-            except Exception as e:
-                log.debug("[ASYNC_WRITER] score_memory fallback failed: %s", e)
-        except Exception as e:
-            log.debug("[ASYNC_WRITER] score_memory failed: %s", e)
+        except BaseException as e:
+            resp = getattr(e, "response", None)
+            status = getattr(resp, "status_code", None) if resp is not None else getattr(e, "status_code", None)
+            if status in _FATAL_HTTP:
+                self._stats["llm_scoring_fatal_skips"] += 1
+                self._stats["enrichment_skipped_other"] += 1
+                # Fire-and-forget ntfy alert — fatal config issue (bad key, etc).
+                try:
+                    from ..notifications.alert_dispatch import enqueue_alert
+                    enqueue_alert(
+                        title="AsyncWriter fatal Sonnet HTTP",
+                        body=f"score_memory got HTTP {status} — check ANTHROPIC_API_KEY",
+                        priority="4",
+                        dedup_key="async_writer_fatal_score",
+                        source="memory",
+                    )
+                except Exception:
+                    pass
+                # Fall back to rule score
+                req.importance = max(0.0, min(100.0, rule_score * 10.0))
+            else:
+                self._stats["llm_scoring_skipped_other"] += 1
+                self._stats["enrichment_skipped_other"] += 1
+                log.debug("[ASYNC_WRITER] score_memory failed (non-fatal): %s", e)
+                req.importance = max(0.0, min(100.0, rule_score * 10.0))
 
     async def _maybe_extract_entities(self, req: WriteRequest) -> None:
-        """Run Sonnet entity extraction when importance >= 70."""
+        """Run Sonnet entity extraction when importance >= 70.
+
+        Same budget + retry semantics as ``_maybe_score``: 429/529/503
+        retried with backoff, 401/403/404 fatal-skip + ntfy, anything else
+        falls through to the regex-only entity list already attached to
+        the WriteRequest.
+        """
         if req.importance < ENTITY_LLM_TRIGGER:
             return
 
@@ -635,27 +773,50 @@ class AsyncMemoryWriter:
             from ..cost_tracker import check_budget
             if not await check_budget("anthropic", SONNET_PER_CALL_EST):
                 self._stats["llm_entity_budget_skips"] += 1
+                self._stats["enrichment_skipped_budget"] += 1
                 return
         except Exception:
             pass  # allow through
 
-        try:
-            from .entity_extractor import extract_entities_and_relationships
+        from .entity_extractor import extract_entities_and_relationships
+
+        async def _entity_call():
             try:
-                result = await extract_entities_and_relationships(
+                return await extract_entities_and_relationships(
                     req.content, req.source, use_llm=True, model=SONNET_MODEL,
                 )
             except TypeError:
-                # Backward compat
-                result = await extract_entities_and_relationships(
+                return await extract_entities_and_relationships(
                     req.content, req.source, use_llm=True,
                 )
+
+        try:
+            result = await _retry_with_jitter(_entity_call, label="entity_extract")
             self._stats["llm_entity_calls"] += 1
             new_ents = result.get("entities", []) if isinstance(result, dict) else []
             if new_ents:
                 req.entities = sorted(set(req.entities) | set(new_ents))[:20]
-        except Exception as e:
-            log.debug("[ASYNC_WRITER] entity extract failed: %s", e)
+        except BaseException as e:
+            resp = getattr(e, "response", None)
+            status = getattr(resp, "status_code", None) if resp is not None else getattr(e, "status_code", None)
+            if status in _FATAL_HTTP:
+                self._stats["llm_entity_fatal_skips"] += 1
+                self._stats["enrichment_skipped_other"] += 1
+                try:
+                    from ..notifications.alert_dispatch import enqueue_alert
+                    enqueue_alert(
+                        title="AsyncWriter fatal Sonnet HTTP",
+                        body=f"entity_extract got HTTP {status} — check ANTHROPIC_API_KEY",
+                        priority="4",
+                        dedup_key="async_writer_fatal_entity",
+                        source="memory",
+                    )
+                except Exception:
+                    pass
+            else:
+                self._stats["llm_entity_skipped_other"] += 1
+                self._stats["enrichment_skipped_other"] += 1
+                log.debug("[ASYNC_WRITER] entity extract failed (non-fatal): %s", e)
 
     # ── DLQ ──────────────────────────────────────────────────────────────
 

@@ -5,10 +5,13 @@ Provides endpoints for portfolio summary, positions, accounts,
 performance history, and manual sync triggers.
 """
 
+import json
 import logging
 import os
+import re
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Header, HTTPException, Query
@@ -248,6 +251,264 @@ async def portfolio_sync(
     except Exception as e:
         log.exception("Portfolio sync failed: %s", e)
         raise HTTPException(status_code=500, detail=f"Portfolio sync error: {e}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GET /portfolio/options-flow
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Pre-compiled — title looks like "TSLA flow alert: $137,277 (165 contracts)"
+_FLOW_TITLE_RE = re.compile(
+    r"^([A-Z][A-Z0-9.]{0,8})\s+flow alert:\s*\$?([\d,]+)\s*\(\s*(\d+)\s*contracts?\)",
+    re.IGNORECASE,
+)
+# Content like "TSLA — ask $69,265 / bid $68,012 | size 165 | OI 97 | sector Technology"
+_FLOW_CONTENT_RE = re.compile(
+    r"ask\s+\$?([\d,]+).*?bid\s+\$?([\d,]+)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _parse_options_flow_signal(sig: dict) -> Optional[dict]:
+    """
+    Pull ticker/premium/contracts/direction out of an Awarebot options_flow
+    signal dict (one line of data/intelligence/agent_signals.jsonl).
+
+    Returns None when the signal doesn't match the unusual_whales shape.
+    """
+    if sig.get("source") != "options_flow":
+        return None
+    title = sig.get("title") or ""
+    m = _FLOW_TITLE_RE.match(title)
+    if not m:
+        return None
+    ticker = m.group(1).upper()
+    try:
+        premium = float(m.group(2).replace(",", ""))
+        contracts = float(m.group(3))
+    except (TypeError, ValueError):
+        return None
+
+    ask = bid = 0.0
+    c = _FLOW_CONTENT_RE.search(sig.get("content") or "")
+    if c:
+        try:
+            ask = float(c.group(1).replace(",", ""))
+            bid = float(c.group(2).replace(",", ""))
+        except (TypeError, ValueError):
+            pass
+
+    direction = (sig.get("direction") or "neutral").lower()
+    # Cheap calls-vs-puts split: ask-side dollars on bullish dir count as
+    # call premium; bearish counts as put premium; neutral splits 50/50.
+    if direction == "bullish":
+        call_prem, put_prem = ask or premium, bid
+    elif direction == "bearish":
+        call_prem, put_prem = bid, ask or premium
+    else:
+        call_prem = put_prem = premium / 2.0
+
+    return {
+        "signal_id": sig.get("signal_id"),
+        "ticker": ticker,
+        "premium": premium,
+        "contracts": contracts,
+        "ask_premium": ask,
+        "bid_premium": bid,
+        "call_premium": call_prem,
+        "put_premium": put_prem,
+        "direction": direction,
+        "timestamp": sig.get("timestamp"),
+        "score": sig.get("composite_score", 0.0),
+        "tags": sig.get("tags") or [],
+    }
+
+
+@router.get("/options-flow")
+async def portfolio_options_flow(
+    limit: int = Query(default=20, ge=1, le=100),
+    min_premium: float = Query(default=100_000, ge=0),
+    hours: int = Query(default=24, ge=1, le=168),
+    authorization: str = Header(default=""),
+) -> dict:
+    """
+    Top unusual-options-flow tickers from Awarebot's agent_signals.jsonl,
+    grouped by ticker, ranked by total premium.
+
+    Filters
+    -------
+    * `min_premium` — drop trades below this dollar threshold (default $100k)
+    * `hours` — lookback window (default last 24h)
+
+    Each row tags `is_held_in_portfolio: true` when the ticker matches an
+    open position so the iOS UI can highlight it.
+    """
+    _verify_strike_token(authorization)
+    pm = _require_manager()
+
+    # Resolve the agent_signals.jsonl path — same root the agent uses.
+    data_root = Path(os.getenv("NCL_DATA_DIR", "data"))
+    if not data_root.is_absolute():
+        # PortfolioRoutes are imported from runtime/portfolio so anchor on NCL root
+        data_root = Path(__file__).resolve().parents[2] / data_root
+    signals_file = data_root / "intelligence" / "agent_signals.jsonl"
+
+    if not signals_file.exists():
+        return {
+            "rows": [],
+            "_meta": {
+                "filter_applied": {"min_premium": min_premium, "hours": hours},
+                "raw_count": 0,
+                "filtered_count": 0,
+                "dedup_count": 0,
+                "reason": "agent_signals.jsonl not found",
+            },
+        }
+
+    # Tail the file — last N lines suffice; we don't need to read everything.
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    raw_lines: list[str] = []
+    try:
+        with open(signals_file, "rb") as f:
+            # Cheap tail — read last 4MB; enough for ~10k signals
+            try:
+                f.seek(0, os.SEEK_END)
+                size = f.tell()
+                f.seek(max(0, size - 4 * 1024 * 1024))
+                if size > 4 * 1024 * 1024:
+                    f.readline()  # drop partial first line
+                raw_lines = f.read().decode("utf-8", errors="ignore").splitlines()
+            except OSError:
+                f.seek(0)
+                raw_lines = f.read().decode("utf-8", errors="ignore").splitlines()
+    except Exception as e:
+        log.exception("options-flow read failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"Read failure: {e}")
+
+    raw_count = 0
+    parsed: list[dict] = []
+    seen_signal_ids: set[str] = set()
+    for line in raw_lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            sig = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if sig.get("source") != "options_flow":
+            continue
+        raw_count += 1
+        ts_str = sig.get("timestamp") or ""
+        try:
+            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            if ts < cutoff:
+                continue
+        except (TypeError, ValueError):
+            pass
+
+        sid = sig.get("signal_id")
+        if sid and sid in seen_signal_ids:
+            continue
+        if sid:
+            seen_signal_ids.add(sid)
+
+        row = _parse_options_flow_signal(sig)
+        if not row:
+            continue
+        if row["premium"] < min_premium:
+            continue
+        parsed.append(row)
+
+    dedup_count = raw_count - len(parsed)
+
+    # Group by ticker
+    portfolio_tickers: set[str] = set()
+    # Match underlying tickers for both straight stock positions AND
+    # option-encoded holdings (e.g. SLV270115C65000 → SLV).
+    option_underlying_re = re.compile(r"^([A-Z]{1,6})\d{6}[CP]\d+$")
+    try:
+        for p in pm._positions:
+            sym = (p.get("symbol") or "").upper()
+            if not sym:
+                continue
+            m = option_underlying_re.match(sym)
+            if m:
+                portfolio_tickers.add(m.group(1))
+                continue
+            if len(sym) <= 8 and not any(ch.isdigit() for ch in sym):
+                portfolio_tickers.add(sym)
+    except Exception:
+        pass
+
+    grouped: dict[str, dict] = {}
+    for row in parsed:
+        t = row["ticker"]
+        g = grouped.setdefault(t, {
+            "ticker": t,
+            "total_premium_usd": 0.0,
+            "call_premium": 0.0,
+            "put_premium": 0.0,
+            "trade_count": 0,
+            "latest_at": "",
+            "trades": [],
+        })
+        g["total_premium_usd"] += row["premium"]
+        g["call_premium"] += row["call_premium"]
+        g["put_premium"] += row["put_premium"]
+        g["trade_count"] += 1
+        if (row["timestamp"] or "") > g["latest_at"]:
+            g["latest_at"] = row["timestamp"] or ""
+        g["trades"].append(row)
+
+    rows: list[dict] = []
+    for t, g in grouped.items():
+        put = g["put_premium"]
+        ratio = (g["call_premium"] / put) if put else (g["call_premium"] / 1.0 if g["call_premium"] else 0.0)
+        # Top 5 trades by premium for drill-in
+        top_trades = sorted(g["trades"], key=lambda r: r["premium"], reverse=True)[:5]
+        rows.append({
+            "ticker": t,
+            "total_premium_usd": round(g["total_premium_usd"], 2),
+            "call_premium": round(g["call_premium"], 2),
+            "put_premium": round(g["put_premium"], 2),
+            "call_put_ratio": round(ratio, 2),
+            "trade_count": g["trade_count"],
+            "latest_at": g["latest_at"],
+            "is_held_in_portfolio": t in portfolio_tickers,
+            "top_trades": [
+                {
+                    "signal_id": tr["signal_id"],
+                    "premium": round(tr["premium"], 2),
+                    "contracts": tr["contracts"],
+                    "direction": tr["direction"],
+                    "timestamp": tr["timestamp"],
+                }
+                for tr in top_trades
+            ],
+        })
+
+    rows.sort(key=lambda r: r["total_premium_usd"], reverse=True)
+    rows = rows[:limit]
+
+    return {
+        "rows": rows,
+        "_meta": {
+            "filter_applied": {
+                "min_premium": min_premium,
+                "hours": hours,
+                "limit": limit,
+            },
+            "raw_count": raw_count,
+            "filtered_count": len(parsed),
+            "dedup_count": dedup_count,
+            "ticker_count": len(grouped),
+            "portfolio_match_count": sum(1 for r in rows if r["is_held_in_portfolio"]),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        },
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────

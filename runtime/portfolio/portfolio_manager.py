@@ -241,6 +241,11 @@ class PortfolioManager:
                     logger.exception("Failed to fetch positions from %s", name)
 
             self._accounts = accounts
+            # Fill missing/zero quotes via market-data fallback (yfinance) so
+            # iOS doesn't show last_price=0 and absurd daily_pl_pct values
+            # when adapters don't return a current price (e.g. Moomoo options
+            # outside RTH, SnapTrade nightly sync).
+            await self._fill_missing_quotes(positions)
             self._positions = positions
             self._last_sync = _now_utc().isoformat()
 
@@ -273,6 +278,73 @@ class PortfolioManager:
                     await self._memory_bridge.on_sync(bridge_summary, bridge_positions)
                 except Exception:
                     logger.exception("Memory bridge on_sync failed (continuing)")
+
+    # ------------------------------------------------------------------
+    # Quote fallback
+    # ------------------------------------------------------------------
+
+    async def _fill_missing_quotes(self, positions: list[dict]) -> None:
+        """
+        For every position without a real current_price, fetch a quote via
+        IBKRMarketData (which falls back to yfinance when IBKR isn't
+        connected). Options positions are skipped — yfinance doesn't quote
+        option contracts and IBKR option quoting needs a fully-built
+        Option contract, which is out of scope here.
+
+        Defensive: any failure leaves the position untouched.
+        """
+        needy: list[dict] = []
+        for pos in positions:
+            price = pos.get("current_price") or pos.get("last_price") or 0
+            try:
+                price = float(price)
+            except (TypeError, ValueError):
+                price = 0.0
+            if price > 0:
+                continue
+            if pos.get("asset_class") in ("option", "future", "forex", "crypto"):
+                continue
+            sym = pos.get("symbol") or ""
+            # Skip option-encoded symbols (e.g. SLV270115C65000)
+            if not sym or len(sym) > 8 or any(c.isdigit() for c in sym):
+                continue
+            needy.append(pos)
+
+        if not needy:
+            return
+
+        try:
+            from .ibkr_market_data import IBKRMarketData
+            provider = IBKRMarketData(self._ibkr if self._ibkr.connected else None)
+            symbols = sorted({p["symbol"] for p in needy})
+            quotes = await provider.get_quotes(symbols)
+        except Exception:
+            logger.debug("Quote fallback skipped (provider unavailable)", exc_info=True)
+            return
+
+        filled = 0
+        for pos in needy:
+            q = quotes.get(pos["symbol"]) or {}
+            price = q.get("price") or 0
+            try:
+                price = float(price)
+            except (TypeError, ValueError):
+                price = 0.0
+            if price <= 0:
+                continue
+            pos["current_price"] = price
+            qty = pos.get("quantity") or 0
+            avg = pos.get("avg_cost") or 0
+            if qty and avg and not pos.get("market_value"):
+                pos["market_value"] = price * qty
+            # If adapter didn't set daily_pl_pct, take it from the quote
+            if not pos.get("daily_pl_pct"):
+                pos["daily_pl_pct"] = q.get("change_pct") or 0.0
+            filled += 1
+
+        if filled:
+            logger.info("Filled %d / %d missing quotes via %s",
+                        filled, len(needy), provider.source)
 
     # ------------------------------------------------------------------
     # FX conversion
@@ -514,6 +586,11 @@ class PortfolioManager:
                 "currency": acct.get("currency", "USD"),
             })
 
+        quotes_failed = sum(
+            1 for p in self._positions
+            if not (p.get("current_price") or p.get("last_price") or 0) > 0
+        )
+
         return {
             "total_value": round(total_value, 2),
             "base_currency": base,
@@ -523,6 +600,7 @@ class PortfolioManager:
             "total_pl_pct": round(total_pl_pct, 2),
             "cash_total": round(cash_total, 2),
             "positions_count": len(self._positions),
+            "quotes_failed": quotes_failed,
             "accounts": account_summaries,
             "allocation": {
                 "by_sector": self._allocation_by("sector", base),
@@ -554,22 +632,52 @@ class PortfolioManager:
                 pos.get("currency", "USD"),
                 "CAD",
             )
+
+            # Quote pipeline: adapters write `current_price`; older code looked
+            # for `last_price`, which is why every position showed 0 and
+            # daily_pl_pct printed nonsense like -1272%. Read both, prefer
+            # whichever is non-zero. If both are zero, surface as None and
+            # zero-out the % so the iOS card shows "--" instead of garbage.
+            qty = pos.get("quantity", 0) or 0
+            avg_cost = pos.get("avg_cost", 0.0) or 0.0
+            raw_price = pos.get("current_price", 0.0) or pos.get("last_price", 0.0) or 0.0
+            quote_ok = bool(raw_price and raw_price > 0)
+
+            if quote_ok:
+                last_price: Optional[float] = float(raw_price)
+                daily_pl_pct = pos.get("daily_pl_pct", 0.0) or 0.0
+                # Bound sanity: 1-day move > 100% on a real quote is almost
+                # always a synthetic divide-by-tiny-cost. Clamp.
+                if not isinstance(daily_pl_pct, (int, float)) or abs(daily_pl_pct) > 100:
+                    daily_pl_pct = 0.0
+            else:
+                # Stale / missing quote: don't fabricate. Fall back to avg_cost
+                # so the value display isn't visually broken; emit None for
+                # the price field so the UI can show "--".
+                last_price = None
+                daily_pl_pct = 0.0
+
+            cost_basis = pos.get("cost_basis", 0.0)
+            if not cost_basis and qty and avg_cost:
+                cost_basis = abs(qty * avg_cost)
+
             entry = {
                 "symbol": pos.get("symbol", ""),
                 "name": pos.get("name", ""),
                 "broker": broker,
                 "account_id": pos.get("account_id", ""),
-                "quantity": pos.get("quantity", 0),
-                "avg_cost": pos.get("avg_cost", 0.0),
-                "last_price": pos.get("last_price", 0.0),
+                "quantity": qty,
+                "avg_cost": avg_cost,
+                "last_price": last_price,
+                "quote_ok": quote_ok,
                 "market_value": pos.get("market_value", 0.0),
                 "market_value_cad": round(mv_cad, 2),
                 "currency": pos.get("currency", "USD"),
-                "daily_pl": pos.get("daily_pl", 0.0),
-                "daily_pl_pct": pos.get("daily_pl_pct", 0.0),
+                "daily_pl": pos.get("daily_pl", 0.0) if quote_ok else 0.0,
+                "daily_pl_pct": daily_pl_pct,
                 "unrealized_pl": pos.get("unrealized_pl", 0.0),
                 "unrealized_pl_pct": pos.get("unrealized_pl_pct", 0.0),
-                "cost_basis": pos.get("cost_basis", 0.0),
+                "cost_basis": cost_basis,
                 "sector": pos.get("sector", "Unknown"),
                 "asset_class": pos.get("asset_class", "Equity"),
                 "weight_pct": round(mv_cad / total * 100, 2),
@@ -580,11 +688,24 @@ class PortfolioManager:
         return positions
 
     def get_accounts(self) -> list[dict[str, Any]]:
-        """Return all accounts from all connected brokers."""
+        """Return all accounts from all connected brokers.
+
+        positions_count is computed live from `self._positions` keyed by
+        account_id — adapters don't supply it, and the previous
+        implementation always emitted 0.
+        """
+        # Bucket positions by account_id once
+        pos_by_acct: dict[str, int] = {}
+        for pos in self._positions:
+            aid = pos.get("account_id", "")
+            if aid:
+                pos_by_acct[aid] = pos_by_acct.get(aid, 0) + 1
+
         result = []
         for acct in self._accounts:
+            aid = acct.get("account_id", "")
             result.append({
-                "account_id": acct.get("account_id", ""),
+                "account_id": aid,
                 "broker": acct.get("broker", ""),
                 "label": acct.get("name", ""),
                 "type": acct.get("account_type", ""),
@@ -592,7 +713,7 @@ class PortfolioManager:
                 "cash": acct.get("cash_balance", 0.0),
                 "buying_power": acct.get("buying_power", 0.0),
                 "currency": acct.get("currency", "USD"),
-                "positions_count": acct.get("positions_count", 0),
+                "positions_count": pos_by_acct.get(aid, 0),
             })
         return result
 
@@ -673,6 +794,21 @@ class PortfolioManager:
 
     def health(self) -> dict[str, Any]:
         """Return health/status info for Brain health endpoint."""
+        # Quote feed health — how many positions have no live price.
+        # Driven off the same `current_price`-or-`last_price` check as
+        # get_positions(); a high count means TWS is down or the
+        # yfinance fallback isn't firing.
+        quotes_failed = 0
+        for pos in self._positions:
+            raw_price = pos.get("current_price", 0.0) or pos.get("last_price", 0.0) or 0.0
+            if not raw_price or raw_price <= 0:
+                quotes_failed += 1
+        quote_status = "ok"
+        if self._positions and quotes_failed >= len(self._positions):
+            quote_status = "down"
+        elif quotes_failed > 0:
+            quote_status = "degraded"
+
         return {
             "status": "ok" if self._connected_count() > 0 else "degraded",
             "adapters": {
@@ -681,6 +817,9 @@ class PortfolioManager:
             },
             "positions_cached": len(self._positions),
             "accounts_cached": len(self._accounts),
+            "quotes_failed": quotes_failed,
+            "quotes_total": len(self._positions),
+            "quote_feed_status": quote_status,
             "last_sync": self._last_sync,
             "fx_rate_usd_cad": self._fx_rate_usd_cad,
             "market_open": _is_market_open(),
