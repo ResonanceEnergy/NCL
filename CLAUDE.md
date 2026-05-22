@@ -313,6 +313,15 @@ Feedback (interpreted only, never raw data)
 
 These rules exist because previous Claude sessions broke production by ignoring them.
 
+### 0. NEVER send NATRIX terminal commands to run (added 2026-05-22)
+Claude has direct shell access via `mcp__Control_your_Mac__osascript` (runs commands on Mac), `mcp__workspace__bash` (sandbox Linux), and `mcp__Claude_in_Chrome__*` (browser automation). Use these to execute EVERYTHING — git commits/pushes, curl probes, launchctl kickstarts, file edits, API key updates, build commands, etc.
+
+**Do NOT paste shell commands into chat for NATRIX to copy and run.** If a fix needs `curl -X POST /memory/kg-cleanup`, run it via osascript yourself. If a key needs to land in `.env`, write it via the file tools or via osascript awk. If a build needs to run, launch xcodebuild via osascript and poll the result.
+
+The only time it's acceptable to surface a command to NATRIX is when it requires credentials only NATRIX has (e.g., a password prompt that bypasses the OS keychain, or an interactive 2FA flow). Even then, prefer the in-browser path via Claude in Chrome first.
+
+Past mistake: pasting verification curls + setup-script invocations as instructions instead of just running them. NATRIX explicitly said "stop sending me terminal inputs find another way".
+
 ### 1. Mac LaunchAgents own the service lifecycle — NOT Cowork
 All NCL services run via macOS LaunchAgents. The Brain's internal autonomous scheduler handles ALL intelligence sweeps, council triggers, memory consolidation, working context, journal reflections, etc.
 
