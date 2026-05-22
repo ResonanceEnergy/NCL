@@ -416,6 +416,14 @@ class DailyContextWindow:
             candidates.extend(carried)
             log.info(f"[WORKING-CTX]   Carried forward: {len(carried)} items")
 
+            # 6. Portfolio candidates — explicit pull so the freshest
+            #    snapshot + last 5 portfolio events ALWAYS land in the
+            #    daily window even if the broader memory recall misses
+            #    them. NATRIX-tier authority floats them to the top.
+            portfolio_items = await self._pull_portfolio_candidates()
+            candidates.extend(portfolio_items)
+            log.info(f"[WORKING-CTX]   Portfolio: {len(portfolio_items)} candidates")
+
             # Auto-extract themes if not provided
             if not themes:
                 themes = self._extract_themes(candidates)
@@ -806,6 +814,100 @@ class DailyContextWindow:
                 ))
         except Exception as e:
             log.warning(f"[WORKING-CTX] Mandate pull failed: {e}")
+
+        return items
+
+    async def _pull_portfolio_candidates(self, max_items: int = 6) -> list[ContextItem]:
+        """Pull the freshest portfolio:snapshot + last few portfolio events.
+
+        These are written by `runtime/portfolio/memory_bridge.py` with
+        source strings under the ``portfolio:`` namespace, which the
+        authority module classifies as NATRIX (tier 100). They will
+        therefore beat scanner items in the salience competition, but
+        we still pull them explicitly so the snapshot is GUARANTEED
+        to be present after a single sync cycle — not at the mercy of
+        the importance/recency floor.
+
+        Returns up to ``max_items`` items: the most recent
+        ``portfolio:snapshot`` plus the next 5 most-important
+        ``portfolio:*`` events.
+        """
+        items: list[ContextItem] = []
+        if not self.memory_store:
+            return items
+
+        try:
+            units = await self.memory_store.search_units(
+                tags=["portfolio"],
+                importance_threshold=0.0,
+                days_back=14,
+            )
+        except Exception as exc:
+            log.warning(f"[WORKING-CTX] Portfolio pull failed: {exc}")
+            return items
+
+        if not units:
+            return items
+
+        # Sort by created_at desc so the latest snapshot wins
+        try:
+            units.sort(key=lambda u: getattr(u, "created_at", datetime.min.replace(tzinfo=timezone.utc)), reverse=True)
+        except Exception:
+            pass
+
+        # Always include the freshest snapshot
+        snapshot_unit = next((u for u in units if u.source == "portfolio:snapshot"), None)
+        chosen: list[Any] = []
+        seen_ids: set[str] = set()
+        if snapshot_unit is not None:
+            chosen.append(snapshot_unit)
+            seen_ids.add(snapshot_unit.unit_id)
+
+        # Then fill with the freshest non-snapshot portfolio events
+        for u in units:
+            if len(chosen) >= max_items:
+                break
+            if u.unit_id in seen_ids:
+                continue
+            chosen.append(u)
+            seen_ids.add(u.unit_id)
+
+        for unit in chosen:
+            try:
+                recency = self.compute_recency(unit.last_accessed, unit.decay_rate)
+                importance_norm = self.compute_importance_normalized(unit.importance)
+                # Authority weight will be re-applied in the assembly
+                # rescore loop; pass 1.0 for now so this candidate is
+                # at least as visible as memory candidates before re-rank.
+                salience = self.compute_salience(recency, importance_norm, 0.5, 1.0)
+
+                unit_meta = getattr(unit, "metadata", None) or {}
+                _at = unit_meta.get("authority_tier")
+                if _at is None:
+                    _at = int(tier_for_source(unit.source))
+
+                items.append(ContextItem(
+                    item_id=f"mem:{unit.unit_id}",
+                    content=unit.content[:500],
+                    source=unit.source,
+                    category="portfolio",
+                    salience_score=salience,
+                    importance=unit.importance,
+                    recency_score=recency,
+                    relevance_score=0.5,
+                    tags=unit.tags,
+                    created_at=unit.created_at.isoformat() if hasattr(unit, "created_at") else "",
+                    metadata={
+                        "unit_id": unit.unit_id,
+                        "reinforcement_count": unit.reinforcement_count,
+                        "decay_rate": unit.decay_rate,
+                        "authority_tier": int(_at),
+                        **{k: v for k, v in unit_meta.items() if k != "authority_tier"},
+                    },
+                ))
+            except Exception as exc:
+                log.debug(f"[WORKING-CTX] portfolio item build failed: {exc}")
+                continue
 
         return items
 

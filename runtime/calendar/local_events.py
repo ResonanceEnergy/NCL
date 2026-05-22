@@ -522,3 +522,124 @@ def get_cities_list() -> list[dict]:
         }
         for city_id, city in CITIES.items()
     ]
+
+
+# ── Rich per-city payload (events + landmarks + notable + fun_finder) ─
+
+async def get_city_payload(
+    city_id: str,
+    start: date,
+    end: date,
+    use_scanner_cache: bool = True,
+) -> dict:
+    """
+    Rich per-city payload — superset of get_local_events.
+
+    Returns:
+        {
+            "city": str,                          # city_id
+            "city_name": str,
+            "country": str,
+            "weather": {...} | None,              # latest weather event summary
+            "events": [...],                      # holidays + weather + tm + curated + scanner sources
+            "landmarks": [...],
+            "notable_dates": [...],
+            "fun_finder": {
+                "today": [...],
+                "this_week": [...],
+                "this_month": [...],
+            },
+            "stats": {...},
+            "sources_used": [str],
+        }
+
+    Augments — does NOT replace — `get_local_events()`. Existing callers that
+    expect a flat list continue to use `get_local_events()`.
+    """
+    city = CITIES.get(city_id)
+    if not city:
+        return {"city": city_id, "error": f"unknown city: {city_id}"}
+
+    # Existing path: holidays + weather + TM + curated
+    base_events = await get_local_events(city_id, start, end)
+
+    # New: city_scanner — eventbrite + reddit + trends + news + bootstrap notable + landmarks
+    scanner_payload: dict = {}
+    try:
+        # Local import to avoid a hard dep if city_scanner is being refactored
+        from .city_scanner import get_city_scanner
+        scanner = get_city_scanner()
+        # Compute the lookahead delta the scanner expects (it owns its own window)
+        lookahead = max(1, (end - date.today()).days)
+        lookback = max(0, (date.today() - start).days)
+        scanner_payload = await scanner.scan_city(
+            city_id,
+            lookback_days=lookback,
+            lookahead_days=lookahead,
+            bypass_cache=not use_scanner_cache,
+        )
+    except Exception as e:
+        log.warning("city_scanner.scan_city failed for %s: %s", city_id, e)
+        scanner_payload = {}
+
+    scanner_events = scanner_payload.get("events", []) or []
+
+    # Merge + dedup against base_events by (date, lowercased-title)
+    seen: set[tuple[str, str]] = set()
+    merged: list[dict] = []
+    for ev in base_events + scanner_events:
+        key = (ev.get("date", ""), (ev.get("title") or "")[:80].lower().strip())
+        if not key[0] or key in seen:
+            continue
+        seen.add(key)
+        merged.append(ev)
+
+    # Re-sort
+    merged.sort(key=lambda e: (e.get("date", ""), -e.get("priority", 0)))
+
+    # Fun-finder bucketing
+    today = date.today()
+    today_iso = today.isoformat()
+    week_end_iso = (today + timedelta(days=7)).isoformat()
+    month_end_iso = (today + timedelta(days=30)).isoformat()
+    fun_finder = {
+        "today": [e for e in merged if e.get("date") == today_iso],
+        "this_week": [e for e in merged if today_iso < e.get("date", "") <= week_end_iso],
+        "this_month": [e for e in merged if week_end_iso < e.get("date", "") <= month_end_iso],
+    }
+
+    # Pull most-recent weather event as a summary block (for iOS header)
+    weather_summary = None
+    for e in base_events:
+        if e.get("category") == "weather" and e.get("date") == today_iso:
+            weather_summary = {
+                "title": e.get("title", ""),
+                "description": e.get("description", ""),
+                "impact": e.get("impact", "low"),
+            }
+            break
+
+    return {
+        "city": city_id,
+        "city_name": city["name"],
+        "country": city["country"],
+        "country_name": city["country_name"],
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "weather": weather_summary,
+        "events": merged,
+        "count": len(merged),
+        "landmarks": scanner_payload.get("landmarks", []),
+        "notable_dates": scanner_payload.get("notable_dates", []),
+        "fun_finder": fun_finder,
+        "stats": {
+            "total_events": len(merged),
+            "today_count": len(fun_finder["today"]),
+            "this_week_count": len(fun_finder["this_week"]),
+            "this_month_count": len(fun_finder["this_month"]),
+            "landmark_count": len(scanner_payload.get("landmarks", []) or []),
+            "notable_dates_count": len(scanner_payload.get("notable_dates", []) or []),
+        },
+        "sources_used": ["holidays", "weather", "ticketmaster", "curated"]
+                        + scanner_payload.get("sources_used", []),
+    }

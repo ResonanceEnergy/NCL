@@ -28,6 +28,7 @@ from .events import (
 )
 from .local_events import (
     get_local_events,
+    get_city_payload,
     get_cities_list,
     add_local_event,
     CITIES,
@@ -330,9 +331,14 @@ async def city_events(
     city_id: str,
     start: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
     end: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    flat: bool = Query(False, description="Legacy flat-events response (no landmarks/notable_dates)"),
     authorization: str = Header(default=""),
 ):
-    """Get local events for a specific city."""
+    """
+    Rich per-city events payload — events + landmarks + notable_dates + fun_finder.
+
+    Pass ?flat=true for the pre-2026-05-22 flat list response shape.
+    """
     _verify_strike_token(authorization)
 
     if city_id not in CITIES:
@@ -342,18 +348,20 @@ async def city_events(
     s = date.fromisoformat(start) if start else today
     e = date.fromisoformat(end) if end else today + timedelta(days=30)
 
-    events = await get_local_events(city_id, s, e)
-    city_meta = CITIES[city_id]
+    if flat:
+        events = await get_local_events(city_id, s, e)
+        city_meta = CITIES[city_id]
+        return {
+            "city": city_id,
+            "city_name": city_meta["name"],
+            "country": city_meta["country"],
+            "start": s.isoformat(),
+            "end": e.isoformat(),
+            "events": events,
+            "count": len(events),
+        }
 
-    return {
-        "city": city_id,
-        "city_name": city_meta["name"],
-        "country": city_meta["country"],
-        "start": s.isoformat(),
-        "end": e.isoformat(),
-        "events": events,
-        "count": len(events),
-    }
+    return await get_city_payload(city_id, s, e)
 
 
 @calendar_router.post("/local/events")

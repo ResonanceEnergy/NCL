@@ -25,6 +25,7 @@ from dotenv import load_dotenv
 from .ibkr_adapter import IBKRAdapter
 from .moomoo_adapter import MoomooAdapter
 from .snaptrade_adapter import SnapTradeAdapter
+from .memory_bridge import init_bridge as _init_bridge
 
 # ---------------------------------------------------------------------------
 # Config
@@ -125,6 +126,14 @@ class PortfolioManager:
 
         # Ensure data dir
         _DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+        # Memory bridge — emits portfolio:* memory units after each sync.
+        # Defensive: never let a bridge failure break the manager.
+        try:
+            self._memory_bridge = _init_bridge(_DATA_DIR)
+        except Exception:
+            logger.exception("Memory bridge init failed — portfolio events disabled")
+            self._memory_bridge = None
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -243,6 +252,27 @@ class PortfolioManager:
 
             # Snapshot persistence
             self._maybe_write_snapshot()
+
+            # Memory bridge: emit memory units for snapshots + events.
+            # Runs OUTSIDE the read paths and is fully defensive — never
+            # raises back into the sync loop. Build a summary + positions
+            # view first (same shape the API hands out).
+            if self._memory_bridge is not None:
+                try:
+                    bridge_summary = self.get_summary(base_currency="CAD")
+                    bridge_positions = self.get_positions(account_filter="all")
+                    # Augment account dicts with buying_power so the
+                    # bridge's BP-risk rule has the data it needs (the
+                    # /summary endpoint elides it).
+                    raw_accts = self.get_accounts()
+                    bp_by_id = {a.get("account_id"): a.get("buying_power", 0.0) for a in raw_accts}
+                    for a in bridge_summary.get("accounts", []) or []:
+                        aid = a.get("account_id")
+                        if aid in bp_by_id:
+                            a["buying_power"] = bp_by_id[aid]
+                    await self._memory_bridge.on_sync(bridge_summary, bridge_positions)
+                except Exception:
+                    logger.exception("Memory bridge on_sync failed (continuing)")
 
     # ------------------------------------------------------------------
     # FX conversion

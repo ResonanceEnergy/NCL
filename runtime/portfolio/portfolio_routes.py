@@ -248,3 +248,191 @@ async def portfolio_sync(
     except Exception as e:
         log.exception("Portfolio sync failed: %s", e)
         raise HTTPException(status_code=500, detail=f"Portfolio sync error: {e}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GET /portfolio/events
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _serialize_portfolio_unit(u) -> dict:
+    """Render a MemUnit as a compact JSON payload for the events endpoints."""
+    try:
+        created = u.created_at.isoformat() if hasattr(u.created_at, "isoformat") else str(u.created_at)
+    except Exception:
+        created = ""
+    meta = getattr(u, "metadata", None) or {}
+    return {
+        "unit_id": u.unit_id,
+        "source": u.source,
+        "content": u.content,
+        "importance": u.importance,
+        "tags": u.tags,
+        "memory_type": getattr(u, "memory_type", "episodic"),
+        "memory_tier": getattr(u, "memory_tier", "SML"),
+        "authority_tier": meta.get("authority_tier"),
+        "created_at": created,
+        "metadata": {k: v for k, v in meta.items() if k != "authority_tier"},
+    }
+
+
+@router.get("/events")
+async def portfolio_events(
+    limit: int = Query(default=20, ge=1, le=200),
+    source: Optional[str] = Query(default=None, description="Filter by portfolio:* source (snapshot, position_opened, etc.)"),
+    authorization: str = Header(default=""),
+) -> dict:
+    """
+    Recent portfolio:* memory units, newest first.
+
+    Each unit is one event written by the portfolio memory bridge —
+    snapshots, position open/close, significant moves, account drift,
+    buying-power risk, quantity changes.
+    """
+    _verify_strike_token(authorization)
+
+    try:
+        # Re-fetch module each call to dodge stale-global capture.
+        import runtime.api.routes as _routes
+        _brain = getattr(_routes, "brain", None)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Brain unavailable: {exc}")
+
+    if _brain is None or not getattr(_brain, "memory_store", None):
+        raise HTTPException(status_code=503, detail="Memory store not initialised")
+
+    try:
+        units = await _brain.memory_store.search_units(
+            tags=["portfolio"],
+            importance_threshold=0.0,
+            days_back=30,
+        )
+    except Exception as e:
+        log.exception("Portfolio events search failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"Portfolio events error: {e}")
+
+    # Newest first
+    try:
+        from datetime import datetime, timezone
+        units.sort(
+            key=lambda u: getattr(u, "created_at", datetime.min.replace(tzinfo=timezone.utc)),
+            reverse=True,
+        )
+    except Exception:
+        pass
+
+    if source:
+        # Normalize to portfolio:<event> form if caller passed a bare name
+        wanted = source if source.startswith("portfolio:") else f"portfolio:{source}"
+        units = [u for u in units if u.source == wanted]
+
+    events = [_serialize_portfolio_unit(u) for u in units[:limit]]
+    return {
+        "events": events,
+        "count": len(events),
+        "filter_source": source,
+        "limit": limit,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GET /portfolio/significant-moves
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/bridge-state")
+async def portfolio_bridge_state(
+    authorization: str = Header(default=""),
+) -> dict:
+    """
+    Peek at the in-memory portfolio bridge state.
+
+    Returns the freshest cached summary + position count + when the
+    bridge last saw a sync. Used for verifying the chat-context portfolio
+    injector has live data without having to hit the (potentially slow)
+    create_unit path.
+    """
+    _verify_strike_token(authorization)
+    try:
+        from .memory_bridge import get_bridge
+        bridge = get_bridge()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Bridge import failed: {e}")
+    if bridge is None:
+        return {"bridge_initialized": False}
+
+    summary = bridge.latest_summary() or {}
+    positions = bridge.latest_positions() or []
+    latest_at = bridge.latest_at()
+    return {
+        "bridge_initialized": True,
+        "latest_at": latest_at.isoformat() if latest_at else None,
+        "summary_keys": sorted(summary.keys()),
+        "nlv": summary.get("total_value"),
+        "base_currency": summary.get("base_currency"),
+        "day_pl": summary.get("daily_pl"),
+        "day_pl_pct": summary.get("daily_pl_pct"),
+        "position_count": len(positions),
+        "top_positions": [
+            {
+                "symbol": p.get("symbol"),
+                "market_value_cad": p.get("market_value_cad"),
+                "daily_pl_pct": p.get("daily_pl_pct"),
+            }
+            for p in positions[:5]
+        ],
+    }
+
+
+@router.get("/significant-moves")
+async def portfolio_significant_moves(
+    days: int = Query(default=7, ge=1, le=90),
+    scope: Optional[str] = Query(default=None, description="position | portfolio"),
+    authorization: str = Header(default=""),
+) -> dict:
+    """
+    Portfolio:significant_move events in the requested window.
+
+    Returns position-level AND portfolio-level moves unless scope is
+    constrained. Sorted newest first.
+    """
+    _verify_strike_token(authorization)
+
+    try:
+        # Re-fetch module each call to dodge stale-global capture.
+        import runtime.api.routes as _routes
+        _brain = getattr(_routes, "brain", None)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Brain unavailable: {exc}")
+
+    if _brain is None or not getattr(_brain, "memory_store", None):
+        raise HTTPException(status_code=503, detail="Memory store not initialised")
+
+    try:
+        units = await _brain.memory_store.search_units(
+            tags=["portfolio:significant_move"],
+            importance_threshold=0.0,
+            days_back=days,
+        )
+    except Exception as e:
+        log.exception("Portfolio significant-moves search failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"Significant-moves error: {e}")
+
+    if scope:
+        scope_tag = f"scope:{scope}"
+        units = [u for u in units if scope_tag in (u.tags or [])]
+
+    try:
+        from datetime import datetime, timezone
+        units.sort(
+            key=lambda u: getattr(u, "created_at", datetime.min.replace(tzinfo=timezone.utc)),
+            reverse=True,
+        )
+    except Exception:
+        pass
+
+    moves = [_serialize_portfolio_unit(u) for u in units]
+    return {
+        "moves": moves,
+        "count": len(moves),
+        "window_days": days,
+        "scope_filter": scope,
+    }

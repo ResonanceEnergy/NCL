@@ -38,6 +38,7 @@ import fcntl
 import json
 import logging
 import os
+import time
 import urllib.request
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
@@ -398,6 +399,10 @@ class AutonomousScheduler:
         self._tasks.append(
             asyncio.create_task(self._bm25_rebuild_loop(), name="ncl-bm25-rebuild")
         )
+        # Loop 7 (2026-05-22): per-city "fun finder" scanner — 1h cadence
+        self._tasks.append(
+            asyncio.create_task(self._city_events_loop(), name="ncl-city-events")
+        )
 
         # ── 2026-05-22 second batch: async writer, budget telemetry ──
         # Async write queue (Mem0 pattern) — fire-and-forget Awarebot writes
@@ -553,6 +558,7 @@ class AutonomousScheduler:
             "ncl-alert-dispatch": self._alert_dispatch_loop,
             "ncl-ytc-dedicated": self._ytc_dedicated_loop,
             "ncl-bm25-rebuild": self._bm25_rebuild_loop,
+            "ncl-city-events": self._city_events_loop,
         }
         # 2026-05-22 memory loops (factory registration — only if loaded above)
         try:
@@ -6309,5 +6315,90 @@ class AutonomousScheduler:
 
             try:
                 await asyncio.sleep(1800)
+            except asyncio.CancelledError:
+                raise
+
+    # ─────────────────────────────────────────────────────────────────
+    async def _city_events_loop(self) -> None:
+        """LOOP 19 (2026-05-22) — per-city "fun finder" scanner.
+
+        Cadence: 3600s (1 hour). Each tick:
+          1. Iterate every registered city (CITIES).
+          2. Call ``CityEventScanner.scan_city(...)`` (lookback=0, lookahead=30).
+          3. Scanner auto-enqueues events into MemoryStore via async_writer
+             with source "awarebot:city_events:{city_id}".
+          4. Persist the per-city payload to ``data/calendar/city_events_cache.jsonl``
+             so iOS can do an instant disk read on cold start.
+        """
+        log.info("[CITY-EVENTS] loop started (3600s cadence)")
+        try:
+            from ..calendar.city_scanner import get_city_scanner, write_cache_atomic
+            from ..calendar.local_events import CITIES as _CITIES
+        except Exception as e:
+            log.error("[CITY-EVENTS] cannot import city_scanner: %s — loop exiting", e)
+            return
+
+        # Wire the async_writer (if available) so memory ingestion happens.
+        # Prefer the singleton via get_async_writer() — falls back to self._async_writer.
+        async_writer = getattr(self, "_async_writer", None)
+        if async_writer is None:
+            try:
+                from ..memory.async_writer import get_async_writer
+                async_writer = get_async_writer()
+            except Exception:
+                async_writer = None
+        scanner = get_city_scanner(async_writer=async_writer)
+
+        # Initial warm-up delay (give async_writer drainers a head start)
+        try:
+            await asyncio.sleep(120)
+        except asyncio.CancelledError:
+            raise
+
+        while self._running:
+            if EMERGENCY_STOP_EVENT.is_set():
+                log.critical("[CITY-EVENTS] Emergency stop active — halting loop")
+                break
+
+            cycle_start = time.time()
+            success_count = 0
+            event_total = 0
+
+            for city_id in list(_CITIES.keys()):
+                if EMERGENCY_STOP_EVENT.is_set():
+                    break
+                try:
+                    payload = await scanner.scan_city(
+                        city_id,
+                        lookback_days=0,
+                        lookahead_days=30,
+                        bypass_cache=True,
+                    )
+                    event_total += payload.get("stats", {}).get("total_events", 0)
+                    # Atomic cache write per city payload
+                    write_cache_atomic(payload)
+                    success_count += 1
+                    log.debug(
+                        "[CITY-EVENTS] %s ok: %d events, sources=%s",
+                        city_id,
+                        payload.get("stats", {}).get("total_events", 0),
+                        payload.get("sources_used", []),
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    log.warning("[CITY-EVENTS] %s failed: %s", city_id, e)
+
+            elapsed = time.time() - cycle_start
+            self._stats["last_city_events_run"] = datetime.now(timezone.utc).isoformat()
+            self._stats["city_events_total"] = event_total
+            self._stats["city_events_cities_ok"] = success_count
+            log.info(
+                "[CITY-EVENTS] cycle complete: %d/%d cities, %d events, %.1fs",
+                success_count, len(_CITIES), event_total, elapsed,
+            )
+
+            try:
+                await asyncio.sleep(3600)
             except asyncio.CancelledError:
                 raise

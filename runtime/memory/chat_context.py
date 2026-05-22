@@ -21,6 +21,7 @@ via `precheck_anthropic_budget()`.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -47,6 +48,38 @@ SESSION_MAX_MESSAGES = 5
 WORKING_CTX_MAX_ITEMS = 10
 RELEVANT_MAX_MEMORIES = 3
 RELEVANT_IMPORTANCE_THRESHOLD = 40.0
+
+# ── Portfolio injector ────────────────────────────────────────────────────
+# Soft cap on chars allocated to PORTFOLIO STATE block — ~800 tokens.
+# When exceeded, the injector summarises (drops the top-position detail
+# lines first, then per-broker breakdown).
+PORTFOLIO_BUDGET = 3_200
+PORTFOLIO_TOP_POSITIONS = 5
+PORTFOLIO_RECENT_EVENTS = 3
+
+# Heuristic — inject portfolio context only when the user message looks
+# like it might want financial state. Avoids wasting tokens on every
+# "hello" or unrelated question.
+_PORTFOLIO_HINT_TOKENS = {
+    "portfolio", "position", "positions", "trade", "trades", "trading",
+    "p&l", "pl", "pnl", "balance", "money", "cash", "broker", "brokerage",
+    "buying power", "buying-power", "margin", "nlv", "equity",
+    "moomoo", "ibkr", "wealthsimple", "snaptrade", "tfsa", "rrsp",
+    "fhsa", "options", "long", "short", "stocks", "shares",
+    "profit", "loss", "drawdown", "exposure", "allocation",
+    "dollar", "dollars", "$",
+}
+
+# Detect $TICKER and bare 1-5 char uppercase tickers (TSLA, AAPL, SLV, BTC)
+# but NOT common English words like "I", "A", "THE", "AND" — those are
+# filtered by length and a small stop-list.
+_TICKER_STOPLIST = {
+    "I", "A", "THE", "AND", "OR", "BUT", "OK", "NO", "YES", "ALL", "AM", "PM",
+    "TO", "FOR", "IS", "IT", "ON", "AT", "BE", "BY", "DO", "GO", "IF", "IN",
+    "ME", "MY", "OF", "SO", "UP", "US", "WE", "AS", "AN",
+}
+_DOLLAR_TICKER_RE = re.compile(r"\$[A-Za-z]{1,6}\b")
+_BARE_TICKER_RE = re.compile(r"\b[A-Z]{2,5}\b")
 
 
 def _trim(text: str, limit: int) -> str:
@@ -280,6 +313,172 @@ async def _build_relevant_memories_section(
     return "\n".join(lines), rendered, kept_units
 
 
+# ── Portfolio injector ────────────────────────────────────────────────────
+
+def _should_inject_portfolio(message: str) -> bool:
+    """Return True if the user's message looks like it could benefit from
+    live portfolio state. Heuristic — not perfect, but avoids stuffing
+    800 tokens into every "good morning"."""
+    if not message:
+        return False
+    low = message.lower()
+    # Direct hit-word check
+    for kw in _PORTFOLIO_HINT_TOKENS:
+        if kw in low:
+            return True
+    # $TICKER form
+    if _DOLLAR_TICKER_RE.search(message):
+        return True
+    # Bare TICKER (2-5 uppercase letters) — only if not in stoplist
+    for m in _BARE_TICKER_RE.findall(message):
+        if m not in _TICKER_STOPLIST:
+            return True
+    return False
+
+
+def _format_portfolio_section(
+    summary: dict,
+    positions: list[dict],
+    recent_events: list[Any],
+    budget: int = PORTFOLIO_BUDGET,
+) -> str:
+    """Render the PORTFOLIO STATE block. Trims to `budget` chars.
+
+    Format:
+        === PORTFOLIO STATE (live as of {ts}) ===
+        Total NLV: ${X} {CCY}
+        Day P&L: ${Y} ({Z}%)
+        Cash: ${C}
+        Top positions:
+          - SYM  $MV  ({pct}%)  day {dpct}%
+          ...
+        Recent significant moves:
+          - ...
+        ================================================
+    """
+    if not summary:
+        return ""
+
+    def _f(v, default=0.0):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return default
+
+    nlv = _f(summary.get("total_value"))
+    currency = summary.get("base_currency", "CAD")
+    day_pl = _f(summary.get("daily_pl"))
+    day_pl_pct = _f(summary.get("daily_pl_pct"))
+    cash = _f(summary.get("cash_total"))
+    ts = summary.get("last_sync") or datetime.now(timezone.utc).isoformat()
+
+    lines: list[str] = []
+    lines.append(f"=== PORTFOLIO STATE (live as of {ts}) ===")
+    lines.append(f"Total NLV: ${nlv:,.2f} {currency}")
+    lines.append(f"Day P&L: ${day_pl:,.2f} ({day_pl_pct:+.2f}%)")
+    lines.append(f"Cash: ${cash:,.2f} {currency}")
+
+    # By-broker breakdown (compact)
+    by_broker = summary.get("allocation", {}).get("by_account", []) or []
+    if by_broker:
+        broker_parts = [
+            f"{a.get('label','?')} ${_f(a.get('value')):,.0f}"
+            for a in by_broker[:5]
+        ]
+        lines.append("By broker: " + ", ".join(broker_parts))
+
+    # Top positions
+    if positions:
+        lines.append(f"Top {min(PORTFOLIO_TOP_POSITIONS, len(positions))} positions:")
+        nlv_for_weight = nlv if nlv > 0 else 1.0
+        for pos in positions[:PORTFOLIO_TOP_POSITIONS]:
+            sym = pos.get("symbol", "?")
+            mv = _f(pos.get("market_value_cad") or pos.get("market_value"))
+            weight = mv / nlv_for_weight * 100.0
+            dpct = _f(pos.get("daily_pl_pct"))
+            lines.append(f"  - {sym}  ${mv:,.0f}  ({weight:.1f}%)  day {dpct:+.2f}%")
+
+    # Recent significant events (from memory)
+    if recent_events:
+        lines.append(f"Recent significant moves:")
+        for evt in recent_events[:PORTFOLIO_RECENT_EVENTS]:
+            content = getattr(evt, "content", "") or ""
+            created = getattr(evt, "created_at", None)
+            age = _humanize_age(created) if created else "?"
+            lines.append(f"  - ({age}) {_trim(content, 200)}")
+
+    lines.append("=" * 48)
+
+    block = "\n".join(lines)
+    # Soft trim — keep header + NLV + cash always, drop tails when oversize
+    if len(block) > budget:
+        truncated_lines: list[str] = []
+        total = 0
+        for line in lines:
+            if total + len(line) + 1 > budget - 80:  # leave room for tail
+                break
+            truncated_lines.append(line)
+            total += len(line) + 1
+        truncated_lines.append("…[portfolio context trimmed]")
+        truncated_lines.append("=" * 48)
+        block = "\n".join(truncated_lines)
+
+    return block
+
+
+async def _build_portfolio_section(
+    message: str, brain: Any
+) -> tuple[str, int]:
+    """Pull live portfolio state from the bridge + recent memory events.
+
+    Returns (rendered_text, items_count). Empty if heuristic says skip
+    or the bridge isn't initialised.
+    """
+    if not _should_inject_portfolio(message):
+        return "", 0
+
+    # Bridge lookup — late import to dodge cycles
+    try:
+        from runtime.portfolio.memory_bridge import get_bridge
+        bridge = get_bridge()
+    except Exception as exc:
+        log.debug(f"[CHAT-CTX] portfolio bridge import failed: {exc}")
+        return "", 0
+
+    if bridge is None:
+        return "", 0
+
+    summary = bridge.latest_summary()
+    positions = bridge.latest_positions()
+    if not summary:
+        return "", 0
+
+    # Recent portfolio events (significant moves + position open/close)
+    recent_events: list[Any] = []
+    memory_store = getattr(brain, "memory_store", None) if brain else None
+    if memory_store is not None:
+        try:
+            units = await memory_store.search_units(
+                tags=["portfolio"],
+                importance_threshold=70.0,  # events only, skip baseline snapshots
+                days_back=7,
+            )
+            # Exclude snapshots; we want the actionable events
+            events = [u for u in units if u.source != "portfolio:snapshot"]
+            events.sort(
+                key=lambda u: getattr(u, "created_at", datetime.min.replace(tzinfo=timezone.utc)),
+                reverse=True,
+            )
+            recent_events = events[:PORTFOLIO_RECENT_EVENTS]
+        except Exception as exc:
+            log.debug(f"[CHAT-CTX] portfolio event recall failed: {exc}")
+
+    block = _format_portfolio_section(summary, positions, recent_events)
+    if not block:
+        return "", 0
+    return block, 1 + len(positions[:PORTFOLIO_TOP_POSITIONS]) + len(recent_events)
+
+
 # ── Reinforcement (single batched rewrite) ────────────────────────────────
 
 async def _reinforce_units(memory_store, units: list[Any]) -> int:
@@ -372,12 +571,25 @@ async def build_chat_context(
             memory_store, message, exclude_ids
         )
 
-        if wc_count == 0 and sess_count == 0 and rel_count == 0:
-            log.info(f"[CHAT-CTX] injected 0 working_ctx + 0 session + 0 relevant memories")
+        # 4. Portfolio state (gated on financial-context heuristic)
+        portfolio_text, portfolio_count = "", 0
+        try:
+            portfolio_text, portfolio_count = await _build_portfolio_section(message, brain)
+        except Exception as exc:
+            log.debug(f"[CHAT-CTX] portfolio section failed: {exc}")
+
+        if (
+            wc_count == 0 and sess_count == 0
+            and rel_count == 0 and portfolio_count == 0
+        ):
+            log.info(f"[CHAT-CTX] injected 0 working_ctx + 0 session + 0 relevant + 0 portfolio")
             return ""
 
-        # Assemble — header + three sections separated by blank lines.
+        # Assemble — header + four sections separated by blank lines.
         parts = ["## CONVERSATION CONTEXT", ""]
+        if portfolio_text:
+            parts.append(portfolio_text)
+            parts.append("")
         if wc_text:
             parts.append(wc_text)
             parts.append("")
@@ -408,7 +620,7 @@ async def build_chat_context(
 
         log.info(
             f"[CHAT-CTX] injected {wc_count} working_ctx + {sess_count} session "
-            f"+ {rel_count} relevant memories ({len(block)} chars)"
+            f"+ {rel_count} relevant + {portfolio_count} portfolio ({len(block)} chars)"
         )
         return block
 

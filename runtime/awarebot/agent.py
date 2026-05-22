@@ -954,12 +954,13 @@ class Awarebot:
             # self._collect_crypto(),           # DISABLED — CoinGecko rate limiting
             self._collect_unusual_whales(),     # Options flow / dark pool / congress
             self._collect_council_reports(),     # council report ingestion
+            self._collect_city_events(),         # Per-city fun-finder (1h throttle)
         ]
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         for i, result in enumerate(results):
-            source_names = ["social", "google_trends", "polymarket", "news", "unusual_whales", "council"]
+            source_names = ["social", "google_trends", "polymarket", "news", "unusual_whales", "council", "city_events"]
             if isinstance(result, Exception):
                 source_name = source_names[i] if i < len(source_names) else f"source_{i}"
                 log.warning(f"[AGENT:SCAN] Source '{source_name}' failed: {result}")
@@ -1322,6 +1323,78 @@ class Awarebot:
 
         if signals:
             log.info(f"[AGENT:SCAN:COUNCIL] Collected {len(signals)} council signals")
+        return signals
+
+    async def _collect_city_events(self) -> list[Signal]:
+        """Collect city events from the per-city fun-finder scanner.
+
+        This runs on every scan_cycle (5min) but enforces an internal 1h throttle
+        per city to avoid hammering Ticketmaster/Eventbrite/Reddit. Events flow
+        into MemoryStore via the scanner's async_writer path. Returned Signals
+        feed Awarebot's standard 6-factor scoring and downstream routing.
+        """
+        signals: list[Signal] = []
+        try:
+            from ..calendar.city_scanner import get_city_scanner
+            from ..calendar.local_events import CITIES as _CITIES
+        except Exception as e:
+            log.debug(f"[AGENT:SCAN:CITY] city_scanner unavailable: {e}")
+            return signals
+
+        # Per-city throttle (in-memory, per-process)
+        if not hasattr(self, "_city_events_last_scan"):
+            self._city_events_last_scan: dict[str, float] = {}
+
+        THROTTLE_S = 3600  # 1 hour per city
+        now = time.time()
+
+        # Wire async_writer via the global singleton (Awarebot doesn't hold a ref directly)
+        try:
+            from ..memory.async_writer import get_async_writer
+            _aw = get_async_writer()
+        except Exception:
+            _aw = None
+        scanner = get_city_scanner(async_writer=_aw)
+        for city_id in _CITIES.keys():
+            last = self._city_events_last_scan.get(city_id, 0)
+            if now - last < THROTTLE_S:
+                continue  # still inside the per-city cooldown
+            try:
+                payload = await scanner.scan_city(
+                    city_id, lookback_days=0, lookahead_days=14, bypass_cache=False,
+                )
+                self._city_events_last_scan[city_id] = now
+                events = payload.get("events", []) or []
+                # Convert top-priority events into Signal objects (cap to 5/city)
+                for ev in events[:5]:
+                    s = Signal(
+                        source=f"city_events:{city_id}",
+                        title=f"[{city_id}] {ev.get('title', '')[:120]}",
+                        content=(ev.get("description") or "")[:500],
+                        url=ev.get("url") or "",
+                        timestamp=datetime.now(timezone.utc),
+                        tags=["scan:city_events", city_id, ev.get("category", "community")],
+                        category=ev.get("category", "community"),
+                        metadata={
+                            "city_id": city_id,
+                            "event_id": ev.get("id"),
+                            "event_date": ev.get("date"),
+                            "event_source": ev.get("source"),
+                            "venue": ev.get("venue"),
+                        },
+                    )
+                    # Gentle baseline scores — proximity-aware
+                    s.relevance = 0.5
+                    s.authority = 0.6 if ev.get("source") in ("ticketmaster", "notable_date") else 0.4
+                    s.actionability = 0.5
+                    signals.append(s)
+                    self._stats["signals_by_source"]["city_events"] += 1
+            except Exception as e:
+                log.warning(f"[AGENT:SCAN:CITY] {city_id} failed: {e}")
+                self._stats["source_errors"]["city_events"] += 1
+
+        if signals:
+            log.info(f"[AGENT:SCAN:CITY] Collected {len(signals)} city-event signals")
         return signals
 
     # ═══════════════════════════════════════════════════════════════════

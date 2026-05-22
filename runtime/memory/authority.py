@@ -103,6 +103,18 @@ SOURCE_TIER_MAP: dict[str, AuthorityTier] = {
     "journal": AuthorityTier.NATRIX,                # raw NATRIX journal entries
     "first-strike-chat": AuthorityTier.NATRIX,      # user messages only
     "first_strike_chat": AuthorityTier.NATRIX,
+    # Portfolio events — NATRIX's money is absolute authority. The
+    # snapshot/event writers in runtime/portfolio/memory_bridge.py emit
+    # source strings under the "portfolio:" namespace; prefix-match
+    # rules below catch anything new added later.
+    "portfolio": AuthorityTier.NATRIX,
+    "portfolio:snapshot": AuthorityTier.NATRIX,
+    "portfolio:position_opened": AuthorityTier.NATRIX,
+    "portfolio:position_closed": AuthorityTier.NATRIX,
+    "portfolio:significant_move": AuthorityTier.NATRIX,
+    "portfolio:quantity_change": AuthorityTier.NATRIX,
+    "portfolio:account_change": AuthorityTier.NATRIX,
+    "portfolio:buying_power_risk": AuthorityTier.NATRIX,
 
     # ---- COUNCIL (80) -------------------------------------------------
     "council-decision": AuthorityTier.COUNCIL,
