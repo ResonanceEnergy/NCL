@@ -2808,7 +2808,15 @@ Focus on what requires attention or action."""
             log.debug(f"[AGENT:PERSIST] Failed to write signal: {e}")
 
     async def _persist_brief(self, brief: dict[str, Any]):
-        """Append brief to JSONL file."""
+        """Append brief to JSONL file AND bridge into the memory system.
+
+        Bridge added 2026-05-22: every persisted brief is also enqueued to the
+        AsyncWriter so it lands in MemoryStore (semantic, importance=80) under
+        source `agent-brief`. This makes briefs survive in memory, reach the
+        next working-context assembly, and surface in chat injection.
+
+        Failures are logged but never break the JSONL write.
+        """
         try:
             briefs_file = self._data_dir / "intelligence" / "agent_briefs.jsonl"
             line = json.dumps(brief, default=str) + "\n"
@@ -2816,6 +2824,58 @@ Focus on what requires attention or action."""
                 await f.write(line)
         except Exception as e:
             log.debug(f"[AGENT:PERSIST] Failed to write brief: {e}")
+
+        # ── Memory bridge (fire-and-forget) ──
+        try:
+            from ..memory.async_writer import get_async_writer, WriteRequest
+
+            exec_summary = brief.get("executive_summary", "") or ""
+            # Build a memory-friendly content blob: summary first, then short
+            # sector breakdown for downstream recall context.
+            sectors_dicts = brief.get("sectors") or []
+            sector_names: list[str] = []
+            sector_lines: list[str] = []
+            if isinstance(sectors_dicts, list):
+                for s in sectors_dicts:
+                    if isinstance(s, dict):
+                        name = str(s.get("sector", "") or "")
+                        cnt = s.get("signal_count", 0)
+                        direction = s.get("direction", "")
+                        if name:
+                            sector_names.append(name)
+                            sector_lines.append(
+                                f"- {name}: {cnt} signals, direction={direction}"
+                            )
+            sectors_block = (
+                "\n\nSectors:\n" + "\n".join(sector_lines) if sector_lines else ""
+            )
+            content = (exec_summary + sectors_block).strip() or "Intelligence brief generated."
+
+            tags = list(sector_names) + ["brief", "intel"]
+            metadata = {
+                "brief_id": brief.get("brief_id"),
+                "brief_type": brief.get("brief_type", "executive"),
+                "time_window": brief.get("time_window"),
+                "total_signals": brief.get("total_signals"),
+                "critical_count": brief.get("critical_count"),
+                "generated_at": brief.get("generated_at"),
+            }
+
+            aw = get_async_writer()
+            await aw.enqueue(WriteRequest(
+                content=content,
+                source="agent-brief",
+                memory_type="semantic",
+                importance=80,
+                tags=tags,
+                metadata=metadata,
+            ))
+            log.debug(
+                "[AGENT:PERSIST] Brief %s bridged to memory (%d sectors)",
+                brief.get("brief_id", "?"), len(sector_names),
+            )
+        except Exception as e:
+            log.warning(f"Brief memory bridge failed: {e}")
 
     async def _interruptible_sleep(self, seconds: float):
         """Sleep that can be interrupted by stop or emergency stop."""

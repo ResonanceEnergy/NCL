@@ -506,7 +506,7 @@ async def calendar_events_compiled(
         agent = _get_calendar_agent_or_none()
         if agent is None:
             return _err_response("calendar_agent module unavailable", 503)
-        data = await _call_maybe_async(agent.get_compiled_events, city_id, window)
+        data = await _call_maybe_async(agent.compile_events, city_id, window)
         if not isinstance(data, dict):
             data = {"events": data or []}
         events = data.get("events", []) or []
@@ -617,8 +617,8 @@ async def calendar_dashboard(
                 return fallback
 
         sun_task = _safe(_call_maybe_async(agent.get_sun_state, city_id), {"error": "sun fetch failed"})
-        events7_task = _safe(_call_maybe_async(agent.get_compiled_events, city_id, 7), {"events": [], "count": 0})
-        events30_task = _safe(_call_maybe_async(agent.get_compiled_events, city_id, 30), {"events": [], "count": 0})
+        events7_task = _safe(_call_maybe_async(agent.compile_events, city_id, 7), {"events": [], "count": 0})
+        events30_task = _safe(_call_maybe_async(agent.compile_events, city_id, 30), {"events": [], "count": 0})
         todos7_task = _safe(_call_maybe_async(agent.get_todos, city_id, 7), {"todos": [], "count": 0})
         todos30_task = _safe(_call_maybe_async(agent.get_todos, city_id, 30), {"todos": [], "count": 0})
         status_task = _safe(
