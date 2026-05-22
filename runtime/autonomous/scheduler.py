@@ -53,6 +53,7 @@ from ..journal.store import JournalStore
 from ..journal.reflection_engine import ReflectionEngine, ContextAwareTips
 from ..awarebot.agent import Awarebot
 from ..memory.working_context import DailyContextWindow
+from ..memory.retrieval import BM25Index
 from ..notifications import get_alert_dispatcher, enqueue_alert
 from ..health.rollup import build_health_rollup, write_rollup_atomic
 
@@ -143,6 +144,15 @@ class AutonomousScheduler:
             "last_alert_dispatch_tick": None,
             "last_ytc_dedicated": None,
             "ytc_dedicated_runs": 0,
+            # ── Night Watch run tracking (added 2026-05-21) ──────
+            # Drives startup-catchup decision in _night_watch_loop.
+            # Persisted as ISO timestamps; restart loses these but the
+            # loop also falls back to data/night-watch/ mtime scan.
+            "last_night_watch": None,
+            "last_night_watch_full": None,
+            "last_night_watch_catchup": None,
+            "night_watch_full_runs": 0,
+            "night_watch_catchup_runs": 0,
         }
 
         # Heartbeat watchdog config — alert dedup + last alert-fired tracking
@@ -281,7 +291,7 @@ class AutonomousScheduler:
             _llm_client = None
             if _anth_key:
                 class _AnthropicReflectionClient:
-                    def __init__(self, api_key: str, model: str = "claude-3-5-haiku-20241022"):
+                    def __init__(self, api_key: str, model: str = "claude-sonnet-4-6-20250514"):
                         self.api_key = api_key
                         self.model = model
 
@@ -384,6 +394,85 @@ class AutonomousScheduler:
         self._tasks.append(
             asyncio.create_task(self._ytc_dedicated_loop(), name="ncl-ytc-dedicated")
         )
+        # Loop 6: BM25 keyword index rebuild — backs FusedRetriever (Loop 11)
+        self._tasks.append(
+            asyncio.create_task(self._bm25_rebuild_loop(), name="ncl-bm25-rebuild")
+        )
+
+        # ── 2026-05-22 Memory Loops (Loops 2/4/5/6/9 from the memory swarm) ──
+        # Loop 2: weekly memory eval harness (Sunday 3am ET internal gate)
+        try:
+            from ..memory.eval.loop import _memory_eval_loop
+            self._tasks.append(
+                asyncio.create_task(_memory_eval_loop(self.brain), name="ncl-memory-eval")
+            )
+        except Exception as e:
+            log.warning(f"[SCHEDULER] memory-eval loop disabled: {e}")
+
+        # Loop 4: ChromaDB garbage collection (hourly purge of ghost embeddings)
+        try:
+            from ..memory.chroma_gc import _chroma_gc_loop
+            async def _chroma_gc_wrapper():
+                await _chroma_gc_loop(
+                    self.brain, interval=3600, threshold=50,
+                    is_running=lambda: self._running,
+                    emergency_stop=EMERGENCY_STOP_EVENT,
+                    stats_dict=self._stats,
+                )
+            self._chroma_gc_wrapper = _chroma_gc_wrapper
+            self._tasks.append(
+                asyncio.create_task(_chroma_gc_wrapper(), name="ncl-chroma-gc")
+            )
+        except Exception as e:
+            log.warning(f"[SCHEDULER] chroma-gc loop disabled: {e}")
+
+        # Loop 5: conflict arbitration (15min — flag contradictory units)
+        try:
+            from ..memory.conflict_resolver import ConflictResolver, run_conflict_arbitration_cycle
+            self._conflict_resolver = ConflictResolver(
+                self.brain.memory_store,
+                knowledge_graph=getattr(self.brain, "knowledge_graph", None),
+            )
+            async def _conflict_arb_loop():
+                while self._running and not EMERGENCY_STOP_EVENT.is_set():
+                    try:
+                        await run_conflict_arbitration_cycle(self.brain, self._stats)
+                    except Exception as e:
+                        log.exception(f"[CONFLICT-ARB] cycle failed: {e}")
+                    await asyncio.sleep(900)
+            self._conflict_arb_loop = _conflict_arb_loop
+            self._tasks.append(
+                asyncio.create_task(_conflict_arb_loop(), name="ncl-conflict-arb")
+            )
+        except Exception as e:
+            log.warning(f"[SCHEDULER] conflict-arb loop disabled: {e}")
+
+        # Loop 6: staleness detector (6h — re-verify high-importance facts)
+        try:
+            from ..memory.staleness_detector import StalenessDetector, staleness_detector_loop
+            self._staleness_detector = StalenessDetector(
+                self.brain.memory_store, awarebot=self.awarebot,
+            )
+            self._tasks.append(
+                asyncio.create_task(
+                    staleness_detector_loop(self, self._staleness_detector),
+                    name="ncl-staleness",
+                )
+            )
+        except Exception as e:
+            log.warning(f"[SCHEDULER] staleness loop disabled: {e}")
+
+        # Loop 9: narrative threading (6h — link episodes across sessions)
+        try:
+            from ..memory.narrative_threads import _narrative_thread_loop
+            # Bind as bound method on this instance
+            import types
+            self._narrative_thread_loop = types.MethodType(_narrative_thread_loop, self)
+            self._tasks.append(
+                asyncio.create_task(self._narrative_thread_loop(), name="ncl-narrative-threads")
+            )
+        except Exception as e:
+            log.warning(f"[SCHEDULER] narrative-threads loop disabled: {e}")
 
         # Attach a done-callback to every task so a silent crash (unobserved
         # task exception) gets logged instead of disappearing.
@@ -417,7 +506,26 @@ class AutonomousScheduler:
             "ncl-cache-warmer": self._cache_warmer_loop,
             "ncl-alert-dispatch": self._alert_dispatch_loop,
             "ncl-ytc-dedicated": self._ytc_dedicated_loop,
+            "ncl-bm25-rebuild": self._bm25_rebuild_loop,
         }
+        # 2026-05-22 memory loops (factory registration — only if loaded above)
+        try:
+            from ..memory.eval.loop import _memory_eval_loop as _mem_eval
+            self._task_factories["ncl-memory-eval"] = lambda: _mem_eval(self.brain)
+        except Exception:
+            pass
+        if hasattr(self, "_chroma_gc_wrapper"):
+            self._task_factories["ncl-chroma-gc"] = self._chroma_gc_wrapper
+        if hasattr(self, "_conflict_arb_loop"):
+            self._task_factories["ncl-conflict-arb"] = self._conflict_arb_loop
+        if hasattr(self, "_staleness_detector"):
+            try:
+                from ..memory.staleness_detector import staleness_detector_loop
+                self._task_factories["ncl-staleness"] = lambda: staleness_detector_loop(self, self._staleness_detector)
+            except Exception:
+                pass
+        if hasattr(self, "_narrative_thread_loop"):
+            self._task_factories["ncl-narrative-threads"] = self._narrative_thread_loop
         # Awarebot agent is restarted via its own .run() method
         if self.awarebot:
             self._task_factories["ncl-awarebot-agent"] = self.awarebot.run
@@ -1186,11 +1294,50 @@ class AutonomousScheduler:
         """
         Nightly 2am ET health audit — checks all services, loops, staleness,
         costs, LLM connectivity, and disk space. Pushes summary via ntfy.
+
+        Startup catchup (added 2026-05-21): on first iteration, check whether
+        Night Watch fired within the last 24h. If not, run immediately — full
+        if we're inside the 2-6am ET window, otherwise catchup mode (skips
+        LLM-expensive Phase 4 council + Phase 5 Sonnet synthesis). This
+        prevents the prior bug where ~10 Brain restarts/day kept resetting
+        the 24h sleep target, leaving Night Watch dead in production.
         """
         import pytz
         et = pytz.timezone("US/Eastern")
 
         log.info("[NIGHT-WATCH] Loop started — will fire at 2:00 AM ET nightly")
+
+        # ── Startup catchup decision (first iteration only) ─────────────
+        try:
+            last_run_age_h = self._night_watch_last_run_age_hours()
+            now_et_start = datetime.now(et)
+            in_window = 2 <= now_et_start.hour < 6  # 2am-6am ET window
+
+            if last_run_age_h is None or last_run_age_h >= 24.0:
+                age_str = "never" if last_run_age_h is None else f"{last_run_age_h:.1f}h ago"
+                if in_window:
+                    log.info(
+                        "[NIGHT-WATCH] Startup catchup triggered — last run was %s "
+                        "and we are inside 2-6am ET window: running FULL cycle now",
+                        age_str,
+                    )
+                    await self._night_watch_run_cycle(catchup=False)
+                else:
+                    log.info(
+                        "[NIGHT-WATCH] Startup catchup triggered — last run was %s; "
+                        "running CATCHUP cycle (Phase 1-3 only, skipping LLM-heavy 4/5)",
+                        age_str,
+                    )
+                    await self._night_watch_run_cycle(catchup=True)
+            else:
+                log.info(
+                    "[NIGHT-WATCH] Last run within 24h (%.1fh ago), sleeping until 2am ET",
+                    last_run_age_h,
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            log.error("[NIGHT-WATCH] Startup catchup check failed: %s", e, exc_info=True)
 
         while self._running:
             if EMERGENCY_STOP_EVENT.is_set():
@@ -1209,68 +1356,226 @@ class AutonomousScheduler:
             except asyncio.CancelledError:
                 raise
 
-            # ── Run all checks ────────────────────────────────────────
-            issues: list[str] = []
-            critical = False
-
             try:
-                await self._nw_run_checks(issues)
+                await self._night_watch_run_cycle(catchup=False)
             except asyncio.CancelledError:
                 raise
             except Exception as e:
-                log.error(f"[NIGHT-WATCH] Check suite crashed: {e}", exc_info=True)
-                issues.append(f"CHECK SUITE CRASH: {type(e).__name__}: {e}")
+                log.error("[NIGHT-WATCH] Run cycle crashed: %s", e, exc_info=True)
 
-            # Determine severity
-            critical = any(
-                "CRITICAL" in i or "CRASH" in i or "DEAD" in i
-                for i in issues
-            )
-            has_warnings = len(issues) > 0
+    # ─── NIGHT WATCH HELPERS: startup catchup support ───────────────
 
-            # ── Push notification via ntfy ─────────────────────────────
+    def _night_watch_last_run_age_hours(self) -> Optional[float]:
+        """
+        Return hours since the most recent Night Watch run, or None if never.
+
+        Checks two sources in priority order:
+          1. self._stats["last_night_watch"] (in-memory; lost across restarts)
+          2. mtime of newest file in data/night-watch/ (survives restarts)
+        """
+        candidates: list[datetime] = []
+
+        # Source 1: in-memory stat (only useful within the same process)
+        last_iso = self._stats.get("last_night_watch")
+        if last_iso:
+            try:
+                dt = datetime.fromisoformat(last_iso.replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                candidates.append(dt)
+            except Exception:
+                pass
+
+        # Source 2: newest file under data/night-watch/ (survives restarts)
+        nw_dir = self.data_dir / "night-watch"
+        if nw_dir.exists():
+            try:
+                newest_mtime = 0.0
+                for p in nw_dir.iterdir():
+                    if p.is_file():
+                        try:
+                            mt = p.stat().st_mtime
+                            if mt > newest_mtime:
+                                newest_mtime = mt
+                        except OSError:
+                            continue
+                if newest_mtime > 0:
+                    candidates.append(
+                        datetime.fromtimestamp(newest_mtime, tz=timezone.utc)
+                    )
+            except Exception:
+                pass
+
+        if not candidates:
+            return None
+
+        most_recent = max(candidates)
+        age = datetime.now(timezone.utc) - most_recent
+        return age.total_seconds() / 3600.0
+
+    async def _night_watch_run_cycle(self, *, catchup: bool = False) -> None:
+        """
+        Execute one full Night Watch cycle.
+
+        When catchup=True:
+          - Phase 1 (health audit)       — runs (cheap, deterministic)
+          - Phase 2 (memory cycle)       — runs (operates on stored data)
+          - Phase 3 (intel correlation)  — runs (read-only analysis)
+          - Phase 4 (mini-councils)      — SKIPPED (LLM-expensive)
+          - Phase 5 (Sonnet synthesis)   — SKIPPED (LLM-expensive)
+        """
+        mode = "CATCHUP" if catchup else "FULL"
+        log.info("[NIGHT-WATCH] === Cycle start (%s mode) ===", mode)
+
+        # ── Phase 1: Run all health checks ────────────────────────
+        issues: list[str] = []
+        critical = False
+
+        try:
+            await self._nw_run_checks(issues)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            log.error(f"[NIGHT-WATCH] Check suite crashed: {e}", exc_info=True)
+            issues.append(f"CHECK SUITE CRASH: {type(e).__name__}: {e}")
+
+        # Determine severity
+        critical = any(
+            "CRITICAL" in i or "CRASH" in i or "DEAD" in i
+            for i in issues
+        )
+        has_warnings = len(issues) > 0
+
+        # ── Push notification via ntfy (full runs only) ────────────
+        if not catchup:
             try:
                 await self._nw_push_notification(issues, critical, has_warnings)
             except asyncio.CancelledError:
                 raise
             except Exception as e:
                 log.error(f"[NIGHT-WATCH] Push notification failed: {e}", exc_info=True)
+        else:
+            log.info("[NIGHT-WATCH] Skipping ntfy push (catchup mode)")
 
-            await self._log_autonomous_event("night_watch", {
-                "issues_count": len(issues),
-                "critical": critical,
-                "issues": issues[:20],
-            })
+        await self._log_autonomous_event("night_watch", {
+            "issues_count": len(issues),
+            "critical": critical,
+            "issues": issues[:20],
+            "catchup": catchup,
+        })
 
-            # Phase 2: Memory maintenance cycle
-            memory_report: dict = {}
+        # Phase 2: Memory maintenance cycle
+        memory_report: dict = {}
+        try:
+            memory_report = await self._night_watch_memory_cycle()
+        except Exception as exc:
+            log.error("[NIGHT-WATCH] Memory cycle failed: %s", exc)
+            memory_report = {"error": str(exc)}
+
+        # Phase 2.5: Temporal KG rebuild (Loop 8) — adds bi-temporal edges
+        try:
+            from ..memory.temporal import run_temporal_rebuild
+            memory_report["temporal_rebuild"] = await run_temporal_rebuild(self.brain)
+        except Exception as exc:
+            log.warning("[NIGHT-WATCH] Temporal rebuild failed: %s", exc)
+            memory_report["temporal_rebuild"] = {"error": str(exc)}
+
+        # Phase 2.6: Procedural distillation (Loop 7) — mine successful chains
+        # into reusable procedural skills. Skip in catchup mode (LLM-expensive).
+        if catchup:
+            memory_report["procedural"] = {"skipped": "catchup_mode"}
+        else:
             try:
-                memory_report = await self._night_watch_memory_cycle()
+                from ..memory.procedural import run_procedural_distillation
+                memory_report["procedural"] = await run_procedural_distillation(self.brain)
             except Exception as exc:
-                log.error("[NIGHT-WATCH] Memory cycle failed: %s", exc)
-                memory_report = {"error": str(exc)}
+                log.warning("[NIGHT-WATCH] Procedural distillation failed: %s", exc)
+                memory_report["procedural"] = {"error": str(exc)}
 
-            # Phase 3: Intelligence correlation cycle
-            intel_report: dict = {}
-            try:
-                intel_report = await self._night_watch_intel_cycle()
-            except Exception as exc:
-                log.error("[NIGHT-WATCH] Intel cycle failed: %s", exc)
-                intel_report = {"error": str(exc)}
+        # Phase 3: Intelligence correlation cycle
+        intel_report: dict = {}
+        try:
+            intel_report = await self._night_watch_intel_cycle()
+        except Exception as exc:
+            log.error("[NIGHT-WATCH] Intel cycle failed: %s", exc)
+            intel_report = {"error": str(exc)}
 
-            # Phase 4: Council sessions (4 mini-councils on memory, intel, portfolio, journal)
-            council_report: dict = {}
+        # Phase 4: Council sessions (skipped in catchup mode)
+        council_report: dict = {}
+        if catchup:
+            log.info("[NIGHT-WATCH] Skipping Phase 4 council cycle (catchup mode)")
+            council_report = {"skipped": "catchup_mode"}
+        else:
             try:
                 council_report = await self._night_watch_council_cycle(memory_report, intel_report)
             except Exception as exc:
                 log.error("[NIGHT-WATCH] Council cycle failed: %s", exc)
                 council_report = {"error": str(exc)}
 
-            # LLM-powered analysis phase
+        # Phase 5: LLM-powered analyst (skipped in catchup mode)
+        if catchup:
+            log.info("[NIGHT-WATCH] Skipping Phase 5 Sonnet synthesis (catchup mode)")
+        else:
             try:
-                await self._night_watch_analyst(issues, len(issues) > 0, critical, memory_report=memory_report, intel_report=intel_report, council_report=council_report)
+                await self._night_watch_analyst(
+                    issues, len(issues) > 0, critical,
+                    memory_report=memory_report,
+                    intel_report=intel_report,
+                    council_report=council_report,
+                )
             except Exception as exc:
                 log.error("[NIGHT-WATCH] Analyst phase failed: %s", exc)
+
+        # ── Tracking: stamp last-run after any successful cycle ──────
+        now_iso = datetime.now(timezone.utc).isoformat()
+        self._stats["last_night_watch"] = now_iso
+        if catchup:
+            self._stats["last_night_watch_catchup"] = now_iso
+            self._stats["night_watch_catchup_runs"] = (
+                self._stats.get("night_watch_catchup_runs", 0) + 1
+            )
+        else:
+            self._stats["last_night_watch_full"] = now_iso
+            self._stats["night_watch_full_runs"] = (
+                self._stats.get("night_watch_full_runs", 0) + 1
+            )
+
+        log.info("[NIGHT-WATCH] === Cycle complete (%s mode) ===", mode)
+
+    async def force_night_watch_run(self, catchup: bool = True) -> dict:
+        """
+        Manual trigger for Night Watch — used by one-shot test scripts.
+
+        Runs a single Night Watch cycle synchronously and returns a small
+        status dict. Defaults to catchup=True so test runs do not burn the
+        full LLM budget (~$1/run for Phase 4+5).
+
+        Usage (from a Python script):
+            import asyncio
+            from runtime.brain import Brain  # or however Brain is bootstrapped
+            scheduler = brain.autonomous_scheduler
+            asyncio.run(scheduler.force_night_watch_run(catchup=True))
+        """
+        log.info("[NIGHT-WATCH] force_night_watch_run invoked (catchup=%s)", catchup)
+        t0 = datetime.now(timezone.utc)
+        try:
+            await self._night_watch_run_cycle(catchup=catchup)
+            return {
+                "ok": True,
+                "catchup": catchup,
+                "started_at": t0.isoformat(),
+                "finished_at": datetime.now(timezone.utc).isoformat(),
+                "duration_seconds": (datetime.now(timezone.utc) - t0).total_seconds(),
+            }
+        except Exception as e:
+            log.error("[NIGHT-WATCH] force_night_watch_run failed: %s", e, exc_info=True)
+            return {
+                "ok": False,
+                "catchup": catchup,
+                "error": f"{type(e).__name__}: {e}",
+                "started_at": t0.isoformat(),
+                "finished_at": datetime.now(timezone.utc).isoformat(),
+            }
 
     # ─── NIGHT WATCH MEMORY CYCLE: Phase 2 memory maintenance ──────
 
@@ -5832,5 +6137,126 @@ class AutonomousScheduler:
 
             try:
                 await asyncio.sleep(ytc_interval)
+            except asyncio.CancelledError:
+                raise
+
+    async def _bm25_rebuild_loop(self) -> None:
+        """LOOP 18 — BM25 keyword index maintenance for Loop-11 fusion.
+
+        Cadence: 1800s (30 min). Each tick:
+          1. Lazily attach a ``BM25Index`` to the memory store (idempotent).
+          2. If the index is missing or older than 1h → full ``build()``.
+          3. Otherwise, scan ``units.jsonl`` for new ``unit_id`` values that
+             aren't in the index and call ``update(new_ids)``. Incremental
+             update falls back to full rebuild internally on failure.
+          4. Log the resulting stats.
+
+        Build is dispatched via ``asyncio.to_thread`` because BM25Okapi
+        construction and full ``get_scores`` are pure-Python CPU work.
+        """
+        log.info("[BM25] rebuild loop started (1800s cadence)")
+
+        memory_store = getattr(self.brain, "memory_store", None)
+        if memory_store is None:
+            log.warning("[BM25] no memory_store on brain — loop is a no-op")
+            return
+
+        # Attach exactly one index to the memory store (other code can read it
+        # via ``brain.memory_store._bm25_index``).
+        try:
+            if not getattr(memory_store, "_bm25_index", None):
+                memory_store._bm25_index = BM25Index(memory_store)
+            bm25 = memory_store._bm25_index
+        except Exception as e:
+            log.error("[BM25] failed to construct BM25Index: %s — loop exiting", e)
+            return
+
+        REBUILD_AFTER_S = 60 * 60  # 1 hour
+
+        while self._running:
+            if EMERGENCY_STOP_EVENT.is_set():
+                log.critical("[BM25] Emergency stop active — halting loop")
+                break
+
+            try:
+                stats = bm25.stats() or {}
+                last_built = stats.get("last_built")
+                needs_full = False
+                if not last_built or stats.get("docs", 0) == 0:
+                    needs_full = True
+                else:
+                    try:
+                        ts = datetime.fromisoformat(last_built.replace("Z", "+00:00"))
+                        if (datetime.now(timezone.utc) - ts).total_seconds() > REBUILD_AFTER_S:
+                            needs_full = True
+                    except Exception:
+                        needs_full = True
+
+                if needs_full:
+                    log.info("[BM25] full rebuild (last_built=%s)", last_built)
+                    indexed = await asyncio.to_thread(bm25.build)
+                    new_stats = bm25.stats() or {}
+                    log.info(
+                        "[BM25] index size: %d docs, vocab: %d, last_built: %s, took %.2fs",
+                        new_stats.get("docs", indexed),
+                        new_stats.get("vocabulary_size", 0),
+                        new_stats.get("last_built"),
+                        new_stats.get("build_seconds") or 0.0,
+                    )
+                    self._stats["last_bm25_build"] = new_stats.get("last_built")
+                    self._stats["bm25_docs"] = new_stats.get("docs", indexed)
+                    self._stats["bm25_vocab"] = new_stats.get("vocabulary_size", 0)
+                else:
+                    # Incremental — diff unit_ids on disk against the index.
+                    new_ids: list[str] = []
+                    indexed_ids = set(getattr(bm25, "_unit_pos", {}).keys())
+                    try:
+                        def _scan_new() -> list[str]:
+                            out: list[str] = []
+                            with open(memory_store.memory_file, "r") as f:
+                                for line in f:
+                                    line = line.strip()
+                                    if not line:
+                                        continue
+                                    try:
+                                        obj = json.loads(line)
+                                    except json.JSONDecodeError:
+                                        continue
+                                    uid = obj.get("unit_id")
+                                    if uid and uid not in indexed_ids:
+                                        out.append(uid)
+                            return out
+                        new_ids = await asyncio.to_thread(_scan_new)
+                    except FileNotFoundError:
+                        new_ids = []
+                    except Exception as scan_err:
+                        log.warning("[BM25] new-id scan failed: %s", scan_err)
+
+                    if new_ids:
+                        added = await asyncio.to_thread(bm25.update, new_ids)
+                        new_stats = bm25.stats() or {}
+                        log.info(
+                            "[BM25] incremental +%d → index size: %d docs, vocab: %d, last_built: %s",
+                            added,
+                            new_stats.get("docs", 0),
+                            new_stats.get("vocabulary_size", 0),
+                            new_stats.get("last_built"),
+                        )
+                        self._stats["last_bm25_build"] = new_stats.get("last_built")
+                        self._stats["bm25_docs"] = new_stats.get("docs", 0)
+                        self._stats["bm25_vocab"] = new_stats.get("vocabulary_size", 0)
+                    else:
+                        log.debug(
+                            "[BM25] no new units (index has %d docs, last_built %s)",
+                            stats.get("docs", 0), last_built,
+                        )
+            except asyncio.CancelledError:
+                log.info("[BM25] cancelled")
+                raise
+            except Exception as e:
+                log.error("[BM25] tick failed: %s", e, exc_info=True)
+
+            try:
+                await asyncio.sleep(1800)
             except asyncio.CancelledError:
                 raise

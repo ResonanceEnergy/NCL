@@ -349,7 +349,7 @@ async def lifespan(app: FastAPI):
         # Mirrors the Haiku call pattern used by night_watch (scheduler.py).
         # Falls back to template-based reflection if no API key.
         class _AnthropicReflectionClient:
-            def __init__(self, api_key: str, model: str = "claude-3-5-haiku-20241022"):
+            def __init__(self, api_key: str, model: str = "claude-sonnet-4-6-20250514"):
                 self.api_key = api_key
                 self.model = model
 
@@ -4775,6 +4775,59 @@ async def semantic_search_memory(body: dict, authorization: str = Header(default
     }
 
 
+@app.get("/memory/search/fused")
+async def search_memory_fused(
+    q: str = Query(..., min_length=1, description="Search query"),
+    top_k: int = Query(default=10, ge=1, le=50),
+    importance_threshold: float = Query(default=0.0, ge=0.0, le=100.0),
+    rerank: bool = Query(default=False, description="Run optional Haiku rerank after RRF"),
+    authorization: str = Header(default=""),
+) -> dict:
+    """Multi-signal retrieval fusion (Loop 11).
+
+    Always uses ``FusedRetriever`` — Reciprocal Rank Fusion over:
+      - Vector similarity (ChromaDB)
+      - BM25 keyword
+      - Entity overlap (knowledge graph)
+
+    Falls back gracefully to vector-only if BM25 index is missing or
+    rank_bm25 is unavailable. ``rerank=true`` enables a Haiku cross-encoder
+    second pass; the actual rerank also requires ``NCL_FUSION_RERANK=1``
+    in the Brain's environment for safety.
+    """
+    _verify_strike_token(authorization)
+    if not brain or not brain.memory_store:
+        raise HTTPException(status_code=503, detail="Memory store not available")
+
+    from ..memory.retrieval import BM25Index, FusedRetriever
+
+    store = brain.memory_store
+    if not getattr(store, "_bm25_index", None):
+        store._bm25_index = BM25Index(store)
+    fr = FusedRetriever(
+        store,
+        store._bm25_index,
+        knowledge_graph=getattr(store, "_knowledge_graph", None),
+    )
+
+    if rerank:
+        results = await fr.retrieve_with_rerank(q, top_k=top_k)
+    else:
+        results = await fr.retrieve(q, top_k=top_k)
+
+    if importance_threshold > 0:
+        results = [r for r in results if r.get("importance", 0) >= importance_threshold]
+
+    bm25_stats = store._bm25_index.stats() if getattr(store, "_bm25_index", None) else {}
+    return {
+        "query": q,
+        "count": len(results),
+        "results": results,
+        "bm25_index": bm25_stats,
+        "rerank_applied": rerank and os.getenv("NCL_FUSION_RERANK", "0") in ("1", "true", "yes"),
+    }
+
+
 class MemoryStoreRequest(BaseModel):
     """Request to store a new memory unit."""
     content: str = Field(..., min_length=1, max_length=50000, description="Memory content to store")
@@ -5018,6 +5071,27 @@ async def migrate_memory_types_endpoint(authorization: str = Header(default=""))
     except Exception as e:
         log.error(f"Memory type migration failed: {e}")
         return {"error": str(e)}
+
+
+@app.get("/memory/pii/recent")
+async def get_recent_pii_redactions(
+    limit: int = Query(default=20, ge=1, le=500),
+    authorization: str = Header(default=""),
+) -> dict:
+    """Recent PII redaction audit records (Loop 10 transparency endpoint).
+
+    Returns counts + types per redacted unit, never the raw matched values.
+    Lets NATRIX verify the redactor is doing the right thing without the
+    audit log itself becoming a PII vector.
+    """
+    _verify_strike_token(authorization)
+    if not brain or not brain.memory_store:
+        return {"redactions": [], "lifetime_total": 0, "error": "Memory store not available"}
+    try:
+        return await brain.memory_store.get_pii_redactions(limit=limit)
+    except Exception as e:
+        log.error(f"PII redaction read failed: {e}")
+        return {"redactions": [], "lifetime_total": 0, "error": str(e)}
 
 
 # ===========================================================================
@@ -5525,6 +5599,25 @@ async def autonomous_loops(authorization: str = Header(default="")) -> dict:
         {"name": "YTC Dedicated", "id": "ncl-ytc-dedicated",
          "interval": 3600, "enabled": True,
          "description": "Dedicated YouTube Council loop (split from Awarebot) with its own $3/day budget"},
+        # ── New 2026-05-22 memory loops (Loops 2/4/5/6/9/11 from memory swarm) ──
+        {"name": "BM25 Index Rebuild", "id": "ncl-bm25-rebuild",
+         "interval": 1800, "enabled": True,
+         "description": "Rebuilds BM25 keyword index (30m) — backs FusedRetriever for multi-signal RRF"},
+        {"name": "Memory Eval Harness", "id": "ncl-memory-eval",
+         "interval": 604800, "enabled": True,
+         "description": "Weekly memory eval (Sunday 3am ET): hit@5/MRR/recall@10, regression alerts"},
+        {"name": "ChromaDB GC", "id": "ncl-chroma-gc",
+         "interval": 3600, "enabled": True,
+         "description": "Hourly ghost-embedding purge (was 3x bloat: 29K vectors for 10K units)"},
+        {"name": "Conflict Arbitration", "id": "ncl-conflict-arb",
+         "interval": 900, "enabled": True,
+         "description": "15m scan for contradictory units, link via KG, queue critical to council"},
+        {"name": "Staleness Detector", "id": "ncl-staleness",
+         "interval": 21600, "enabled": True,
+         "description": "6h: re-verify high-importance facts (≥70) against current signals; mark/revive"},
+        {"name": "Narrative Threads", "id": "ncl-narrative-threads",
+         "interval": 21600, "enabled": True,
+         "description": "6h cross-session narrative threading: link episodes by entity overlap"},
     ]
 
     # --- Awarebot sub-tasks (spawned inside awarebot agent) ---
@@ -5603,6 +5696,13 @@ async def autonomous_loops(authorization: str = Header(default="")) -> dict:
         "ncl-cache-warmer": _autonomous._stats.get("last_cache_warm"),
         "ncl-alert-dispatch": _autonomous._stats.get("last_alert_dispatch_tick"),
         "ncl-ytc-dedicated": _autonomous._stats.get("last_ytc_dedicated"),
+        # New 2026-05-22 memory loops
+        "ncl-bm25-rebuild": _autonomous._stats.get("last_bm25_build"),
+        "ncl-memory-eval": _autonomous._stats.get("last_memory_eval_at"),
+        "ncl-chroma-gc": _autonomous._stats.get("last_chroma_gc"),
+        "ncl-conflict-arb": _autonomous._stats.get("last_conflict_arbitration"),
+        "ncl-staleness": _autonomous._stats.get("last_staleness_check"),
+        "ncl-narrative-threads": _autonomous._stats.get("last_narrative_threading"),
         # awarebot sub-tasks — read directly from awarebot stats
         "ncl-awarebot-agent": aware_stats.get("last_scan_at"),
         "awarebot-scan": aware_stats.get("last_scan_at"),
@@ -6191,13 +6291,35 @@ async def chat_endpoint(
 
     session_id = body.get("session_id") or body.get("conversation_id") or ""
 
+    # Build session tag so /chat history can be recalled per-conversation.
+    # MemUnit has no first-class session field, so we encode it on tags.
+    chat_tags = ["chat", "first-strike"]
+    if session_id:
+        chat_tags.append(f"session:{session_id}")
+
     # Store in memory
     await brain.memory_store.create_unit(
         content=f"Chat from FirstStrike: {message}",
         source="first-strike-chat",
         importance=30.0,
-        tags=["chat", "first-strike"],
+        tags=chat_tags,
     )
+
+    # Loop 1: chat context injector. Pulls top-N working context, last 5
+    # same-session turns, and top-3 semantically-relevant memories. Pure
+    # retrieval — no LLM calls. Returns "" on any failure so chat keeps working.
+    chat_context_block = ""
+    try:
+        from ..memory.chat_context import build_chat_context
+        chat_context_block = await build_chat_context(
+            message=message,
+            session_id=session_id,
+            brain=brain,
+            autonomous=_autonomous,
+        )
+    except Exception as ctx_err:
+        log.warning(f"[/chat] context injector failed (proceeding without): {ctx_err}")
+        chat_context_block = ""
 
     # Build system prompt for NATRIX context
     system_prompt = (
@@ -6209,13 +6331,41 @@ async def chat_endpoint(
         "You are speaking with NATRIX, your operator, via the FirstStrike iPhone app."
     )
 
+    # Prepend the recalled context block (if any) before the static prompt so
+    # the model sees conversation state first, then identity instructions.
+    if chat_context_block:
+        full_system_prompt = f"{chat_context_block}\n{system_prompt}"
+    else:
+        full_system_prompt = system_prompt
+
+    # Pre-flight cost gate — block the LLM call if anthropic budget exhausted.
+    try:
+        from ..cost_tracker import check_budget
+        if not await check_budget("anthropic", 0.01):
+            log.warning("[/chat] anthropic budget exhausted — returning soft fallback")
+            return {
+                "text": (
+                    "I've hit my Anthropic daily budget cap. Try again after midnight UTC, "
+                    "or raise NCL_BUDGET_ANTHROPIC in .env."
+                ),
+                "message": (
+                    "I've hit my Anthropic daily budget cap. Try again after midnight UTC, "
+                    "or raise NCL_BUDGET_ANTHROPIC in .env."
+                ),
+                "source": "NCL Brain",
+                "conversation_id": session_id,
+                "status": "budget_exhausted",
+            }
+    except Exception as budget_err:
+        log.debug(f"[/chat] budget precheck skipped: {budget_err}")
+
     # Call Claude for a direct response
     # Note: _call_claude/_call_grok already record costs with category="council_run".
     # We tag the call here with category="user_chat" for usage attribution ($0 amount to avoid double-counting).
     council_engine = brain.council_engine
     try:
         response_text = await council_engine._call_claude(
-            f"{system_prompt}\n\nNATRIX: {message}"
+            f"{full_system_prompt}\n\nNATRIX: {message}"
         )
         try:
             from ..cost_tracker import record_cost
@@ -6227,7 +6377,7 @@ async def chat_endpoint(
         log.warning(f"[/chat] Claude failed: {claude_err}, trying Grok fallback")
         try:
             response_text = await council_engine._call_grok(
-                f"{system_prompt}\n\nNATRIX: {message}"
+                f"{full_system_prompt}\n\nNATRIX: {message}"
             )
             try:
                 from ..cost_tracker import record_cost
@@ -6243,12 +6393,15 @@ async def chat_endpoint(
                 "Check that API keys are configured in .env and try again."
             )
 
-    # Store response in memory
+    # Store response in memory — tag with session so future turns can recall it
+    response_tags = ["chat", "response"]
+    if session_id:
+        response_tags.append(f"session:{session_id}")
     await brain.memory_store.create_unit(
         content=f"Brain response: {response_text[:200]}",
         source="brain-chat-response",
         importance=20.0,
-        tags=["chat", "response"],
+        tags=response_tags,
     )
 
     return {

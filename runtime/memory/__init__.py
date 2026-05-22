@@ -6,6 +6,7 @@ from .knowledge_graph import KnowledgeGraph
 from .importance_scorer import score_memory, rule_based_score
 from .entity_extractor import extract_entities_and_relationships
 from .reflection import MemoryReflector, MemoryCurator
+from .temporal import TemporalGraph, TemporalEdge, run_temporal_rebuild
 
 __all__ = [
     "MemoryStore",
@@ -16,4 +17,7 @@ __all__ = [
     "extract_entities_and_relationships",
     "MemoryReflector",
     "MemoryCurator",
+    "TemporalGraph",
+    "TemporalEdge",
+    "run_temporal_rebuild",
 ]

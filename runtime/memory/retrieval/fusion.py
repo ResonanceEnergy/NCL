@@ -1,0 +1,359 @@
+"""
+FusedRetriever — Reciprocal Rank Fusion across multiple retrieval signals.
+
+Signals:
+  1. Vector similarity (ChromaDB cosine, via memory_store.semantic_search)
+  2. BM25 keyword scoring (BM25Index)
+  3. Entity overlap (KnowledgeGraph.query_entity neighborhoods)
+
+RRF formula (Cormack, Clarke, Buettcher 2009):
+    score(d) = sum( w_i / (k + rank_i(d)) ) for each signal i
+
+with k = 60 by default. Rank is 1-based per signal; documents that do
+not appear in a signal's top-N contribute 0 from that signal.
+
+Optional second-pass reranking via Claude Haiku, gated by
+``NCL_FUSION_RERANK=1`` — useful when surfacing top-3 to a downstream
+consumer, but adds ~1-3s latency and Anthropic cost per query.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import os
+import re
+import time
+from typing import TYPE_CHECKING, Iterable, Optional
+
+log = logging.getLogger("ncl.memory.retrieval.fusion")
+
+if TYPE_CHECKING:
+    from ..store import MemoryStore
+    from ..knowledge_graph import KnowledgeGraph
+    from .bm25 import BM25Index
+
+# Default per-signal weights — entity overlap is noisier so it gets a
+# slightly lower weight. Vector and BM25 are co-equal.
+DEFAULT_WEIGHTS = {"vector": 1.0, "bm25": 1.0, "entity": 0.7}
+FIRST_PASS_TOP_N = 50
+RRF_K_DEFAULT = 60
+
+
+_TICKER_RE = re.compile(r"\$([A-Z]{1,5})\b")
+_CAP_PHRASE_RE = re.compile(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b")
+
+
+def _extract_query_entities(query: str) -> list[str]:
+    """Lightweight entity extraction over the query string — mirrors the
+    fast extractor in ``entity_extractor.py`` but inline to avoid a hard
+    dependency on it.
+    """
+    out: set[str] = set()
+    for m in _TICKER_RE.finditer(query):
+        out.add(f"${m.group(1)}")
+    for m in _CAP_PHRASE_RE.finditer(query):
+        phrase = m.group(1).strip()
+        if len(phrase) >= 3:
+            out.add(phrase)
+    # Also include single bare-capitalized words (e.g. "Awarebot")
+    for w in re.findall(r"\b[A-Z][A-Za-z0-9_]{2,}\b", query):
+        out.add(w)
+    return list(out)
+
+
+class FusedRetriever:
+    """RRF fusion of vector + BM25 + entity-overlap signals."""
+
+    def __init__(
+        self,
+        memory_store: "MemoryStore",
+        bm25_index: "BM25Index",
+        knowledge_graph: Optional["KnowledgeGraph"] = None,
+        k: int = RRF_K_DEFAULT,
+    ) -> None:
+        self.store = memory_store
+        self.bm25 = bm25_index
+        self.kg = knowledge_graph
+        self.k = max(1, int(k))
+
+    # ------------------------------------------------------------------
+
+    async def _vector_ranks(self, query: str, top_n: int) -> list[tuple[str, float]]:
+        """Top-N from ChromaDB via the existing semantic_search path."""
+        try:
+            units = await self.store.semantic_search(
+                query=query,
+                n_results=top_n,
+                importance_threshold=0.0,
+            )
+            return [(u.unit_id, float(getattr(u, "importance", 0.0))) for u in units]
+        except Exception as e:
+            log.warning("[FUSION] vector signal failed: %s", e)
+            return []
+
+    async def _bm25_ranks(self, query: str, top_n: int) -> list[tuple[str, float]]:
+        """Top-N from BM25 — runs in a thread because get_scores() is CPU-bound."""
+        if self.bm25 is None:
+            return []
+        try:
+            return await asyncio.to_thread(self.bm25.search, query, top_n)
+        except Exception as e:
+            log.warning("[FUSION] bm25 signal failed: %s", e)
+            return []
+
+    async def _entity_ranks(self, query: str, top_n: int) -> list[tuple[str, float]]:
+        """Top-N from entity-overlap via the knowledge graph.
+
+        Strategy: extract entities from the query, look up each in the KG,
+        and pull the union of their `source_units` (capped per-entity). The
+        score per unit is the number of distinct query entities it shares.
+        """
+        if not self.kg:
+            return []
+        query_entities = _extract_query_entities(query)
+        if not query_entities:
+            return []
+        # Per-unit score = number of distinct query-entities that mention it.
+        unit_scores: dict[str, float] = {}
+        for ent in query_entities:
+            try:
+                node = await self.kg.query_entity(ent, depth=1)
+            except Exception as e:
+                log.debug("[FUSION] kg query for %s failed: %s", ent, e)
+                continue
+            if not node or not node.get("found"):
+                continue
+            attrs = node.get("attributes", {}) or {}
+            for uid in attrs.get("source_units", []) or []:
+                if not uid:
+                    continue
+                unit_scores[uid] = unit_scores.get(uid, 0.0) + 1.0
+            # Walk one-hop neighbors so multi-hop queries get partial credit
+            for nb in (node.get("neighbors") or [])[:10]:
+                try:
+                    nb_node = await self.kg.query_entity(nb, depth=1)
+                except Exception:
+                    continue
+                if not nb_node or not nb_node.get("found"):
+                    continue
+                nb_attrs = nb_node.get("attributes", {}) or {}
+                for uid in (nb_attrs.get("source_units") or [])[:5]:
+                    if not uid:
+                        continue
+                    # Neighbor mentions get half-credit
+                    unit_scores[uid] = unit_scores.get(uid, 0.0) + 0.5
+
+        ranked = sorted(unit_scores.items(), key=lambda kv: kv[1], reverse=True)
+        return ranked[:top_n]
+
+    # ------------------------------------------------------------------ RRF
+
+    def _rrf_fuse(
+        self,
+        per_signal_ranks: dict[str, list[tuple[str, float]]],
+        weights: dict[str, float],
+    ) -> list[tuple[str, float, dict[str, dict[str, float]]]]:
+        """Reciprocal Rank Fusion.
+
+        Returns ``[(unit_id, fused_score, breakdown), ...]`` sorted desc,
+        where breakdown is ``{signal: {rank: int, raw: float, contrib: float}}``.
+        """
+        k = self.k
+        fused_scores: dict[str, float] = {}
+        breakdown: dict[str, dict[str, dict[str, float]]] = {}
+
+        for signal, ranked in per_signal_ranks.items():
+            w = float(weights.get(signal, 1.0))
+            for rank, (uid, raw) in enumerate(ranked, start=1):
+                contrib = w / (k + rank)
+                fused_scores[uid] = fused_scores.get(uid, 0.0) + contrib
+                breakdown.setdefault(uid, {})[signal] = {
+                    "rank": rank,
+                    "raw": float(raw),
+                    "contrib": contrib,
+                }
+
+        out: list[tuple[str, float, dict[str, dict[str, float]]]] = [
+            (uid, score, breakdown.get(uid, {})) for uid, score in fused_scores.items()
+        ]
+        out.sort(key=lambda x: x[1], reverse=True)
+        return out
+
+    # ------------------------------------------------------------ retrieve
+
+    async def retrieve(
+        self,
+        query: str,
+        top_k: int = 10,
+        weights: Optional[dict[str, float]] = None,
+    ) -> list[dict]:
+        """Run all three signals in parallel, fuse via RRF, hydrate top-k."""
+        if not query or not query.strip():
+            return []
+
+        eff_weights = dict(DEFAULT_WEIGHTS)
+        if weights:
+            for k_, v in weights.items():
+                eff_weights[k_] = float(v)
+
+        t0 = time.perf_counter()
+        vec_task = asyncio.create_task(self._vector_ranks(query, FIRST_PASS_TOP_N))
+        bm25_task = asyncio.create_task(self._bm25_ranks(query, FIRST_PASS_TOP_N))
+        ent_task = asyncio.create_task(self._entity_ranks(query, FIRST_PASS_TOP_N))
+        vector_r, bm25_r, entity_r = await asyncio.gather(
+            vec_task, bm25_task, ent_task, return_exceptions=False
+        )
+
+        per_signal = {
+            "vector": vector_r,
+            "bm25": bm25_r,
+            "entity": entity_r,
+        }
+        fused = self._rrf_fuse(per_signal, eff_weights)
+        fused_top = fused[: max(top_k, 1)]
+
+        # Hydrate unit content / metadata in a single batched pass.
+        wanted_ids = {uid for uid, _, _ in fused_top}
+        units_by_id = await self.store._load_units_batch(wanted_ids) if wanted_ids else {}
+
+        results: list[dict] = []
+        for uid, score, br in fused_top:
+            unit = units_by_id.get(uid)
+            if not unit:
+                # Unit pruned between rank time and hydrate — skip.
+                continue
+            results.append({
+                "unit_id": uid,
+                "content": (unit.content[:500] + ("…" if len(unit.content) > 500 else "")),
+                "source": unit.source,
+                "importance": float(unit.importance),
+                "memory_type": getattr(unit, "memory_type", "episodic"),
+                "memory_tier": getattr(unit, "memory_tier", "SML"),
+                "tags": list(unit.tags or []),
+                "fused_score": round(score, 6),
+                "signal_breakdown": br,
+            })
+
+        elapsed = round(time.perf_counter() - t0, 3)
+        log.info(
+            "[FUSION] q=%r top_k=%d vector=%d bm25=%d entity=%d fused=%d in %.3fs",
+            query[:60], top_k,
+            len(vector_r), len(bm25_r), len(entity_r), len(fused), elapsed,
+        )
+        return results
+
+    # ------------------------------------------------------- rerank wrapper
+
+    async def retrieve_with_rerank(
+        self,
+        query: str,
+        top_k: int = 10,
+        weights: Optional[dict[str, float]] = None,
+    ) -> list[dict]:
+        """First-pass RRF top-N, then optional Haiku cross-encoder rerank.
+
+        Controlled by ``NCL_FUSION_RERANK`` env var. When disabled,
+        this is just a passthrough to ``retrieve()``.
+        """
+        first_pass = await self.retrieve(query, top_k=max(top_k * 5, 20), weights=weights)
+        if not first_pass:
+            return []
+        if os.getenv("NCL_FUSION_RERANK", "0") not in ("1", "true", "yes"):
+            return first_pass[:top_k]
+
+        reranked = await self._haiku_rerank(query, first_pass, top_k)
+        return reranked or first_pass[:top_k]
+
+    async def _haiku_rerank(
+        self,
+        query: str,
+        candidates: list[dict],
+        top_k: int,
+    ) -> list[dict]:
+        """Ask Claude Haiku to score each candidate 0-100 for relevance to
+        the query, then return top_k sorted by Haiku score.
+
+        On any failure (no API key, timeout, parse error, cost-cap), returns
+        an empty list so the caller falls back to RRF order.
+        """
+        api_key = os.getenv("ANTHROPIC_API_KEY")
+        if not api_key:
+            return []
+
+        # Cost-cap awareness — skip the rerank if the anthropic source is
+        # already over budget. Best-effort lookup.
+        try:
+            from ...cost_tracker import get_tracker
+            tracker = await get_tracker()
+            if hasattr(tracker, "can_spend"):
+                ok, _ = await tracker.can_spend("anthropic", 0.01)
+                if not ok:
+                    log.info("[FUSION-RERANK] skipped — anthropic budget exhausted")
+                    return []
+        except Exception:
+            pass
+
+        # Compact JSON over the wire — index ↔ unit_id mapping is local.
+        compact = [
+            {"i": i, "text": (c["content"] or "")[:300]}
+            for i, c in enumerate(candidates)
+        ]
+        prompt = (
+            "Rank these memory snippets by relevance to the QUERY. "
+            "Reply ONLY with JSON: {\"scores\": [[i, score_0_100], ...]}.\n\n"
+            f"QUERY: {query}\n\nSNIPPETS:\n{json.dumps(compact, ensure_ascii=False)}"
+        )
+
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                resp = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": api_key,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json",
+                    },
+                    json={
+                        "model": "claude-haiku-4-5",
+                        "max_tokens": 800,
+                        "messages": [{"role": "user", "content": prompt}],
+                    },
+                )
+            if resp.status_code != 200:
+                log.warning("[FUSION-RERANK] HTTP %d", resp.status_code)
+                return []
+            data = resp.json()
+            text = data.get("content", [{}])[0].get("text", "")
+            text = re.sub(r"```json\s*", "", text)
+            text = re.sub(r"```\s*", "", text)
+            parsed = json.loads(text.strip())
+            scores = parsed.get("scores", [])
+
+            # Cost tracking
+            try:
+                from ...cost_tracker import record_cost
+                usage = data.get("usage", {})
+                in_t = usage.get("input_tokens", 0)
+                out_t = usage.get("output_tokens", 0)
+                # Haiku pricing (USD per 1M tokens, in/out)
+                cost = (in_t * 0.80 + out_t * 4.00) / 1_000_000
+                await record_cost("anthropic", cost, "fusion_rerank",
+                                  f"rerank in={in_t} out={out_t}")
+            except Exception:
+                pass
+
+            score_map = {int(i): float(s) for i, s in scores if 0 <= int(i) < len(candidates)}
+            if not score_map:
+                return []
+            ranked = sorted(
+                candidates,
+                key=lambda c: score_map.get(candidates.index(c), 0.0),
+                reverse=True,
+            )
+            return ranked[:top_k]
+        except Exception as e:
+            log.warning("[FUSION-RERANK] failed: %s", e)
+            return []

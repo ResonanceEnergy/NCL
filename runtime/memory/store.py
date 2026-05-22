@@ -18,6 +18,8 @@ from ..ncl_brain.models import MemUnit
 from .reflection import MemoryReflector, MemoryCurator
 from .entity_extractor import extract_entities_and_relationships
 from .importance_scorer import score_memory
+from .chroma_gc import delete_unit_embeddings
+from .pii_redactor import PIIRedactor
 
 # Memory system constraints
 MAX_CONTENT_LENGTH = 50_000     # Max characters per memory unit
@@ -101,6 +103,23 @@ class MemoryStore:
                 f"Memory unit content truncated from {len(content)} to {MAX_CONTENT_LENGTH} chars"
             )
 
+        # ── PII redaction (Loop 10) ─────────────────────────────────────────
+        # Scrub emails, phones, SSNs, API keys, etc. BEFORE the unit is
+        # persisted. Same-source strings get the same stable token so
+        # cross-unit references survive. Findings recorded to a sidecar
+        # ledger via _record_pii_redaction() — never stored alongside the
+        # raw content. See runtime/memory/pii_redactor.py for patterns +
+        # allowlist (Tailscale 100.x.x.x is infrastructure, not PII).
+        _pii_result = PIIRedactor.scan(truncated_content)
+        _pii_types_found: list[str] = []
+        if _pii_result.redaction_count > 0:
+            truncated_content = _pii_result.redacted_text
+            _pii_types_found = sorted({f["type"] for f in _pii_result.findings})
+            log.info(
+                f"[PII] Redacted {_pii_result.redaction_count} items from "
+                f"{source} (types={_pii_types_found})"
+            )
+
         unit = MemUnit(
             unit_id=str(uuid.uuid4()),
             content=truncated_content,
@@ -108,6 +127,15 @@ class MemoryStore:
             importance=min(100.0, max(0.0, importance)),
             tags=tags or [],
         )
+
+        # Record PII audit entry now that we have the unit_id
+        if _pii_result.redaction_count > 0:
+            await self._record_pii_redaction(
+                unit_id=unit.unit_id,
+                source=source,
+                count=_pii_result.redaction_count,
+                types_found=_pii_types_found,
+            )
 
         # Set memory_type on the unit
         unit.memory_type = memory_type
@@ -275,6 +303,7 @@ class MemoryStore:
         pruned = 0
         merged = 0
         clusters: list[list[MemUnit]] = []
+        pruned_ids: set[str] = set()
 
         await self._acquire_write()
         try:
@@ -377,6 +406,13 @@ class MemoryStore:
             surviving = [u for u in active_units if u.unit_id not in merged_ids]
             surviving.extend(consolidated_units)
 
+            # Build the set of unit_ids that NO LONGER live in units.jsonl
+            # so we can delete their embeddings inline (instead of waiting
+            # for the GC loop). A consolidated unit re-uses cluster[0].unit_id,
+            # so subtract those to avoid deleting the surviving embedding.
+            surviving_ids = {u.unit_id for u in surviving}
+            pruned_ids = {u.unit_id for u in units if u.unit_id not in surviving_ids}
+
             if pruned > 0 or merged > 0:
                 # Rewrite memory file atomically (still inside the write lock)
                 await self._rewrite_units(surviving)
@@ -388,6 +424,13 @@ class MemoryStore:
 
         finally:
             self._release_write()
+
+        # Outside the write lock — delete embeddings for removed units.
+        if pruned_ids:
+            try:
+                await delete_unit_embeddings(self, pruned_ids)
+            except Exception as e:
+                log.debug(f"consolidate: embedding cleanup failed: {e}")
 
         self._last_consolidation = datetime.now(timezone.utc)
 
@@ -490,6 +533,16 @@ class MemoryStore:
                     f"merged={len(merged_away_ids)}, "
                     f"entities_extracted={entities_extracted})"
                 )
+
+                # Delete embeddings for every unit that's no longer in
+                # units.jsonl: decay-pruned, reflection-pruned, merged away.
+                surviving_ids = {u.unit_id for u in surviving}
+                removed_ids = {u.unit_id for u in units if u.unit_id not in surviving_ids}
+                if removed_ids:
+                    try:
+                        await delete_unit_embeddings(self, removed_ids)
+                    except Exception as e:
+                        log.debug(f"consolidate_v2: embedding cleanup failed: {e}")
 
             self._last_consolidation = datetime.now(timezone.utc)
 
@@ -760,6 +813,15 @@ class MemoryStore:
             # Rewrite the memory file with only kept units
             await self._rewrite_units(kept_units)
 
+            # Drop embeddings for the evicted units so they don't ghost
+            # in ChromaDB (loop-4 GC catches these too, but doing it
+            # at the eviction point keeps the vector store accurate
+            # between GC ticks).
+            try:
+                await delete_unit_embeddings(self, evict_ids)
+            except Exception as e:
+                log.debug(f"_ensure_capacity: embedding cleanup failed: {e}")
+
     async def _rewrite_units(self, units: list[MemUnit]) -> None:
         """
         Atomically rewrite the entire memory file with the given units.
@@ -807,6 +869,75 @@ class MemoryStore:
                 self._release_write()
         except Exception as e:
             log.warning(f"Failed to persist reinforcement for {unit.unit_id}: {e}")
+
+    # ── PII audit ledger (Loop 10) ──────────────────────────────────────
+    # JSONL sidecar at data/memory/pii_redactions.jsonl so the user can
+    # audit what got scrubbed without ever seeing the raw PII. MemUnit
+    # itself has no `metadata` field, so we keep the audit trail in a
+    # separate file (same pattern as runtime/cost_tracker.py).
+    _PII_LEDGER_NAME = "pii_redactions.jsonl"
+
+    @property
+    def _pii_ledger_path(self) -> Path:
+        return self.data_dir / self._PII_LEDGER_NAME
+
+    async def _record_pii_redaction(
+        self,
+        unit_id: str,
+        source: str,
+        count: int,
+        types_found: list[str],
+    ) -> None:
+        """Append a single PII redaction audit record.
+
+        Never includes the raw matched substrings — only counts + types so
+        the user can verify the redactor is doing the right thing without
+        the audit log itself becoming a PII vector.
+        """
+        entry = {
+            "unit_id": unit_id,
+            "source": source,
+            "count": count,
+            "types_found": types_found,
+            "redacted_at": datetime.now(timezone.utc).isoformat(),
+        }
+        try:
+            async with aiofiles.open(self._pii_ledger_path, "a") as f:
+                await f.write(json.dumps(entry) + "\n")
+        except Exception as e:
+            log.warning(f"Failed to record PII redaction for {unit_id}: {e}")
+
+    async def get_pii_redactions(self, limit: int = 20) -> dict:
+        """Read recent PII redaction audit records (most-recent first).
+
+        Returns:
+            {
+              "redactions": [{unit_id, source, count, types_found, redacted_at}],
+              "lifetime_total": int,
+            }
+        """
+        path = self._pii_ledger_path
+        if not path.exists():
+            return {"redactions": [], "lifetime_total": 0}
+
+        entries: list[dict] = []
+        try:
+            async with aiofiles.open(path, "r") as f:
+                async for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entries.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+        except Exception as e:
+            log.warning(f"Failed to read PII ledger: {e}")
+            return {"redactions": [], "lifetime_total": 0}
+
+        lifetime_total = len(entries)
+        recent = entries[-limit:][::-1] if limit > 0 else entries[::-1]
+        return {"redactions": recent, "lifetime_total": lifetime_total}
 
     async def _persist_unit(self, unit: MemUnit) -> None:
         """
@@ -857,6 +988,14 @@ class MemoryStore:
                 len(units),
                 len(surviving),
             )
+            # Drop embeddings for the units that just got compacted out.
+            surviving_ids = {u.unit_id for u in surviving}
+            dropped_ids = {u.unit_id for u in units if u.unit_id not in surviving_ids}
+            if dropped_ids:
+                try:
+                    await delete_unit_embeddings(self, dropped_ids)
+                except Exception as e:
+                    log.debug(f"_compact_memory_file: embedding cleanup failed: {e}")
         except Exception as e:
             log.error("Memory file compaction failed: %s", e)
 
@@ -1130,6 +1269,59 @@ class MemoryStore:
                 scored.append((overlap, unit))
         scored.sort(key=lambda x: x[0], reverse=True)
         return [unit for _, unit in scored[:n_results]]
+
+    async def search(
+        self,
+        query: str,
+        top_k: int = 10,
+        use_fusion: bool = False,
+        importance_threshold: float = 0.0,
+        weights: Optional[dict] = None,
+    ) -> list:
+        """Unified memory search.
+
+        Default (``use_fusion=False``): routes through ``semantic_search``
+        (vector-only) and returns ``list[MemUnit]`` — preserves existing
+        caller behaviour.
+
+        With ``use_fusion=True``: routes through the Loop-11 ``FusedRetriever``
+        (vector + BM25 + entity-overlap fused via Reciprocal Rank Fusion).
+        Returns ``list[dict]`` with ``fused_score`` + ``signal_breakdown``.
+
+        Falls back to vector-only if FusedRetriever or BM25 are unavailable
+        (e.g. rank_bm25 not installed, index never built, KG missing).
+        """
+        if not use_fusion:
+            return await self.semantic_search(
+                query=query,
+                n_results=top_k,
+                importance_threshold=importance_threshold,
+            )
+
+        try:
+            bm25 = getattr(self, "_bm25_index", None)
+            if bm25 is None:
+                from .retrieval.bm25 import BM25Index as _BM25
+                self._bm25_index = _BM25(self)
+                bm25 = self._bm25_index
+
+            from .retrieval.fusion import FusedRetriever
+            fr = FusedRetriever(
+                self,
+                bm25,
+                knowledge_graph=getattr(self, "_knowledge_graph", None),
+            )
+            results = await fr.retrieve(query, top_k=top_k, weights=weights)
+            if importance_threshold > 0:
+                results = [r for r in results if r.get("importance", 0) >= importance_threshold]
+            return results
+        except Exception as e:
+            log.warning(f"FusedRetriever failed ({e}) — falling back to vector-only")
+            return await self.semantic_search(
+                query=query,
+                n_results=top_k,
+                importance_threshold=importance_threshold,
+            )
 
     async def reindex_all(self) -> dict:
         """Rebuild all typed vector indexes from JSONL store."""
