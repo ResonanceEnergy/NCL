@@ -349,7 +349,7 @@ async def lifespan(app: FastAPI):
         # Mirrors the Haiku call pattern used by night_watch (scheduler.py).
         # Falls back to template-based reflection if no API key.
         class _AnthropicReflectionClient:
-            def __init__(self, api_key: str, model: str = "claude-sonnet-4-6-20250514"):
+            def __init__(self, api_key: str, model: str = "claude-sonnet-4-20250514"):
                 self.api_key = api_key
                 self.model = model
 

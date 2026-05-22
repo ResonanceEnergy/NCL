@@ -48,7 +48,7 @@ def _normalize_ollama_host(raw: str) -> str:
 def _get_ollama_host() -> str:
     return _normalize_ollama_host(os.getenv("OLLAMA_HOST", "http://localhost:11434"))
 
-ANALYSIS_MODEL = os.getenv("X_COUNCIL_MODEL", "claude-sonnet-4-6")
+ANALYSIS_MODEL = os.getenv("X_COUNCIL_MODEL", "claude-sonnet-4")
 
 
 X_ANALYSIS_SYSTEM_PROMPT = """You are the X (Twitter) Intelligence Analyst for NARTIX — Resonance Energy studio.

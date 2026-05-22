@@ -65,11 +65,29 @@ class MemoryStore:
         self.data_dir = Path(data_dir).expanduser() / "memory"
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.memory_file = self.data_dir / "units.jsonl"
-        self._write_lock = asyncio.Lock()  # Single-writer lock
-        self._read_lock = asyncio.Lock()   # Protects reader count
-        self._readers = 0
-        self._no_readers = asyncio.Event()
-        self._no_readers.set()
+
+        # ── Reader/writer lock (2026-05-22 rewrite) ─────────────────────────
+        # Replaces ad-hoc (asyncio.Lock + counter + asyncio.Event) trio that
+        # had three cumulative bugs:
+        #   1. Lost-wakeup: _acquire_write held _write_lock, then awaited
+        #      _no_readers.wait(); a reader entering between writer's
+        #      `await wait()` returning and the writer's first instruction
+        #      would clear() the event and the writer would never see it.
+        #   2. Reader-starvation: every new reader called event.clear()
+        #      unconditionally — so a long stream of readers kept resetting
+        #      the gate the writer was waiting on (Awarebot signal flood).
+        #   3. Writer-preference: none. Writers could be queued behind an
+        #      arbitrary number of readers. Under Awarebot's ~500/scan burst
+        #      every `create_unit()` parked, blocking `/chat`.
+        # The new implementation uses a single asyncio.Condition guarding two
+        # counters and a writer-waiting flag. Writers get strict preference:
+        # once a writer is waiting, new readers also park behind the
+        # writer-waiting predicate, so the writer is guaranteed to drain.
+        # All wakeups go through Condition.notify_all() — no lost wakeups.
+        self._rw_cond = asyncio.Condition()
+        self._readers = 0                # Active reader count
+        self._writer_active = False      # True while a write is mutating
+        self._writers_waiting = 0        # Queue length for writer-preference
         self._last_consolidation: Optional[datetime] = None
         self._knowledge_graph = None
 
@@ -197,27 +215,135 @@ class MemoryStore:
 
         return unit
 
+    async def persist_units_batch(self, units: list[MemUnit]) -> int:
+        """Persist a batch of pre-built MemUnits under a SINGLE write-lock
+        acquisition.
+
+        Used by AsyncMemoryWriter under Awarebot flood: instead of 500
+        sequential ``create_unit`` calls each fighting for the write lock,
+        the drainer collects a batch of WriteRequests, runs the expensive
+        per-unit enrichment in parallel OUTSIDE the lock, then hands the
+        finalized MemUnits to this batched persist.
+
+        Durability contract: every unit in ``units`` is fsync'd before this
+        method returns. Atomic per-unit — a crash mid-batch leaves a
+        partial-but-valid JSONL prefix (last record may be missing, never
+        torn since fsync is per-write).
+
+        Args:
+            units: Pre-built MemUnit instances. Authority tier + decay
+                rate + memory_type/tier must already be set by caller.
+
+        Returns:
+            Number of units actually persisted.
+        """
+        if not units:
+            return 0
+
+        await self._acquire_write()
+        try:
+            # _ensure_capacity is fast-path now (file-size estimate); one
+            # call is enough even for batch of 500.
+            await self._ensure_capacity()
+            # Single open, many appends, one fsync at the end. ~50x faster
+            # than create_unit × N under flood.
+            async with aiofiles.open(self.memory_file, "a") as f:
+                for unit in units:
+                    await f.write(unit.model_dump_json() + "\n")
+                await f.flush()
+                os.fsync(f.fileno())
+        finally:
+            self._release_write()
+
+        # Index outside the write lock (ChromaDB has its own locking)
+        for unit in units:
+            try:
+                await self.index_unit(unit)
+            except Exception as e:
+                log.debug(f"persist_units_batch: index_unit failed for {unit.unit_id}: {e}")
+
+        return len(units)
+
     async def _acquire_read(self) -> None:
-        """Acquire a read lock (multiple readers allowed)."""
-        async with self._read_lock:
+        """Acquire a shared read lock.
+
+        Writer-preference: if any writer is queued or active we park here so
+        a stream of readers (Awarebot signal flood => semantic_search calls)
+        can never starve a pending write. Multiple readers may hold the
+        lock concurrently once admitted.
+        """
+        async with self._rw_cond:
+            # Park while a writer is mutating OR is queued ahead of us.
+            while self._writer_active or self._writers_waiting > 0:
+                await self._rw_cond.wait()
             self._readers += 1
-            self._no_readers.clear()
 
     async def _release_read(self) -> None:
-        """Release a read lock."""
-        async with self._read_lock:
-            self._readers -= 1
-            if self._readers == 0:
-                self._no_readers.set()
+        """Release a shared read lock and notify waiters on the gate.
+
+        Always notify_all so any writer parked on the predicate
+        ``readers == 0 and not writer_active`` can re-evaluate.
+        """
+        async with self._rw_cond:
+            if self._readers > 0:
+                self._readers -= 1
+            # Notify both queued writers (readers==0 may now hold) and
+            # readers (writer may have just finished). Notify cost is O(N)
+            # but coalesces — predicate filter is cheap.
+            self._rw_cond.notify_all()
 
     async def _acquire_write(self) -> None:
-        """Acquire exclusive write lock (waits for all readers to finish)."""
-        await self._write_lock.acquire()
-        await self._no_readers.wait()
+        """Acquire an exclusive write lock.
+
+        Single-writer semantics. Writes block on (a) the absence of any
+        active reader and (b) the absence of any other active writer.
+        Writer-waiting count is bumped BEFORE we await — new readers see
+        this and queue behind us (writer-preference).
+        """
+        async with self._rw_cond:
+            self._writers_waiting += 1
+            acquired = False
+            try:
+                while self._writer_active or self._readers > 0:
+                    await self._rw_cond.wait()
+                self._writer_active = True
+                acquired = True
+            finally:
+                # Decrement waiting count whether we acquired or were
+                # cancelled — leaving it bumped would permanently block
+                # readers behind a writer that never ran.
+                self._writers_waiting -= 1
+                # On cancellation, wake readers/other writers since the
+                # writers_waiting decrement may have unblocked them.
+                if not acquired:
+                    self._rw_cond.notify_all()
 
     def _release_write(self) -> None:
-        """Release exclusive write lock."""
-        self._write_lock.release()
+        """Release the exclusive write lock and wake all waiters.
+
+        Schedules an async task to take the condition + notify; this keeps
+        the public API synchronous (matches the pre-rewrite contract — all
+        ``finally: self._release_write()`` call sites stay unchanged).
+
+        Safe to call when not held: logs and returns without raising. This
+        prevents the consolidate_v2() double-release path from corrupting
+        another writer's lock state.
+        """
+        if not self._writer_active:
+            log.debug("_release_write called when no writer active (idempotent)")
+            return
+        # Flip flag synchronously so a same-microtask _acquire_write sees it
+        self._writer_active = False
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        loop.create_task(self._notify_release())
+
+    async def _notify_release(self) -> None:
+        """Background coroutine to wake waiters after a write completes."""
+        async with self._rw_cond:
+            self._rw_cond.notify_all()
 
     async def get_unit(self, unit_id: str) -> Optional[MemUnit]:
         """
@@ -579,15 +705,15 @@ class MemoryStore:
 
         except Exception as e:
             log.error(f"consolidate_v2 failed, falling back to basic: {e}")
-            # If we're still holding the write lock, release it before calling consolidate()
+            # Release the write lock BEFORE calling consolidate() so
+            # consolidate() can acquire it itself. _release_write is now
+            # idempotent — the finally below becomes a no-op.
             self._release_write()
             return await self.consolidate()
 
         finally:
-            try:
-                self._release_write()
-            except RuntimeError:
-                pass  # Already released in the fallback path
+            # Idempotent — safe even if the except-branch already released.
+            self._release_write()
 
     def set_knowledge_graph(self, kg) -> None:
         """Set the knowledge graph instance for entity extraction during consolidation."""
@@ -802,7 +928,32 @@ class MemoryStore:
 
         If total units exceed MAX_TOTAL_UNITS, evict oldest low-importance units
         (importance < 30, sorted by creation date ascending).
+
+        Fast-path optimization (2026-05-22): the previous implementation
+        called _load_all_units() unconditionally on EVERY create_unit, which
+        scanned the entire 9.7k-unit JSONL file (~50ms each). Under Awarebot
+        flood (~500 writes/scan) that was 25+ seconds of write-lock time
+        per drainer cycle, blocking /chat. We now estimate line count from
+        the file size and only do the full scan when we're plausibly close
+        to capacity (within 5% of MAX_TOTAL_UNITS).
         """
+        try:
+            file_size = (
+                self.memory_file.stat().st_size
+                if self.memory_file.exists() else 0
+            )
+        except OSError:
+            file_size = 0
+
+        # MemUnit JSONL lines avg ~1.5-2 KB. A conservative 800-byte/line
+        # estimate keeps us safely on the slow path before real capacity.
+        # 9,500 units * 800B = 7.6 MB — we slow-path scan once we cross
+        # that threshold (5% under MAX_TOTAL_UNITS=10_000 cap).
+        AVG_BYTES_PER_LINE = 800
+        FAST_PATH_MAX_BYTES = int(MAX_TOTAL_UNITS * AVG_BYTES_PER_LINE * 0.95)
+        if file_size < FAST_PATH_MAX_BYTES:
+            return  # Far from capacity — skip the full-file scan
+
         units = await self._load_all_units()
 
         if len(units) >= MAX_TOTAL_UNITS:

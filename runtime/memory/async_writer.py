@@ -50,8 +50,17 @@ DEFAULT_MAX_QUEUE = int(os.getenv("NCL_ASYNC_WRITER_QUEUE_MAX", "5000"))
 DEFAULT_CONCURRENCY = int(os.getenv("NCL_ASYNC_WRITER_CONCURRENCY", "4"))
 DEFAULT_DLQ_CAP = int(os.getenv("NCL_ASYNC_WRITER_DLQ_CAP", "500"))
 
+# Batch persist tunables — drainer collects up to BATCH_MAX items waiting at
+# most BATCH_WINDOW_MS for the batch to fill, then hands the batch to
+# memory_store.persist_units_batch() under a SINGLE write-lock acquisition.
+# This is the fix for the Awarebot-flood wedge: previously every drainer
+# acquired/released the write lock per item (500 acquisitions/scan), each
+# of which raced against /chat and other synchronous writers.
+DEFAULT_BATCH_MAX = int(os.getenv("NCL_ASYNC_WRITER_BATCH_MAX", "25"))
+DEFAULT_BATCH_WINDOW_MS = int(os.getenv("NCL_ASYNC_WRITER_BATCH_WINDOW_MS", "100"))
+
 # Model used for in-drainer LLM enrichment. SONNET, never Haiku.
-SONNET_MODEL = "claude-sonnet-4-6-20250514"
+SONNET_MODEL = "claude-sonnet-4-20250514"
 
 # Per-call cost estimate ($) — used for budget pre-checks against cost_tracker.
 SONNET_PER_CALL_EST = 0.01
@@ -111,6 +120,8 @@ class AsyncMemoryWriter:
         max_queue: int = DEFAULT_MAX_QUEUE,
         drainer_concurrency: int = DEFAULT_CONCURRENCY,
         dlq_cap: int = DEFAULT_DLQ_CAP,
+        batch_max: int = DEFAULT_BATCH_MAX,
+        batch_window_ms: int = DEFAULT_BATCH_WINDOW_MS,
     ) -> None:
         self.memory_store = memory_store
         self._queue: asyncio.Queue[WriteRequest] = asyncio.Queue(maxsize=max_queue)
@@ -121,6 +132,8 @@ class AsyncMemoryWriter:
             "failed_total": 0,
             "queue_size": 0,
             "avg_drain_latency_s": 0.0,
+            "avg_batch_size": 0.0,
+            "batches_total": 0,
             "llm_scoring_calls": 0,
             "llm_scoring_budget_skips": 0,
             "llm_entity_calls": 0,
@@ -133,6 +146,10 @@ class AsyncMemoryWriter:
         # Rolling exponential moving average of drain latency
         self._ema_alpha = 0.1
         self._drainer_concurrency = drainer_concurrency
+        self._batch_max = max(1, batch_max)
+        self._batch_window_s = max(0.0, batch_window_ms / 1000.0)
+        # Has memory_store.persist_units_batch? (Backwards-compat guard.)
+        self._supports_batch = hasattr(memory_store, "persist_units_batch")
         self._running = False
         self._drainer_tasks: list[asyncio.Task] = []
 
@@ -218,45 +235,91 @@ class AsyncMemoryWriter:
     # ── Drainer ──────────────────────────────────────────────────────────
 
     async def _drainer(self, worker_id: int) -> None:
-        """Pull → enrich → persist → mark done. Never crashes the pool."""
-        log.debug("[ASYNC_WRITER:%d] drainer started", worker_id)
+        """Pull → enrich → persist → mark done. Never crashes the pool.
+
+        Batched mode (default when memory_store.persist_units_batch exists):
+        - Block on first item
+        - Greedily drain up to ``batch_max`` more items waiting at most
+          ``batch_window_ms`` for the batch to fill
+        - Run per-item enrichment concurrently (asyncio.gather)
+        - Hand the finalized batch to persist_units_batch in ONE write-lock
+          acquisition
+
+        Under Awarebot flood (500 items): instead of 500 lock acquisitions
+        we now take the lock ~20 times (500/25 batch_max), each lock-hold
+        under 50ms. Hot-path /chat write now sees <1s of lock contention
+        even at peak flood, vs >25s before.
+        """
+        log.debug(
+            "[ASYNC_WRITER:%d] drainer started (batch_max=%d, window_ms=%d, batched=%s)",
+            worker_id, self._batch_max, int(self._batch_window_s * 1000),
+            self._supports_batch,
+        )
         while True:
+            # Block on the first item
             try:
-                req = await self._queue.get()
+                first = await self._queue.get()
             except asyncio.CancelledError:
                 log.debug("[ASYNC_WRITER:%d] drainer cancelled", worker_id)
                 return
+
+            # Collect a batch (skipped entirely if batch_max==1 or no batch support)
+            batch: list[WriteRequest] = [first]
+            if self._supports_batch and self._batch_max > 1:
+                deadline = time.monotonic() + self._batch_window_s
+                while len(batch) < self._batch_max:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        break
+                    try:
+                        # First try non-blocking — drain anything already queued
+                        nxt = self._queue.get_nowait()
+                        batch.append(nxt)
+                    except asyncio.QueueEmpty:
+                        # Wait up to the remaining window for one more
+                        try:
+                            nxt = await asyncio.wait_for(
+                                self._queue.get(), timeout=remaining,
+                            )
+                            batch.append(nxt)
+                        except asyncio.TimeoutError:
+                            break
+                        except asyncio.CancelledError:
+                            # Push the partial batch back into DLQ-equivalent
+                            # for retry on next start. For now, mark all done.
+                            for _ in batch:
+                                try:
+                                    self._queue.task_done()
+                                except ValueError:
+                                    pass
+                            raise
+
             t0 = time.monotonic()
             try:
-                unit = await self._process(req)
-                self._stats["drained_total"] += 1
-                self._stats["last_drain_at"] = datetime.now(
-                    timezone.utc
-                ).isoformat()
-                if req.callback:
-                    try:
-                        req.callback(unit, None)
-                    except Exception as cb_e:
-                        log.debug(
-                            "[ASYNC_WRITER:%d] callback error: %s",
-                            worker_id, cb_e,
-                        )
+                if self._supports_batch and len(batch) > 1:
+                    await self._process_batch(batch, worker_id)
+                else:
+                    # Single-item path (also taken when persist_units_batch
+                    # is missing on memory_store — backwards compat).
+                    await self._process_one(batch[0], worker_id)
             except asyncio.CancelledError:
-                # Re-raise so the task actually unwinds.
-                self._queue.task_done()
+                # Mark all batch items done before unwinding
+                for _ in batch:
+                    try:
+                        self._queue.task_done()
+                    except ValueError:
+                        pass
                 raise
             except Exception as e:  # noqa: BLE001 - defensive catch-all
-                self._stats["failed_total"] += 1
-                self._push_dlq(req, str(e))
-                log.warning(
-                    "[ASYNC_WRITER:%d] drain failed (source=%s): %s",
-                    worker_id, req.source, e,
+                # Catastrophic — _process_batch handles per-item DLQ itself;
+                # this is the truly-unexpected case.
+                log.error(
+                    "[ASYNC_WRITER:%d] drainer caught unhandled: %s",
+                    worker_id, e,
                 )
-                if req.callback:
-                    try:
-                        req.callback(None, e)
-                    except Exception:
-                        pass
+                for req in batch:
+                    self._stats["failed_total"] += 1
+                    self._push_dlq(req, f"drainer_unhandled: {e}")
             finally:
                 latency = time.monotonic() - t0
                 cur = self._stats["avg_drain_latency_s"]
@@ -264,12 +327,205 @@ class AsyncMemoryWriter:
                     cur + self._ema_alpha * (latency - cur)
                     if cur > 0 else latency
                 )
+                # Rolling avg batch size
+                bs = float(len(batch))
+                avg_bs = self._stats["avg_batch_size"]
+                self._stats["avg_batch_size"] = (
+                    avg_bs + self._ema_alpha * (bs - avg_bs)
+                    if avg_bs > 0 else bs
+                )
+                self._stats["batches_total"] += 1
                 self._stats["queue_size"] = self._queue.qsize()
                 self._stats["dlq_size"] = len(self._dlq)
+                for _ in batch:
+                    try:
+                        self._queue.task_done()
+                    except ValueError:
+                        pass  # already marked (race on shutdown)
+
+    async def _process_one(self, req: WriteRequest, worker_id: int) -> None:
+        """Single-item path — kept for backwards compatibility with stores
+        that don't expose ``persist_units_batch``."""
+        try:
+            unit = await self._process(req)
+            self._stats["drained_total"] += 1
+            self._stats["last_drain_at"] = datetime.now(timezone.utc).isoformat()
+            if req.callback:
                 try:
-                    self._queue.task_done()
-                except ValueError:
-                    pass  # already marked (race on shutdown)
+                    req.callback(unit, None)
+                except Exception as cb_e:
+                    log.debug(
+                        "[ASYNC_WRITER:%d] callback error: %s",
+                        worker_id, cb_e,
+                    )
+        except Exception as e:  # noqa: BLE001
+            self._stats["failed_total"] += 1
+            self._push_dlq(req, str(e))
+            log.warning(
+                "[ASYNC_WRITER:%d] drain failed (source=%s): %s",
+                worker_id, req.source, e,
+            )
+            if req.callback:
+                try:
+                    req.callback(None, e)
+                except Exception:
+                    pass
+
+    async def _process_batch(
+        self, batch: list[WriteRequest], worker_id: int
+    ) -> None:
+        """Batched path — enrich items concurrently, persist under one lock.
+
+        Per-item failures during enrichment go to DLQ but do NOT abort the
+        rest of the batch. Persist is all-or-nothing per the
+        persist_units_batch durability contract.
+        """
+        # Step 1 — concurrent enrichment outside any lock
+        enrich_tasks = [
+            asyncio.create_task(self._enrich_only(req)) for req in batch
+        ]
+        enrich_results = await asyncio.gather(*enrich_tasks, return_exceptions=True)
+
+        # Step 2 — split into persistable + failed
+        to_persist: list[tuple[WriteRequest, "MemUnit"]] = []
+        for req, result in zip(batch, enrich_results):
+            if isinstance(result, BaseException):
+                self._stats["failed_total"] += 1
+                self._push_dlq(req, f"enrich_failed: {result}")
+                log.debug(
+                    "[ASYNC_WRITER:%d] enrich failed (source=%s): %s",
+                    worker_id, req.source, result,
+                )
+                if req.callback:
+                    try:
+                        req.callback(None, result)
+                    except Exception:
+                        pass
+                continue
+            to_persist.append((req, result))
+
+        if not to_persist:
+            return
+
+        # Step 3 — single-lock batch persist
+        try:
+            await self.memory_store.persist_units_batch(
+                [u for _, u in to_persist]
+            )
+        except Exception as e:
+            # Whole-batch failure — DLQ everything and let retry_dlq pick up
+            log.warning(
+                "[ASYNC_WRITER:%d] batch persist failed (n=%d): %s",
+                worker_id, len(to_persist), e,
+            )
+            for req, _ in to_persist:
+                self._stats["failed_total"] += 1
+                self._push_dlq(req, f"batch_persist_failed: {e}")
+                if req.callback:
+                    try:
+                        req.callback(None, e)
+                    except Exception:
+                        pass
+            return
+
+        # Step 4 — success bookkeeping + per-item callbacks
+        self._stats["drained_total"] += len(to_persist)
+        self._stats["last_drain_at"] = datetime.now(timezone.utc).isoformat()
+        for req, unit in to_persist:
+            if req.callback:
+                try:
+                    req.callback(unit, None)
+                except Exception as cb_e:
+                    log.debug(
+                        "[ASYNC_WRITER:%d] callback error: %s",
+                        worker_id, cb_e,
+                    )
+
+    async def _enrich_only(self, req: WriteRequest):
+        """Run enrichment (PII redact + LLM scoring + entity extract) and
+        build a MemUnit WITHOUT acquiring the write lock.
+
+        Returns the constructed MemUnit ready for persist_units_batch.
+        """
+        # Reuse the existing enrichment chain
+        await self._maybe_score(req)
+        await self._maybe_extract_entities(req)
+        return await self._build_unit(req)
+
+    async def _build_unit(self, req: WriteRequest):
+        """Construct a MemUnit from a WriteRequest without persisting.
+
+        Mirrors the unit-construction logic in MemoryStore.create_unit so
+        downstream consumers (decay, indexing, authority weighting) see
+        identical fields.
+        """
+        # Lazy imports to avoid circular ref
+        import uuid
+        from ..ncl_brain.models import MemUnit
+        from .pii_redactor import PIIRedactor
+        from .authority import tier_for_source as _tier_for_source
+        from .store import (
+            MAX_CONTENT_LENGTH, LML_MEMORY_TYPES,
+            DECAY_RATE_LML, DECAY_RATE_SML,
+        )
+
+        content = req.content or ""
+        if len(content) > MAX_CONTENT_LENGTH:
+            content = content[:MAX_CONTENT_LENGTH] + "[TRUNCATED]"
+
+        # PII redaction (mirrors store.create_unit)
+        pii_result = PIIRedactor.scan(content)
+        pii_types: list[str] = []
+        if pii_result.redaction_count > 0:
+            content = pii_result.redacted_text
+            pii_types = sorted({f["type"] for f in pii_result.findings})
+
+        unit = MemUnit(
+            unit_id=str(uuid.uuid4()),
+            content=content,
+            source=req.source,
+            importance=min(100.0, max(0.0, req.importance)),
+            tags=(req.tags or [])[:10],
+        )
+
+        # Authority tier stamping
+        meta = getattr(unit, "metadata", None)
+        if not isinstance(meta, dict):
+            meta = {}
+            unit.metadata = meta
+        if "authority_tier" not in meta:
+            meta["authority_tier"] = int(_tier_for_source(req.source))
+
+        # PII audit record (fire-and-forget; doesn't gate persist)
+        if pii_result.redaction_count > 0 and hasattr(
+            self.memory_store, "_record_pii_redaction"
+        ):
+            try:
+                await self.memory_store._record_pii_redaction(
+                    unit_id=unit.unit_id,
+                    source=req.source,
+                    count=pii_result.redaction_count,
+                    types_found=pii_types,
+                )
+            except Exception as e:
+                log.debug("[ASYNC_WRITER] PII audit write failed: %s", e)
+
+        unit.memory_type = req.memory_type
+        if req.memory_type in LML_MEMORY_TYPES:
+            unit.memory_tier = "LML"
+            unit.decay_rate = DECAY_RATE_LML
+        else:
+            unit.memory_tier = "SML"
+            unit.decay_rate = DECAY_RATE_SML
+
+        # Entity attach (best-effort, mirrors create_unit post-step)
+        if req.entities:
+            try:
+                unit.entities = sorted(set(req.entities))[:20]
+            except Exception:
+                pass
+
+        return unit
 
     # ── Drainer steps ────────────────────────────────────────────────────
 

@@ -44,7 +44,7 @@ log = logging.getLogger("ncl.memory.procedural")
 
 # ── Tunables ──────────────────────────────────────────────────────────
 LLM_NIGHTLY_CAP_USD = 0.50
-LLM_MODEL = "claude-sonnet-4-6-20250514"
+LLM_MODEL = "claude-sonnet-4-20250514"
 LLM_MAX_TOKENS = 600
 LLM_TIMEOUT_S = 20.0
 

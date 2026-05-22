@@ -57,7 +57,7 @@ WORKING_CONTEXT_SURFACE_THRESHOLD = 5  # len(unit_ids) at which thread is surfac
 MEMBER_IMPORTANCE_BONUS = 5.0
 
 # LLM
-SUMMARIZATION_MODEL = "claude-sonnet-4-6-20250514"
+SUMMARIZATION_MODEL = "claude-sonnet-4-20250514"
 PER_CYCLE_LLM_BUDGET_USD = 0.20
 SUMMARY_MAX_TOKENS = 220             # short, 2-3 sentences
 
@@ -107,7 +107,7 @@ class NarrativeThread:
     summary: str = ""                       # LLM- or rule-generated
     # Bookkeeping
     member_sources: list[str] = field(default_factory=list)
-    summary_model: str = ""                 # "claude-sonnet-4-6-20250514" or "rule"
+    summary_model: str = ""                 # "claude-sonnet-4-20250514" or "rule"
     archived: bool = False
 
     def to_dict(self) -> dict:

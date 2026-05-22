@@ -81,7 +81,7 @@ async def llm_importance_score(
     source: str = "",
     tags: list[str] = None,
     timeout: float = 5.0,
-    model: str = "claude-sonnet-4-6-20250514",
+    model: str = "claude-sonnet-4-20250514",
 ) -> Optional[float]:
     """
     Use Claude Haiku to evaluate memory importance on a 1-10 scale.
@@ -176,7 +176,7 @@ async def score_memory(
     source: str = "",
     tags: list[str] = None,
     use_llm: bool = True,
-    model: str = "claude-sonnet-4-6-20250514",
+    model: str = "claude-sonnet-4-20250514",
 ) -> dict:
     """
     Score a memory unit's importance using LLM with rule-based fallback.

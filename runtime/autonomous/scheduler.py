@@ -292,7 +292,7 @@ class AutonomousScheduler:
             _llm_client = None
             if _anth_key:
                 class _AnthropicReflectionClient:
-                    def __init__(self, api_key: str, model: str = "claude-sonnet-4-6-20250514"):
+                    def __init__(self, api_key: str, model: str = "claude-sonnet-4-20250514"):
                         self.api_key = api_key
                         self.model = model
 
@@ -2042,7 +2042,7 @@ class AutonomousScheduler:
                                     "content-type": "application/json",
                                 },
                                 json={
-                                    "model": "claude-sonnet-4-6",
+                                    "model": "claude-sonnet-4",
                                     "max_tokens": 300,
                                     "messages": [{"role": "user", "content": p}],
                                 },
@@ -2381,7 +2381,7 @@ class AutonomousScheduler:
                                             "content-type": "application/json",
                                         },
                                         json={
-                                            "model": "claude-sonnet-4-6",
+                                            "model": "claude-sonnet-4",
                                             "max_tokens": 200,
                                             "messages": [{"role": "user", "content": p}],
                                         },
@@ -2573,7 +2573,7 @@ class AutonomousScheduler:
             log.warning("[NIGHT-WATCH/INTEL] No ANTHROPIC_API_KEY — LLM tasks will be skipped")
 
         tracker = await get_tracker()
-        sonnet_model_intel = "claude-sonnet-4-6"
+        sonnet_model_intel = "claude-sonnet-4"
         api_headers = {
             "x-api-key": api_key,
             "anthropic-version": "2023-06-01",
@@ -4091,7 +4091,7 @@ class AutonomousScheduler:
                         "https://api.anthropic.com/v1/messages",
                         headers=anthropic_headers,
                         json={
-                            "model": "claude-sonnet-4-6",
+                            "model": "claude-sonnet-4",
                             "max_tokens": 1024,
                             "messages": [{"role": "user", "content": prompt}],
                         },
@@ -4105,7 +4105,7 @@ class AutonomousScheduler:
                     await tracker.record(
                         "anthropic", cost, "night_watch_council",
                         f"NW council {label} -- Sonnet analysis",
-                        {"model": "claude-sonnet-4-6", "council": label, "step": "analysis"},
+                        {"model": "claude-sonnet-4", "council": label, "step": "analysis"},
                     )
                     log.info("[NIGHT-WATCH/COUNCIL] %s -- Sonnet analysis done ($%.4f)", label, cost)
             except Exception as e:
@@ -4861,7 +4861,7 @@ class AutonomousScheduler:
             "content-type": "application/json",
         }
 
-        sonnet_model = "claude-sonnet-4-6"
+        sonnet_model = "claude-sonnet-4"
         opus_model = "claude-opus-4-6"
 
         # Sonnet cost rates: $3.00/1M input, $15.00/1M output

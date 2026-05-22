@@ -143,24 +143,22 @@ def _portfolio_component() -> dict:
     }
 
 
-def _memory_component(brain) -> dict:
+async def _memory_component(brain) -> dict:
     store = getattr(brain, "memory_store", None) if brain else None
     if store is None:
         return {"status": "yellow", "reason": "memory store unavailable"}
     units = None
-    # Try the canonical accessor first; fall back through 3 layers of attrs
-    # the store may expose (different versions of MemoryStore use different
-    # internal names — units, _units, units_list, _store, etc.).
+    # Audit 2026-05-22: get_stats() IS a coroutine; the prior code closed
+    # it without awaiting and fell through to attribute fallbacks that
+    # don't exist on the current MemoryStore -> rollup showed units=0
+    # despite 9k+ units on disk. Now properly awaited.
     try:
         if hasattr(store, "get_stats"):
             try:
-                stats = store.get_stats()
-                # Some implementations of get_stats are async coroutines;
-                # don't try to introspect a coroutine — fall through to attr inspection.
                 import inspect
+                stats = store.get_stats()
                 if inspect.iscoroutine(stats):
-                    stats.close()  # avoid "never awaited" warning
-                    stats = None
+                    stats = await stats
                 if isinstance(stats, dict):
                     units = (
                         stats.get("total_units")
@@ -169,6 +167,19 @@ def _memory_component(brain) -> dict:
                     )
             except Exception:
                 units = None
+        if units is None:
+            # Last-resort: count units.jsonl line count (read-only, no lock)
+            try:
+                from pathlib import Path
+                p = getattr(store, "data_path", None) or getattr(store, "_data_path", None)
+                if p is None:
+                    # Default location
+                    p = Path("data/memory/units.jsonl")
+                if Path(p).exists():
+                    with open(p) as f:
+                        units = sum(1 for line in f if line.strip())
+            except Exception:
+                pass
         if units is None:
             for attr in ("_units", "units", "_store", "_data"):
                 val = getattr(store, attr, None)
@@ -291,7 +302,7 @@ async def build_health_rollup(autonomous, brain) -> dict:
         warnings.append(f"portfolio component failed: {e}")
 
     try:
-        mem = _memory_component(brain)
+        mem = await _memory_component(brain)
         if autonomous:
             mem["last_consolidation"] = autonomous._stats.get("last_consolidation")
         components["memory"] = mem

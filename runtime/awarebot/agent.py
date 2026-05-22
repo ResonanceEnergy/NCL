@@ -2718,8 +2718,9 @@ Focus on what requires attention or action."""
         liked_interval = 6 * 3600  # 6 hours
         await self._interruptible_sleep(2700)  # 45-minute initial delay
 
-        while not self._shutdown_event.is_set():
-            # Only run if OAuth token is available
+        while self._running:
+            # Only run if OAuth token is available — was `not self._shutdown_event.is_set()`
+            # but that attr doesn't exist on this class; matches other loops in this file
             token = os.getenv("X_USER_ACCESS_TOKEN", "")
             if not token:
                 # Try loading from saved tokens
