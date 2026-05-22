@@ -773,3 +773,283 @@ async def portfolio_significant_moves(
         "window_days": days,
         "scope_filter": scope,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GET /portfolio/crypto  (added 2026-05-22 EOD)
+# GET /portfolio/polymarket
+# POST /portfolio/connect/{ndax,metamask,polymarket}
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _find_adapter(pm, name: str):
+    """Return the adapter on the manager matching *name* (case-insensitive).
+
+    Manager stores `_adapters` as list of (name, adapter) tuples — we walk
+    it instead of poking the private attributes so this stays robust if a
+    future refactor changes the layout.
+    """
+    name_l = name.lower()
+    for entry in getattr(pm, "_adapters", []) or []:
+        if isinstance(entry, tuple) and len(entry) == 2:
+            n, adapter = entry
+            if str(n).lower() == name_l:
+                return adapter
+        else:
+            # Defensive — handle a flat list of adapters too.
+            broker = getattr(entry, "broker", "") or ""
+            if str(broker).lower() == name_l:
+                return entry
+    # Fallback to typed attributes set in __init__.
+    for attr in (f"_{name_l}",):
+        a = getattr(pm, attr, None)
+        if a is not None:
+            return a
+    return None
+
+
+@router.get("/crypto")
+async def portfolio_crypto(
+    authorization: str = Header(default=""),
+) -> dict:
+    """
+    Combined NDAX + MetaMask view.
+
+    Returns per-broker sections so iOS can render them as two collapsible
+    cards. Each holding mirrors the standard PortfolioPosition shape so the
+    existing iOS row/code can be reused for rendering if desired.
+    """
+    _verify_strike_token(authorization)
+    pm = _require_manager()
+
+    ndax = _find_adapter(pm, "ndax")
+    meta = _find_adapter(pm, "metamask")
+
+    ndax_positions: list = []
+    ndax_accounts: list = []
+    if ndax is not None and getattr(ndax, "connected", False):
+        try:
+            ndax_positions = await ndax.get_positions()
+            ndax_accounts = await ndax.get_accounts()
+        except Exception as exc:
+            log.exception("NDAX fetch failed: %s", exc)
+
+    meta_positions: list = []
+    meta_accounts: list = []
+    if meta is not None and getattr(meta, "connected", False):
+        try:
+            meta_positions = await meta.get_positions()
+            meta_accounts = await meta.get_accounts()
+        except Exception as exc:
+            log.exception("MetaMask fetch failed: %s", exc)
+
+    ndax_value = sum(float(p.get("market_value") or 0) for p in ndax_positions)
+    meta_value = sum(float(p.get("market_value") or 0) for p in meta_positions)
+    ndax_cad_balance = sum(float(a.get("cash_balance") or 0) for a in ndax_accounts)
+
+    return {
+        "ndax": {
+            "connected": ndax is not None and getattr(ndax, "connected", False),
+            "mode": getattr(ndax, "_mode", "disconnected") if ndax else "disconnected",
+            "cad_balance": round(ndax_cad_balance, 2),
+            "total_value_cad": round(ndax_value, 2),
+            "holdings": ndax_positions,
+        },
+        "metamask": {
+            "connected": meta is not None and getattr(meta, "connected", False),
+            "address": getattr(meta, "address", "") if meta else "",
+            "total_value_usd": round(meta_value, 2),
+            "holdings": meta_positions,
+        },
+        "totals": {
+            "holdings_count": len(ndax_positions) + len(meta_positions),
+        },
+        "last_sync": pm._last_sync,
+    }
+
+
+@router.get("/polymarket")
+async def portfolio_polymarket(
+    authorization: str = Header(default=""),
+) -> dict:
+    """
+    Polymarket positions + USDC balance + open markets.
+
+    Returns:
+        {
+          "connected": bool,
+          "funder_address": "0x...",
+          "usdc_balance": float,
+          "positions": [PortfolioPosition...],
+          "open_positions_count": int,
+          "total_exposure_usd": float,
+        }
+    """
+    _verify_strike_token(authorization)
+    pm = _require_manager()
+
+    poly = _find_adapter(pm, "polymarket")
+    if poly is None or not getattr(poly, "connected", False):
+        return {
+            "connected": False,
+            "funder_address": getattr(poly, "funder_address", "") if poly else "",
+            "usdc_balance": 0.0,
+            "positions": [],
+            "open_positions_count": 0,
+            "total_exposure_usd": 0.0,
+            "last_sync": pm._last_sync,
+        }
+
+    try:
+        positions = await poly.get_positions()
+        accounts = await poly.get_accounts()
+    except Exception as exc:
+        log.exception("Polymarket fetch failed: %s", exc)
+        positions = []
+        accounts = []
+
+    usdc = float(accounts[0].get("cash_balance", 0.0)) if accounts else 0.0
+    exposure = sum(float(p.get("market_value") or 0) for p in positions)
+
+    return {
+        "connected": True,
+        "funder_address": getattr(poly, "funder_address", ""),
+        "usdc_balance": round(usdc, 2),
+        "positions": positions,
+        "open_positions_count": len(positions),
+        "total_exposure_usd": round(exposure, 2),
+        "last_sync": pm._last_sync,
+    }
+
+
+@router.post("/connect/ndax")
+async def portfolio_connect_ndax(
+    request: Request,
+    authorization: str = Header(default=""),
+) -> dict:
+    """Patch NDAX adapter creds and reconnect.
+
+    Body: ``{"api_key": ..., "api_secret": ..., "user_id": ...}``
+    Empty fields are ignored (keep the existing value).
+    """
+    _verify_strike_token(authorization)
+    pm = _require_manager()
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    adapter = _find_adapter(pm, "ndax")
+    if adapter is None:
+        try:
+            from .ndax_adapter import NDAXAdapter
+            adapter = NDAXAdapter()
+            pm._adapters.append(("ndax", adapter))
+            pm._ndax = adapter
+        except Exception as e:
+            return {"connected": False, "error": f"adapter unavailable: {e}"}
+
+    if body.get("api_key"):
+        adapter.api_key = str(body["api_key"])
+    if body.get("api_secret"):
+        adapter.api_secret = str(body["api_secret"])
+    if body.get("user_id"):
+        adapter.user_id = str(body["user_id"])
+
+    try:
+        ok = await adapter.connect()
+        return {
+            "connected": bool(ok),
+            "mode": getattr(adapter, "_mode", "disconnected"),
+            "broker": "NDAX",
+        }
+    except Exception as e:
+        return {"connected": False, "error": str(e), "broker": "NDAX"}
+
+
+@router.post("/connect/metamask")
+async def portfolio_connect_metamask(
+    request: Request,
+    authorization: str = Header(default=""),
+) -> dict:
+    """Patch MetaMask adapter wallet address and reconnect.
+
+    Body: ``{"address": "0x..."}``
+    """
+    _verify_strike_token(authorization)
+    pm = _require_manager()
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    address = str(body.get("address", "")).strip()
+    if not address:
+        return {"connected": False, "error": "address is required"}
+
+    adapter = _find_adapter(pm, "metamask")
+    if adapter is None:
+        try:
+            from .metamask_adapter import MetaMaskAdapter
+            adapter = MetaMaskAdapter(address=address)
+            pm._adapters.append(("metamask", adapter))
+            pm._metamask = adapter
+        except Exception as e:
+            return {"connected": False, "error": f"adapter unavailable: {e}"}
+    else:
+        adapter.address = address
+
+    try:
+        ok = await adapter.connect()
+        return {
+            "connected": bool(ok),
+            "address": adapter.address,
+            "broker": "METAMASK",
+        }
+    except Exception as e:
+        return {"connected": False, "error": str(e), "broker": "METAMASK"}
+
+
+@router.post("/connect/polymarket")
+async def portfolio_connect_polymarket(
+    request: Request,
+    authorization: str = Header(default=""),
+) -> dict:
+    """Patch Polymarket adapter creds and reconnect.
+
+    Body: ``{"private_key": ..., "funder_address": ...}`` — private key is
+    stored on the adapter for future trade flows but not used for read-only
+    position fetches. Funder address is the wallet that owns USDC + open
+    positions.
+    """
+    _verify_strike_token(authorization)
+    pm = _require_manager()
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    adapter = _find_adapter(pm, "polymarket")
+    if adapter is None:
+        try:
+            from .polymarket_adapter import PolymarketAdapter
+            adapter = PolymarketAdapter()
+            pm._adapters.append(("polymarket", adapter))
+            pm._polymarket = adapter
+        except Exception as e:
+            return {"connected": False, "error": f"adapter unavailable: {e}"}
+
+    if body.get("private_key"):
+        adapter.private_key = str(body["private_key"])
+    if body.get("funder_address"):
+        adapter.funder_address = str(body["funder_address"]).strip()
+
+    try:
+        ok = await adapter.connect()
+        return {
+            "connected": bool(ok),
+            "funder_address": adapter.funder_address,
+            "broker": "POLYMARKET",
+        }
+    except Exception as e:
+        return {"connected": False, "error": str(e), "broker": "POLYMARKET"}

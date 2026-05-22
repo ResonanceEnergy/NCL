@@ -273,13 +273,25 @@ def _fetch_yfinance_batch(tickers: List[str], period: str = "6mo") -> Dict[str, 
 class StockScanner:
     """Stateless scanner — create per request or cache for a few minutes."""
 
-    def __init__(self, alpaca_key: Optional[str] = None, alpaca_secret: Optional[str] = None):
+    def __init__(self, alpaca_key: Optional[str] = None, alpaca_secret: Optional[str] = None,
+                 async_writer=None, portfolio_manager=None):
         self.alpaca_key = alpaca_key
         self.alpaca_secret = alpaca_secret
         # Cache keyed by period to avoid short-period data poisoning scanner lookbacks
         self._cache: Dict[str, Dict[str, Any]] = {}  # {period: {ticker: DataFrame}}
         self._cache_ts: Dict[str, datetime] = {}      # {period: timestamp}
         self._cache_ttl = timedelta(minutes=5)
+        # 2026-05-22 EOD: injected by Brain lifespan for persistence + dedup
+        self.async_writer = async_writer
+        self.portfolio_manager = portfolio_manager
+
+    def attach_async_writer(self, async_writer) -> None:
+        """Late-bind the AsyncMemoryWriter (Brain may finish wiring after StockScanner __init__)."""
+        self.async_writer = async_writer
+
+    def attach_portfolio_manager(self, pm) -> None:
+        """Late-bind the PortfolioManager singleton for portfolio dedup."""
+        self.portfolio_manager = pm
 
     def _cache_valid(self, period: str) -> bool:
         ts = self._cache_ts.get(period)
@@ -319,6 +331,185 @@ class StockScanner:
 
         period_cache = self._cache[period]
         return {t: period_cache[t] for t in tickers if t in period_cache}
+
+    # ── Enrichment + Dedup pipeline (Features 2, 4, 5, 6) ─────────────
+
+    async def _enrich_and_filter(
+        self,
+        results: List[Dict[str, Any]],
+        scanner_name: str,
+        *,
+        include_held: bool = False,
+        include_earnings_risk: bool = False,
+        run_persistence: bool = True,
+    ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        """Apply Features 2/4/5/6 to a raw scan result list.
+
+        Order matters — cheap filters first so we don't pay for UW/yf round-trips
+        on doomed candidates.
+
+        1. Portfolio dedup (Feature 2) — annotate held_in_portfolio, drop if not include_held
+        2. Earnings filter (Feature 5) — drop if days_to_earnings <= 7
+        3. Liquidity gate (Feature 4) — drop if ADV/mcap/option-OI under threshold
+        4. IVR gate (Feature 6A) — GOAT rejects >70, BRAVO rejects <20
+        5. Flow confirmation (Feature 6B) — annotate, never drop
+        6. Dark pool support (Feature 6C) — refine stop_loss
+        7. Persist to JSONL + memory enqueue (Feature 1)
+
+        Returns ``(filtered_results, _meta)``.
+        """
+        from . import enrichments as enr  # local import — keeps scanner.py importable without enrichments
+        from . import persistence as pers
+
+        is_goat = "goat" in scanner_name
+        min_adv = enr.GOAT_MIN_ADV if is_goat else enr.BRAVO_MIN_ADV
+
+        meta: Dict[str, Any] = {
+            "scanner": scanner_name,
+            "raw_count": len(results),
+            "filtered_held": 0,
+            "filtered_earnings": 0,
+            "filtered_liquidity": 0,
+            "filtered_ivr": 0,
+            "include_held": include_held,
+            "include_earnings_risk": include_earnings_risk,
+        }
+
+        # ── Feature 2: portfolio dedup ─────────────────────────────────
+        held_map: Dict[str, Dict[str, Any]] = {}
+        try:
+            if self.portfolio_manager is not None:
+                for pos in self.portfolio_manager.get_positions(account_filter="all"):
+                    sym = (pos.get("symbol") or "").upper().strip()
+                    if not sym:
+                        continue
+                    # Bias toward the largest matching position when a symbol
+                    # is split across accounts.
+                    cur = held_map.get(sym)
+                    if cur is None or float(pos.get("market_value", 0) or 0) > float(cur.get("market_value", 0) or 0):
+                        held_map[sym] = pos
+        except Exception as e:
+            log.debug("portfolio dedup probe failed: %s", e)
+
+        # ── Feature 5: earnings calendar (batch) ────────────────────────
+        earnings_map = await enr.get_earnings_map()
+        if earnings_map is None:
+            meta["earnings_source"] = "unavailable"
+        else:
+            meta["earnings_source"] = "finnhub"
+
+        # ── Feature 6B: load flow map once ─────────────────────────────
+        try:
+            flow_map = await enr.get_flow_map()
+        except Exception as e:
+            log.debug("flow map load failed: %s", e)
+            flow_map = {}
+
+        out: List[Dict[str, Any]] = []
+        for row in results:
+            ticker = (row.get("ticker") or "").upper().strip()
+            if not ticker:
+                continue
+            row = dict(row)  # never mutate caller's dict
+
+            # 2: portfolio dedup
+            pos = held_map.get(ticker)
+            if pos is not None:
+                row["held_in_portfolio"] = True
+                row["position_value_usd"] = float(pos.get("market_value") or 0)
+                row["position_account"] = pos.get("account_id") or pos.get("broker", "")
+                if not include_held:
+                    meta["filtered_held"] += 1
+                    continue
+            else:
+                row["held_in_portfolio"] = False
+
+            # 5: earnings filter
+            edate = (earnings_map or {}).get(ticker)
+            d2e = enr.days_until(edate)
+            row["days_to_earnings"] = d2e
+            if d2e is not None and d2e <= enr.EARNINGS_HORIZON_DAYS and not include_earnings_risk:
+                meta["filtered_earnings"] += 1
+                continue
+
+            # 4: liquidity — ADV-20 already computed by the scanner from its
+            # own OHLCV (avg_daily_volume field). yfinance probe still needed
+            # for market cap + option open interest.
+            adv = row.get("avg_daily_volume")
+            try:
+                adv_f = float(adv) if adv is not None else None
+            except (TypeError, ValueError):
+                adv_f = None
+            liq = await enr.check_liquidity(
+                ticker, avg_daily_volume=adv_f, min_adv=min_adv,
+                require_options_oi=True,
+            )
+            row.update(liq.to_dict())
+            if not liq.pass_liquidity:
+                meta["filtered_liquidity"] += 1
+                continue
+
+            # 6A: IVR
+            ivr = await enr.compute_ivr(ticker)
+            row["ivr"] = round(float(ivr), 1) if ivr is not None else None
+            if ivr is not None:
+                if is_goat and ivr > enr.GOAT_IVR_MAX:
+                    meta["filtered_ivr"] += 1
+                    continue
+                if (not is_goat) and ivr < enr.BRAVO_IVR_MIN:
+                    meta["filtered_ivr"] += 1
+                    continue
+
+            # 6B: options flow confirmation
+            # Bullish-setup detection: GOAT is always long-bias; BRAVO entry signals are bullish.
+            bullish = True if is_goat else bool(row.get("entry_signal") and not row.get("exit_signal"))
+            flow = enr.summarize_flow(ticker, flow_map, bullish_setup=bullish)
+            row.update(flow.to_dict())
+
+            # 6C: dark pool support (refines stop_loss if found)
+            try:
+                dp = await enr.fetch_dark_pool_support(ticker, float(row.get("price") or 0))
+                row.update(dp.to_dict())
+                if dp.price is not None and dp.price > 0:
+                    # Move stop just BELOW the dark pool level (0.5% below the print).
+                    # Only override if the new stop is tighter than ATR stop *and* still
+                    # leaves a sane risk distance.
+                    refined = round(dp.price * 0.995, 2)
+                    cur_stop = float(row.get("stop_loss") or 0)
+                    price = float(row.get("price") or 0)
+                    if refined > 0 and refined < price and refined > cur_stop:
+                        row["stop_loss_atr_only"] = cur_stop
+                        row["stop_loss"] = refined
+                        # Recompute risk_reward (GOAT-only field; BRAVO has risk_pct)
+                        if is_goat and row.get("target_1"):
+                            risk = price - refined
+                            reward = float(row["target_1"]) - price
+                            row["risk_reward"] = round(reward / risk, 2) if risk > 0 else 0.0
+            except Exception as e:
+                log.debug("dark pool refine failed for %s: %s", ticker, e)
+                row.setdefault("dark_pool_support", None)
+                row.setdefault("dark_pool_volume", None)
+                row.setdefault("dark_pool_date", None)
+
+            out.append(row)
+
+        # ── Feature 1: persist + memory enqueue ────────────────────────
+        if run_persistence and out:
+            try:
+                persist_meta = await pers.persist_and_enqueue(
+                    scanner_name, out, async_writer=self.async_writer,
+                )
+                meta.update(persist_meta)
+            except Exception as e:
+                log.warning("scanner persistence failed (%s): %s", scanner_name, e)
+                meta["persistence_error"] = str(e)
+        else:
+            meta["jsonl_path"] = None
+            meta["persisted"] = 0
+            meta["enqueued_memory"] = 0
+
+        meta["returned_count"] = len(out)
+        return out, meta
 
     async def fetch_quotes(self, tickers: List[str]) -> List[Dict[str, Any]]:
         """Fetch current quotes for all tickers. Returns list of quote dicts."""
@@ -500,6 +691,7 @@ class StockScanner:
                     "rsi": round(float(current_rsi), 1) if not np.isnan(current_rsi) else 50.0,
                     "volume_surge": bool(rule_vol_surge),
                     "volume_ratio": round(float(vol_ratio), 2),
+                    "avg_daily_volume": int(vol_20_avg) if vol_20_avg > 0 else 0,
                     "breakout": bool(rule_breakout),
                     "rules_hit": int(rules_hit),
                     # Risk management (new)
@@ -725,6 +917,7 @@ class StockScanner:
                     "stop_loss": float(stop_loss),
                     "risk_pct": float(risk_pct),
                     "atr": round(float(current_atr), 2),
+                    "avg_daily_volume": int(np.mean(volumes[-20:])) if len(volumes) >= 20 else 0,
                 })
 
             except Exception as e:
@@ -733,6 +926,38 @@ class StockScanner:
 
         results.sort(key=lambda x: x["bravo_score"], reverse=True)
         return results
+
+    # ── Enriched wrappers (Features 1, 2, 4, 5, 6) ─────────────────────
+
+    async def run_goat_scan_enriched(
+        self,
+        tickers: List[str],
+        *,
+        include_held: bool = False,
+        include_earnings_risk: bool = False,
+    ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        """GOAT scan + portfolio dedup + earnings + liquidity + IVR + flow + dark pool + persist."""
+        raw = await self.run_goat_scan(tickers)
+        return await self._enrich_and_filter(
+            raw, "scanner:goat",
+            include_held=include_held,
+            include_earnings_risk=include_earnings_risk,
+        )
+
+    async def run_bravo_scan_enriched(
+        self,
+        tickers: List[str],
+        *,
+        include_held: bool = False,
+        include_earnings_risk: bool = False,
+    ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        """BRAVO scan + portfolio dedup + earnings + liquidity + IVR + flow + dark pool + persist."""
+        raw = await self.run_bravo_scan(tickers)
+        return await self._enrich_and_filter(
+            raw, "scanner:bravo",
+            include_held=include_held,
+            include_earnings_risk=include_earnings_risk,
+        )
 
     @staticmethod
     def _bravo_signal_label(entry: bool, exit_: bool, caution: bool, gogo: bool,

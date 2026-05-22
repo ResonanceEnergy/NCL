@@ -6125,6 +6125,10 @@ async def autonomous_loops(authorization: str = Header(default="")) -> dict:
         {"name": "Memory Budget Telemetry", "id": "ncl-memory-budget",
          "interval": 900, "enabled": True,
          "description": "15m per-tier token-spend rollup on context injection; ntfy on cap exceed"},
+        # ── 2026-05-22 EOD: stocks scanner agent ──
+        {"name": "Stocks Scanner", "id": "ncl-stocks-scan",
+         "interval": 14400, "enabled": True,
+         "description": "4h GOAT + BRAVO scan during NYSE hours — portfolio dedup, liquidity gate, earnings filter (next 7d), IVR gate, options-flow confirmation, dark-pool support refinement. Hits persist to data/scanners/*.jsonl + MemoryStore (importance 70 GOAT / 55 BRAVO)."},
     ]
 
     # --- Awarebot sub-tasks (spawned inside awarebot agent) ---
@@ -6213,6 +6217,7 @@ async def autonomous_loops(authorization: str = Header(default="")) -> dict:
         "ncl-dedup-scan": _autonomous._stats.get("last_dedup_scan"),
         "ncl-async-writer": _autonomous._stats.get("last_async_writer_tick") or (_autonomous._async_writer.get_stats().get("last_drain_at") if getattr(_autonomous, "_async_writer", None) else None),
         "ncl-memory-budget": _autonomous._stats.get("last_memory_budget_check"),
+        "ncl-stocks-scan": _autonomous._stats.get("last_stocks_scan"),
         # awarebot sub-tasks — read directly from awarebot stats
         "ncl-awarebot-agent": aware_stats.get("last_scan_at"),
         "awarebot-scan": aware_stats.get("last_scan_at"),
@@ -9848,22 +9853,51 @@ async def stocks_watchlist(sector: str = None):
 
 
 @app.get("/stocks/scanner/goat", tags=["stocks"])
-async def stocks_scanner_goat(sector: str = None, min_score: int = 0):
+async def stocks_scanner_goat(
+    sector: str = None,
+    min_score: int = 0,
+    include_held: bool = False,
+    include_earnings_risk: bool = False,
+):
     """Run GOAT Academy strategy scanner on the watchlist.
 
     6 Rules: Price > 50 SMA, Price > 150 SMA, 50 SMA rising,
     RSI 40-70, Volume > 1.5x avg, Price > 20-day high.
 
-    Optional filters:
+    Filters:
     - ?sector= — scan only one sector
     - ?min_score= — only return results >= this GOAT score
+    - ?include_held=true — include symbols already in portfolio (default false)
+    - ?include_earnings_risk=true — include symbols with earnings in next 7d (default false)
+
+    Enrichments applied: liquidity gate (ADV 500K, mcap $1B, option OI 1K),
+    IVR gate (reject >70), options-flow confirmation, dark-pool support refinement.
+    Persists to data/scanners/goat-YYYY-MM-DD.jsonl + MemoryStore (importance 70).
     """
     tickers = WATCHLIST_TICKERS
     if sector:
         tickers = [t.ticker for t in DEFAULT_WATCHLIST if t.sector.lower() == sector.lower()]
 
     try:
-        results = await _stock_scanner.run_goat_scan(tickers)
+        # Late-bind portfolio_manager into the scanner if not already attached
+        if _stock_scanner.portfolio_manager is None:
+            try:
+                from runtime.portfolio.portfolio_routes import _portfolio_manager as _pm
+                if _pm is not None:
+                    _stock_scanner.attach_portfolio_manager(_pm)
+            except Exception:
+                pass
+        # Late-bind async_writer (set after Brain scheduler starts)
+        if _stock_scanner.async_writer is None and _autonomous is not None:
+            aw = getattr(_autonomous, "_async_writer", None)
+            if aw is not None:
+                _stock_scanner.attach_async_writer(aw)
+
+        results, scan_meta = await _stock_scanner.run_goat_scan_enriched(
+            tickers,
+            include_held=include_held,
+            include_earnings_risk=include_earnings_risk,
+        )
 
         if min_score > 0:
             results = [r for r in results if r["goat_score"] >= min_score]
@@ -9890,6 +9924,7 @@ async def stocks_scanner_goat(sector: str = None, min_score: int = 0):
                 "Volume > 1.5x 20-day avg",
                 "Price > 20-day high (breakout)",
             ],
+            "_meta": scan_meta,
         }
     except Exception as e:
         log.error("GOAT scan failed: %s", e)
@@ -9897,23 +9932,52 @@ async def stocks_scanner_goat(sector: str = None, min_score: int = 0):
 
 
 @app.get("/stocks/scanner/bravo", tags=["stocks"])
-async def stocks_scanner_bravo(sector: str = None, min_score: int = 0, gogo_only: bool = False):
+async def stocks_scanner_bravo(
+    sector: str = None,
+    min_score: int = 0,
+    gogo_only: bool = False,
+    include_held: bool = False,
+    include_earnings_risk: bool = False,
+):
     """Run Johnny Bravo / Bill Stenzel swing scanner on the watchlist.
 
     Core: SMA 9 > EMA 20 > SMA 180 alignment, all MAs sloping up,
     entry above SMA 9, exit below EMA 20, GoGo Juice, Bollinger Squeeze.
 
-    Optional filters:
+    Filters:
     - ?sector= — scan only one sector
     - ?min_score= — only return results >= this Bravo score
     - ?gogo_only=true — only show stocks with GoGo Juice active
+    - ?include_held=true — include symbols already in portfolio (default false)
+    - ?include_earnings_risk=true — include symbols with earnings in next 7d (default false)
+
+    Enrichments applied: liquidity gate (ADV 250K, mcap $1B, option OI 1K),
+    IVR gate (reject <20 — no juice for swing), options-flow confirmation
+    (high-put + bullish-tech = squeeze candidate), dark-pool support refinement.
+    Persists to data/scanners/bravo-YYYY-MM-DD.jsonl + MemoryStore (importance 55).
     """
     tickers = WATCHLIST_TICKERS
     if sector:
         tickers = [t.ticker for t in DEFAULT_WATCHLIST if t.sector.lower() == sector.lower()]
 
     try:
-        results = await _stock_scanner.run_bravo_scan(tickers)
+        if _stock_scanner.portfolio_manager is None:
+            try:
+                from runtime.portfolio.portfolio_routes import _portfolio_manager as _pm
+                if _pm is not None:
+                    _stock_scanner.attach_portfolio_manager(_pm)
+            except Exception:
+                pass
+        if _stock_scanner.async_writer is None and _autonomous is not None:
+            aw = getattr(_autonomous, "_async_writer", None)
+            if aw is not None:
+                _stock_scanner.attach_async_writer(aw)
+
+        results, scan_meta = await _stock_scanner.run_bravo_scan_enriched(
+            tickers,
+            include_held=include_held,
+            include_earnings_risk=include_earnings_risk,
+        )
 
         if min_score > 0:
             results = [r for r in results if r["bravo_score"] >= min_score]
@@ -9934,6 +9998,7 @@ async def stocks_scanner_bravo(sector: str = None, min_score: int = 0, gogo_only
             "count": len(results),
             "scanned": len(tickers),
             "scanner": "bravo",
+            "_meta": scan_meta,
         }
     except Exception as e:
         log.error("Bravo scan failed: %s", e)

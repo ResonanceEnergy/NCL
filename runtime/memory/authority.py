@@ -126,6 +126,13 @@ SOURCE_TIER_MAP: dict[str, AuthorityTier] = {
     "portfolio:quantity_change": AuthorityTier.BRAIN,   # was NATRIX; demoted 2026-05-22
     "portfolio:account_change": AuthorityTier.BRAIN,    # was NATRIX; demoted 2026-05-22
     "portfolio:buying_power_risk": AuthorityTier.BRAIN, # was NATRIX; demoted 2026-05-22
+    # Crypto + prediction adapters (added 2026-05-22 EOD). Treated as
+    # NATRIX(100) — these are user-funded wallets / exchange accounts, the
+    # actual money the owner controls, so they deserve the same authority
+    # tier as direct trade events.
+    "portfolio:ndax": AuthorityTier.NATRIX,
+    "portfolio:metamask": AuthorityTier.NATRIX,
+    "portfolio:polymarket": AuthorityTier.NATRIX,
 
     # ---- COUNCIL (80) -------------------------------------------------
     "council-decision": AuthorityTier.COUNCIL,
@@ -202,6 +209,8 @@ SOURCE_TIER_MAP: dict[str, AuthorityTier] = {
     "awarebot:unknown": AuthorityTier.SCANNER,
     "intelligence_polymarket": AuthorityTier.SCANNER,
     "scanner": AuthorityTier.SCANNER,
+    "scanner:goat": AuthorityTier.SCANNER,         # 2026-05-22 EOD swarm
+    "scanner:bravo": AuthorityTier.SCANNER,        # 2026-05-22 EOD swarm
     "signal": AuthorityTier.SCANNER,
 }
 

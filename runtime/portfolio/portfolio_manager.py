@@ -25,6 +25,9 @@ from dotenv import load_dotenv
 from .ibkr_adapter import IBKRAdapter
 from .moomoo_adapter import MoomooAdapter
 from .snaptrade_adapter import SnapTradeAdapter
+from .ndax_adapter import NDAXAdapter
+from .metamask_adapter import MetaMaskAdapter
+from .polymarket_adapter import PolymarketAdapter
 from .memory_bridge import init_bridge as _init_bridge
 
 # ---------------------------------------------------------------------------
@@ -103,10 +106,17 @@ class PortfolioManager:
         self._ibkr = IBKRAdapter()
         self._moomoo = MoomooAdapter()
         self._snaptrade = SnapTradeAdapter()
+        # Crypto + prediction-market adapters (added 2026-05-22 EOD)
+        self._ndax = NDAXAdapter()
+        self._metamask = MetaMaskAdapter()
+        self._polymarket = PolymarketAdapter()
         self._adapters = [
             ("ibkr", self._ibkr),
             ("moomoo", self._moomoo),
             ("snaptrade", self._snaptrade),
+            ("ndax", self._ndax),
+            ("metamask", self._metamask),
+            ("polymarket", self._polymarket),
         ]
 
         # Cached data
@@ -302,7 +312,7 @@ class PortfolioManager:
                 price = 0.0
             if price > 0:
                 continue
-            if pos.get("asset_class") in ("option", "future", "forex", "crypto"):
+            if pos.get("asset_class") in ("option", "future", "forex", "crypto", "prediction"):
                 continue
             sym = pos.get("symbol") or ""
             # Skip option-encoded symbols (e.g. SLV270115C65000)

@@ -403,6 +403,11 @@ class AutonomousScheduler:
         self._tasks.append(
             asyncio.create_task(self._city_events_loop(), name="ncl-city-events")
         )
+        # Loop 8 (2026-05-22 EOD): stock scanner agent — GOAT + BRAVO every 4h
+        # during NYSE hours. Persists hits, enqueues to memory, market-hours gated.
+        self._tasks.append(
+            asyncio.create_task(self._stocks_scan_loop(), name="ncl-stocks-scan")
+        )
 
         # ── 2026-05-22 second batch: async writer, budget telemetry ──
         # Async write queue (Mem0 pattern) — fire-and-forget Awarebot writes
@@ -654,6 +659,7 @@ class AutonomousScheduler:
             "ncl-ytc-dedicated": self._ytc_dedicated_loop,
             "ncl-bm25-rebuild": self._bm25_rebuild_loop,
             "ncl-city-events": self._city_events_loop,
+            "ncl-stocks-scan": self._stocks_scan_loop,
         }
         # 2026-05-22 memory loops (factory registration — only if loaded above)
         try:
@@ -6517,5 +6523,120 @@ class AutonomousScheduler:
 
             try:
                 await asyncio.sleep(3600)
+            except asyncio.CancelledError:
+                raise
+
+    async def _stocks_scan_loop(self) -> None:
+        """LOOP 20 (2026-05-22 EOD) — autonomous stock scanner (GOAT + BRAVO).
+
+        Cadence: 4 hours (14400s). Market-hours gated:
+          * NYSE open M-F 09:30-16:00 ET (matches portfolio_manager._is_market_open).
+          * Off-hours ticks log + sleep, no scan work performed.
+
+        Each in-hours tick:
+          1. Run GOAT + BRAVO scans in parallel on the full WATCHLIST_TICKERS list.
+          2. Both scans go through the enriched pipeline — portfolio dedup,
+             earnings filter (next 7d), liquidity gate, IVR gate, options-flow
+             confirmation, dark-pool support refinement, JSONL append, memory
+             enqueue (importance 70 GOAT / 55 BRAVO).
+          3. Stats stamped on self._stats so /autonomous/loops can render last_run.
+
+        Stat keys:
+          last_stocks_scan, goat_hits_total, bravo_hits_total,
+          last_stocks_scan_duration_s, last_stocks_scan_skipped_reason.
+        """
+        log.info("[STOCKS-SCAN] loop started (4h cadence, NYSE hours only)")
+        try:
+            from ..stocks.scanner import StockScanner
+            from ..stocks.watchlist import WATCHLIST_TICKERS
+            from ..portfolio.portfolio_manager import _is_market_open
+        except Exception as e:
+            log.error("[STOCKS-SCAN] import failed: %s — loop exiting", e)
+            return
+
+        async_writer = getattr(self, "_async_writer", None)
+        if async_writer is None:
+            try:
+                from ..memory.async_writer import get_async_writer
+                async_writer = get_async_writer()
+            except Exception:
+                async_writer = None
+
+        scanner = StockScanner(async_writer=async_writer)
+
+        # Try to wire portfolio manager (already running in lifespan)
+        try:
+            from ..portfolio.portfolio_routes import _portfolio_manager as _pm
+            if _pm is not None:
+                scanner.attach_portfolio_manager(_pm)
+        except Exception:
+            pass
+
+        # Warm-up delay so Brain finishes booting
+        try:
+            await asyncio.sleep(120)
+        except asyncio.CancelledError:
+            raise
+
+        STOCKS_SCAN_INTERVAL = 14400  # 4h
+        IDLE_SLEEP = 600              # 10m poll when market closed
+
+        while self._running:
+            if EMERGENCY_STOP_EVENT.is_set():
+                log.critical("[STOCKS-SCAN] Emergency stop active — halting loop")
+                break
+
+            if not _is_market_open():
+                self._stats["last_stocks_scan_skipped_reason"] = "market_closed"
+                try:
+                    await asyncio.sleep(IDLE_SLEEP)
+                except asyncio.CancelledError:
+                    raise
+                continue
+
+            cycle_start = time.time()
+            # Late-bind async_writer if it appeared after loop start
+            if scanner.async_writer is None:
+                aw2 = getattr(self, "_async_writer", None)
+                if aw2 is not None:
+                    scanner.attach_async_writer(aw2)
+            try:
+                goat_task = asyncio.create_task(
+                    scanner.run_goat_scan_enriched(WATCHLIST_TICKERS),
+                )
+                bravo_task = asyncio.create_task(
+                    scanner.run_bravo_scan_enriched(WATCHLIST_TICKERS),
+                )
+                (goat_results, goat_meta), (bravo_results, bravo_meta) = await asyncio.gather(
+                    goat_task, bravo_task,
+                )
+                goat_hits = len(goat_results)
+                bravo_hits = len(bravo_results)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.warning("[STOCKS-SCAN] cycle failed: %s", e)
+                goat_hits = bravo_hits = 0
+
+            elapsed = time.time() - cycle_start
+            now_iso = datetime.now(timezone.utc).isoformat()
+            self._stats["last_stocks_scan"] = now_iso
+            self._stats["last_stocks_scan_duration_s"] = round(elapsed, 2)
+            self._stats["goat_hits_total"] = (
+                self._stats.get("goat_hits_total", 0) + goat_hits
+            )
+            self._stats["bravo_hits_total"] = (
+                self._stats.get("bravo_hits_total", 0) + bravo_hits
+            )
+            self._stats["last_stocks_scan_goat_hits"] = goat_hits
+            self._stats["last_stocks_scan_bravo_hits"] = bravo_hits
+            self._stats.pop("last_stocks_scan_skipped_reason", None)
+            log.info(
+                "[STOCKS-SCAN] cycle complete: GOAT %d / BRAVO %d in %.1fs",
+                goat_hits, bravo_hits, elapsed,
+            )
+
+            try:
+                await asyncio.sleep(STOCKS_SCAN_INTERVAL)
             except asyncio.CancelledError:
                 raise
