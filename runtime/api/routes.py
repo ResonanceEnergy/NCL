@@ -5073,6 +5073,227 @@ async def migrate_memory_types_endpoint(authorization: str = Header(default=""))
         return {"error": str(e)}
 
 
+# ── Memory Budget Telemetry ─────────────────────────────────────────────
+#
+# Tracks PROMPT-CONTEXT tokens injected into LLMs (the inbound side of
+# every call). Complements cost_tracker.py which counts USD on outbound
+# responses. See runtime/memory/budget_tracker.py for the full design.
+
+@app.get("/memory/budget")
+async def get_memory_budget_summary(authorization: str = Header(default="")) -> dict:
+    """Today's per-category context-token spend + caps + platform pct."""
+    _verify_strike_token(authorization)
+    try:
+        from ..memory.budget_tracker import get_tracker as _bt_get
+        tracker = await _bt_get()
+        return await tracker.get_daily_summary()
+    except Exception as e:
+        log.error(f"[/memory/budget] failed: {e}")
+        return {"error": str(e)}
+
+
+@app.get("/memory/budget/history")
+async def get_memory_budget_history(
+    days: int = 7,
+    authorization: str = Header(default=""),
+) -> dict:
+    """Per-day rollup of context-token spend for the last N days."""
+    _verify_strike_token(authorization)
+    try:
+        from ..memory.budget_tracker import get_tracker as _bt_get
+        tracker = await _bt_get()
+        history = await tracker.get_history(days=max(1, min(int(days), 90)))
+        return {"days": days, "history": history}
+    except Exception as e:
+        log.error(f"[/memory/budget/history] failed: {e}")
+        return {"error": str(e)}
+
+
+@app.post("/memory/budget/check")
+async def check_memory_budget(
+    category: str,
+    est_tokens: int,
+    authorization: str = Header(default=""),
+) -> dict:
+    """Pre-flight budget gate for a planned context injection."""
+    _verify_strike_token(authorization)
+    try:
+        from ..memory.budget_tracker import get_tracker as _bt_get
+        tracker = await _bt_get()
+        allowed, reason = await tracker.check_budget(category, int(est_tokens))
+        return {
+            "allowed": allowed,
+            "reason": reason,
+            "category": category,
+            "est_tokens": int(est_tokens),
+        }
+    except Exception as e:
+        log.error(f"[/memory/budget/check] failed: {e}")
+        return {"error": str(e)}
+
+
+# ── Authority / Provenance Tier ─────────────────────────────────────────
+#
+# A memory unit's source determines its trust tier (NATRIX > council >
+# brain > calendar > llm_single > scanner > raw). The tier is stamped at
+# write-time into unit.metadata.authority_tier and consumed by the
+# salience formula and FusedRetriever ranking.
+#
+# These endpoints expose:
+#   GET  /memory/by-authority    filter live units by tier floor
+#   POST /memory/backfill-authority  one-shot migration for units that
+#                                    predate the authority system
+
+@app.get("/memory/by-authority")
+async def list_memory_by_authority(
+    min_tier: str = Query(
+        default="council",
+        description=(
+            "Inclusive lower bound. Accepts a tier name "
+            "(natrix|council|brain|calendar|llm_single|scanner|raw) "
+            "or a bare integer (10..100)."
+        ),
+    ),
+    limit: int = Query(default=20, ge=1, le=500),
+    authorization: str = Header(default=""),
+) -> dict:
+    """Return units whose authority_tier >= `min_tier`, newest-first."""
+    _verify_strike_token(authorization)
+    if not brain or not brain.memory_store:
+        return {"error": "Memory store not available"}
+
+    from ..memory.authority import (
+        AuthorityTier,
+        TIER_BY_NAME,
+        filter_by_min_tier,
+        tier_for_source,
+    )
+
+    # Parse min_tier (name or int)
+    raw = (min_tier or "").strip().lower()
+    if not raw:
+        return {"error": "min_tier is required"}
+    try:
+        floor_int = int(raw)
+    except ValueError:
+        if raw not in TIER_BY_NAME:
+            return {
+                "error": f"unknown tier name: {min_tier!r}",
+                "valid_names": sorted(TIER_BY_NAME),
+            }
+        floor_int = int(TIER_BY_NAME[raw])
+
+    units = await brain.memory_store._load_all_units()
+    matching = filter_by_min_tier(units, floor_int)
+    # Newest first
+    matching.sort(key=lambda u: getattr(u, "created_at", None) or 0, reverse=True)
+    sliced = matching[:limit]
+
+    out: list[dict] = []
+    for u in sliced:
+        meta = getattr(u, "metadata", None) or {}
+        tv = meta.get("authority_tier")
+        if tv is None:
+            tv = int(tier_for_source(getattr(u, "source", "")))
+        try:
+            tier_name = AuthorityTier(int(tv)).name.lower()
+        except ValueError:
+            tier_name = "raw"
+        out.append({
+            "unit_id": u.unit_id,
+            "source": u.source,
+            "content": (u.content[:500] + ("…" if len(u.content) > 500 else "")),
+            "importance": float(u.importance),
+            "memory_type": getattr(u, "memory_type", "episodic"),
+            "memory_tier": getattr(u, "memory_tier", "SML"),
+            "authority_tier": int(tv),
+            "authority_tier_name": tier_name,
+            "tags": list(u.tags or []),
+            "created_at": (
+                u.created_at.isoformat()
+                if hasattr(u.created_at, "isoformat") else str(u.created_at)
+            ),
+            "last_accessed": (
+                u.last_accessed.isoformat()
+                if hasattr(u.last_accessed, "isoformat") else str(u.last_accessed)
+            ),
+        })
+
+    return {
+        "min_tier": floor_int,
+        "min_tier_name": (
+            AuthorityTier(floor_int).name.lower()
+            if floor_int in {int(t) for t in AuthorityTier} else None
+        ),
+        "matched": len(matching),
+        "returned": len(out),
+        "units": out,
+    }
+
+
+@app.post("/memory/backfill-authority")
+async def backfill_authority_endpoint(
+    authorization: str = Header(default=""),
+) -> dict:
+    """Stamp `metadata.authority_tier` on any unit missing it. Idempotent."""
+    _verify_strike_token(authorization)
+    if not brain or not brain.memory_store:
+        return {"error": "Memory store not available"}
+
+    try:
+        from ..memory.authority import backfill_authority_tiers
+        result = await backfill_authority_tiers(brain.memory_store)
+        return {"status": "ok", **result}
+    except Exception as e:
+        log.error(f"Authority backfill failed: {e}")
+        return {"status": "error", "error": str(e)}
+
+
+# ── Async Memory Writer (fire-and-forget queue) ─────────────────────────
+@app.get("/memory/async-writer/stats")
+async def get_async_writer_stats(authorization: str = Header(default="")) -> dict:
+    """Snapshot of AsyncMemoryWriter queue / drainer / DLQ health."""
+    _verify_strike_token(authorization)
+    try:
+        from ..memory.async_writer import get_async_writer
+        return get_async_writer().get_stats()
+    except RuntimeError:
+        return {"error": "AsyncMemoryWriter not initialized"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/memory/async-writer/dlq")
+async def get_async_writer_dlq(
+    limit: int = 20,
+    authorization: str = Header(default=""),
+) -> dict:
+    """Recent dead-letter queue entries (newest first, capped at `limit`)."""
+    _verify_strike_token(authorization)
+    try:
+        from ..memory.async_writer import get_async_writer
+        items = get_async_writer().get_dlq(limit=max(1, min(500, limit)))
+        return {"count": len(items), "items": items}
+    except RuntimeError:
+        return {"error": "AsyncMemoryWriter not initialized"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/memory/async-writer/retry-dlq")
+async def retry_async_writer_dlq(authorization: str = Header(default="")) -> dict:
+    """Re-enqueue all DLQ entries under MAX_ATTEMPTS for another try."""
+    _verify_strike_token(authorization)
+    try:
+        from ..memory.async_writer import get_async_writer
+        n = await get_async_writer().retry_dlq()
+        return {"status": "ok", "requeued": n}
+    except RuntimeError:
+        return {"error": "AsyncMemoryWriter not initialized"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @app.get("/memory/pii/recent")
 async def get_recent_pii_redactions(
     limit: int = Query(default=20, ge=1, le=500),
@@ -5618,6 +5839,13 @@ async def autonomous_loops(authorization: str = Header(default="")) -> dict:
         {"name": "Narrative Threads", "id": "ncl-narrative-threads",
          "interval": 21600, "enabled": True,
          "description": "6h cross-session narrative threading: link episodes by entity overlap"},
+        # ── 2026-05-22 batch 2 (async writer + budget telemetry) ──
+        {"name": "Async Memory Writer", "id": "ncl-async-writer",
+         "interval": 0, "enabled": True,
+         "description": "Fire-and-forget memory write queue (4 drainers, Sonnet 4.6 enrichment in background)"},
+        {"name": "Memory Budget Telemetry", "id": "ncl-memory-budget",
+         "interval": 900, "enabled": True,
+         "description": "15m per-tier token-spend rollup on context injection; ntfy on cap exceed"},
     ]
 
     # --- Awarebot sub-tasks (spawned inside awarebot agent) ---
@@ -5703,6 +5931,8 @@ async def autonomous_loops(authorization: str = Header(default="")) -> dict:
         "ncl-conflict-arb": _autonomous._stats.get("last_conflict_arbitration"),
         "ncl-staleness": _autonomous._stats.get("last_staleness_check"),
         "ncl-narrative-threads": _autonomous._stats.get("last_narrative_threading"),
+        "ncl-async-writer": _autonomous._stats.get("last_async_writer_tick") or (_autonomous._async_writer.get_stats().get("last_drain_at") if getattr(_autonomous, "_async_writer", None) else None),
+        "ncl-memory-budget": _autonomous._stats.get("last_memory_budget_check"),
         # awarebot sub-tasks — read directly from awarebot stats
         "ncl-awarebot-agent": aware_stats.get("last_scan_at"),
         "awarebot-scan": aware_stats.get("last_scan_at"),
@@ -6320,6 +6550,20 @@ async def chat_endpoint(
     except Exception as ctx_err:
         log.warning(f"[/chat] context injector failed (proceeding without): {ctx_err}")
         chat_context_block = ""
+
+    # Memory budget telemetry — count the prompt context we're about to
+    # inject (chars/4 ≈ tokens). Inbound side only; cost_tracker handles $$
+    # on the response. Never block the chat path on a tracker failure.
+    if chat_context_block:
+        try:
+            from ..memory.budget_tracker import record as _bt_record, estimate_tokens as _bt_est
+            await _bt_record(
+                "chat_injection",
+                _bt_est(chat_context_block),
+                source=f"chat:{session_id or 'anon'}",
+            )
+        except Exception as bt_err:
+            log.debug(f"[/chat] memory budget record failed: {bt_err}")
 
     # Build system prompt for NATRIX context
     system_prompt = (

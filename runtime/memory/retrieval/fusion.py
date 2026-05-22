@@ -27,6 +27,12 @@ import re
 import time
 from typing import TYPE_CHECKING, Iterable, Optional
 
+from ..authority import (
+    AuthorityTier,
+    authority_weight,
+    tier_for_source,
+)
+
 log = logging.getLogger("ncl.memory.retrieval.fusion")
 
 if TYPE_CHECKING:
@@ -212,18 +218,50 @@ class FusedRetriever:
             "entity": entity_r,
         }
         fused = self._rrf_fuse(per_signal, eff_weights)
-        fused_top = fused[: max(top_k, 1)]
 
-        # Hydrate unit content / metadata in a single batched pass.
-        wanted_ids = {uid for uid, _, _ in fused_top}
+        # ── Authority weighting ────────────────────────────────────────────
+        # Multiply the raw RRF score by the unit's authority weight so a
+        # NATRIX-tier unit (w=1.0) at modest rank beats a SCANNER-tier unit
+        # (w=0.2) sitting at the top of every signal.
+        #
+        # The hydration pass is the cheapest place to know each unit's tier,
+        # but a top-k slice taken BEFORE authority reranking would silently
+        # drop a high-tier unit that landed at, say, RRF rank-15 — exactly
+        # the case this whole system exists to fix. So we hydrate the
+        # top-N×3 (capped at 60) candidate window first, apply authority
+        # weighting, then take the final top-k.
+        candidate_window = fused[: max(top_k * 3, 30)][:60]
+        wanted_ids = {uid for uid, _, _ in candidate_window}
         units_by_id = await self.store._load_units_batch(wanted_ids) if wanted_ids else {}
 
-        results: list[dict] = []
-        for uid, score, br in fused_top:
+        reweighted: list[tuple[str, float, float, float, dict]] = []
+        # tuple: (uid, final_score, raw_rrf, authority_w, breakdown)
+        for uid, raw_score, br in candidate_window:
             unit = units_by_id.get(uid)
             if not unit:
                 # Unit pruned between rank time and hydrate — skip.
                 continue
+            meta = getattr(unit, "metadata", None) or {}
+            tv = meta.get("authority_tier")
+            if tv is None:
+                tier = tier_for_source(getattr(unit, "source", ""))
+                tv = int(tier)
+            aw = authority_weight(int(tv))
+            final = raw_score * aw
+            reweighted.append((uid, final, raw_score, aw, br))
+
+        reweighted.sort(key=lambda x: x[1], reverse=True)
+
+        results: list[dict] = []
+        for uid, final_score, raw_score, aw, br in reweighted[: max(top_k, 1)]:
+            unit = units_by_id[uid]
+            meta = getattr(unit, "metadata", None) or {}
+            tier_val = int(meta.get("authority_tier",
+                                    int(tier_for_source(getattr(unit, "source", "")))))
+            try:
+                tier_name = AuthorityTier(tier_val).name.lower()
+            except ValueError:
+                tier_name = "raw"
             results.append({
                 "unit_id": uid,
                 "content": (unit.content[:500] + ("…" if len(unit.content) > 500 else "")),
@@ -232,15 +270,21 @@ class FusedRetriever:
                 "memory_type": getattr(unit, "memory_type", "episodic"),
                 "memory_tier": getattr(unit, "memory_tier", "SML"),
                 "tags": list(unit.tags or []),
-                "fused_score": round(score, 6),
+                "fused_score": round(final_score, 6),
+                "rrf_score": round(raw_score, 6),
+                "authority_tier": tier_val,
+                "authority_tier_name": tier_name,
+                "authority_weight": round(aw, 3),
                 "signal_breakdown": br,
             })
 
         elapsed = round(time.perf_counter() - t0, 3)
         log.info(
-            "[FUSION] q=%r top_k=%d vector=%d bm25=%d entity=%d fused=%d in %.3fs",
+            "[FUSION] q=%r top_k=%d vector=%d bm25=%d entity=%d fused=%d "
+            "candidates=%d in %.3fs",
             query[:60], top_k,
-            len(vector_r), len(bm25_r), len(entity_r), len(fused), elapsed,
+            len(vector_r), len(bm25_r), len(entity_r), len(fused),
+            len(candidate_window), elapsed,
         )
         return results
 
@@ -342,6 +386,23 @@ class FusedRetriever:
                 cost = (in_t * 0.80 + out_t * 4.00) / 1_000_000
                 await record_cost("anthropic", cost, "fusion_rerank",
                                   f"rerank in={in_t} out={out_t}")
+            except Exception:
+                pass
+
+            # Memory budget telemetry — log the prompt-context tokens fed
+            # into the reranker. Prefer Anthropic's reported usage when
+            # available, fall back to a chars/4 estimate of the prompt.
+            try:
+                from ..budget_tracker import record as _bt_record
+                usage = data.get("usage", {}) or {}
+                tokens_in = int(usage.get("input_tokens") or max(1, len(prompt) // 4))
+                tokens_out = int(usage.get("output_tokens") or 0)
+                await _bt_record(
+                    "retrieval_rerank",
+                    tokens_in,
+                    tokens_out=tokens_out,
+                    source=f"rerank:{len(candidates)}cands",
+                )
             except Exception:
                 pass
 

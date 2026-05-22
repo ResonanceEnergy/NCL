@@ -35,14 +35,31 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
+from .authority import (
+    AuthorityTier,
+    authority_weight,
+    tier_for_source,
+)
+
 log = logging.getLogger("ncl.memory.working_context")
 
 # ── Configuration ────────────────────────────────────────────────────
 
-# Salience weights (must sum to 1.0)
-ALPHA_RECENCY = 0.30
-BETA_IMPORTANCE = 0.40
-GAMMA_RELEVANCE = 0.30
+# Salience weights — applied to the unweighted (recency, importance, relevance)
+# portion of the score. They sum to 0.85 because the remaining 0.15 of the
+# composite is reserved for the authority floor; see compute_salience().
+ALPHA_RECENCY = 0.25
+BETA_IMPORTANCE = 0.35
+GAMMA_RELEVANCE = 0.25
+
+# Authority floor: a fraction of the authority weight is added unconditionally
+# so a NATRIX directive (weight ~1.0) with poor recency/importance/relevance
+# still floats above a scanner item (weight ~0.2) with peak ranking signals.
+# Eg: scanner item peak = (0.25+0.35+0.25) * 0.2 + 0.15*0.2 = 0.17 + 0.03 = 0.20
+#      NATRIX dud      = (0.25+0.35+0.25) * 1.0 * 0.1 + 0.15*1.0 = 0.085 + 0.15 = 0.235
+# So NATRIX wins even on a bad day. Tune AUTHORITY_FLOOR_WEIGHT if scanners
+# need more headroom.
+AUTHORITY_FLOOR_WEIGHT = 0.15
 
 # Assembly thresholds
 MIN_DECAYED_IMPORTANCE = 30.0   # Minimum importance after decay to consider
@@ -289,16 +306,62 @@ class DailyContextWindow:
         recency: float,
         importance: float,
         relevance: float,
+        authority_weight: float = 1.0,
     ) -> float:
+        """Compute composite salience with authority weighting.
+
+        Formula:
+            base     = α·recency + β·importance + γ·relevance       # in [0, α+β+γ]
+            salience = base * authority_weight + FLOOR * authority_weight
+
+        The first term scales the recency/importance/relevance subscore by
+        provenance trust; the second term is a constant floor proportional
+        to the authority weight that ensures a high-tier (NATRIX) unit
+        with low recency/importance/relevance still outranks a low-tier
+        scanner unit with high stats. See AUTHORITY_FLOOR_WEIGHT comment
+        for the worked example.
+
+        ``authority_weight`` should be in [0.1, 1.0] — typically obtained
+        via ``runtime.memory.authority.authority_weight(tier)``. Defaults
+        to 1.0 so callers that haven't been migrated keep their old scoring.
         """
-        Compute composite salience score.
-        salience = (α × recency) + (β × importance) + (γ × relevance)
-        """
-        return (
+        base = (
             ALPHA_RECENCY * recency +
             BETA_IMPORTANCE * importance +
             GAMMA_RELEVANCE * relevance
         )
+        # Clamp to [0.1, 1.0] defensively in case a caller passes an int tier
+        # or an out-of-range value.
+        aw = max(0.1, min(1.0, float(authority_weight)))
+        return base * aw + AUTHORITY_FLOOR_WEIGHT * aw
+
+    @staticmethod
+    def _authority_weight_for(item_or_unit) -> float:
+        """Resolve the authority weight for either a MemUnit-like object or
+        a ContextItem.
+
+        Lookup order:
+        1. ``metadata.authority_tier`` int -> authority_weight
+        2. ``source`` -> tier_for_source -> authority_weight
+        3. RAW (0.1) fallback
+        """
+        # 1) Pull from metadata bag if present
+        meta = getattr(item_or_unit, "metadata", None)
+        if isinstance(meta, dict):
+            tv = meta.get("authority_tier")
+            if tv is not None:
+                try:
+                    return authority_weight(int(tv))
+                except (TypeError, ValueError):
+                    pass
+
+        # 2) Fall back to the source string
+        src = getattr(item_or_unit, "source", None)
+        if src:
+            return authority_weight(tier_for_source(src))
+
+        # 3) Worst case
+        return authority_weight(AuthorityTier.RAW)
 
     # ── Assembly ─────────────────────────────────────────────────────
 
@@ -364,6 +427,7 @@ class DailyContextWindow:
                     item.recency_score,
                     self.compute_importance_normalized(item.importance),
                     item.relevance_score,
+                    self._authority_weight_for(item),
                 )
 
             # Sort by salience, pinned items always on top
@@ -417,6 +481,20 @@ class DailyContextWindow:
                 f"themes: {len(themes)})"
             )
 
+            # Memory budget telemetry — count total context-content tokens
+            # assembled today. Failure must never break the assembly.
+            try:
+                from .budget_tracker import record as _bt_record
+                total_chars = sum(len(i.content or "") for i in deduped)
+                await _bt_record(
+                    "working_context_assembly",
+                    max(1, total_chars // 4),
+                    source=f"working_ctx:{today_str}",
+                    metadata={"item_count": len(deduped), "themes": len(themes)},
+                )
+            except Exception as _bt_err:
+                log.debug(f"[WORKING-CTX] budget record failed: {_bt_err}")
+
             return self._current
 
     async def _pull_from_memory(self, themes: list[str]) -> list[ContextItem]:
@@ -436,7 +514,16 @@ class DailyContextWindow:
                 recency = self.compute_recency(unit.last_accessed, unit.decay_rate)
                 importance_norm = self.compute_importance_normalized(unit.importance)
                 relevance = self.compute_relevance(unit.content, themes)
-                salience = self.compute_salience(recency, importance_norm, relevance)
+                aw = self._authority_weight_for(unit)
+                salience = self.compute_salience(recency, importance_norm, relevance, aw)
+
+                # Forward the unit's authority_tier into the context item's
+                # metadata bag so re-scoring during refresh() can recover the
+                # tier without re-classifying the source string.
+                unit_meta = getattr(unit, "metadata", None) or {}
+                _at = unit_meta.get("authority_tier")
+                if _at is None:
+                    _at = int(tier_for_source(unit.source))
 
                 items.append(ContextItem(
                     item_id=f"mem:{unit.unit_id}",
@@ -453,6 +540,7 @@ class DailyContextWindow:
                         "unit_id": unit.unit_id,
                         "reinforcement_count": unit.reinforcement_count,
                         "decay_rate": unit.decay_rate,
+                        "authority_tier": int(_at),
                     },
                 ))
         except Exception as e:
@@ -886,6 +974,9 @@ class DailyContextWindow:
     async def inject_signal(self, content: str, source: str, importance: float = 50.0, tags: list[str] = None) -> None:
         """Inject an intelligence signal into the working context (called by Awarebot)."""
         import uuid
+        # Stamp authority tier into the item's metadata so re-scoring and
+        # any downstream consumer can recover the provenance class.
+        _tier = tier_for_source(source)
         item = ContextItem(
             item_id=f"signal:{uuid.uuid4().hex[:8]}",
             content=content[:500],
@@ -897,7 +988,9 @@ class DailyContextWindow:
             relevance_score=0.0,
             tags=tags or [],
             created_at=datetime.now(timezone.utc).isoformat(),
+            metadata={"authority_tier": int(_tier)},
         )
+        aw = authority_weight(_tier)
         # Compute relevance against current themes
         if self._current and self._current.themes:
             item.relevance_score = self.compute_relevance(content, self._current.themes)
@@ -905,9 +998,15 @@ class DailyContextWindow:
                 item.recency_score,
                 self.compute_importance_normalized(importance),
                 item.relevance_score,
+                aw,
             )
         else:
-            item.salience_score = self.compute_importance_normalized(importance) * 0.7
+            # No themes assembled yet — keep authority in the mix so a low-tier
+            # scanner inject can't outweigh a high-tier promoted item later.
+            item.salience_score = (
+                self.compute_importance_normalized(importance) * 0.7 * aw
+                + AUTHORITY_FLOOR_WEIGHT * aw
+            )
 
         await self.add_item(item)
 

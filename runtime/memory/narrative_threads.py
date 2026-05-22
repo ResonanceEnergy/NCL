@@ -595,6 +595,17 @@ class NarrativeThreader:
                                   detail=thread.primary_entity)
                 except Exception:
                     pass
+                # Memory budget telemetry — count Sonnet prompt-context tokens.
+                try:
+                    from .budget_tracker import record as _bt_record
+                    await _bt_record(
+                        "narrative_summary",
+                        int(usage.get("input_tokens", 0) or 0),
+                        tokens_out=int(usage.get("output_tokens", 0) or 0),
+                        source=f"thread:{thread.primary_entity}",
+                    )
+                except Exception:
+                    pass
                 return text, cost, SUMMARIZATION_MODEL
         except Exception as e:
             log.warning(f"[NARRATIVE] LLM summarization failed for "

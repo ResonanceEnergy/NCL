@@ -155,6 +155,12 @@ def _memory_component(brain) -> dict:
         if hasattr(store, "get_stats"):
             try:
                 stats = store.get_stats()
+                # Some implementations of get_stats are async coroutines;
+                # don't try to introspect a coroutine — fall through to attr inspection.
+                import inspect
+                if inspect.iscoroutine(stats):
+                    stats.close()  # avoid "never awaited" warning
+                    stats = None
                 if isinstance(stats, dict):
                     units = (
                         stats.get("total_units")

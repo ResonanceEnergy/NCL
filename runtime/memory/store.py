@@ -20,6 +20,7 @@ from .entity_extractor import extract_entities_and_relationships
 from .importance_scorer import score_memory
 from .chroma_gc import delete_unit_embeddings
 from .pii_redactor import PIIRedactor
+from .authority import tier_for_source as _tier_for_source
 
 # Memory system constraints
 MAX_CONTENT_LENGTH = 50_000     # Max characters per memory unit
@@ -127,6 +128,20 @@ class MemoryStore:
             importance=min(100.0, max(0.0, importance)),
             tags=tags or [],
         )
+
+        # ── Authority tier stamping ─────────────────────────────────────────
+        # Every memory unit gets an authority_tier in its metadata bag at
+        # create time, derived from the source string. This is consumed by
+        # the salience formula in working_context.py and by FusedRetriever
+        # ranking so a NATRIX directive (tier 100) outranks an Awarebot
+        # scrape (tier 20) on identical recency/importance/relevance.
+        # See runtime/memory/authority.py for the tier table.
+        meta = getattr(unit, "metadata", None)
+        if not isinstance(meta, dict):
+            meta = {}
+            unit.metadata = meta
+        if "authority_tier" not in meta:
+            meta["authority_tier"] = int(_tier_for_source(source))
 
         # Record PII audit entry now that we have the unit_id
         if _pii_result.redaction_count > 0:

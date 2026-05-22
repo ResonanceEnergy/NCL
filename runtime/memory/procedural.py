@@ -515,6 +515,22 @@ class ProceduralDistiller:
             except Exception:
                 pass
 
+            # Memory budget telemetry — track prompt-context tokens fed into
+            # each distillation call. Best-effort.
+            try:
+                from .budget_tracker import record as _bt_record
+                usage = data.get("usage", {}) or {}
+                tokens_in = int(usage.get("input_tokens") or 0)
+                tokens_out = int(usage.get("output_tokens") or 0)
+                await _bt_record(
+                    "procedural_distill",
+                    tokens_in,
+                    tokens_out=tokens_out,
+                    source=f"distill:{chain.get('kind', 'unknown')}",
+                )
+            except Exception:
+                pass
+
             text = data.get("content", [{}])[0].get("text", "").strip()
             # Strip any code fences just in case
             text = re.sub(r"^```(?:json)?\s*", "", text)

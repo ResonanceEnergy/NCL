@@ -81,6 +81,7 @@ async def llm_importance_score(
     source: str = "",
     tags: list[str] = None,
     timeout: float = 5.0,
+    model: str = "claude-sonnet-4-6-20250514",
 ) -> Optional[float]:
     """
     Use Claude Haiku to evaluate memory importance on a 1-10 scale.
@@ -128,7 +129,7 @@ Respond with ONLY a JSON object: {{"score": N, "type": "episodic|semantic|decisi
                     "content-type": "application/json",
                 },
                 json={
-                    "model": "claude-sonnet-4-6-20250514",
+                    "model": model,
                     "max_tokens": 100,
                     "messages": [{"role": "user", "content": prompt}],
                 },
@@ -175,6 +176,7 @@ async def score_memory(
     source: str = "",
     tags: list[str] = None,
     use_llm: bool = True,
+    model: str = "claude-sonnet-4-6-20250514",
 ) -> dict:
     """
     Score a memory unit's importance using LLM with rule-based fallback.
@@ -190,7 +192,7 @@ async def score_memory(
     memory_type = "episodic"  # default
 
     if use_llm:
-        result = await llm_importance_score(content, source, tags)
+        result = await llm_importance_score(content, source, tags, model=model)
         if result is not None:
             llm_score = result
 

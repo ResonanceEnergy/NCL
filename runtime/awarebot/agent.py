@@ -1630,7 +1630,17 @@ Respond with ONLY a JSON object:
         self._context_7d.append(signal)
 
     async def _store_to_memory(self, signal: Signal, importance: float):
-        """Persist signal to MemoryStore with typed collection routing and entity extraction."""
+        """Fire-and-forget enqueue to AsyncMemoryWriter.
+
+        Previously this blocked on Sonnet roundtrips for importance scoring
+        and entity extraction (500-1500ms each, called once per routed
+        signal). The async writer queue moves all enrichment off the hot
+        ingest path so scan_cycle no longer waits on memory writes.
+
+        Fast path: regex entity extraction stays inline (~1ms, no API),
+        Sonnet enrichment happens in the drainer when budget allows.
+        Falls back to direct create_unit() if the writer isn't initialized.
+        """
         if not self.memory_store:
             return
 
@@ -1649,36 +1659,48 @@ Respond with ONLY a JSON object:
             elif any(t in signal.tags for t in ["decision", "commitment", "approved"]):
                 memory_type = "decision"
 
-            # Fast entity extraction (regex only, no LLM cost)
-            entities = []
-            relationships = []
+            # Fast entity extraction (regex only, no LLM cost) — inline
+            entities: list[str] = []
             try:
-                from ..memory.entity_extractor import fast_extract_entities, fast_extract_relationships
+                from ..memory.entity_extractor import fast_extract_entities
                 entities = fast_extract_entities(content)
-                relationships = fast_extract_relationships(content)
             except Exception:
                 pass  # Entity extraction is optional
 
-            unit = await self.memory_store.create_unit(
-                content=content,
-                source=f"awarebot:{signal.source}",
-                importance=importance,
-                tags=signal.tags[:10],
-                memory_type=memory_type,
-            )
-
-            # Attach entities and relationships to the unit if extraction succeeded
-            if entities or relationships:
-                try:
-                    unit.entities = entities
-                    unit.relationships = relationships
-                    # Persist the updated unit (async, non-blocking)
-                    asyncio.create_task(self.memory_store.index_unit(unit))
-                except Exception:
-                    pass
+            # Fire-and-forget — the drainer handles Sonnet enrichment + persist
+            try:
+                from ..memory.async_writer import get_async_writer, WriteRequest
+                await get_async_writer().enqueue(WriteRequest(
+                    content=content,
+                    source=f"awarebot:{signal.source}",
+                    importance=importance,
+                    memory_type=memory_type,
+                    tags=signal.tags[:10],
+                    entities=entities,
+                    metadata={
+                        "composite_score": signal.composite_score,
+                        "route_level": signal.route_level,
+                        "signal_id": signal.signal_id,
+                    },
+                ))
+            except RuntimeError:
+                # AsyncMemoryWriter not initialized — fall back to direct write
+                unit = await self.memory_store.create_unit(
+                    content=content,
+                    source=f"awarebot:{signal.source}",
+                    importance=importance,
+                    tags=signal.tags[:10],
+                    memory_type=memory_type,
+                )
+                if entities:
+                    try:
+                        unit.entities = entities
+                        asyncio.create_task(self.memory_store.index_unit(unit))
+                    except Exception:
+                        pass
 
         except Exception as e:
-            log.warning(f"[AGENT:MEMORY] Failed to store signal: {e}")
+            log.warning(f"[AGENT:MEMORY] Failed to enqueue signal: {e}")
 
     async def _inject_working_context(self, signal: Signal):
         """Inject signal into DailyContextWindow for operator visibility."""

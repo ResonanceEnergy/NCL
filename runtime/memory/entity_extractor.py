@@ -132,6 +132,7 @@ async def llm_extract_entities(
     content: str,
     source: str = "",
     timeout: float = 5.0,
+    model: str = "claude-sonnet-4-6-20250514",
 ) -> Optional[dict]:
     """
     Use Claude Haiku to extract entities and relationships from content.
@@ -174,7 +175,7 @@ Rules:
                     "content-type": "application/json",
                 },
                 json={
-                    "model": "claude-sonnet-4-6-20250514",
+                    "model": model,
                     "max_tokens": 300,
                     "messages": [{"role": "user", "content": prompt}],
                 },
@@ -214,6 +215,7 @@ async def extract_entities_and_relationships(
     content: str,
     source: str = "",
     use_llm: bool = False,
+    model: str = "claude-sonnet-4-6-20250514",
 ) -> dict:
     """
     Extract entities and relationships from memory content.
@@ -230,7 +232,7 @@ async def extract_entities_and_relationships(
 
     # Optionally enhance with LLM
     if use_llm:
-        llm_result = await llm_extract_entities(content, source)
+        llm_result = await llm_extract_entities(content, source, model=model)
         if llm_result:
             # Merge LLM entities with regex entities (deduplicated)
             entity_set = set(entities)

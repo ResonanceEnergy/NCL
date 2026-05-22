@@ -503,6 +503,13 @@ class MemUnit(BaseModel):
         le=1.0,
         description="Quality score from reflection loop (0-1)",
     )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Open-ended provenance/runtime metadata bag. Stable keys: "
+            "'authority_tier' (int 10-100, see runtime.memory.authority)."
+        ),
+    )
 
 
 class InsightSignal(BaseModel):

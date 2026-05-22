@@ -399,6 +399,52 @@ class AutonomousScheduler:
             asyncio.create_task(self._bm25_rebuild_loop(), name="ncl-bm25-rebuild")
         )
 
+        # ── 2026-05-22 second batch: async writer, budget telemetry ──
+        # Async write queue (Mem0 pattern) — fire-and-forget Awarebot writes
+        try:
+            from ..memory.async_writer import init_async_writer
+            self._async_writer = init_async_writer(self.brain.memory_store)
+            # Wrap .start() in a long-running supervisor so the task doesn't
+            # complete immediately (start() spawns drainers and returns).
+            async def _async_writer_supervisor():
+                await self._async_writer.start()
+                # Block forever while drainers run in the background.
+                while self._running and not EMERGENCY_STOP_EVENT.is_set():
+                    await asyncio.sleep(30)
+                    # Periodically report queue health into stats
+                    try:
+                        s = self._async_writer.get_stats()
+                        self._stats["last_async_writer_tick"] = datetime.now(timezone.utc).isoformat()
+                        self._stats["async_writer_queue_size"] = s.get("queue_size", 0)
+                        self._stats["async_writer_drained"] = s.get("drained_total", 0)
+                        self._stats["async_writer_dlq_size"] = s.get("dlq_size", 0)
+                    except Exception:
+                        pass
+            self._async_writer_supervisor = _async_writer_supervisor
+            self._tasks.append(
+                asyncio.create_task(_async_writer_supervisor(), name="ncl-async-writer")
+            )
+        except Exception as e:
+            log.warning(f"[SCHEDULER] async-writer disabled: {e}")
+            self._async_writer = None
+
+        # Memory budget telemetry — per-tier token spend, 15m rollup + ntfy
+        try:
+            from ..memory.budget_tracker import run_budget_cycle
+            async def _memory_budget_loop():
+                while self._running and not EMERGENCY_STOP_EVENT.is_set():
+                    try:
+                        await run_budget_cycle(stats=self._stats)
+                    except Exception as ex:
+                        log.warning(f"[ncl-memory-budget] {ex}")
+                    await asyncio.sleep(900)
+            self._memory_budget_loop = _memory_budget_loop
+            self._tasks.append(
+                asyncio.create_task(_memory_budget_loop(), name="ncl-memory-budget")
+            )
+        except Exception as e:
+            log.warning(f"[SCHEDULER] memory-budget loop disabled: {e}")
+
         # ── 2026-05-22 Memory Loops (Loops 2/4/5/6/9 from the memory swarm) ──
         # Loop 2: weekly memory eval harness (Sunday 3am ET internal gate)
         try:
@@ -526,6 +572,11 @@ class AutonomousScheduler:
                 pass
         if hasattr(self, "_narrative_thread_loop"):
             self._task_factories["ncl-narrative-threads"] = self._narrative_thread_loop
+        # 2026-05-22 batch 2
+        if getattr(self, "_async_writer", None) is not None and hasattr(self, "_async_writer_supervisor"):
+            self._task_factories["ncl-async-writer"] = self._async_writer_supervisor
+        if hasattr(self, "_memory_budget_loop"):
+            self._task_factories["ncl-memory-budget"] = self._memory_budget_loop
         # Awarebot agent is restarted via its own .run() method
         if self.awarebot:
             self._task_factories["ncl-awarebot-agent"] = self.awarebot.run
