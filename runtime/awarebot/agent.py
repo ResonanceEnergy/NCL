@@ -1999,24 +1999,123 @@ Respond with ONLY a JSON object:
                 macro.append(sig)
                 claimed.add(id(sig))
 
+        # ── Enrichment helpers (cheap, run per signal) ──────────────────
+        # iOS Intel Focus/Micro/Macro cards need: cross_source_count (int),
+        # sectors[], tickers[], entities[], optional suggested_action. We
+        # derive these from existing scoring metadata + lightweight regex
+        # so we don't add any new scoring pass.
+        try:
+            from ..intelligence.engine import SignalCorrelator  # type: ignore
+            _sector_keywords = SignalCorrelator.SECTOR_KEYWORDS
+        except Exception:
+            _sector_keywords = {}
+        try:
+            from ..memory.entity_extractor import fast_extract_entities  # type: ignore
+        except Exception:
+            fast_extract_entities = None  # type: ignore
+
+        # Ticker regex: explicit $TICKER, or bare 2-5-char uppercase token
+        # in title (defensive — bare-cap matches false-positive a lot in
+        # content). Stop-words filter common ALL-CAPS noise.
+        _ticker_dollar_re = re.compile(r"\$([A-Z]{1,5})\b")
+        _ticker_bare_re = re.compile(r"\b([A-Z]{2,5})\b")
+        _ticker_stopwords = {
+            "AI", "API", "CEO", "CFO", "COO", "CTO", "EU", "US", "USA",
+            "UK", "URL", "ETF", "ETFs", "FED", "GDP", "CPI", "PMI", "IPO",
+            "PR", "PSA", "PDF", "JSON", "HTTP", "HTTPS", "OK", "YES", "NO",
+            "AM", "PM", "ET", "PT", "UTC", "GMT", "DM", "TV", "TBA", "TBD",
+            "VIP", "FYI", "RIP", "WTF", "WHO", "NYSE", "NASDAQ", "SEC",
+        }
+
+        def _extract_tickers(text: str) -> list[str]:
+            if not text:
+                return []
+            tickers: list[str] = []
+            seen: set[str] = set()
+            for sym in _ticker_dollar_re.findall(text):
+                if sym not in seen:
+                    seen.add(sym)
+                    tickers.append(sym)
+            # Bare uppercase only from first 200 chars (title-ish region)
+            for sym in _ticker_bare_re.findall(text[:200]):
+                if sym in _ticker_stopwords or sym in seen:
+                    continue
+                seen.add(sym)
+                tickers.append(sym)
+            return tickers[:6]
+
+        def _extract_sectors(text: str) -> list[str]:
+            if not text or not _sector_keywords:
+                return []
+            t = text.lower()
+            hits: list[str] = []
+            for sector, keywords in _sector_keywords.items():
+                if any(kw in t for kw in keywords):
+                    hits.append(sector)
+            return hits[:4]
+
+        # cross_source 0–100 → confirming-source count 0/1/2/3+
+        def _cross_count(cs: float) -> int:
+            if cs >= 100: return 3
+            if cs >= 70: return 2
+            if cs >= 40: return 1
+            return 0
+
+        def _suggested_action(direction: str, tickers: list[str], sectors: list[str]) -> str | None:
+            if not tickers:
+                return None
+            d = (direction or "").lower()
+            tk = tickers[0]
+            if d in ("bullish", "up", "positive"):
+                return f"Bullish setup on ${tk} — directional confidence; consider long-call sizing"
+            if d in ("bearish", "down", "negative"):
+                return f"Bearish setup on ${tk} — directional confidence; consider put hedge"
+            if sectors:
+                return f"Watch ${tk} — {sectors[0].replace('_', ' ')} narrative active"
+            return None
+
         def sig_to_dict(s):
+            title = getattr(s, 'title', '') or ''
+            content = getattr(s, 'content', '') or ''
+            direction = getattr(s, 'direction', 'neutral')
+            tags = getattr(s, 'tags', []) or []
+            text_for_extract = f"{title} {content}"
+
             d = {
                 "signal_id": getattr(s, 'signal_id', None) or str(id(s)),
-                "title": getattr(s, 'title', '') or '',
-                "content": getattr(s, 'content', '') or '',
+                "title": title,
+                "content": content,
                 "source": getattr(s, 'source', '') or '',
-                "tags": getattr(s, 'tags', []) or [],
+                "tags": tags,
                 "composite_score": getattr(s, 'composite_score', 0),
                 "unified_score": round(getattr(s, 'composite_score', 0) * 100, 1),
                 "route_level": getattr(s, 'route_level', ''),
-                "direction": getattr(s, 'direction', 'neutral'),
+                "direction": direction,
                 "url": getattr(s, 'url', ''),
             }
             if hasattr(s, 'timestamp') and s.timestamp:
                 d["timestamp"] = s.timestamp.isoformat()
+
+            score_factors: dict = {}
             if hasattr(s, 'metadata') and isinstance(s.metadata, dict):
-                d["score_factors"] = s.metadata.get("score_factors", {})
+                score_factors = s.metadata.get("score_factors", {}) or {}
+                d["score_factors"] = score_factors
                 d["id"] = s.metadata.get("id", d["signal_id"])
+
+            # ── Enrichments for iOS Intel cards ─────────────────────
+            cs = float(score_factors.get("cross_source", 0) or 0)
+            d["cross_source_count"] = _cross_count(cs)
+            d["sectors"] = _extract_sectors(text_for_extract)
+            d["tickers"] = _extract_tickers(text_for_extract)
+            if fast_extract_entities:
+                try:
+                    ents = fast_extract_entities(text_for_extract) or []
+                    d["entities"] = [e for e in ents if not str(e).endswith(".com")][:6]
+                except Exception:
+                    d["entities"] = []
+            else:
+                d["entities"] = []
+            d["suggested_action"] = _suggested_action(direction, d["tickers"], d["sectors"])
             return d
 
         return {
