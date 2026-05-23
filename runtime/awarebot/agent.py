@@ -725,6 +725,39 @@ class Awarebot:
         self._seen_pred_fingerprints: deque[str] = deque(maxlen=200)
         self._pred_fingerprints_seeded = False
 
+        # ── EOD 2026-05-22 Swarm modules (items 8-19) ────────────────
+        # All lazy-init + ENV-gated so they can be flipped on/off
+        # without redeploying. Defaults are OFF for everything that
+        # would change scoring/routing behavior; the modules attach
+        # silently if their deps are missing.
+        self._mmr_enabled = os.getenv("NCL_MMR_ENABLED", "true").lower() == "true"
+        self._minhash_dedup = None
+        self._entity_clusterer = None
+        self._authority_learner = None
+        try:
+            from .minhash_dedup import MinHashDedup
+            self._minhash_dedup = MinHashDedup(threshold=0.85, num_perm=128, ttl_hours=24)
+            log.info("[AWAREBOT] MinHash+LSH dedup enabled (item 9)")
+        except Exception as e:
+            log.warning(f"[AWAREBOT] MinHash dedup unavailable: {e} — keeping SimHash fallback")
+        try:
+            from .entity_clusterer import EntityStreamingClusterer
+            self._entity_clusterer = EntityStreamingClusterer(
+                window_hours=6.0, max_clusters=500
+            )
+            log.info("[AWAREBOT] Entity-streaming clusterer enabled (item 19)")
+        except Exception as e:
+            log.warning(f"[AWAREBOT] Entity clusterer unavailable: {e}")
+        try:
+            from .authority_learner import AuthorityLearner
+            self._authority_learner = AuthorityLearner(
+                data_dir=self._data_dir / "awarebot",
+                prior_strength=10.0,
+            )
+            log.info("[AWAREBOT] Beta-Bernoulli authority learner enabled (item 14)")
+        except Exception as e:
+            log.warning(f"[AWAREBOT] Authority learner unavailable: {e}")
+
         # ── Internal state ───────────────────────────────────────────
         self._running = False
         self._tasks: list[asyncio.Task] = []
@@ -875,8 +908,12 @@ class Awarebot:
             (self._context_loop, "awarebot-context"),
             (self._journal_loop, "awarebot-journal"),
             (self._ytc_loop, "awarebot-ytc"),
-            (self._x_liked_loop, "awarebot-x-liked"),
         ]
+        # P0-7: only spawn x-liked loop if OAuth token is set.
+        # Otherwise it sleeps doing nothing every 6h + counts toward supervisor
+        # restart budget when the AttributeError from a misnamed attr trips it.
+        if os.getenv("X_USER_ACCESS_TOKEN") or os.getenv("X_OAUTH_ACCESS_TOKEN"):
+            task_defs.append((self._x_liked_loop, "awarebot-x-liked"))
         if self.disable_internal_ytc:
             task_defs = [(f, n) for (f, n) in task_defs if n != "awarebot-ytc"]
             log.info(
@@ -1289,6 +1326,13 @@ class Awarebot:
                     mtime = await loop.run_in_executor(None, lambda f=json_file: f.stat().st_mtime)
                     if mtime < cutoff:
                         continue
+                    # P0-item-1: use report mtime as the Signal timestamp so
+                    # freshness decays naturally (was: datetime.now() →
+                    # perpetually 1.0). This was the structural cause of
+                    # YouTube council insights dominating Focused: their
+                    # always-1.0 freshness contributed full 20% weight every
+                    # cycle even when the underlying report was 47h old.
+                    report_ts = datetime.fromtimestamp(mtime, tz=timezone.utc)
                     raw_text = await loop.run_in_executor(None, json_file.read_text)
                     data = json.loads(raw_text)
                     # Determine source from filename
@@ -1333,7 +1377,7 @@ class Awarebot:
                             url="",
                             composite_score=0.0,
                             route_level="",
-                            timestamp=datetime.now(timezone.utc),
+                            timestamp=report_ts,  # P0-1: real freshness, not perpetual 1.0
                             tags=[f"council:{source}", "council_report"],
                         )
                         # Softened EOD 2026-05-22 — see comment near the
@@ -1430,7 +1474,7 @@ class Awarebot:
                             url=video_url,
                             composite_score=0.0,
                             route_level="",
-                            timestamp=datetime.now(timezone.utc),
+                            timestamp=report_ts,  # P0-1: real freshness
                             tags=sorted(tag_set),
                         )
                         # EOD 2026-05-22 fix: previously stamped at
@@ -1497,7 +1541,7 @@ class Awarebot:
                             url=entry.get("url", ""),
                             composite_score=0.0,
                             route_level="",
-                            timestamp=datetime.now(timezone.utc),
+                            timestamp=report_ts if "report_ts" in dir() else datetime.now(timezone.utc),  # P0-1
                             tags=[f"council:{source}", "council_signal"],
                         )
                         s.relevance = 0.6
@@ -1869,15 +1913,25 @@ Respond with ONLY a JSON object:
             flags_dir = self._data_dir / "autonomous_signals"
             flags_dir.mkdir(parents=True, exist_ok=True)
             flags_path = flags_dir / "council_flags.jsonl"
+            # P0-3: wrap in {"trigger": ..., "data": {...}} envelope so
+            # scheduler._get_council_flags can find tags via
+            # `flag.get("data", {}).get("tags", [])`. Previously we wrote
+            # flat dicts and the scheduler always saw empty themes,
+            # degrading the council prompt to "Themes: " (empty).
             flag_entry = {
-                "signal_id": getattr(signal, "signal_id", "") or "",
-                "source": signal.source,
-                "title": signal.title[:200],
-                "url": signal.url or "",
-                "composite_score": float(signal.composite_score or 0),
-                "tags": list(signal.tags),
-                "flagged_at": datetime.now(timezone.utc).isoformat(),
                 "trigger": "awarebot:_route_critical",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "importance": int(round(float(signal.composite_score or 0) * 100)),
+                "data": {
+                    "signal_id": getattr(signal, "signal_id", "") or "",
+                    "source": signal.source,
+                    "title": signal.title[:200],
+                    "url": signal.url or "",
+                    "composite_score": float(signal.composite_score or 0),
+                    "tags": list(signal.tags),
+                    "sectors": (signal.metadata or {}).get("sectors", []) if hasattr(signal, "metadata") else [],
+                    "tickers": (signal.metadata or {}).get("tickers", []) if hasattr(signal, "metadata") else [],
+                },
             }
             loop_ = asyncio.get_running_loop()
             await loop_.run_in_executor(
@@ -2059,10 +2113,13 @@ Respond with ONLY a JSON object:
             if overlap > 0.30:
                 confirming_sources.add(other_source)
         count = len(confirming_sources)
-        if count == 0: return 0.0
-        if count == 1: return 0.40
-        if count == 2: return 0.70
-        return 1.0
+        if count == 0:
+            return 0.0
+        # P0-12: saturating curve — asymptotes to 1.0 but never reaches it
+        # so 10-source pile-up scores meaningfully higher than 3 sources
+        # (was step fn 0/0.40/0.70/1.0 which capped at 3 sources).
+        # 1→0.45 · 2→0.70 · 3→0.83 · 5→0.95 · 10→0.998
+        return min(1.0, 1.0 - math.exp(-0.6 * count))
 
     def _load_context_keywords(self) -> set[str]:
         """Load context keywords from mandates, watch queries, and working context."""
@@ -2160,7 +2217,79 @@ Respond with ONLY a JSON object:
             seen_ids.add(sig_id)
             all_signals.append(sig)
 
-        focused, micro, macro, claimed = [], [], [], set()
+        # EOD 2026-05-22 — try MMR diversification first if enabled.
+        # If MMR fails or returns insufficient items, fall through to
+        # the legacy per-source-cap path below.
+        if self._mmr_enabled:
+            try:
+                from .mmr import apply_mmr_with_min_per_source
+                mmr_seen = set()
+                all_signals_dedup = []
+                for sig in itertools.chain(self._context_top10, self._context_24h, self._context_7d):
+                    sid = getattr(sig, 'signal_id', None) or id(sig)
+                    if sid in mmr_seen:
+                        continue
+                    mmr_seen.add(sid)
+                    all_signals_dedup.append(sig)
+
+                def _src_mmr(s):
+                    raw = (getattr(s, 'source', '') or '').lower()
+                    if "youtube" in raw or "ytc" in raw:
+                        return "youtube"
+                    return raw or "unknown"
+
+                def _txt(s):
+                    return f"{getattr(s, 'title', '')} {(getattr(s, 'content', '') or '')[:300]}"
+
+                def _scr(s):
+                    return getattr(s, 'composite_score', 0.0)
+
+                def _age_h(s):
+                    if hasattr(s, 'timestamp') and s.timestamp:
+                        return (now - s.timestamp).total_seconds() / 3600
+                    return 999
+
+                mmr_focused_pool = [s for s in all_signals_dedup if _scr(s) >= 0.75 and _age_h(s) < 4]
+                mmr_micro_pool = [s for s in all_signals_dedup if _scr(s) >= 0.50 and _age_h(s) < 24]
+                mmr_macro_pool = [s for s in all_signals_dedup if _scr(s) >= 0.30]
+
+                mmr_focused_pre = apply_mmr_with_min_per_source(
+                    mmr_focused_pool, key_score=_scr, key_text=_txt, key_source=_src_mmr,
+                    lambda_=0.7, top_k=10,
+                ) if mmr_focused_pool else []
+                used = set(id(s) for s in mmr_focused_pre)
+                mmr_micro_pre = apply_mmr_with_min_per_source(
+                    [s for s in mmr_micro_pool if id(s) not in used],
+                    key_score=_scr, key_text=_txt, key_source=_src_mmr,
+                    lambda_=0.6, top_k=10,
+                ) if mmr_micro_pool else []
+                used.update(id(s) for s in mmr_micro_pre)
+                mmr_macro_pre = apply_mmr_with_min_per_source(
+                    [s for s in mmr_macro_pool if id(s) not in used],
+                    key_score=_scr, key_text=_txt, key_source=_src_mmr,
+                    lambda_=0.5, top_k=10,
+                ) if mmr_macro_pool else []
+                log.debug(
+                    f"[ROUTE_TIERS:MMR] pre={len(mmr_focused_pre)}/"
+                    f"{len(mmr_micro_pre)}/{len(mmr_macro_pre)}"
+                )
+                # Seed legacy lists+claimed; legacy passes will see slots
+                # full and become no-ops (capacity already at 10 / claimed)
+                focused = list(mmr_focused_pre)
+                micro = list(mmr_micro_pre)
+                macro = list(mmr_macro_pre)
+                claimed = set(id(s) for s in focused) | set(id(s) for s in micro) | set(id(s) for s in macro)
+                # Skip the rest of the legacy "build lists" block below
+                # by jumping past it via the local control flag
+                _mmr_applied = True
+            except Exception as mmr_err:
+                log.warning(f"[ROUTE_TIERS:MMR] failed, falling back to legacy: {mmr_err}")
+                _mmr_applied = False
+        else:
+            _mmr_applied = False
+
+        if not _mmr_applied:
+            focused, micro, macro, claimed = [], [], [], set()
 
         # EOD 2026-05-22: per-source caps prevent monoculture. Without
         # this, YouTube council insights (which routinely score 0.7-0.85
@@ -2201,16 +2330,21 @@ Respond with ONLY a JSON object:
             if sig.composite_score >= 0.75 and age_h < 4:
                 _add_with_cap(sig, focused, MAX_PER_SOURCE_FOCUSED, focused_src_counts)
         # Overflow: if Focused still has slots left after all sources
-        # hit their cap, fill with next-best signals regardless of source
+        # hit their cap, fill with next-best signals — but still cap at
+        # 2× per-source so YouTube can't monopolize via overflow (P0-2).
         if len(focused) < 10:
+            overflow_cap = MAX_PER_SOURCE_FOCUSED * 2
             for sig in sorted(all_signals, key=lambda s: -s.composite_score):
                 if len(focused) >= 10:
                     break
                 if id(sig) in claimed:
                     continue
+                if focused_src_counts.get(_src(sig), 0) >= overflow_cap:
+                    continue
                 age_h = (now - sig.timestamp).total_seconds() / 3600 if hasattr(sig, 'timestamp') and sig.timestamp else 999
                 if sig.composite_score >= 0.75 and age_h < 4:
                     focused.append(sig)
+                    focused_src_counts[_src(sig)] = focused_src_counts.get(_src(sig), 0) + 1
                     claimed.add(id(sig))
 
         # Pass 2: MICRO — score >= 0.50, age < 24h, max 4 per source
@@ -2224,14 +2358,18 @@ Respond with ONLY a JSON object:
             if sig.composite_score >= 0.50 and age_h < 24:
                 _add_with_cap(sig, micro, MAX_PER_SOURCE_MICRO, micro_src_counts)
         if len(micro) < 10:
+            overflow_cap = MAX_PER_SOURCE_MICRO * 2
             for sig in sorted(all_signals, key=lambda s: -s.composite_score):
                 if len(micro) >= 10:
                     break
                 if id(sig) in claimed:
                     continue
+                if micro_src_counts.get(_src(sig), 0) >= overflow_cap:
+                    continue
                 age_h = (now - sig.timestamp).total_seconds() / 3600 if hasattr(sig, 'timestamp') and sig.timestamp else 999
                 if sig.composite_score >= 0.50 and age_h < 24:
                     micro.append(sig)
+                    micro_src_counts[_src(sig)] = micro_src_counts.get(_src(sig), 0) + 1
                     claimed.add(id(sig))
 
         # Pass 3: MACRO — persistent narratives, not claimed, max 4 per source
@@ -2254,13 +2392,17 @@ Respond with ONLY a JSON object:
             if _macro_eligible(sig):
                 _add_with_cap(sig, macro, MAX_PER_SOURCE_MACRO, macro_src_counts)
         if len(macro) < 10:
+            overflow_cap = MAX_PER_SOURCE_MACRO * 2
             for sig in sorted(all_signals, key=lambda s: -s.composite_score):
                 if len(macro) >= 10:
                     break
                 if id(sig) in claimed:
                     continue
+                if macro_src_counts.get(_src(sig), 0) >= overflow_cap:
+                    continue
                 if _macro_eligible(sig):
                     macro.append(sig)
+                    macro_src_counts[_src(sig)] = macro_src_counts.get(_src(sig), 0) + 1
                     claimed.add(id(sig))
 
         # ── Enrichment helpers (cheap, run per signal) ──────────────────

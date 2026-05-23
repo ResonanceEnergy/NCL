@@ -132,6 +132,8 @@ from ..portfolio.polymarket_strategies import router as polymarket_strategies_ro
 
 # Calendar
 from ..calendar.calendar_routes import calendar_router
+from ..feedback.feedback_routes import router as feedback_router, set_feedback_recorder
+from ..feedback.recorder import FeedbackRecorder
 
 # Sprint 4 — Council Runner v1
 from ..council_runner.models import CouncilRunRecord, ReplayConfig
@@ -462,6 +464,15 @@ app.include_router(portfolio_router)
 app.include_router(paper_router)
 app.include_router(polymarket_strategies_router)
 app.include_router(calendar_router)
+app.include_router(feedback_router)
+
+# Wire feedback recorder singleton (P1-11)
+try:
+    _fb_dir = Path(os.path.expanduser("~/dev/NCL/data"))
+    set_feedback_recorder(FeedbackRecorder(_fb_dir))
+    log.info("[FEEDBACK] recorder wired at ~/dev/NCL/data/feedback/")
+except Exception as _fb_err:
+    log.warning(f"[FEEDBACK] init failed: {_fb_err}")
 
 # Rate limiting middleware
 if _has_slowapi and _limiter:

@@ -261,8 +261,19 @@ class FusedRetriever:
         except ValueError:
             min_fused = 0.0
 
-        results: list[dict] = []
-        for uid, final_score, raw_score, aw, br in reweighted[: max(top_k, 1)]:
+        # ── Optional Cohere Rerank 3.5 cross-encoder ──────────────────────
+        # When NCL_FUSION_RERANK_ENABLED=true, hydrate the top-30 RRF
+        # candidates, hand them to Cohere for a relevance cross-pass, then
+        # take final top_k. Graceful: any failure path returns the original
+        # ordering, so this is safe to opt in.
+        rerank_enabled = os.environ.get(
+            "NCL_FUSION_RERANK_ENABLED", "false"
+        ).strip().lower() in ("1", "true", "yes", "on")
+
+        slice_n = 30 if rerank_enabled else max(top_k, 1)
+
+        prelim: list[dict] = []
+        for uid, final_score, raw_score, aw, br in reweighted[:slice_n]:
             if final_score < min_fused:
                 continue
             unit = units_by_id[uid]
@@ -273,10 +284,8 @@ class FusedRetriever:
                 tier_name = AuthorityTier(tier_val).name.lower()
             except ValueError:
                 tier_name = "raw"
-            # Surface the Awarebot route level (focused/micro/macro) so
-            # callers can filter without a second store lookup.
             awarebot_tier = meta.get("tier") or meta.get("route_level")
-            results.append({
+            prelim.append({
                 "unit_id": uid,
                 "content": (unit.content[:500] + ("…" if len(unit.content) > 500 else "")),
                 "source": unit.source,
@@ -294,13 +303,18 @@ class FusedRetriever:
                 "signal_breakdown": br,
             })
 
+        if rerank_enabled and len(prelim) > 1:
+            prelim = await self._rerank_with_cohere(query, prelim, top_k=top_k)
+
+        results = prelim[: max(top_k, 1)]
+
         elapsed = round(time.perf_counter() - t0, 3)
         log.info(
             "[FUSION] q=%r top_k=%d vector=%d bm25=%d entity=%d fused=%d "
-            "candidates=%d in %.3fs",
+            "candidates=%d rerank=%s in %.3fs",
             query[:60], top_k,
             len(vector_r), len(bm25_r), len(entity_r), len(fused),
-            len(candidate_window), elapsed,
+            len(candidate_window), "on" if rerank_enabled else "off", elapsed,
         )
         return results
 
@@ -434,3 +448,143 @@ class FusedRetriever:
         except Exception as e:
             log.warning("[FUSION-RERANK] failed: %s", e)
             return []
+
+    # ------------------------------------------------- cohere rerank-3.5
+    async def _rerank_with_cohere(
+        self,
+        query: str,
+        candidates: list[dict],
+        top_k: int = 10,
+    ) -> list[dict]:
+        """Second-pass cross-encoder rerank via Cohere Rerank 3.5.
+
+        Graceful: returns candidates unchanged on every failure path —
+        missing env key, missing ``cohere`` lib, budget exhausted, HTTP
+        429/503, timeout, parse error. Only the happy path mutates ordering.
+
+        Cost: Cohere rerank-3.5 is $2.00 per 1,000 searches (one search =
+        one rerank call regardless of document count, up to the 4K
+        document cap). We estimate $0.002 per call.
+        """
+        if not candidates:
+            return candidates
+
+        api_key = os.getenv("COHERE_API_KEY")
+        if not api_key:
+            log.debug("[FUSION:RERANK] skipped — no COHERE_API_KEY")
+            return candidates
+
+        try:
+            import cohere  # type: ignore
+        except ImportError:
+            log.debug("[FUSION:RERANK] skipped — cohere lib not installed")
+            return candidates
+
+        # Budget gate — Cohere rerank ≈ $0.002 per call.
+        try:
+            from ...cost_tracker import get_tracker
+            tracker = await get_tracker()
+            ok = await tracker.can_spend("cohere", 0.002)
+            if not ok:
+                log.info("[FUSION:RERANK] skipped — cohere budget exhausted")
+                return candidates
+        except Exception as e:
+            log.debug("[FUSION:RERANK] budget check failed (proceeding): %s", e)
+
+        # Documents: keep them compact — Cohere will truncate at its own
+        # token limit, but feeding the full 500-char content is fine.
+        docs = [(c.get("content") or "")[:1000] for c in candidates]
+        # Guard against empty-string docs which Cohere rejects.
+        docs = [d if d.strip() else " " for d in docs]
+
+        async def _call_cohere() -> object:
+            client = cohere.AsyncClientV2(api_key=api_key)
+            try:
+                return await asyncio.wait_for(
+                    client.rerank(
+                        model="rerank-v3.5",
+                        query=query,
+                        documents=docs,
+                        top_n=min(top_k, len(docs)),
+                    ),
+                    timeout=8.0,
+                )
+            finally:
+                # AsyncClientV2 has a close() — call it if present.
+                try:
+                    close = getattr(client, "close", None)
+                    if close:
+                        await close()
+                except Exception:
+                    pass
+
+        # Single retry on transient failure (429 / 503 / timeout).
+        resp = None
+        for attempt in (1, 2):
+            try:
+                resp = await _call_cohere()
+                break
+            except asyncio.TimeoutError:
+                log.warning("[FUSION:RERANK] timeout (attempt %d)", attempt)
+                if attempt == 2:
+                    return candidates
+                await asyncio.sleep(0.5)
+            except Exception as e:
+                msg = str(e)
+                transient = any(s in msg for s in ("429", "503", "timeout", "Timeout"))
+                if transient and attempt == 1:
+                    log.warning("[FUSION:RERANK] transient err (retry): %s", msg[:120])
+                    await asyncio.sleep(0.5)
+                    continue
+                log.warning("[FUSION:RERANK] failed: %s", msg[:200])
+                return candidates
+
+        if resp is None:
+            return candidates
+
+        # Parse cohere response — results is a list of objects with
+        # .index and .relevance_score. Tolerate dict-shaped responses too.
+        try:
+            results = getattr(resp, "results", None)
+            if results is None and isinstance(resp, dict):
+                results = resp.get("results", [])
+            if not results:
+                log.warning("[FUSION:RERANK] failed: empty results")
+                return candidates
+
+            ranked: list[dict] = []
+            for r in results:
+                idx = getattr(r, "index", None)
+                score = getattr(r, "relevance_score", None)
+                if idx is None and isinstance(r, dict):
+                    idx = r.get("index")
+                    score = r.get("relevance_score")
+                if idx is None or not (0 <= int(idx) < len(candidates)):
+                    continue
+                item = dict(candidates[int(idx)])
+                if score is not None:
+                    item["rerank_score"] = round(float(score), 6)
+                ranked.append(item)
+        except Exception as e:
+            log.warning("[FUSION:RERANK] failed: parse error %s", e)
+            return candidates
+
+        # Record cost — flat $0.002 per search regardless of doc count.
+        try:
+            from ...cost_tracker import record_cost
+            await record_cost(
+                "cohere",
+                0.002,
+                "fusion_rerank",
+                f"rerank-v3.5 cands={len(candidates)} top={len(ranked)}",
+                model="rerank-v3.5",
+                candidates=len(candidates),
+            )
+        except Exception:
+            pass
+
+        log.info(
+            "[FUSION:RERANK] applied — model=rerank-v3.5 cands=%d top=%d",
+            len(candidates), len(ranked),
+        )
+        return ranked[:top_k] if ranked else candidates

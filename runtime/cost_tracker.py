@@ -54,6 +54,8 @@ DEFAULT_DAILY_BUDGETS: dict[str, float] = {
     "youtube_data":    0.00,    # Free tier (quota-based)
     "reddit":          0.00,    # Free (RSS + public API)
     "ytc":             3.00,    # Dedicated YouTube Council loop — per-video LLM cost cap
+    "cohere":          1.00,    # Cohere Rerank 3.5 cross-encoder for FusedRetriever
+                                # ($2 / 1k searches → ~500 reranks/day at cap)
 }
 
 # Hard platform-wide daily cap (all sources combined)
