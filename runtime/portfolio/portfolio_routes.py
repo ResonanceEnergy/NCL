@@ -271,6 +271,39 @@ async def portfolio_connect_ibkr(
             adapter.client_id = client_id
         except Exception:
             pass
+    # Pre-flight TCP probe so we can return a clearer error than ib_insync's
+    # opaque "TimeoutError" when nothing is listening at all.
+    import socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(0.5)
+    port_open = False
+    try:
+        sock.connect((host, port))
+        port_open = True
+    except Exception:
+        port_open = False
+    finally:
+        try:
+            sock.close()
+        except Exception:
+            pass
+
+    if not port_open:
+        return {
+            "connected": False,
+            "error": (
+                f"Nothing listening on {host}:{port}. "
+                f"Launch TWS or IB Gateway and confirm the API port matches. "
+                f"Common ports: 7497 (TWS paper), 7496 (TWS live), "
+                f"4002 (IBG paper), 4001 (IBG live)."
+            ),
+            "error_code": "port_closed",
+            "host": host,
+            "port": port,
+            "client_id": client_id,
+            "accounts": 0,
+        }
+
     # Attempt connect
     try:
         ok = await adapter.connect() if hasattr(adapter, "connect") else False
@@ -283,21 +316,91 @@ async def portfolio_connect_ibkr(
                 pass
         return {
             "connected": bool(ok),
-            "error": None if ok else "connect() returned False — is TWS/IBGateway running on that port?",
+            "error": None if ok else (
+                f"Port {port} accepted the connection but the IBKR API rejected it. "
+                f"In TWS: Edit > Global Configuration > API > Settings, enable "
+                f"'Enable ActiveX and Socket Clients', verify port {port}, "
+                f"and add 127.0.0.1 to Trusted IPs. Also confirm Client ID "
+                f"{client_id} isn't already in use by another session."
+            ),
+            "error_code": None if ok else "api_disabled",
             "host": host,
             "port": port,
             "client_id": client_id,
             "accounts": accounts,
         }
     except Exception as e:
+        msg = str(e)
+        # ib_insync raises generic Exceptions; surface the most actionable
+        # hint we can infer from common substrings.
+        hint = ""
+        low = msg.lower()
+        if "client id" in low or "already in use" in low:
+            hint = f" — Client ID {client_id} is already in use. Try another integer."
+        elif "timeout" in low:
+            hint = " — TWS accepted the socket but never completed the handshake. Check API settings + Trusted IPs."
         return {
             "connected": False,
-            "error": str(e),
+            "error": f"{msg}{hint}",
+            "error_code": "exception",
             "host": host,
             "port": port,
             "client_id": client_id,
             "accounts": 0,
         }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# POST /portfolio/probe/ibkr   (2026-05-22 EOD swarm)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.post("/probe/ibkr")
+async def portfolio_probe_ibkr(
+    authorization: str = Header(default=""),
+) -> dict:
+    """TCP-probe the common IBKR ports on 127.0.0.1 and return the first
+    one that accepts a socket connection.
+
+    Used by the iOS "Detect TWS" button so the user doesn't have to guess
+    whether they're running TWS paper (7497), TWS live (7496), IB Gateway
+    paper (4002), or IB Gateway live (4001).
+
+    NOTE: A successful TCP connect does NOT mean the API is enabled — TWS
+    can be running with the socket open but with "Enable ActiveX and Socket
+    Clients" disabled, in which case the actual IBKR connect() will still
+    fail. That's why this is a SEPARATE endpoint from /connect/ibkr — the
+    UI uses probe to suggest a port, then calls connect to actually try it.
+    """
+    _verify_strike_token(authorization)
+    import socket
+    candidates = [
+        (7497, "TWS Paper"),
+        (7496, "TWS Live"),
+        (4002, "IB Gateway Paper"),
+        (4001, "IB Gateway Live"),
+    ]
+    results = []
+    detected = None
+    for port, label in candidates:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(0.4)
+        try:
+            sock.connect(("127.0.0.1", port))
+            results.append({"port": port, "label": label, "open": True})
+            if detected is None:
+                detected = {"port": port, "label": label}
+        except Exception:
+            results.append({"port": port, "label": label, "open": False})
+        finally:
+            try:
+                sock.close()
+            except Exception:
+                pass
+    return {
+        "detected": detected,
+        "candidates": results,
+        "host": "127.0.0.1",
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -584,6 +687,98 @@ async def portfolio_options_flow(
             "portfolio_match_count": sum(1 for r in rows if r["is_held_in_portfolio"]),
             "generated_at": datetime.now(timezone.utc).isoformat(),
         },
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GET /portfolio/options/strategies
+# GET /portfolio/options/positions/with-strategy
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@router.get("/options/strategies")
+async def portfolio_options_strategies(
+    authorization: str = Header(default=""),
+) -> dict:
+    """
+    Static library of the three named options strategies (0DTE, 5-Day
+    Swing, Long Call). Used by the iOS OPTIONS sub-tab → STRATEGIES mode.
+
+    Pure read — no manager required.
+    """
+    _verify_strike_token(authorization)
+    from .options_strategies import all_strategies_payload
+    return {
+        "strategies": all_strategies_payload(),
+        "count": 3,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.get("/options/positions/with-strategy")
+async def portfolio_options_positions_with_strategy(
+    account: str = Query(default="all"),
+    authorization: str = Header(default=""),
+) -> dict:
+    """
+    Held option positions enriched with ``matched_strategy`` +
+    parsed OCC fields (underlying, expiry, strike, right, DTE).
+
+    Non-option positions are filtered out — this endpoint is the data
+    source for the iOS OPTIONS → HELD sub-mode.
+    """
+    _verify_strike_token(authorization)
+    pm = _require_manager()
+
+    if account not in VALID_ACCOUNTS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Invalid account filter '{account}'. Must be one of: {', '.join(sorted(VALID_ACCOUNTS))}",
+        )
+
+    from .options_strategies import enrich_position_with_strategy
+
+    try:
+        positions = pm.get_positions(account_filter=account)
+    except Exception as e:
+        log.exception("Options positions fetch failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"Positions error: {e}")
+
+    enriched: list[dict] = []
+    strategy_counts: dict[str, int] = {"0DTE": 0, "5DAY": 0, "LONGCALL": 0, "Other": 0}
+    total_mv = 0.0
+    total_day_pl = 0.0
+
+    for p in positions:
+        if (p.get("asset_class") or "").lower() != "option":
+            continue
+        row = enrich_position_with_strategy(p)
+        enriched.append(row)
+        s = row.get("matched_strategy") or "Other"
+        strategy_counts[s] = strategy_counts.get(s, 0) + 1
+        try:
+            total_mv += float(row.get("market_value") or 0)
+            total_day_pl += float(row.get("daily_pl") or 0)
+        except (TypeError, ValueError):
+            pass
+
+    def _sort_key(r: dict):
+        s = r.get("matched_strategy") or "Other"
+        urgency = {"0DTE": 0, "5DAY": 1, "LONGCALL": 2, "Other": 3}.get(s, 9)
+        dte = r.get("option_dte") if r.get("option_dte") is not None else 9999
+        return (urgency, dte, -float(r.get("market_value") or 0))
+
+    enriched.sort(key=_sort_key)
+
+    return {
+        "positions": enriched,
+        "count": len(enriched),
+        "total_market_value": round(total_mv, 2),
+        "total_daily_pl": round(total_day_pl, 2),
+        "strategy_counts": strategy_counts,
+        "account_filter": account,
+        "last_sync": pm._last_sync,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
     }
 
 

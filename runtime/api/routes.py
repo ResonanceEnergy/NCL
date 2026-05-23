@@ -128,6 +128,7 @@ from ..review_queue.manager import ReviewQueueManager
 # Portfolio
 from ..portfolio.portfolio_routes import router as portfolio_router, set_portfolio_manager
 from ..portfolio.paper_routes import router as paper_router, set_paper_engine
+from ..portfolio.polymarket_strategies import router as polymarket_strategies_router
 
 # Calendar
 from ..calendar.calendar_routes import calendar_router
@@ -459,6 +460,7 @@ app = FastAPI(
 
 app.include_router(portfolio_router)
 app.include_router(paper_router)
+app.include_router(polymarket_strategies_router)
 app.include_router(calendar_router)
 
 # Rate limiting middleware
