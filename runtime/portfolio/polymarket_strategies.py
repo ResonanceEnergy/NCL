@@ -17,9 +17,11 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from datetime import datetime, timezone
 from typing import Any, Optional
 
+import httpx
 from fastapi import APIRouter, Header, HTTPException, Query
 
 try:
@@ -408,4 +410,172 @@ async def weatherbetter_opportunities(
             "weather_events_seen": sorted({r.get("weather_event_type", "")
                                            for r in scored if r.get("weather_event_type")}),
         },
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Trending markets — used by iOS Intel → Markets tab
+# ─────────────────────────────────────────────────────────────────────────
+
+_TRENDING_CACHE: dict[str, Any] = {"at": 0.0, "data": [], "limit": 0}
+_TRENDING_TTL_S = 60.0
+
+
+@router.get("/trending")
+async def trending_markets(
+    limit: int = Query(25, ge=1, le=100, description="Top N markets"),
+    min_volume_24h: float = Query(
+        0.0, ge=0.0, description="Filter out markets below this 24h volume"
+    ),
+    sort_by: str = Query(
+        "volume24hr",
+        description="Polymarket Gamma sort key: volume24hr | volume | liquidity | endDate",
+    ),
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+) -> dict:
+    """Top N currently-trending Polymarket markets, sorted by 24h volume.
+
+    Hits the public Gamma API:
+        GET https://gamma-api.polymarket.com/markets
+        ?active=true&closed=false&order=<sort_by>&ascending=false&limit=<n>
+
+    Returns a flat shape the iOS Markets card can render directly.
+    60-second in-process cache keyed on (limit, sort_by) so frequent
+    iOS refreshes don't hammer Gamma.
+    """
+    # Auth (same shape as other endpoints in this router)
+    strike_token = _get_strike_token()
+    if strike_token and authorization != f"Bearer {strike_token}":
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    cache_key = f"{sort_by}:{limit}:{min_volume_24h}"
+    now = time.time()
+    if (
+        _TRENDING_CACHE.get("key") == cache_key
+        and now - float(_TRENDING_CACHE.get("at", 0.0)) < _TRENDING_TTL_S
+        and _TRENDING_CACHE.get("data")
+    ):
+        return {
+            "ok": True,
+            "cached": True,
+            "limit": limit,
+            "sort_by": sort_by,
+            "min_volume_24h": min_volume_24h,
+            "fetched_at": datetime.fromtimestamp(
+                float(_TRENDING_CACHE["at"]), tz=timezone.utc
+            ).isoformat(),
+            "markets": _TRENDING_CACHE["data"],
+        }
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                f"{_GAMMA_API}/markets",
+                params={
+                    "active": "true",
+                    "closed": "false",
+                    "order": sort_by,
+                    "ascending": "false",
+                    "limit": min(limit * 2, 100),  # over-fetch for vol filter
+                },
+            )
+        if resp.status_code != 200:
+            log.warning(
+                f"[POLYMARKET:TRENDING] Gamma returned HTTP {resp.status_code}"
+            )
+            return {
+                "ok": False,
+                "error": f"gamma_http_{resp.status_code}",
+                "markets": [],
+            }
+        raw = resp.json() or []
+    except Exception as exc:
+        log.warning(f"[POLYMARKET:TRENDING] Gamma fetch failed: {exc}")
+        return {"ok": False, "error": str(exc)[:120], "markets": []}
+
+    # Normalize each market into a flat shape for iOS.
+    def _f(v: Any, default: float = 0.0) -> float:
+        try:
+            return float(v) if v is not None else default
+        except (TypeError, ValueError):
+            return default
+
+    flat: list[dict] = []
+    for m in raw:
+        if not isinstance(m, dict):
+            continue
+        vol_24h = _f(m.get("volume24hr") or m.get("volumeNum"))
+        if vol_24h < min_volume_24h:
+            continue
+
+        # Outcome prices: Polymarket returns "outcomePrices": "[0.62, 0.38]"
+        outcome_prices: list[float] = []
+        raw_prices = m.get("outcomePrices")
+        if isinstance(raw_prices, str):
+            try:
+                import json as _json
+                outcome_prices = [float(p) for p in _json.loads(raw_prices)]
+            except Exception:
+                outcome_prices = []
+        elif isinstance(raw_prices, list):
+            outcome_prices = [_f(p) for p in raw_prices]
+
+        outcomes: list[str] = []
+        raw_outcomes = m.get("outcomes")
+        if isinstance(raw_outcomes, str):
+            try:
+                import json as _json
+                outcomes = list(_json.loads(raw_outcomes))
+            except Exception:
+                outcomes = []
+        elif isinstance(raw_outcomes, list):
+            outcomes = list(raw_outcomes)
+
+        yes_price = outcome_prices[0] if outcome_prices else _f(m.get("lastTradePrice"))
+        no_price = (
+            outcome_prices[1] if len(outcome_prices) > 1 else (1.0 - yes_price)
+        )
+
+        flat.append({
+            "id": m.get("id") or m.get("conditionId"),
+            "slug": m.get("slug") or "",
+            "question": m.get("question") or m.get("title") or "",
+            "description": (m.get("description") or "")[:400],
+            "image": m.get("image") or m.get("icon") or "",
+            "category": m.get("category") or "",
+            "event_title": (m.get("eventName") or m.get("event") or {}).get("title", "")
+                            if isinstance(m.get("event"), dict)
+                            else (m.get("eventName") or m.get("eventTitle") or ""),
+            "end_date": m.get("endDate") or m.get("endTime") or "",
+            "start_date": m.get("startDate") or "",
+            "volume_24h": round(vol_24h, 2),
+            "volume_total": round(_f(m.get("volume") or m.get("volumeNum")), 2),
+            "liquidity": round(_f(m.get("liquidity") or m.get("liquidityNum")), 2),
+            "yes_price": round(yes_price, 4),
+            "no_price": round(no_price, 4),
+            "yes_change_24h": _f(m.get("oneDayPriceChange")),
+            "outcomes": outcomes,
+            "outcome_prices": outcome_prices,
+            "active": bool(m.get("active", True)),
+            "closed": bool(m.get("closed", False)),
+            "url": (
+                f"https://polymarket.com/market/{m.get('slug')}"
+                if m.get("slug")
+                else f"https://polymarket.com/event/{m.get('id', '')}"
+            ),
+        })
+        if len(flat) >= limit:
+            break
+
+    _TRENDING_CACHE.update({"at": now, "data": flat, "key": cache_key})
+
+    return {
+        "ok": True,
+        "cached": False,
+        "limit": limit,
+        "sort_by": sort_by,
+        "min_volume_24h": min_volume_24h,
+        "fetched_at": datetime.fromtimestamp(now, tz=timezone.utc).isoformat(),
+        "count": len(flat),
+        "markets": flat,
     }
