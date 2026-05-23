@@ -498,7 +498,17 @@ async def _from_google_trends(city_id: str, start: date, end: date) -> list[dict
 
 
 async def _from_news(city_id: str, start: date, end: date) -> list[dict]:
-    """Lightweight news search via NewsAPI (if key) — falls through to []."""
+    """Lightweight news search via NewsAPI (if key) — falls through to [].
+
+    EOD 2026-05-22 audit: gated behind NCL_CITY_NEWS_ENABLED (default
+    OFF). City scanner runs every ~2min × 7 cities × ~6 categories of
+    NewsAPI calls — burned through 100/day free quota in ~30 min, then
+    cascading 429 retries stalled the Awarebot news collector and hung
+    /context/source/news. Ticketmaster + Eventbrite + RSS already cover
+    local events. Set NCL_CITY_NEWS_ENABLED=true once on paid NewsAPI.
+    """
+    if os.environ.get("NCL_CITY_NEWS_ENABLED", "false").lower() != "true":
+        return []
     city = CITIES.get(city_id)
     if not city:
         return []

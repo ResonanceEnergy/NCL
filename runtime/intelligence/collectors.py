@@ -21,6 +21,7 @@ import asyncio
 import json
 import logging
 import math
+import os
 import re
 import time
 from datetime import datetime, timezone, timedelta
@@ -939,10 +940,24 @@ class NewsCollector:
         return signals
 
     async def collect_topic_news(self, query: str, lang: str = "en") -> list[NewsSignal]:
-        """Search news for a specific topic."""
+        """Search news for a specific topic.
+
+        EOD 2026-05-22 audit: prefer Google News RSS (free, unlimited,
+        no auth) over keyed APIs. NewsAPI free tier is 100 reqs/day —
+        when Awarebot makes 5 calls/cycle × 12 cycles/hr + city scanner
+        adds 7 cities × 6 cats per scan, the quota blew up in ~30 min,
+        429s cascaded into 5-8s retries that stalled the event loop,
+        and the entire /context/source/news endpoint hung. RSS returns
+        the same Google News headlines (often *more* recent than NewsAPI
+        free tier's 24h-delayed feed), so we use it as the primary path.
+        GNews/NewsAPI now only fire when explicitly preferred via env
+        (NCL_NEWS_API_FIRST=true) and even then with a strict gate.
+        """
         signals = []
 
-        if self._gnews_key:
+        prefer_api_first = os.getenv("NCL_NEWS_API_FIRST", "false").lower() == "true"
+
+        if prefer_api_first and self._gnews_key:
             try:
                 data = await _fetch_json(
                     self._client,
@@ -955,7 +970,14 @@ class NewsCollector:
             except Exception as e:
                 log.warning(f"GNews topic search for '{query}' failed: {e}")
 
-        if not signals and self._newsapi_key:
+        # RSS path — primary by default (free + unlimited)
+        if not signals:
+            signals = await self._collect_rss_topic(query)
+
+        # NewsAPI ONLY as last resort when RSS came back empty AND we
+        # haven't yet exhausted the key. Drop the noisy fallback warning
+        # since it's now expected to skip when budget is tight.
+        if not signals and self._newsapi_key and not prefer_api_first:
             try:
                 data = await _fetch_json(
                     self._client,
@@ -966,12 +988,8 @@ class NewsCollector:
                 )
                 for article in data.get("articles", []):
                     signals.append(self._article_to_signal(article, query))
-            except Exception as e:
-                log.warning(f"NewsAPI topic search for '{query}' failed: {e}")
-
-        # RSS fallback for topic search
-        if not signals:
-            signals = await self._collect_rss_topic(query)
+            except Exception:
+                pass  # quietly skip — RSS already covered the topic
 
         return signals
 
