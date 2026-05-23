@@ -1696,6 +1696,22 @@ class Awarebot:
         # Blend: 80% computed, 20% scanner-provided
         signal.authority = 0.8 * computed_authority + 0.2 * signal.authority
 
+        # Item 14: blend in the Beta-Bernoulli learned source mean.
+        # Slow-learned posterior mean over prediction-outcome correctness.
+        # Default prior_strength=10 keeps this from moving wildly until
+        # we have real data; once accumulated, it gradually replaces the
+        # static base authority with what the source has actually earned.
+        if self._authority_learner is not None:
+            try:
+                learned_mean = self._authority_learner.get_authority(signal.source)
+                if learned_mean is not None:
+                    # 70% existing blend, 30% learned posterior — once the
+                    # learner has confidence, raise to 50/50 (controlled by
+                    # learner's internal sample-count, not us).
+                    signal.authority = 0.7 * signal.authority + 0.3 * learned_mean
+            except Exception as auth_err:
+                log.debug(f"[AGENT:SCORE] AuthorityLearner blend failed: {auth_err}")
+
         # ── ACTIONABILITY: engagement + directional signals ─────────
         base_actionability = signal.actionability  # from scanner engagement
         if signal.direction not in ("neutral", "") and signal.confidence > 0.6:
@@ -1708,9 +1724,24 @@ class Awarebot:
         freshness = compute_freshness(signal)
 
         # ── CROSS-SOURCE: multi-source confirmation ─────────────────
-        cross_source = self._compute_cross_source(
-            f"{signal.title} {signal.content}", signal.source
-        )
+        # Item 19: prefer EntityClusterer if attached (entity+sector graph
+        # over a 6h window beats token-Jaccard for catching the "fed pause"
+        # ↔ "Powell holds rates" pattern). Falls back to the legacy
+        # token-overlap path when the clusterer can't bucket the signal.
+        cross_source = 0.0
+        if self._entity_clusterer is not None:
+            try:
+                cluster_id, _csize, n_sources = self._entity_clusterer.ingest(signal)
+                if cluster_id is not None and n_sources >= 1:
+                    # Same saturating curve as the legacy path so the
+                    # composite weighting (15%) is comparable.
+                    cross_source = min(1.0, 1.0 - math.exp(-0.6 * n_sources))
+            except Exception as ec_err:
+                log.debug(f"[AGENT:SCORE] EntityClusterer failed, falling back: {ec_err}")
+        if cross_source == 0.0:
+            cross_source = self._compute_cross_source(
+                f"{signal.title} {signal.content}", signal.source
+            )
 
         # ── COMPOSITE: 6-factor weighted blend ──────────────────────
         signal.composite_score = compute_composite_score(
@@ -2919,11 +2950,46 @@ Focus on what requires attention or action."""
                 log.warning(f"[AGENT:PREDICT] Fingerprint seed failed: {seed_err}")
             self._pred_fingerprints_seeded = True
 
-        # Cluster signals by category
+        # Cluster signals — try BERTopic (item 16) first, fall back to
+        # bare category groupby. BERTopic uses sentence-transformers +
+        # HDBSCAN + c-TF-IDF to find true semantic clusters; the legacy
+        # category groupby produces one giant "general" mega-cluster
+        # because most signals have empty `category` (Predictor then
+        # wastes ~$7/day Anthropic calls on that one cluster). Env
+        # toggle: NCL_BERTOPIC_ENABLED=false to disable.
         clusters: dict[str, list[Signal]] = defaultdict(list)
-        for s in buffer:
-            category = s.category or "general"
-            clusters[category].append(s)
+        bertopic_used = False
+        if os.getenv("NCL_BERTOPIC_ENABLED", "true").lower() == "true":
+            try:
+                from .topic_clusterer import TopicClusterer
+                try:
+                    from ..intelligence.engine import SignalCorrelator  # type: ignore
+                    sector_kw = SignalCorrelator.SECTOR_KEYWORDS
+                except Exception:
+                    sector_kw = {}
+                tc = TopicClusterer(
+                    embedder_callable=None,  # TF-IDF fallback path is fine for now
+                    min_cluster_size=3,
+                    sector_keywords=sector_kw,
+                )
+                bertopic_clusters = await tc.cluster(buffer)
+                if bertopic_clusters:
+                    for tc_cluster in bertopic_clusters:
+                        label = (tc_cluster.topic_label or "").strip().lower() or f"topic-{tc_cluster.cluster_id}"
+                        clusters[label] = list(tc_cluster.signals)
+                    bertopic_used = True
+                    log.info(
+                        f"[AGENT:PREDICT] BERTopic clustered {len(buffer)} signals "
+                        f"into {len(clusters)} topics: "
+                        f"{', '.join(list(clusters.keys())[:5])}"
+                    )
+            except Exception as bert_err:
+                log.warning(f"[AGENT:PREDICT] BERTopic clustering failed, falling back to category: {bert_err}")
+
+        if not bertopic_used:
+            for s in buffer:
+                category = s.category or "general"
+                clusters[category].append(s)
 
         # Only predict on clusters with 5+ signals (was 3 — bumped EOD
         # 2026-05-22 to suppress regeneration on tiny clusters that
