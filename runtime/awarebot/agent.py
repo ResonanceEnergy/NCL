@@ -2162,7 +2162,35 @@ Respond with ONLY a JSON object:
 
         focused, micro, macro, claimed = [], [], [], set()
 
-        # Pass 1: FOCUSED — score >= 0.75, age < 4h
+        # EOD 2026-05-22: per-source caps prevent monoculture. Without
+        # this, YouTube council insights (which routinely score 0.7-0.85
+        # by structural advantage of being LLM-pre-curated) sweep all
+        # 10 slots in every tier. The cap lets each source contribute
+        # its top N before yielding the remaining slots to overflow
+        # (sources with fewer signals still get their full quota).
+        MAX_PER_SOURCE_FOCUSED = 4
+        MAX_PER_SOURCE_MICRO = 4
+        MAX_PER_SOURCE_MACRO = 4
+
+        def _src(s) -> str:
+            # Normalize source — youtube + council_youtube are both
+            # YouTube council monoculture risk.
+            raw = (getattr(s, 'source', '') or '').lower()
+            if "youtube" in raw or "ytc" in raw:
+                return "youtube"
+            return raw or "unknown"
+
+        def _add_with_cap(sig, bucket: list, cap_per_source: int, counter: dict[str, int]) -> bool:
+            src = _src(sig)
+            if counter.get(src, 0) >= cap_per_source:
+                return False
+            bucket.append(sig)
+            counter[src] = counter.get(src, 0) + 1
+            claimed.add(id(sig))
+            return True
+
+        # Pass 1: FOCUSED — score >= 0.75, age < 4h, max 4 per source
+        focused_src_counts: dict[str, int] = {}
         for sig in sorted(all_signals, key=lambda s: (
             -(s.metadata.get("score_factors", {}).get("cross_source", 0)),
             -s.composite_score
@@ -2171,10 +2199,22 @@ Respond with ONLY a JSON object:
                 break
             age_h = (now - sig.timestamp).total_seconds() / 3600 if hasattr(sig, 'timestamp') and sig.timestamp else 999
             if sig.composite_score >= 0.75 and age_h < 4:
-                focused.append(sig)
-                claimed.add(id(sig))
+                _add_with_cap(sig, focused, MAX_PER_SOURCE_FOCUSED, focused_src_counts)
+        # Overflow: if Focused still has slots left after all sources
+        # hit their cap, fill with next-best signals regardless of source
+        if len(focused) < 10:
+            for sig in sorted(all_signals, key=lambda s: -s.composite_score):
+                if len(focused) >= 10:
+                    break
+                if id(sig) in claimed:
+                    continue
+                age_h = (now - sig.timestamp).total_seconds() / 3600 if hasattr(sig, 'timestamp') and sig.timestamp else 999
+                if sig.composite_score >= 0.75 and age_h < 4:
+                    focused.append(sig)
+                    claimed.add(id(sig))
 
-        # Pass 2: MICRO — score >= 0.50, age < 24h, not claimed
+        # Pass 2: MICRO — score >= 0.50, age < 24h, max 4 per source
+        micro_src_counts: dict[str, int] = {}
         for sig in sorted(all_signals, key=lambda s: -s.composite_score):
             if len(micro) >= 10:
                 break
@@ -2182,27 +2222,46 @@ Respond with ONLY a JSON object:
                 continue
             age_h = (now - sig.timestamp).total_seconds() / 3600 if hasattr(sig, 'timestamp') and sig.timestamp else 999
             if sig.composite_score >= 0.50 and age_h < 24:
-                micro.append(sig)
-                claimed.add(id(sig))
+                _add_with_cap(sig, micro, MAX_PER_SOURCE_MICRO, micro_src_counts)
+        if len(micro) < 10:
+            for sig in sorted(all_signals, key=lambda s: -s.composite_score):
+                if len(micro) >= 10:
+                    break
+                if id(sig) in claimed:
+                    continue
+                age_h = (now - sig.timestamp).total_seconds() / 3600 if hasattr(sig, 'timestamp') and sig.timestamp else 999
+                if sig.composite_score >= 0.50 and age_h < 24:
+                    micro.append(sig)
+                    claimed.add(id(sig))
 
-        # Pass 3: MACRO — persistent narratives, not claimed
+        # Pass 3: MACRO — persistent narratives, not claimed, max 4 per source
         narrative_sources = {"council", "journal", "mandate", "morning_brief", "brief"}
+        macro_src_counts: dict[str, int] = {}
+
+        def _macro_eligible(sig) -> bool:
+            if sig.composite_score < 0.30:
+                return False
+            age_h = (now - sig.timestamp).total_seconds() / 3600 if hasattr(sig, 'timestamp') and sig.timestamp else 999
+            source_lower = (getattr(sig, 'source', '') or '').lower()
+            is_narrative = any(ns in source_lower for ns in narrative_sources)
+            return age_h > 24 or is_narrative or sig.composite_score >= 0.60
+
         for sig in sorted(all_signals, key=lambda s: -s.composite_score):
             if len(macro) >= 10:
                 break
             if id(sig) in claimed:
                 continue
-            if sig.composite_score < 0.30:
-                continue
-            age_h = (now - sig.timestamp).total_seconds() / 3600 if hasattr(sig, 'timestamp') and sig.timestamp else 999
-            source_lower = (getattr(sig, 'source', '') or '').lower()
-            is_narrative = any(ns in source_lower for ns in narrative_sources)
-            if age_h > 24 or is_narrative:
-                macro.append(sig)
-                claimed.add(id(sig))
-            elif sig.composite_score >= 0.60:
-                macro.append(sig)
-                claimed.add(id(sig))
+            if _macro_eligible(sig):
+                _add_with_cap(sig, macro, MAX_PER_SOURCE_MACRO, macro_src_counts)
+        if len(macro) < 10:
+            for sig in sorted(all_signals, key=lambda s: -s.composite_score):
+                if len(macro) >= 10:
+                    break
+                if id(sig) in claimed:
+                    continue
+                if _macro_eligible(sig):
+                    macro.append(sig)
+                    claimed.add(id(sig))
 
         # ── Enrichment helpers (cheap, run per signal) ──────────────────
         # iOS Intel Focus/Micro/Macro cards need: cross_source_count (int),
