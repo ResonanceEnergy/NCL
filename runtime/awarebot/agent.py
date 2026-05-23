@@ -507,6 +507,21 @@ _BEAR_TERMS = frozenset({
 })
 
 
+def _prediction_fingerprint(topic: str, consensus: str) -> str:
+    """SHA1 of normalized (topic, consensus head) — used by prediction dedup.
+
+    Normalization: lowercase + collapse whitespace + first 200 chars of
+    consensus. Topic-level prefix prevents cross-topic collisions while
+    still catching the "same topic, same direction, same numbers
+    regenerated every 30 min" pattern that was producing 96% duplicate
+    rate on disk (EOD 2026-05-22 audit).
+    """
+    import hashlib as _hashlib
+    norm_consensus = " ".join((consensus or "").lower().split())[:200]
+    raw = f"{(topic or '').lower().strip()}|{norm_consensus}"
+    return _hashlib.sha1(raw.encode("utf-8")).hexdigest()
+
+
 def _classify_direction(text: str) -> str:
     """Cheap keyword classifier — bullish | bearish | neutral | mixed."""
     if not text:
@@ -690,12 +705,25 @@ class Awarebot:
             "llm_reasoning_calls": 0,
             "briefs_generated": 0,
             "predictions_generated": 0,
+            "predictions_deduped": 0,
+            "predictions_inconclusive_skipped": 0,
             "source_errors": defaultdict(int),
             "last_scan_at": None,
             "last_brief_at": None,
             "last_prediction_at": None,
             "ytc_runs": 0,
         }
+
+        # ── Prediction dedup (EOD 2026-05-22) ────────────────────────
+        # Topic-clusters change very slowly between 30-min cycles, which
+        # was causing the same prediction (e.g. "Iran ceasefire 95-98%
+        # likely…") to be regenerated 5-8× per day. Track the last 200
+        # prediction fingerprints (~36 hours of typical volume); skip a
+        # write if the new (topic, consensus[:200]) matches one we've
+        # already seeded. Deque also seeded from disk on first run via
+        # _seed_prediction_fingerprints().
+        self._seen_pred_fingerprints: deque[str] = deque(maxlen=200)
+        self._pred_fingerprints_seeded = False
 
         # ── Internal state ───────────────────────────────────────────
         self._running = False
@@ -1308,9 +1336,11 @@ class Awarebot:
                             timestamp=datetime.now(timezone.utc),
                             tags=[f"council:{source}", "council_report"],
                         )
-                        s.relevance = 0.7  # Council reports are pre-filtered for relevance
-                        s.actionability = 0.6
-                        s.authority = 0.8  # Council analysis = high authority
+                        # Softened EOD 2026-05-22 — see comment near the
+                        # per-insight block below. Was 0.7/0.6/0.8 (pre-baked HIGH).
+                        s.relevance = 0.55
+                        s.actionability = 0.55
+                        s.authority = 0.70  # Council ≠ NATRIX-tier
                         s.metadata = {
                             "council_type": data.get("council_type", source),
                             "session_id": data.get("session_id", ""),
@@ -1403,9 +1433,19 @@ class Awarebot:
                             timestamp=datetime.now(timezone.utc),
                             tags=sorted(tag_set),
                         )
-                        s.relevance = 0.65
-                        s.actionability = confidence
-                        s.authority = 0.75
+                        # EOD 2026-05-22 fix: previously stamped at
+                        # relevance=0.65/actionability=conf/authority=0.75.
+                        # Combined with freshness ~0.85 (just-written),
+                        # composite landed at 0.55-0.84 every single
+                        # cycle, pre-baking ALL council insights into
+                        # HIGH/CRITICAL — which is why every Intel tier
+                        # was dominated by YouTube. Lower them so council
+                        # signals compete with Reddit/News/Trends/etc on
+                        # genuine quality (BM25 relevance, cross-source,
+                        # novelty) rather than a structural advantage.
+                        s.relevance = 0.50
+                        s.actionability = min(0.65, confidence)
+                        s.authority = 0.65  # Council ≠ direct NATRIX directive
                         s.category = insight_category
                         s.confidence = confidence
                         s.metadata = {
@@ -1816,8 +1856,38 @@ Respond with ONLY a JSON object:
         # Push alert to NATRIX
         await self._push_alert(signal)
 
-        # Flag for council consideration
+        # Flag for council consideration (in-memory tag — used by
+        # downstream consumers)
         signal.tags.append("council_flagged")
+
+        # EOD 2026-05-22 fix: also persist to council_flags.jsonl so the
+        # scheduler's _council_auto_loop can actually pick it up. Audit
+        # D found the scheduler reads this file but the agent only ever
+        # tagged signals in-memory — net effect was that council
+        # auto-spawn never fired (zero log entries in 8000 stderr lines).
+        try:
+            flags_dir = self._data_dir / "autonomous_signals"
+            flags_dir.mkdir(parents=True, exist_ok=True)
+            flags_path = flags_dir / "council_flags.jsonl"
+            flag_entry = {
+                "signal_id": getattr(signal, "signal_id", "") or "",
+                "source": signal.source,
+                "title": signal.title[:200],
+                "url": signal.url or "",
+                "composite_score": float(signal.composite_score or 0),
+                "tags": list(signal.tags),
+                "flagged_at": datetime.now(timezone.utc).isoformat(),
+                "trigger": "awarebot:_route_critical",
+            }
+            loop_ = asyncio.get_running_loop()
+            await loop_.run_in_executor(
+                None,
+                lambda: flags_path.open("a", encoding="utf-8").write(
+                    json.dumps(flag_entry, default=str) + "\n"
+                ),
+            )
+        except Exception as flag_err:
+            log.warning(f"[AGENT:ROUTE:CRITICAL] council_flags write failed: {flag_err}")
 
     async def _route_high(self, signal: Signal):
         """HIGH routing: context + memory + source report."""
@@ -1837,7 +1907,21 @@ Respond with ONLY a JSON object:
         await self._inject_working_context(signal)
 
     async def _route_medium(self, signal: Signal):
-        """MEDIUM routing: memory only (context after LLM reasoning promotes)."""
+        """MEDIUM routing: memory + 24h + 7d.
+
+        EOD 2026-05-22 fix: MEDIUM signals (0.30-0.55) now enter the 24h
+        window so they're visible in the Micro tier and in per-source
+        reports. Previously only CRITICAL/HIGH made it into 24h, which
+        starved Reddit/News/Trends/Polymarket/Whales (whose typical
+        composite sits in the MEDIUM band) from every iOS surface that
+        reads `_context_24h` — including /context/micro, /context/macro,
+        and /context/source/{src}. YouTube council insights are pre-baked
+        at HIGH/CRITICAL via hard-coded relevance=0.7/authority=0.8 in
+        _collect_council_reports, so they dominated everything. This
+        change does not promote MEDIUM into focused (which requires
+        ≥0.75) — it just makes them visible alongside the higher tiers
+        downstream.
+        """
         log.debug(
             f"[AGENT:ROUTE:MEDIUM] {signal.source} | {signal.title[:60]} "
             f"(score={signal.composite_score:.3f})"
@@ -1846,7 +1930,8 @@ Respond with ONLY a JSON object:
         # Store in memory with moderate importance
         await self._store_to_memory(signal, importance=45.0)
 
-        # Add to 7d window only
+        # Add to both 24h + 7d (was 7d-only — starved Micro tier of all non-YT sources)
+        self._context_24h.append(signal)
         self._context_7d.append(signal)
 
     async def _store_to_memory(self, signal: Signal, importance: float):
@@ -2379,7 +2464,27 @@ Respond with ONLY a JSON object:
         Returns:
             Structured report dict with themes, top signals, stats
         """
-        source_signals = [s for s in self._context_24h if s.source == source]
+        # EOD 2026-05-22 fix: also read 7d window filtered to last 24h by
+        # timestamp. The 24h deque is bounded (CONTEXT_24H_MAX) and a
+        # high-volume source like Reddit (often 200+ signals/cycle) can
+        # push individual MEDIUM signals out of 24h within minutes. The
+        # 7d deque is much wider, so filtering it by `now - 24h` gives
+        # the source view what it actually needs: every signal from the
+        # last 24 hours, regardless of tier.
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+        seen_ids: set[str] = set()
+        source_signals: list[Signal] = []
+        for src_window in (self._context_24h, self._context_7d):
+            for s in src_window:
+                if s.source != source:
+                    continue
+                sid = getattr(s, "signal_id", None) or s.fingerprint()
+                if sid in seen_ids:
+                    continue
+                if getattr(s, "timestamp", None) and s.timestamp < cutoff:
+                    continue
+                seen_ids.add(sid)
+                source_signals.append(s)
 
         if not source_signals:
             return {
@@ -2584,16 +2689,47 @@ Focus on what requires attention or action."""
         self._stats["predictions_generated"] += 1
         self._stats["last_prediction_at"] = datetime.now(timezone.utc).isoformat()
 
+        # ── Seed dedup fingerprints from last 6h of disk on first run ──
+        if not self._pred_fingerprints_seeded:
+            try:
+                pred_dir = self._data_dir / "predictions"
+                if pred_dir.exists():
+                    cutoff_ts = time.time() - 6 * 3600
+                    recent = [
+                        p for p in pred_dir.glob("pred-*.json")
+                        if p.stat().st_mtime >= cutoff_ts
+                    ]
+                    for p in sorted(recent, key=lambda f: f.stat().st_mtime):
+                        try:
+                            d = json.loads(p.read_text())
+                            fp = _prediction_fingerprint(
+                                d.get("topic", ""),
+                                d.get("consensus", ""),
+                            )
+                            self._seen_pred_fingerprints.append(fp)
+                        except Exception:
+                            pass
+                    log.info(
+                        f"[AGENT:PREDICT] Seeded dedup with "
+                        f"{len(self._seen_pred_fingerprints)} fingerprints "
+                        f"from last 6h of disk"
+                    )
+            except Exception as seed_err:
+                log.warning(f"[AGENT:PREDICT] Fingerprint seed failed: {seed_err}")
+            self._pred_fingerprints_seeded = True
+
         # Cluster signals by category
         clusters: dict[str, list[Signal]] = defaultdict(list)
         for s in buffer:
             category = s.category or "general"
             clusters[category].append(s)
 
-        # Only predict on clusters with 3+ signals
+        # Only predict on clusters with 5+ signals (was 3 — bumped EOD
+        # 2026-05-22 to suppress regeneration on tiny clusters that
+        # barely change between cycles).
         predictions = []
         for topic, cluster_signals in clusters.items():
-            if len(cluster_signals) < 3:
+            if len(cluster_signals) < 5:
                 continue
 
             # Convert to InsightSignal for predictor compatibility
@@ -2601,6 +2737,37 @@ Focus on what requires attention or action."""
 
             try:
                 output: PredictionOutput = await self.predictor.predict(insight_signals, topic)
+
+                # ── Inconclusive-skip gate (EOD 2026-05-22) ──────────
+                # If all component models bailed with "Unable to
+                # generate" / "Inconclusive — all models failed", skip
+                # the write entirely. These accounted for ~9% of disk
+                # files and just polluted the feed.
+                consensus_text = (output.consensus_prediction or "").strip()
+                if not consensus_text or "inconclusive" in consensus_text.lower()[:40] \
+                        or "unable to generate" in consensus_text.lower()[:40] \
+                        or "all models failed" in consensus_text.lower():
+                    self._stats["predictions_inconclusive_skipped"] += 1
+                    log.info(
+                        f"[AGENT:PREDICT] Skipping inconclusive prediction "
+                        f"for '{topic}'"
+                    )
+                    continue
+
+                # ── Fingerprint dedup (EOD 2026-05-22) ───────────────
+                # Drop if same (topic, consensus[:200]) was emitted in
+                # last ~6h. Kills the "Iran ceasefire 95-98% likely"
+                # regeneration pattern dead.
+                fp = _prediction_fingerprint(topic, consensus_text)
+                if fp in self._seen_pred_fingerprints:
+                    self._stats["predictions_deduped"] += 1
+                    log.info(
+                        f"[AGENT:PREDICT] Dedup hit on '{topic}' — "
+                        f"skipping (already emitted in last 6h)"
+                    )
+                    continue
+                self._seen_pred_fingerprints.append(fp)
+
                 pred_record = {
                     "prediction_id": output.prediction_id,
                     "topic": output.topic,
