@@ -1268,13 +1268,39 @@ class Awarebot:
 
                     # Extract insights from report
                     insights = data.get("insights", [])
-                    summary = data.get("summary", data.get("title", ""))
+                    summary = data.get("summary", "")
+
+                    # Build a video lookup map (video_id -> {title, channel, url, channel_id})
+                    videos_list = data.get("videos", []) or []
+                    video_map: dict[str, dict[str, Any]] = {}
+                    for v in videos_list:
+                        if isinstance(v, dict):
+                            vid = v.get("video_id") or v.get("id") or ""
+                            if vid:
+                                video_map[vid] = {
+                                    "title": v.get("title", "") or "",
+                                    "channel": v.get("channel", "") or "",
+                                    "channel_id": v.get("channel_id", "") or "",
+                                    "url": v.get("url") or (f"https://www.youtube.com/watch?v={vid}" if vid else ""),
+                                    "duration_seconds": v.get("duration_seconds", 0) or 0,
+                                }
+
+                    # Pretty top-level title for the report signal
+                    if source == "youtube":
+                        channels = sorted({m["channel"] for m in video_map.values() if m.get("channel")})
+                        channel_blurb = ", ".join(channels[:3]) if channels else "YouTube Council"
+                        n_vids = len(videos_list) if videos_list else (data.get("sources_processed") or 0)
+                        report_title = f"YTC Rollup — {n_vids} video{'s' if n_vids != 1 else ''}"
+                        if channels:
+                            report_title += f" · {channel_blurb}"
+                    else:
+                        report_title = f"Council Report — {data.get('topic') or data.get('title') or json_file.stem}"
 
                     if summary:
                         s = Signal(
                             signal_id=f"council-{json_file.stem}",
                             source=source,
-                            title=f"Council Report: {data.get('title', json_file.stem)}",
+                            title=report_title,
                             content=summary[:1000],
                             url="",
                             composite_score=0.0,
@@ -1285,26 +1311,120 @@ class Awarebot:
                         s.relevance = 0.7  # Council reports are pre-filtered for relevance
                         s.actionability = 0.6
                         s.authority = 0.8  # Council analysis = high authority
+                        s.metadata = {
+                            "council_type": data.get("council_type", source),
+                            "session_id": data.get("session_id", ""),
+                            "videos": [
+                                {
+                                    "video_id": vid,
+                                    "title": v["title"],
+                                    "channel": v["channel"],
+                                    "url": v["url"],
+                                }
+                                for vid, v in video_map.items()
+                            ][:10],
+                            "report_path": str(json_file),
+                            "report_kind": "rollup",
+                        }
                         signals.append(s)
                         self._stats["signals_by_source"][f"council_{source}"] += 1
 
                     for insight in insights[:5]:  # Top 5 insights per report
-                        content = insight if isinstance(insight, str) else insight.get("text", insight.get("content", str(insight)))
-                        confidence = insight.get("confidence", 0.7) if isinstance(insight, dict) else 0.7
+                        if isinstance(insight, str):
+                            # Legacy string form — emit as-is
+                            insight_title = insight[:120]
+                            insight_desc = insight
+                            insight_category = ""
+                            confidence = 0.7
+                            action_suggestion = ""
+                            insight_tags: list[str] = []
+                            source_refs: list[str] = []
+                        else:
+                            insight_title = (insight.get("title") or insight.get("headline") or "").strip()
+                            insight_desc = (
+                                insight.get("description")
+                                or insight.get("text")
+                                or insight.get("content")
+                                or ""
+                            ).strip()
+                            insight_category = (insight.get("category") or "").strip()
+                            try:
+                                confidence = float(insight.get("confidence", 0.7))
+                            except (TypeError, ValueError):
+                                confidence = 0.7
+                            action_suggestion = (insight.get("action_suggestion") or "").strip()
+                            insight_tags = list(insight.get("tags") or [])
+                            source_refs = list(insight.get("source_refs") or [])
+
+                        # Look up the originating video (if any)
+                        vid_meta = {}
+                        for ref in source_refs:
+                            if ref in video_map:
+                                vid_meta = video_map[ref]
+                                break
+
+                        # Compose a real, human-readable title
+                        if insight_title:
+                            if vid_meta.get("channel"):
+                                composed_title = f"[{vid_meta['channel']}] {insight_title}"
+                            else:
+                                composed_title = insight_title
+                        else:
+                            # Fallback when insight has no title — use first ~80 chars of description
+                            composed_title = (insight_desc[:80] + "…") if insight_desc else f"Council Insight ({source.upper()})"
+
+                        # Content: description first, then action suggestion if present
+                        content_parts = []
+                        if insight_desc:
+                            content_parts.append(insight_desc)
+                        if action_suggestion:
+                            content_parts.append(f"→ {action_suggestion}")
+                        composed_content = "\n\n".join(content_parts)[:1000] or composed_title
+
+                        # Video URL for tap-through context
+                        video_url = vid_meta.get("url", "")
+
+                        # Tags: source + insight category + insight tags
+                        tag_set = {f"council:{source}", "council_insight"}
+                        if insight_category:
+                            tag_set.add(insight_category.lower())
+                        for t in insight_tags[:6]:
+                            if isinstance(t, str) and t.strip():
+                                tag_set.add(t.strip().lower())
+
                         s = Signal(
                             signal_id=f"council-insight-{uuid.uuid4().hex[:8]}",
                             source=source,
-                            title=f"Council Insight ({source.upper()})",
-                            content=str(content)[:500],
-                            url="",
+                            title=composed_title[:200],
+                            content=composed_content,
+                            url=video_url,
                             composite_score=0.0,
                             route_level="",
                             timestamp=datetime.now(timezone.utc),
-                            tags=[f"council:{source}", "council_insight"],
+                            tags=sorted(tag_set),
                         )
                         s.relevance = 0.65
                         s.actionability = confidence
                         s.authority = 0.75
+                        s.category = insight_category
+                        s.confidence = confidence
+                        s.metadata = {
+                            "council_type": data.get("council_type", source),
+                            "session_id": data.get("session_id", ""),
+                            "report_path": str(json_file),
+                            "report_kind": "insight",
+                            "insight_title": insight_title,
+                            "insight_description": insight_desc[:600],
+                            "insight_category": insight_category,
+                            "insight_confidence": confidence,
+                            "action_suggestion": action_suggestion[:300],
+                            "actionable": bool(insight.get("actionable", False)) if isinstance(insight, dict) else False,
+                            "video_id": (source_refs[0] if source_refs else ""),
+                            "video_title": vid_meta.get("title", ""),
+                            "channel": vid_meta.get("channel", ""),
+                            "channel_id": vid_meta.get("channel_id", ""),
+                            "video_url": video_url,
+                        }
                         signals.append(s)
                         self._stats["signals_by_source"][f"council_{source}"] += 1
 
@@ -2097,10 +2217,12 @@ Respond with ONLY a JSON object:
                 d["timestamp"] = s.timestamp.isoformat()
 
             score_factors: dict = {}
+            meta: dict = {}
             if hasattr(s, 'metadata') and isinstance(s.metadata, dict):
-                score_factors = s.metadata.get("score_factors", {}) or {}
+                meta = s.metadata
+                score_factors = meta.get("score_factors", {}) or {}
                 d["score_factors"] = score_factors
-                d["id"] = s.metadata.get("id", d["signal_id"])
+                d["id"] = meta.get("id", d["signal_id"])
 
             # ── Enrichments for iOS Intel cards ─────────────────────
             cs = float(score_factors.get("cross_source", 0) or 0)
@@ -2115,7 +2237,34 @@ Respond with ONLY a JSON object:
                     d["entities"] = []
             else:
                 d["entities"] = []
-            d["suggested_action"] = _suggested_action(direction, d["tickers"], d["sectors"])
+
+            # Prefer the LLM-produced action_suggestion (e.g. from YouTube council insights)
+            # over the heuristic suggested_action, but always fall back to the heuristic.
+            heuristic_action = _suggested_action(direction, d["tickers"], d["sectors"])
+            council_action = (meta.get("action_suggestion") or "").strip() if meta else ""
+            d["suggested_action"] = council_action or heuristic_action
+
+            # ── Council / YouTube context (rendered by IntelSignalCard) ──
+            if meta:
+                if meta.get("video_title") or meta.get("channel") or meta.get("video_url"):
+                    d["video_title"] = meta.get("video_title", "")
+                    d["channel"] = meta.get("channel", "")
+                    d["channel_id"] = meta.get("channel_id", "")
+                    d["video_url"] = meta.get("video_url", "")
+                    d["video_id"] = meta.get("video_id", "")
+                if meta.get("insight_category"):
+                    d["insight_category"] = meta.get("insight_category", "")
+                if meta.get("insight_confidence") is not None:
+                    try:
+                        d["insight_confidence"] = float(meta.get("insight_confidence") or 0)
+                    except (TypeError, ValueError):
+                        pass
+                if meta.get("report_kind"):
+                    d["report_kind"] = meta.get("report_kind", "")
+                if meta.get("council_type"):
+                    d["council_type"] = meta.get("council_type", "")
+                if meta.get("session_id"):
+                    d["session_id"] = meta.get("session_id", "")
             return d
 
         return {
