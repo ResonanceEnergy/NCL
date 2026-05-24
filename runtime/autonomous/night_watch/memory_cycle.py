@@ -294,9 +294,7 @@ async def run(scheduler) -> dict:
                     if knowledge_graph:
                         await knowledge_graph.add_entities(new_entities, unit.unit_id)
                         if new_relationships:
-                            await knowledge_graph.add_relationships(
-                                new_relationships, unit.unit_id
-                            )
+                            await knowledge_graph.add_relationships(new_relationships, unit.unit_id)
 
                     if use_llm:
                         est_cost = 0.001
@@ -431,9 +429,9 @@ async def run(scheduler) -> dict:
                         input_t = usage.get("input_tokens", 0)
                         output_t = usage.get("output_tokens", 0)
                         cost = (input_t * 3.00 + output_t * 15.00) / 1_000_000
-                        return [
-                            {"_cost": cost, "_source": "sonnet"}
-                        ] + _m4_parse_contradictions(data["content"][0]["text"])
+                        return [{"_cost": cost, "_source": "sonnet"}] + _m4_parse_contradictions(
+                            data["content"][0]["text"]
+                        )
 
                 # --- Gemini call ---
                 async def _m4_gemini(p: str) -> list[dict]:
@@ -464,9 +462,9 @@ async def run(scheduler) -> dict:
                         input_t = usage_meta.get("promptTokenCount", 0)
                         output_t = usage_meta.get("candidatesTokenCount", 0)
                         cost = (input_t * 0.15 + output_t * 0.60) / 1_000_000
-                        return [
-                            {"_cost": cost, "_source": "gemini"}
-                        ] + _m4_parse_contradictions(text)
+                        return [{"_cost": cost, "_source": "gemini"}] + _m4_parse_contradictions(
+                            text
+                        )
 
                 def _m4_parse_contradictions(text: str) -> list[dict]:
                     text = re.sub(r"```json\s*", "", text)
@@ -758,14 +756,12 @@ async def run(scheduler) -> dict:
                     google_api_key_m6 = os.environ.get("GOOGLE_API_KEY", "")
                     if await tracker.can_spend("anthropic", 0.001):
                         pairs_text = "\n".join(
-                            f'  {i+1}. "{a}" vs "{b}"'
-                            for i, (a, b) in enumerate(ambiguous[:30])
+                            f'  {i+1}. "{a}" vs "{b}"' for i, (a, b) in enumerate(ambiguous[:30])
                         )
                         prompt = (
                             "These entity pairs may refer to the same real-world entity. "
                             "For each pair, respond YES if they are the same, NO if different.\n"  # noqa: E501
-                            'Respond with JSON: {{"results": [true/false, ...]}}\n\n'
-                            + pairs_text
+                            'Respond with JSON: {{"results": [true/false, ...]}}\n\n' + pairs_text
                         )
 
                         def _m6_parse_results(text: str) -> list[bool]:

@@ -14,6 +14,7 @@ We exercise the actual `_persist_mandates_unlocked` and
 `_sqlite_persist_mandates` methods bound to the harness via descriptor
 protocol — same code paths as production.
 """
+
 from __future__ import annotations  # noqa: I001
 
 import asyncio  # noqa: F401
@@ -44,43 +45,53 @@ def tmp_db(tmp_path) -> Path:
 def mandates_json(tmp_path) -> Path:
     """A canonical mandates.json file with three entries."""
     p = tmp_path / "mandates.json"
-    p.write_text(json.dumps([
-        {
-            "mandate_id": "M-001",
-            "pillar": "ncc",
-            "priority": 5,
-            "title": "First mandate",
-            "objective": "Do the thing",
-            "success_criteria": ["A", "B"],
-            "deadline": None,
-            "resources": {"budget": 100},
-            "status": "active",
-            "version": 1,
-            "created_at": "2026-05-23T10:00:00+00:00",
-            "updated_at": "2026-05-23T11:00:00+00:00",
-            "source_pump_id": "pump-1",
-            "status_history": [
-                {"from": "draft", "to": "active", "reason": "ok",
-                 "timestamp": "2026-05-23T11:00:00+00:00", "version": 0}
+    p.write_text(
+        json.dumps(
+            [
+                {
+                    "mandate_id": "M-001",
+                    "pillar": "ncc",
+                    "priority": 5,
+                    "title": "First mandate",
+                    "objective": "Do the thing",
+                    "success_criteria": ["A", "B"],
+                    "deadline": None,
+                    "resources": {"budget": 100},
+                    "status": "active",
+                    "version": 1,
+                    "created_at": "2026-05-23T10:00:00+00:00",
+                    "updated_at": "2026-05-23T11:00:00+00:00",
+                    "source_pump_id": "pump-1",
+                    "status_history": [
+                        {
+                            "from": "draft",
+                            "to": "active",
+                            "reason": "ok",
+                            "timestamp": "2026-05-23T11:00:00+00:00",
+                            "version": 0,
+                        }
+                    ],
+                },
+                {
+                    "mandate_id": "M-002",
+                    "pillar": "ncl",
+                    "priority": 7,
+                    "title": "Second mandate",
+                    "objective": "Other thing",
+                    "success_criteria": [],
+                    "deadline": "2026-06-01T00:00:00+00:00",
+                    "resources": {},
+                    "status": "draft",
+                    "version": 0,
+                    "created_at": "2026-05-23T10:01:00+00:00",
+                    "updated_at": "2026-05-23T10:01:00+00:00",
+                    "source_pump_id": None,
+                    "status_history": [],
+                },
             ],
-        },
-        {
-            "mandate_id": "M-002",
-            "pillar": "ncl",
-            "priority": 7,
-            "title": "Second mandate",
-            "objective": "Other thing",
-            "success_criteria": [],
-            "deadline": "2026-06-01T00:00:00+00:00",
-            "resources": {},
-            "status": "draft",
-            "version": 0,
-            "created_at": "2026-05-23T10:01:00+00:00",
-            "updated_at": "2026-05-23T10:01:00+00:00",
-            "source_pump_id": None,
-            "status_history": [],
-        },
-    ], indent=2))
+            indent=2,
+        )
+    )
     return p
 
 
@@ -88,52 +99,57 @@ def mandates_json(tmp_path) -> Path:
 def mandates_json_with_garbage(tmp_path) -> Path:
     """A mandates.json containing two valid + two malformed entries."""
     p = tmp_path / "mandates.json"
-    p.write_text(json.dumps([
-        # Valid
-        {
-            "mandate_id": "G-001",
-            "pillar": "ncc",
-            "priority": 5,
-            "title": "Good one",
-            "objective": "obj",
-            "success_criteria": [],
-            "resources": {},
-            "status": "active",
-            "version": 0,
-            "created_at": "2026-05-23T10:00:00+00:00",
-            "updated_at": "2026-05-23T10:00:00+00:00",
-            "status_history": [],
-        },
-        # Missing mandate_id (required)
-        {
-            "pillar": "ncc",
-            "status": "active",
-            "created_at": "2026-05-23T10:00:00+00:00",
-            "updated_at": "2026-05-23T10:00:00+00:00",
-        },
-        # Missing status (required)
-        {
-            "mandate_id": "G-002-bad",
-            "pillar": "ncc",
-            "created_at": "2026-05-23T10:00:00+00:00",
-            "updated_at": "2026-05-23T10:00:00+00:00",
-        },
-        # Valid
-        {
-            "mandate_id": "G-003",
-            "pillar": "ncl",
-            "priority": 3,
-            "title": "Another good one",
-            "objective": "obj",
-            "success_criteria": [],
-            "resources": {},
-            "status": "draft",
-            "version": 0,
-            "created_at": "2026-05-23T10:00:00+00:00",
-            "updated_at": "2026-05-23T10:00:00+00:00",
-            "status_history": [],
-        },
-    ], indent=2))
+    p.write_text(
+        json.dumps(
+            [
+                # Valid
+                {
+                    "mandate_id": "G-001",
+                    "pillar": "ncc",
+                    "priority": 5,
+                    "title": "Good one",
+                    "objective": "obj",
+                    "success_criteria": [],
+                    "resources": {},
+                    "status": "active",
+                    "version": 0,
+                    "created_at": "2026-05-23T10:00:00+00:00",
+                    "updated_at": "2026-05-23T10:00:00+00:00",
+                    "status_history": [],
+                },
+                # Missing mandate_id (required)
+                {
+                    "pillar": "ncc",
+                    "status": "active",
+                    "created_at": "2026-05-23T10:00:00+00:00",
+                    "updated_at": "2026-05-23T10:00:00+00:00",
+                },
+                # Missing status (required)
+                {
+                    "mandate_id": "G-002-bad",
+                    "pillar": "ncc",
+                    "created_at": "2026-05-23T10:00:00+00:00",
+                    "updated_at": "2026-05-23T10:00:00+00:00",
+                },
+                # Valid
+                {
+                    "mandate_id": "G-003",
+                    "pillar": "ncl",
+                    "priority": 3,
+                    "title": "Another good one",
+                    "objective": "obj",
+                    "success_criteria": [],
+                    "resources": {},
+                    "status": "draft",
+                    "version": 0,
+                    "created_at": "2026-05-23T10:00:00+00:00",
+                    "updated_at": "2026-05-23T10:00:00+00:00",
+                    "status_history": [],
+                },
+            ],
+            indent=2,
+        )
+    )
     return p
 
 
@@ -143,6 +159,7 @@ async def _fresh_store(tmp_db: Path):
         SqliteStore,
         _reset_singleton_for_tests,
     )
+
     await _reset_singleton_for_tests()
     # Also re-point the singleton via NCL_SQLITE_PATH for any code that
     # calls get_store() without an arg.
@@ -151,6 +168,7 @@ async def _fresh_store(tmp_db: Path):
     await store.initialize()
     # Re-install as the singleton so get_store() returns it.
     import runtime.persistence.sqlite_store as ss
+
     ss._store_instance = store
     return store
 
@@ -224,6 +242,7 @@ async def test_double_write_disabled_default(tmp_db: Path, tmp_path, monkeypatch
         del sys.modules["runtime.ncl_brain.brain"]
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     import runtime.ncl_brain.brain as brain_mod
+
     importlib.reload(brain_mod)
 
     assert brain_mod.SQLITE_DOUBLE_WRITE is False
@@ -258,6 +277,7 @@ async def test_double_write_enabled_persists_both(tmp_db: Path, tmp_path, monkey
     if "runtime.ncl_brain.brain" in sys.modules:
         del sys.modules["runtime.ncl_brain.brain"]
     import runtime.ncl_brain.brain as brain_mod
+
     importlib.reload(brain_mod)
 
     assert brain_mod.SQLITE_DOUBLE_WRITE is True
@@ -296,6 +316,7 @@ async def test_status_transition_preserves_history(tmp_db: Path, tmp_path, monke
     if "runtime.ncl_brain.brain" in sys.modules:
         del sys.modules["runtime.ncl_brain.brain"]
     import runtime.ncl_brain.brain as brain_mod
+
     importlib.reload(brain_mod)
 
     store = await _fresh_store(tmp_db)
@@ -316,6 +337,7 @@ async def test_status_transition_preserves_history(tmp_db: Path, tmp_path, monke
 
     # Transition: draft → pending_approval (per MandateStatus.valid_transitions)
     from runtime.ncl_brain.models import MandateStatus
+
     m.transition_to(MandateStatus.PENDING_APPROVAL, reason="testing")
 
     # Second persist — INSERT OR REPLACE refreshes the row
@@ -341,6 +363,7 @@ async def test_status_transition_preserves_history(tmp_db: Path, tmp_path, monke
 def _build_mandate(mandate_id: str, *, title: str = "T", status: str = "draft"):
     """Build a real Mandate Pydantic model."""
     from runtime.ncl_brain.models import Mandate, MandateStatus, PillarType
+
     now = datetime.now(timezone.utc)
     return Mandate(
         mandate_id=mandate_id,
@@ -369,6 +392,7 @@ class _PersistHarness:
     from the NCLBrain class itself so we exercise production code, not a
     re-implementation.
     """
+
     def __init__(self, mandates_file: Path):
         self.mandates_file = mandates_file
         self.mandates: dict = {}

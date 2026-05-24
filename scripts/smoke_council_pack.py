@@ -11,16 +11,17 @@ Then call write_back_council against a temporary AsyncMemoryWriter
 backed by a throwaway MemoryStore so the 3-tier persist path runs end
 to end with the same code paths the autonomous loop will hit.
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
 import os
 import sys
-import tempfile
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
 
 NCL_ROOT = Path("/Users/natrix/dev/NCL")
 sys.path.insert(0, str(NCL_ROOT))
@@ -40,7 +41,7 @@ def _load_recent_units(jsonl_path: Path, hours_back: int = 24, limit: int = 80) 
     with jsonl_path.open("rb") as fh:
         fh.seek(0, os.SEEK_END)
         size = fh.tell()
-        block = min(size, 4_000_000)   # last 4MB is usually enough for 24h
+        block = min(size, 4_000_000)  # last 4MB is usually enough for 24h
         fh.seek(size - block)
         lines = fh.read().decode("utf-8", errors="ignore").splitlines()
     for line in reversed(lines):
@@ -60,7 +61,7 @@ def _load_recent_units(jsonl_path: Path, hours_back: int = 24, limit: int = 80) 
         except (ValueError, TypeError):
             continue
         rows.append(obj)
-    return rows[: limit]
+    return rows[:limit]
 
 
 def _unit_to_candidate(unit: dict) -> dict:
@@ -118,6 +119,7 @@ class _ThrowawayMemoryStore:
 
     async def create_unit(self, **kwargs):
         from types import SimpleNamespace
+
         self.persisted.append(kwargs)
         # Return a unit-shaped object
         return SimpleNamespace(
@@ -136,7 +138,6 @@ class _ThrowawayMemoryStore:
 
 async def main() -> int:
     from runtime.council_pack import assemble_council_pack, write_back_council
-    from runtime.council_pack.calibration import parse_verbalized_confidence
     from runtime.feedback.source_authority_learner import get_learner
 
     print("=== universal council pack smoke ===")
@@ -197,6 +198,7 @@ async def main() -> int:
     #    the running Brain's units.jsonl.
     print("=== write-back smoke ===")
     from runtime.memory.async_writer import AsyncMemoryWriter
+
     store = _ThrowawayMemoryStore()
     writer = AsyncMemoryWriter(memory_store=store, max_queue=100, drainer_concurrency=2)
     await writer.start()
@@ -238,7 +240,9 @@ async def main() -> int:
     for u in store.persisted[:3]:
         # u may be a dict (create_unit kwargs) — show metadata
         meta = u.get("metadata") or {}
-        print(f"  - tier={meta.get('writeback_tier')} source={u.get('source')} importance={u.get('importance')}")
+        print(
+            f"  - tier={meta.get('writeback_tier')} source={u.get('source')} importance={u.get('importance')}"
+        )
     await writer.stop()
 
     print()

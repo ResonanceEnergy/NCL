@@ -16,9 +16,11 @@ Usage:
     from runtime.persistence.migrations import _005 as m
     await m.migrate()
 """
+
 from __future__ import annotations
 
 from ._base import build_migration
+
 
 NAME = "005_create_predictions"
 migrate, status = build_migration(NAME)

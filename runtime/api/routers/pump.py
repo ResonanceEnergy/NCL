@@ -53,12 +53,14 @@ router = APIRouter(tags=["pump"])
 
 class ApprovalRequest(BaseModel):
     """Request body for pump approval."""
+
     mandate_ids: list[str] | None = None  # None = approve all
     modifications: dict[str, dict] | None = None  # mandate_id → field overrides
 
 
 class RejectionRequest(BaseModel):
     """Request body for pump rejection."""
+
     reason: str = ""
 
 
@@ -69,10 +71,13 @@ class RejectionRequest(BaseModel):
 def _pump_rate_limit():
     try:
         from .. import routes as _routes
+
         return _routes._maybe_limit("10/minute")
     except Exception:
+
         def _noop(fn):
             return fn
+
         return _noop
 
 
@@ -82,7 +87,9 @@ def _pump_rate_limit():
 async def receive_pump_prompt(
     request: Request,
     body: dict = Body(...),
-    auto_flow: bool = Query(default=True, description="Run council→mandate pipeline (stops before NCC dispatch)"),  # noqa: E501
+    auto_flow: bool = Query(
+        default=True, description="Run council→mandate pipeline (stops before NCC dispatch)"
+    ),  # noqa: E501
     brain=Depends(get_brain),
     _: None = Depends(verify_strike_token_dep),
 ) -> dict:
@@ -107,6 +114,7 @@ async def receive_pump_prompt(
     or /pump/reject/{pump_id} to discard.
     """
     from .. import routes as _routes
+
     _routes._check_rate_limit(request)
 
     if not brain:
@@ -120,6 +128,7 @@ async def receive_pump_prompt(
     # Accept simple { "prompt": "text" } from dashboard and convert to PumpPrompt
     if "prompt" in body and "prompt_id" not in body:
         import uuid
+
         prompt = PumpPrompt(
             prompt_id=f"pump-dash-{uuid.uuid4().hex[:8]}",
             source="command-center-dashboard",
@@ -146,9 +155,7 @@ async def receive_pump_prompt(
             try:
                 await brain.receive_pump_prompt(prompt, auto_flow=True)
             except Exception:
-                log.exception(
-                    f"[/pump] background auto_flow failed for {prompt.prompt_id}"
-                )
+                log.exception(f"[/pump] background auto_flow failed for {prompt.prompt_id}")
 
         task = asyncio.create_task(_run_auto_flow())
 
@@ -157,9 +164,7 @@ async def receive_pump_prompt(
                 return
             exc = t.exception()
             if exc is not None:
-                log.error(
-                    f"[/pump] auto_flow task for {prompt.prompt_id} died: {exc!r}"
-                )
+                log.error(f"[/pump] auto_flow task for {prompt.prompt_id} died: {exc!r}")
 
         task.add_done_callback(_pump_task_done)
         return {
@@ -231,7 +236,11 @@ async def pump_health(
                 files = sorted(d.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
                 file_health[sub] = {
                     "count": len(files),
-                    "newest_at": datetime.fromtimestamp(files[0].stat().st_mtime, tz=timezone.utc).isoformat() if files else None,  # noqa: E501
+                    "newest_at": datetime.fromtimestamp(
+                        files[0].stat().st_mtime, tz=timezone.utc
+                    ).isoformat()
+                    if files
+                    else None,  # noqa: E501
                     "newest_name": files[0].name if files else None,
                 }
             else:
@@ -247,8 +256,12 @@ async def pump_health(
         "last_submission_at": _PUMP_QUALITY["last_submission_at"],
         "last_submission_id": _PUMP_QUALITY["last_submission_id"],
         "acceptance_pct": (
-            round(100.0 * _PUMP_QUALITY["submitted_total"] /
-                  max(1, _PUMP_QUALITY["submitted_total"] + _PUMP_QUALITY["rejected_total"]), 1)
+            round(
+                100.0
+                * _PUMP_QUALITY["submitted_total"]
+                / max(1, _PUMP_QUALITY["submitted_total"] + _PUMP_QUALITY["rejected_total"]),
+                1,
+            )
         ),
         "file_pipeline": file_health,
     }
@@ -298,13 +311,15 @@ async def review_pump(
                 "confidence_weighted": session.consensus_score.confidence_weighted,
                 "threshold_met": session.consensus_score.threshold_met,
                 "dissent_strength": session.consensus_score.dissent_strength,
-            } if session.consensus_score else None,
+            }
+            if session.consensus_score
+            else None,
         }
 
     review["actions"] = {
         "approve_all": f"POST /pump/approve/{pump_id}",
-        "approve_some": f"POST /pump/approve/{pump_id} with body: {{\"mandate_ids\": [...]}}",
-        "modify_and_approve": f"POST /pump/approve/{pump_id} with body: {{\"modifications\": {{\"mandate_id\": {{\"priority\": N}}}}}}",  # noqa: E501
+        "approve_some": f'POST /pump/approve/{pump_id} with body: {{"mandate_ids": [...]}}',
+        "modify_and_approve": f'POST /pump/approve/{pump_id} with body: {{"modifications": {{"mandate_id": {{"priority": N}}}}}}',  # noqa: E501
         "reject": f"POST /pump/reject/{pump_id}",
     }
 

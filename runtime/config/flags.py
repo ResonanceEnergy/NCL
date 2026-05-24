@@ -56,6 +56,7 @@ def _read_bool(name: str, default: str = "false") -> bool:
 # SQLite first when the flag is ON and fall back to the JSONL scan on
 # any miss or error.
 
+
 def units_index_sqlite() -> bool:
     """``NCL_UNITS_INDEX_SQLITE`` — W4-14 units_index table gate."""
     return _read_bool("NCL_UNITS_INDEX_SQLITE")
@@ -77,6 +78,7 @@ def predictions_sqlite() -> bool:
 
 
 # ── Memory subsystem A/B ───────────────────────────────────────────────
+
 
 def ab_haiku_enabled() -> bool:
     """``NCL_AB_HAIKU`` — Haiku shadow-scoring A/B harness gate."""

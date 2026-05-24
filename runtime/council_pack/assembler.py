@@ -107,7 +107,7 @@ class PackItem:
     effective_weight: float
     fused_score: float
     mmr_score: Optional[float] = None
-    recency_label: str = "arc_30d"   # "hot_4h" | "arc_30d" | "pinned"
+    recency_label: str = "arc_30d"  # "hot_4h" | "arc_30d" | "pinned"
     created_at: str = ""
     signal_id: Optional[str] = None
     tags: list[str] = field(default_factory=list)
@@ -319,7 +319,9 @@ def _render_prompt_text(pack: CouncilPack) -> str:
 # ── MapReduce compression ─────────────────────────────────────────────────
 
 
-async def _summarize_section_mapreduce(section: PackSection, *, max_tokens_out: int = 1200) -> PackSection:  # noqa: E501
+async def _summarize_section_mapreduce(
+    section: PackSection, *, max_tokens_out: int = 1200
+) -> PackSection:  # noqa: E501
     """Run Sonnet summarization over a single section.
 
     The summary REPLACES the section's items with a single synthetic PackItem
@@ -354,6 +356,7 @@ async def _summarize_section_mapreduce(section: PackSection, *, max_tokens_out: 
         # so we don't spin up the facade just to fail.
         if os.getenv("ANTHROPIC_API_KEY"):
             from ..llm import chat as _llm_chat
+
             result = await _llm_chat(
                 model="claude-sonnet-4-20250514",
                 messages=[{"role": "user", "content": prompt}],
@@ -366,7 +369,9 @@ async def _summarize_section_mapreduce(section: PackSection, *, max_tokens_out: 
             if not summary_text:
                 log.warning("[MAPREDUCE] empty response on section %s", section.label)
     except Exception as exc:
-        log.warning("[MAPREDUCE] section %s failed (%s) — falling back to truncation", section.label, exc)  # noqa: E501
+        log.warning(
+            "[MAPREDUCE] section %s failed (%s) — falling back to truncation", section.label, exc
+        )  # noqa: E501
 
     if not summary_text:
         # Deterministic fallback: keep highest-weight items until we fit.
@@ -400,7 +405,9 @@ async def _summarize_section_mapreduce(section: PackSection, *, max_tokens_out: 
     return section
 
 
-async def _apply_mapreduce(sections: list[PackSection], max_tokens_total: int) -> tuple[list[PackSection], bool]:  # noqa: E501
+async def _apply_mapreduce(
+    sections: list[PackSection], max_tokens_total: int
+) -> tuple[list[PackSection], bool]:  # noqa: E501
     """Compress sections until they fit ``max_tokens_total``.
 
     Returns ``(sections, applied_flag)``.
@@ -432,12 +439,15 @@ async def _apply_mapreduce(sections: list[PackSection], max_tokens_total: int) -
 # ── 40% utilization cap (deterministic trim) ───────────────────────────────
 
 
-def _enforce_utilization_cap(sections: list[PackSection], max_tokens_total: int) -> tuple[list[PackSection], bool]:  # noqa: E501
+def _enforce_utilization_cap(
+    sections: list[PackSection], max_tokens_total: int
+) -> tuple[list[PackSection], bool]:  # noqa: E501
     """Hard-trim sections until they fit ``max_tokens_total`` by dropping the
     LOWEST-effective-weight items first.
 
     Returns ``(sections, was_trimmed)``.
     """
+
     def _total() -> int:
         return sum(_estimate_tokens(_render_section_body(s)) for s in sections)
 
@@ -709,13 +719,16 @@ async def assemble_council_pack(
     # 10) Render final prompt + document blocks.
     all_pack_items = [i for s in sections for i in s.items]
     document_blocks = build_citation_documents(
-        [{
-            "unit_id": it.unit_id,
-            "source": it.source,
-            "content": it.content,
-            "authority_tier_name": it.authority_tier_name,
-            "recency_label": it.recency_label,
-        } for it in all_pack_items]
+        [
+            {
+                "unit_id": it.unit_id,
+                "source": it.source,
+                "content": it.content,
+                "authority_tier_name": it.authority_tier_name,
+                "recency_label": it.recency_label,
+            }
+            for it in all_pack_items
+        ]
     )
 
     # W8-A1 D1: per-pack nonce for evidence fences. 16 hex chars is plenty;
@@ -764,6 +777,7 @@ async def assemble_council_pack(
     # Memory-budget telemetry — best effort.
     try:
         from ..memory.budget_tracker import record as _bt_record
+
         await _bt_record(
             "council_pack_assembly",
             pack.token_estimate,

@@ -14,6 +14,7 @@ Recommendation rules (from ab_test.py):
 * ``keep`` if haiku_errors / rows > 5%
 * ``swap`` otherwise
 """
+
 from __future__ import annotations
 
 import importlib
@@ -143,9 +144,7 @@ def test_summary_filters_outside_window(tmp_path, monkeypatch):
     # 60 rows from now (in-window) + 20 rows stamped 10 days ago (out-of-window).
     in_window = [_row(sonnet_score=7.0, haiku_score=6.8) for _ in range(60)]
     old_ts = "2020-01-01T00:00:00+00:00"
-    out_of_window = [
-        _row(sonnet_score=5.0, haiku_score=5.0, ts=old_ts) for _ in range(20)
-    ]
+    out_of_window = [_row(sonnet_score=5.0, haiku_score=5.0, ts=old_ts) for _ in range(20)]
     _write_rows(scores_path, in_window + out_of_window)
 
     s = ab.compute_summary(window_hours=24)

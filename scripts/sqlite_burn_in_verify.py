@@ -48,6 +48,7 @@ checksumming the body would always disagree.
 Each table-specific canonicaliser lives in its own function so the
 shape is auditable in code review.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -56,15 +57,16 @@ import hashlib
 import json
 import logging
 import sys
-from collections import defaultdict
 from pathlib import Path
 from typing import Callable, Iterable, Optional
+
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from runtime.persistence import get_store  # noqa: E402
+
 
 log = logging.getLogger("ncl.burn_in_verify")
 
@@ -314,7 +316,7 @@ async def verify_cost_ledger(jsonl_path: Path) -> dict:
 
     lcount, lhash = _checksum(left)
     rcount, rhash = _checksum(right)
-    match = (lcount == rcount and lhash == rhash)
+    match = lcount == rcount and lhash == rhash
     out = {
         "table": "cost_ledger",
         "jsonl_files": [str(p) for p in jsonl_files],
@@ -342,7 +344,7 @@ async def verify_mandates(json_path: Path) -> dict:
 
     lcount, lhash = _checksum(left)
     rcount, rhash = _checksum(right)
-    match = (lcount == rcount and lhash == rhash)
+    match = lcount == rcount and lhash == rhash
     out = {
         "table": "mandates",
         "json_file": str(json_path),
@@ -384,7 +386,7 @@ async def verify_units_index(jsonl_path: Path) -> dict:
 
     lcount, lhash = _checksum(left)
     rcount, rhash = _checksum(right)
-    match = (lcount == rcount and lhash == rhash)
+    match = lcount == rcount and lhash == rhash
     out = {
         "table": "units_index",
         "jsonl_file": str(jsonl_path),

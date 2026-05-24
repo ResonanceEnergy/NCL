@@ -51,6 +51,7 @@ connection on open — writer and every reader. Without per-connection
 ``journal_mode=WAL`` a reader can fall through into rollback-journal
 mode and stall a concurrent writer.
 """
+
 from __future__ import annotations  # noqa: I001
 
 import asyncio
@@ -84,10 +85,12 @@ def _read_pool_size() -> int:
     except ValueError:
         log.warning(
             "[SQLITE] NCL_SQLITE_READ_POOL=%r is not an int — using default %d",
-            raw, _DEFAULT_READ_POOL_SIZE,
+            raw,
+            _DEFAULT_READ_POOL_SIZE,
         )
         return _DEFAULT_READ_POOL_SIZE
     return max(1, n)
+
 
 # W10A-13: transient sqlite3.OperationalError retry schedule (in seconds).
 # Three retry attempts (4 total tries: t=0, +0.1s, +0.5s, +2.0s) cover the
@@ -108,6 +111,7 @@ def _ntfy_sqlite_exhausted(e: sqlite3.OperationalError) -> None:
     """Best-effort exhaustion alert. Import is local to avoid cycles."""
     try:
         from ..notifications.alert_dispatch import enqueue_alert
+
         enqueue_alert(
             title="SQLite write retry exhausted",
             body=str(e)[:200],
@@ -240,11 +244,7 @@ class SqliteStore:
     """
 
     def __init__(self, db_path: Optional[Path] = None) -> None:
-        self._db_path: Path = Path(
-            db_path
-            or os.getenv("NCL_SQLITE_PATH")
-            or DEFAULT_DB_PATH
-        )
+        self._db_path: Path = Path(db_path or os.getenv("NCL_SQLITE_PATH") or DEFAULT_DB_PATH)
         # Reader/writer lock for runtime data access via ``acquire()``
         # and ``execute_*``. ``fetch_*`` bypass this and use the read
         # pool directly.
@@ -348,7 +348,8 @@ class SqliteStore:
             log.info(
                 "[SQLITE] Store initialized at %s "
                 "(WAL, synchronous=NORMAL, busy_timeout=5000, read_pool=%d)",
-                self._db_path, self._read_pool_size,
+                self._db_path,
+                self._read_pool_size,
             )
 
     async def close(self) -> None:
@@ -589,7 +590,9 @@ class SqliteStore:
                         if attempt < len(_SQLITE_RETRY_DELAYS_S):
                             log.warning(
                                 "[sqlite] %s — retry %d/%d",
-                                e, attempt + 1, len(_SQLITE_RETRY_DELAYS_S),
+                                e,
+                                attempt + 1,
+                                len(_SQLITE_RETRY_DELAYS_S),
                             )
                             continue
                         _ntfy_sqlite_exhausted(e)
@@ -646,7 +649,9 @@ class SqliteStore:
                         if attempt < len(_SQLITE_RETRY_DELAYS_S):
                             log.warning(
                                 "[sqlite] %s — retry %d/%d",
-                                e, attempt + 1, len(_SQLITE_RETRY_DELAYS_S),
+                                e,
+                                attempt + 1,
+                                len(_SQLITE_RETRY_DELAYS_S),
                             )
                             continue
                         _ntfy_sqlite_exhausted(e)

@@ -8,11 +8,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 from .models import CouncilRunRecord
+
 
 log = logging.getLogger("ncl.council_runner.store")
 
@@ -70,9 +69,7 @@ class CouncilRunStore:
 
         return CouncilRunRecord(**data)
 
-    async def list_runs(
-        self, limit: int = 50, offset: int = 0
-    ) -> list[CouncilRunRecord]:
+    async def list_runs(self, limit: int = 50, offset: int = 0) -> list[CouncilRunRecord]:
         """List saved runs with pagination."""
         runs = []
 
@@ -94,9 +91,7 @@ class CouncilRunStore:
 
         return runs
 
-    async def search_runs(
-        self, topic_query: str, limit: int = 20
-    ) -> list[CouncilRunRecord]:
+    async def search_runs(self, topic_query: str, limit: int = 20) -> list[CouncilRunRecord]:
         """Simple text search on topic and prompt."""
         matches = []
         query_lower = topic_query.lower()
@@ -155,11 +150,7 @@ class CouncilRunStore:
                 except (json.JSONDecodeError, ValueError):
                     pass
 
-        avg_consensus = (
-            sum(consensus_scores) / len(consensus_scores)
-            if consensus_scores
-            else 0
-        )
+        avg_consensus = sum(consensus_scores) / len(consensus_scores) if consensus_scores else 0
         avg_duration = sum(durations) / len(durations) if durations else 0
 
         return {
@@ -187,11 +178,7 @@ class CouncilRunStore:
                     }
                     for output in record.agent_outputs
                 ],
-                "consensus_score": (
-                    record.consensus.consensus_score
-                    if record.consensus
-                    else None
-                ),
+                "consensus_score": (record.consensus.consensus_score if record.consensus else None),
                 "provenance": record.provenance,
                 "replay_seed": record.replay_seed,
             }

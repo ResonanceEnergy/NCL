@@ -991,8 +991,8 @@ class AutonomousScheduler:
         rate the quorum module documents.
         """
         try:
-            from runtime.councils.quorum import CouncilQuorum, QuorumDecision
             from runtime.cost_tracker import get_tracker
+            from runtime.councils.quorum import CouncilQuorum, QuorumDecision
         except Exception as exc:
             log.warning("[COUNCIL-AUTO:QUORUM] import failed: %s — skipping pre-pass", exc)
             return None
@@ -1008,9 +1008,7 @@ class AutonomousScheduler:
         # Re-use the brain's existing http client to avoid spinning up a
         # second connection pool. ``CouncilQuorum`` won't close a client
         # it didn't own (``_owns_http=False``).
-        anthropic_client = getattr(
-            getattr(self.brain, "council_engine", None), "http_client", None
-        )
+        anthropic_client = getattr(getattr(self.brain, "council_engine", None), "http_client", None)
         quorum = CouncilQuorum(
             anthropic_client=anthropic_client,
             cost_gate_callable=tracker.can_spend,
@@ -1034,7 +1032,8 @@ class AutonomousScheduler:
         # consensus_score reflects the agreement we measured.
         try:
             import uuid as _uuid
-            from datetime import datetime as _dt, timezone as _tz
+            from datetime import datetime as _dt
+            from datetime import timezone as _tz
 
             from runtime.ncl_brain.models import (
                 ConsensusScore,
@@ -3908,9 +3907,7 @@ class AutonomousScheduler:
             except asyncio.CancelledError:
                 raise
 
-    async def _dump_stall_diagnostics(
-        self, age_s: float, threshold_s: float | None = None
-    ) -> None:
+    async def _dump_stall_diagnostics(self, age_s: float, threshold_s: float | None = None) -> None:
         """Snapshot all live tasks' stacks and ntfy. Best-effort, never raises."""
         # W10B-10: threshold may be the relaxed long-running value (300s) or
         # the default (90s). Fall back to the strict default if unspecified

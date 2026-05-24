@@ -215,8 +215,7 @@ async def run_council_with_pack(
             if session.rounds and getattr(session, "members", None):
                 # member objects are CouncilMember enums — extract their str value
                 member_names = [
-                    (m.value if hasattr(m, "value") else str(m))
-                    for m in (session.members or [])
+                    (m.value if hasattr(m, "value") else str(m)) for m in (session.members or [])
                 ]
                 r1 = session.rounds[0]
                 member_replies = dict(r1.responses or {})
@@ -224,11 +223,13 @@ async def run_council_with_pack(
                 # if available; otherwise fall back to "MEMBER".
                 try:
                     from runtime.ncl_brain.council import DEFAULT_ROLE_MAP
+
                     member_roles = {
-                        (m.value if hasattr(m, "value") else str(m)):
-                            (DEFAULT_ROLE_MAP.get(m).value
-                             if DEFAULT_ROLE_MAP.get(m) and hasattr(DEFAULT_ROLE_MAP.get(m), "value")  # noqa: E501
-                             else "MEMBER")
+                        (m.value if hasattr(m, "value") else str(m)): (
+                            DEFAULT_ROLE_MAP.get(m).value
+                            if DEFAULT_ROLE_MAP.get(m) and hasattr(DEFAULT_ROLE_MAP.get(m), "value")  # noqa: E501
+                            else "MEMBER"
+                        )
                         for m in (session.members or [])
                     }
                 except Exception:
@@ -238,6 +239,7 @@ async def run_council_with_pack(
                     """Adapter: ``call_member(name, prompt)`` → engine dispatch."""
                     # Resolve string name back to CouncilMember enum.
                     from runtime.ncl_brain.models import CouncilMember
+
                     try:
                         mem = CouncilMember(name.lower())
                     except ValueError:
@@ -288,7 +290,9 @@ async def run_council_with_pack(
         "topic": session.topic,
         "consensus": session.consensus,
         "decision": getattr(session, "synthesis", None),
-        "headline": (session.consensus or session.synthesis or "")[:240] if (session.consensus or session.synthesis) else "",  # noqa: E501
+        "headline": (session.consensus or session.synthesis or "")[:240]
+        if (session.consensus or session.synthesis)
+        else "",  # noqa: E501
         "confidence": (
             session.consensus_score.confidence_weighted / 100.0
             if session.consensus_score and session.consensus_score.confidence_weighted

@@ -82,6 +82,7 @@ router = APIRouter(tags=["council"])
 
 # ── Pydantic bodies ───────────────────────────────────────────────────────
 
+
 class CouncilSpawnBody(BaseModel):
     topic: str = ""
     prompt: str = ""
@@ -92,9 +93,7 @@ class CouncilSpawnBody(BaseModel):
 class CouncilRunRequest(BaseModel):
     """Request body for council runner trigger."""
 
-    council_type: str = Field(
-        ..., description="Council type: 'youtube', 'x', or 'both'"
-    )
+    council_type: str = Field(..., description="Council type: 'youtube', 'x', or 'both'")
     dry_run: bool = Field(default=False, description="Dry run (scrape only, no AI)")
 
 
@@ -105,6 +104,7 @@ class YouTubeChannelBody(BaseModel):
 
 class RAGQueryRequest(BaseModel):
     """RAG query across council knowledge."""
+
     query: str = Field(..., min_length=1)
     top_k: int = Field(default=10, ge=1, le=100)
     filter_type: str | None = Field(default=None, description="insight, transcript, report_summary")
@@ -113,11 +113,13 @@ class RAGQueryRequest(BaseModel):
 
 class MultiAgentRequest(BaseModel):
     """Request to run multi-agent council analysis."""
+
     source_material: str = Field(..., min_length=10, description="Content to analyze")
     pipeline: str = Field(default="youtube", description="youtube or x")
 
 
 # ── /council/* — Delphi-MAD session endpoints ─────────────────────────────
+
 
 @router.post("/council/spawn")
 async def spawn_council_session(
@@ -139,6 +141,7 @@ async def spawn_council_session(
         Dict with session details
     """
     from .. import routes as _routes
+
     _routes._check_rate_limit(request)
     if not brain:
         raise HTTPException(status_code=503, detail="Service not initialized")
@@ -146,12 +149,17 @@ async def spawn_council_session(
     # Merge: body fields override query params
     _topic = (body.topic if body and body.topic else topic) or "General council session"
     _prompt = (body.prompt if body and body.prompt else prompt) or _topic
-    _members = (body.members if body and body.members else
-                ([m.strip() for m in members.split(",") if m.strip()] if members else None))
+    _members = (
+        body.members
+        if body and body.members
+        else ([m.strip() for m in members.split(",") if m.strip()] if members else None)
+    )
 
     # Pre-generate the session ID so the returned ID matches the one stored by spawn_council_session.  # noqa: E501
     # We pass it through brain → council_engine so council_sessions is keyed on this exact ID.
-    session_id = f"council-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{str(uuid.uuid4())[:8]}"  # noqa: E501
+    session_id = (
+        f"council-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{str(uuid.uuid4())[:8]}"  # noqa: E501
+    )
 
     async def _run_council():
         try:
@@ -183,7 +191,11 @@ async def spawn_council_session(
             )
 
     task = asyncio.create_task(_run_council())
-    task.add_done_callback(lambda t: log.error(f"Council spawn task died: {t.exception()!r}") if not t.cancelled() and t.exception() else None)  # noqa: E501
+    task.add_done_callback(
+        lambda t: log.error(f"Council spawn task died: {t.exception()!r}")
+        if not t.cancelled() and t.exception()
+        else None
+    )  # noqa: E501
 
     return {
         "session_id": session_id,
@@ -251,16 +263,18 @@ async def list_council_sessions(
 
     sessions = []
     for sid, session in brain.council_sessions.items():
-        sessions.append({
-            "session_id": session.session_id,
-            "topic": session.topic,
-            "status": session.status.value,
-            "consensus": session.consensus or "",
-            "member_count": len(session.members),
-            "round_count": len(session.rounds),
-            "created_at": session.created_at.isoformat(),
-            "completed_at": session.completed_at.isoformat() if session.completed_at else None,
-        })
+        sessions.append(
+            {
+                "session_id": session.session_id,
+                "topic": session.topic,
+                "status": session.status.value,
+                "consensus": session.consensus or "",
+                "member_count": len(session.members),
+                "round_count": len(session.rounds),
+                "created_at": session.created_at.isoformat(),
+                "completed_at": session.completed_at.isoformat() if session.completed_at else None,
+            }
+        )
     # Sort newest first
     sessions.sort(key=lambda s: s["created_at"], reverse=True)
     return {"sessions": sessions, "count": len(sessions)}
@@ -299,7 +313,11 @@ async def council_quality(
 # ── /council/youtube/* — Channel subscription + YTC reports ───────────────
 # Channel subscription management + report access for FirstStrike YTC tab.
 
-_YTC_CHANNEL_CONFIG = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL"))) / "config" / "youtube_channels.json"  # noqa: E501
+_YTC_CHANNEL_CONFIG = (
+    Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
+    / "config"
+    / "youtube_channels.json"
+)  # noqa: E501
 
 
 def _load_ytc_channels() -> list[dict]:
@@ -313,7 +331,9 @@ def _load_ytc_channels() -> list[dict]:
         result = []
         for ch in channels:
             if isinstance(ch, str):
-                result.append({"url": ch, "name": ch.rstrip("/").split("@")[-1] if "@" in ch else ch})  # noqa: E501
+                result.append(
+                    {"url": ch, "name": ch.rstrip("/").split("@")[-1] if "@" in ch else ch}
+                )  # noqa: E501
             elif isinstance(ch, dict):
                 result.append(ch)
         return result
@@ -412,7 +432,9 @@ async def list_youtube_reports(
 
     reports: list[dict] = []
     if reports_dir.exists():
-        for rpt_path in sorted(reports_dir.glob("*youtube*.md"), key=lambda p: p.stat().st_mtime, reverse=True):  # noqa: E501
+        for rpt_path in sorted(
+            reports_dir.glob("*youtube*.md"), key=lambda p: p.stat().st_mtime, reverse=True
+        ):  # noqa: E501
             try:
                 content = rpt_path.read_text(errors="replace")
                 # Extract title from first heading
@@ -429,14 +451,18 @@ async def list_youtube_reports(
                         channel = line.split(":", 1)[-1].strip()
                         break
 
-                reports.append({
-                    "filename": rpt_path.name,
-                    "title": title,
-                    "channel": channel,
-                    "date": datetime.fromtimestamp(rpt_path.stat().st_mtime, tz=timezone.utc).isoformat(),  # noqa: E501
-                    "size_bytes": rpt_path.stat().st_size,
-                    "status": "complete",
-                })
+                reports.append(
+                    {
+                        "filename": rpt_path.name,
+                        "title": title,
+                        "channel": channel,
+                        "date": datetime.fromtimestamp(
+                            rpt_path.stat().st_mtime, tz=timezone.utc
+                        ).isoformat(),  # noqa: E501
+                        "size_bytes": rpt_path.stat().st_size,
+                        "status": "complete",
+                    }
+                )
             except Exception as e:
                 log.warning(f"Failed to read report {rpt_path}: {e}")
 
@@ -446,7 +472,9 @@ async def list_youtube_reports(
     # Also check for JSON reports (newer format — per-video + rollup)
     json_reports_dir = ncl_base / "intelligence-scan" / "youtube-reports"
     if json_reports_dir.exists():
-        for rpt_path in sorted(json_reports_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):  # noqa: E501
+        for rpt_path in sorted(
+            json_reports_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True
+        ):  # noqa: E501
             try:
                 data = json.loads(rpt_path.read_text())
                 report_type = data.get("report_type", "legacy")  # per_video, rollup, or legacy
@@ -455,12 +483,26 @@ async def list_youtube_reports(
                 first_video = videos[0] if videos else {}
                 entry = {
                     "filename": rpt_path.name,
-                    "title": first_video.get("title", data.get("title", data.get("video_title", rpt_path.stem))),  # noqa: E501
-                    "channel": first_video.get("channel", data.get("channel", data.get("channel_name", "Unknown"))),  # noqa: E501
+                    "title": first_video.get(
+                        "title", data.get("title", data.get("video_title", rpt_path.stem))
+                    ),  # noqa: E501
+                    "channel": first_video.get(
+                        "channel", data.get("channel", data.get("channel_name", "Unknown"))
+                    ),  # noqa: E501
                     "video_url": first_video.get("url", data.get("video_url", data.get("url", ""))),
                     "video_id": first_video.get("video_id", ""),
-                    "date": data.get("completed_at", data.get("published_at", data.get("date",
-                        datetime.fromtimestamp(rpt_path.stat().st_mtime, tz=timezone.utc).isoformat()))),  # noqa: E501
+                    "date": data.get(
+                        "completed_at",
+                        data.get(
+                            "published_at",
+                            data.get(
+                                "date",
+                                datetime.fromtimestamp(
+                                    rpt_path.stat().st_mtime, tz=timezone.utc
+                                ).isoformat(),
+                            ),
+                        ),
+                    ),  # noqa: E501
                     "transcript_summary": data.get("summary", data.get("transcript_summary", "")),
                     "analysis": data.get("raw_analysis", data.get("analysis", "")),
                     "insights_count": len(data.get("insights", [])),
@@ -546,7 +588,9 @@ async def trigger_youtube_council(
         for old_id in sorted_ids[: len(sorted_ids) - _YTC_RUN_STATUS_MAX + 1]:
             del _ytc_run_status[old_id]
 
-    session_id = f"ytc-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{str(uuid.uuid4())[:8]}"  # noqa: E501
+    session_id = (
+        f"ytc-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{str(uuid.uuid4())[:8]}"  # noqa: E501
+    )
     _ytc_run_status[session_id] = {
         "status": "running",
         "step": "starting",
@@ -589,7 +633,9 @@ async def trigger_youtube_council(
                         {
                             "title": ins.title,
                             "description": ins.description,
-                            "category": ins.category.value if hasattr(ins.category, "value") else str(ins.category),  # noqa: E501
+                            "category": ins.category.value
+                            if hasattr(ins.category, "value")
+                            else str(ins.category),  # noqa: E501
                             "confidence": ins.confidence,
                             "tags": ins.tags,
                             "actionable": ins.actionable,
@@ -611,14 +657,16 @@ async def trigger_youtube_council(
                     ],
                 }
                 out_path.write_text(json.dumps(report_data, default=str, indent=2))
-                status.update({
-                    "status": "complete",
-                    "step": "done",
-                    "completed_at": datetime.now(timezone.utc).isoformat(),
-                    "videos_transcribed": report.sources_processed,
-                    "insights": len(report.insights),
-                    "duration_hours": round(report.total_duration_hours, 2),
-                })
+                status.update(
+                    {
+                        "status": "complete",
+                        "step": "done",
+                        "completed_at": datetime.now(timezone.utc).isoformat(),
+                        "videos_transcribed": report.sources_processed,
+                        "insights": len(report.insights),
+                        "duration_hours": round(report.total_duration_hours, 2),
+                    }
+                )
                 log.info(f"[YTC] Council run complete: {session_id}")
             else:
                 status.update({"status": "complete", "step": "done (no new content)"})
@@ -628,7 +676,11 @@ async def trigger_youtube_council(
             log.exception(f"[YTC] Council run failed: {e}")
 
     task = asyncio.create_task(_run())
-    task.add_done_callback(lambda t: log.error(f"YTC run died: {t.exception()!r}") if not t.cancelled() and t.exception() else None)  # noqa: E501
+    task.add_done_callback(
+        lambda t: log.error(f"YTC run died: {t.exception()!r}")
+        if not t.cancelled() and t.exception()
+        else None
+    )  # noqa: E501
 
     return {
         "session_id": session_id,
@@ -650,6 +702,7 @@ async def get_ytc_run_status(
 
 # ── /councils/* — Council runner + reports + RAG + multi-agent ────────────
 
+
 @router.post("/councils/run")
 async def trigger_council_run(
     request: Request,
@@ -669,6 +722,7 @@ async def trigger_council_run(
         Dict with session_id and status
     """
     from .. import routes as _routes
+
     _routes._check_rate_limit(request)
     if not brain:
         raise HTTPException(status_code=503, detail="Service not initialized")
@@ -681,7 +735,9 @@ async def trigger_council_run(
         )
 
     # Generate session ID
-    session_id = f"council-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{str(uuid.uuid4())[:8]}"  # noqa: E501
+    session_id = (
+        f"council-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{str(uuid.uuid4())[:8]}"  # noqa: E501
+    )
 
     # Define background task function
     async def run_council_background():
@@ -712,7 +768,11 @@ async def trigger_council_run(
             )
 
     task = asyncio.create_task(run_council_background())
-    task.add_done_callback(lambda t: log.error(f"Council task died: {t.exception()!r}") if not t.cancelled() and t.exception() else None)  # noqa: E501
+    task.add_done_callback(
+        lambda t: log.error(f"Council task died: {t.exception()!r}")
+        if not t.cancelled() and t.exception()
+        else None
+    )  # noqa: E501
 
     return {
         "session_id": session_id,
@@ -769,9 +829,7 @@ async def list_council_reports(
                     "path": str(report_file),
                     "size_bytes": stat.st_size,
                     "preview": preview,
-                    "modified_at": datetime.fromtimestamp(
-                        stat.st_mtime
-                    ).isoformat(),
+                    "modified_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
                 }
                 # Enrich with JSON companion data if available
                 json_companion = reports_dir / fn.replace(".md", ".json")
@@ -782,11 +840,17 @@ async def list_council_reports(
                     try:
                         jdata = json.loads(json_companion.read_text())
                         if isinstance(jdata, dict):
-                            report_entry["topic"] = jdata.get("summary", jdata.get("title", jdata.get("session_id", "")))  # noqa: E501
+                            report_entry["topic"] = jdata.get(
+                                "summary", jdata.get("title", jdata.get("session_id", ""))
+                            )  # noqa: E501
                             report_entry["summary"] = jdata.get("summary", "")
                             report_entry["session_id"] = jdata.get("session_id", "")
-                            report_entry["channel_count"] = jdata.get("channels_analyzed", jdata.get("channel_count", 0))  # noqa: E501
-                            report_entry["video_count"] = jdata.get("videos_processed", jdata.get("video_count", 0))  # noqa: E501
+                            report_entry["channel_count"] = jdata.get(
+                                "channels_analyzed", jdata.get("channel_count", 0)
+                            )  # noqa: E501
+                            report_entry["video_count"] = jdata.get(
+                                "videos_processed", jdata.get("video_count", 0)
+                            )  # noqa: E501
                             # Extract insight topics for better display
                             insights = jdata.get("insights", [])
                             if insights and isinstance(insights, list):
@@ -806,7 +870,11 @@ async def list_council_reports(
                 detail="Failed to list council reports",
             )
     else:
-        return {"count": 0, "reports": [], "note": "No council reports directory found yet. Run a council session first."}  # noqa: E501
+        return {
+            "count": 0,
+            "reports": [],
+            "note": "No council reports directory found yet. Run a council session first.",
+        }  # noqa: E501
 
     return {
         "count": len(reports),
@@ -908,11 +976,13 @@ async def council_rag_query(
     Uses ChromaDB → LanceDB → TF-IDF fallback chain.
     """
     from .. import routes as _routes
+
     global _council_vector_store
     if not _council_vector_store:
         async with _get_council_vs_lock():
             if not _council_vector_store:
                 from ...councils.shared.vector_store import CouncilVectorStore
+
                 _council_vector_store = CouncilVectorStore(data_dir=_routes.config.data_dir)
                 await _council_vector_store.init()
 
@@ -938,6 +1008,7 @@ async def knowledge_base_stats(_: None = Depends(verify_strike_token_dep)):
         async with _get_council_kb_lock():
             if not _council_knowledge_base:
                 from ...councils.shared.knowledge_base import KnowledgeBase
+
                 _council_knowledge_base = KnowledgeBase()
 
     return _council_knowledge_base.get_stats()
@@ -947,11 +1018,13 @@ async def knowledge_base_stats(_: None = Depends(verify_strike_token_dep)):
 async def vector_store_stats(_: None = Depends(verify_strike_token_dep)):
     """Return vector store statistics."""
     from .. import routes as _routes
+
     global _council_vector_store
     if not _council_vector_store:
         async with _get_council_vs_lock():
             if not _council_vector_store:
                 from ...councils.shared.vector_store import CouncilVectorStore
+
                 _council_vector_store = CouncilVectorStore(data_dir=_routes.config.data_dir)
                 await _council_vector_store.init()
 
@@ -972,6 +1045,7 @@ async def vector_store_backfill(_: None = Depends(verify_strike_token_dep)):
         async with _get_council_vs_lock():
             if not _council_vector_store:
                 from ...councils.shared.vector_store import CouncilVectorStore
+
                 _council_vector_store = CouncilVectorStore(data_dir=_routes.config.data_dir)
                 await _council_vector_store.init()
 
@@ -1010,7 +1084,7 @@ async def vector_store_backfill(_: None = Depends(verify_strike_token_dep)):
                     break
             if exec_start:
                 summary_lines = []
-                for line in lines[exec_start:exec_start + 40]:
+                for line in lines[exec_start : exec_start + 40]:
                     if line.startswith("## ") and summary_lines:
                         break
                     summary_lines.append(line)
@@ -1027,7 +1101,7 @@ async def vector_store_backfill(_: None = Depends(verify_strike_token_dep)):
             # Also index the full report in chunks for deeper retrieval
             chunk_size = 1500
             for i in range(0, min(len(content), 15000), chunk_size):
-                chunk = content[i:i + chunk_size]
+                chunk = content[i : i + chunk_size]
                 if len(chunk.strip()) < 50:
                     continue
                 doc_id = f"report-chunk-{session_id}-{i // chunk_size}"
@@ -1069,14 +1143,18 @@ async def run_multi_agent_council(
     Runs in background and returns session ID.
     """
     from .. import routes as _routes
+
     _routes._check_rate_limit(request)
     if not brain:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
-    session_id = f"multi-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{str(uuid.uuid4())[:8]}"  # noqa: E501
+    session_id = (
+        f"multi-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{str(uuid.uuid4())[:8]}"  # noqa: E501
+    )
 
     async def run_orchestrator_background():
         from ...councils.shared.orchestrator import run_multi_agent_analysis
+
         try:
             result = await run_multi_agent_analysis(
                 source_material=req.source_material,
@@ -1104,7 +1182,11 @@ async def run_multi_agent_council(
             )
 
     task = asyncio.create_task(run_orchestrator_background())
-    task.add_done_callback(lambda t: log.error(f"Multi-agent task died: {t.exception()!r}") if not t.cancelled() and t.exception() else None)  # noqa: E501
+    task.add_done_callback(
+        lambda t: log.error(f"Multi-agent task died: {t.exception()!r}")
+        if not t.cancelled() and t.exception()
+        else None
+    )  # noqa: E501
 
     return {
         "session_id": session_id,

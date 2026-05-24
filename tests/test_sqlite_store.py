@@ -1,6 +1,7 @@
 """
 Tests for runtime/persistence/sqlite_store.py
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -20,6 +21,7 @@ def tmp_db(tmp_path) -> Path:
 
 # ── 1. DB file is created on first use ───────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_sqlite_store_creates_db_file(tmp_db: Path):
     assert not tmp_db.exists()
@@ -37,6 +39,7 @@ async def test_sqlite_store_creates_db_file(tmp_db: Path):
 
 
 # ── 2. apply_migrations is idempotent ────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_apply_migrations_idempotent(tmp_db: Path):
@@ -59,6 +62,7 @@ async def test_apply_migrations_idempotent(tmp_db: Path):
 
 
 # ── 3. Concurrent writes — all rows persist ──────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_concurrent_writes(tmp_db: Path):
@@ -86,15 +90,16 @@ async def test_concurrent_writes(tmp_db: Path):
 
 # ── 4. schema_migrations table is populated ──────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_schema_migration_appears_in_schema_migrations_table(tmp_db: Path):
     store = SqliteStore(db_path=tmp_db)
     await store.initialize()
 
     applied = await store.applied_migrations()
-    assert "cost_ledger.sql" in applied, (
-        f"cost_ledger.sql should be in schema_migrations, got {applied}"
-    )
+    assert (
+        "cost_ledger.sql" in applied
+    ), f"cost_ledger.sql should be in schema_migrations, got {applied}"
 
     # Verify the row really lives in the table (not just the in-memory set).
     row = await store.fetch_one(
@@ -109,6 +114,7 @@ async def test_schema_migration_appears_in_schema_migrations_table(tmp_db: Path)
 
 
 # ── Bonus: indexes from the schema are actually created ──────────────
+
 
 @pytest.mark.asyncio
 async def test_cost_ledger_indexes_present(tmp_db: Path):
@@ -223,9 +229,9 @@ async def test_writer_blocks_readers(tmp_db: Path):
 
     # The reader should NOT have run before the writer finished — i.e.
     # `writer_done` should have been set first.
-    assert reader_ran_before_writer_done == [False], (
-        "Reader acquired the lock while the writer was still active"
-    )
+    assert reader_ran_before_writer_done == [
+        False
+    ], "Reader acquired the lock while the writer was still active"
 
     # The overall run should be at least one writer-sleep — the reader
     # could not have shortened it.
@@ -274,6 +280,7 @@ async def test_writer_preference(tmp_db: Path):
         async def _signal_then_acquire():
             writer_queued.set()
             await store._rwlock.acquire_write()
+
         await _signal_then_acquire()
         try:
             completion_order.append("W")
@@ -295,9 +302,7 @@ async def test_writer_preference(tmp_db: Path):
     # Yield a few times so writers_waiting gets incremented.
     for _ in range(5):
         await asyncio.sleep(0)
-    assert store._rwlock.writers_waiting >= 1, (
-        "Writer should be queued at this point"
-    )
+    assert store._rwlock.writers_waiting >= 1, "Writer should be queued at this point"
 
     # 3. Start the 5 trailing readers — they should park BEHIND the
     #    writer because writers_waiting > 0 (writer-preference).
@@ -319,12 +324,10 @@ async def test_writer_preference(tmp_db: Path):
     # Writer-preference assertion: the writer must appear in the
     # completion order BEFORE any TR* entry.
     writer_idx = completion_order.index("W")
-    first_trailing_idx = min(
-        i for i, e in enumerate(completion_order) if e.startswith("TR")
-    )
-    assert writer_idx < first_trailing_idx, (
-        f"Writer ran AFTER a trailing reader. Order: {completion_order}"
-    )
+    first_trailing_idx = min(i for i, e in enumerate(completion_order) if e.startswith("TR"))
+    assert (
+        writer_idx < first_trailing_idx
+    ), f"Writer ran AFTER a trailing reader. Order: {completion_order}"
 
     await store.close()
 

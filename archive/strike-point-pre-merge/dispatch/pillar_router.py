@@ -45,11 +45,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+
 log = logging.getLogger("ncl.dispatch.pillar_router")
 
 # ── Circuit breaker import — fall back to inline impl if llm.retry is missing ──
 try:
     from runtime.llm.retry import CircuitBreaker, CircuitOpen  # type: ignore
+
     _HAS_LLM_BREAKER = True
 except Exception:  # pragma: no cover — defensive fallback
     _HAS_LLM_BREAKER = False
@@ -123,9 +125,10 @@ except Exception:  # pragma: no cover — defensive fallback
             if self._consecutive_failures >= self.fail_threshold:
                 self._opened_at = _time.monotonic()
                 log.warning(
-                    "[circuit:%s] OPEN after %d consecutive failures "
-                    "(cooldown=%.0fs)",
-                    self.provider, self._consecutive_failures, self.recovery_seconds,
+                    "[circuit:%s] OPEN after %d consecutive failures " "(cooldown=%.0fs)",
+                    self.provider,
+                    self._consecutive_failures,
+                    self.recovery_seconds,
                 )
 
 
@@ -218,9 +221,7 @@ class PillarRouter:
         self._config = config if config is not None else _resolve_config()
         self._http_timeout = http_timeout
         self._breakers: dict[str, CircuitBreaker] = {
-            p: CircuitBreaker.for_provider(
-                f"pillar-{p.lower()}", fail_threshold, recovery_seconds
-            )
+            p: CircuitBreaker.for_provider(f"pillar-{p.lower()}", fail_threshold, recovery_seconds)
             for p in VALID_PILLARS
         }
         self._stats: dict[str, dict[str, Any]] = {
@@ -271,9 +272,7 @@ class PillarRouter:
         """
         pillar = pillar.upper().strip()
         if pillar in _RETIRED_PILLARS:
-            raise UnknownPillarError(
-                f"Pillar {pillar} was retired 2026-05-23 — NCC only"
-            )
+            raise UnknownPillarError(f"Pillar {pillar} was retired 2026-05-23 — NCC only")
         if pillar not in VALID_PILLARS:
             raise UnknownPillarError(f"Unknown pillar: {pillar}")
         cfg = self._config[pillar]
@@ -328,7 +327,8 @@ class PillarRouter:
             self._stats[pillar]["last_error"] = "circuit_open"
             log.warning(
                 "Skipping dispatch of %s to %s — circuit breaker OPEN",
-                mandate_id, pillar,
+                mandate_id,
+                pillar,
             )
             return result
 
@@ -369,13 +369,14 @@ class PillarRouter:
         if result.success:
             breaker.record_success()
             self._stats[pillar]["dispatched_total"] += 1
-            self._stats[pillar]["last_dispatched_at"] = (
-                datetime.now(timezone.utc).isoformat()
-            )
+            self._stats[pillar]["last_dispatched_at"] = datetime.now(timezone.utc).isoformat()
             self._stats[pillar]["last_intake_path"] = result.intake_path
             log.info(
                 "Dispatched %s → %s (intake=%s, webhook=%s)",
-                mandate_id, pillar, result.intake_path, result.webhook_status,
+                mandate_id,
+                pillar,
+                result.intake_path,
+                result.webhook_status,
             )
         else:
             breaker.record_failure()

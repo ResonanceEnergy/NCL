@@ -9,6 +9,7 @@ Covers:
     * `_search_units_via_sqlite_index` returns [] when the flag is OFF
       so existing callers safely fall back to the JSONL full-scan
 """
+
 from __future__ import annotations  # noqa: I001
 
 import json
@@ -89,8 +90,8 @@ def units_jsonl_with_garbage(tmp_path) -> Path:
     p = tmp_path / "units.jsonl"
     lines = [
         json.dumps(_make_unit_dict("G-001")),
-        "{ this is not json",                   # malformed
-        json.dumps({"unit_id": "G-002-bad"}),   # missing required created_at
+        "{ this is not json",  # malformed
+        json.dumps({"unit_id": "G-002-bad"}),  # missing required created_at
         json.dumps(_make_unit_dict("G-003")),
     ]
     p.write_text("\n".join(lines) + "\n")
@@ -103,12 +104,14 @@ async def _fresh_store(tmp_db: Path):
         SqliteStore,
         _reset_singleton_for_tests,
     )
+
     await _reset_singleton_for_tests()
     os.environ["NCL_SQLITE_PATH"] = str(tmp_db)
     store = SqliteStore(db_path=tmp_db)
     await store.initialize()
     # Re-install as the singleton so get_store() returns it.
     import runtime.persistence.sqlite_store as ss
+
     ss._store_instance = store
     return store
 
@@ -135,12 +138,8 @@ async def test_migration_idempotent(tmp_db: Path, units_jsonl: Path):
     assert second["skipped"] == 5
     assert second["errors"] == 0
 
-    rows = await store.fetch_all(
-        "SELECT unit_id FROM units_index ORDER BY unit_id"
-    )
-    assert {r["unit_id"] for r in rows} == {
-        "U-001", "U-002", "U-003", "U-004", "U-005"
-    }
+    rows = await store.fetch_all("SELECT unit_id FROM units_index ORDER BY unit_id")
+    assert {r["unit_id"] for r in rows} == {"U-001", "U-002", "U-003", "U-004", "U-005"}
 
     await store.close()
 
@@ -161,9 +160,7 @@ async def test_migration_skips_malformed(tmp_db: Path, units_jsonl_with_garbage:
     assert result["inserted"] == 2
     assert result["errors"] == 2
 
-    rows = await store.fetch_all(
-        "SELECT unit_id FROM units_index ORDER BY unit_id"
-    )
+    rows = await store.fetch_all("SELECT unit_id FROM units_index ORDER BY unit_id")
     assert {r["unit_id"] for r in rows} == {"G-001", "G-003"}
 
     await store.close()
@@ -184,12 +181,14 @@ async def test_search_via_sqlite_index_returns_filtered_ids(
     # Build a larger jsonl with 10 units so we can filter meaningfully.
     p = tmp_path / "units_10.jsonl"
     rows = [
-        _make_unit_dict(f"X-{i:03d}",
-                        tags=["alpha"] if i % 2 == 0 else ["beta"],
-                        importance=10.0 * (i + 1),
-                        memory_type="episodic" if i < 5 else "decision",
-                        authority_tier=100 if i == 9 else 20,
-                        source="awarebot" if i < 7 else "council")
+        _make_unit_dict(
+            f"X-{i:03d}",
+            tags=["alpha"] if i % 2 == 0 else ["beta"],
+            importance=10.0 * (i + 1),
+            memory_type="episodic" if i < 5 else "decision",
+            authority_tier=100 if i == 9 else 20,
+            source="awarebot" if i < 7 else "council",
+        )
         for i in range(10)
     ]
     p.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
@@ -202,6 +201,7 @@ async def test_search_via_sqlite_index_returns_filtered_ids(
     # right shape — but the SQLite path doesn't touch the memory_file at
     # all, so this is just to instantiate the class.
     from runtime.memory.store import MemoryStore
+
     ms = MemoryStore(data_dir=tmp_path)
 
     # Tag filter: alpha (5 units at index 0/2/4/6/8)
@@ -253,6 +253,7 @@ async def test_flag_off_returns_empty_or_falls_back(
     assert result["inserted"] == 5
 
     from runtime.memory.store import MemoryStore
+
     ms = MemoryStore(data_dir=tmp_path)
 
     # No filters — would return all 5 if the flag were on.
@@ -260,9 +261,7 @@ async def test_flag_off_returns_empty_or_falls_back(
     assert ids == []
 
     # With filters — still empty.
-    ids = await ms._search_units_via_sqlite_index(
-        tags=["council"], importance_threshold=10.0
-    )
+    ids = await ms._search_units_via_sqlite_index(tags=["council"], importance_threshold=10.0)
     assert ids == []
 
     # Explicit "false" string also returns empty.

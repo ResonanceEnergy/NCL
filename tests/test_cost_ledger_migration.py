@@ -1,6 +1,7 @@
 """
 Tests for scripts/migrate_cost_ledger_to_sqlite.py
 """
+
 from __future__ import annotations  # noqa: I001
 
 import json
@@ -10,6 +11,7 @@ import pytest
 
 # Ensure the scripts/ dir is on sys.path so we can import the migration.
 import sys
+
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = ROOT / "scripts"
 if str(SCRIPTS) not in sys.path:
@@ -83,12 +85,14 @@ def fresh_store(tmp_path, monkeypatch) -> Path:
 
     # Reset the persistence-layer singleton so it picks up the env override
     from runtime.persistence import sqlite_store as ss
+
     ss._store_instance = None
 
     return db_path
 
 
 # ── 1. Migration is idempotent ───────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_migration_idempotent(tmp_path, fresh_store):
@@ -116,6 +120,7 @@ async def test_migration_idempotent(tmp_path, fresh_store):
 
 # ── 2. Malformed lines are tolerated ─────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_migration_skips_malformed_lines(tmp_path, fresh_store):
     source = tmp_path / "cost_ledger.jsonl"
@@ -133,6 +138,7 @@ async def test_migration_skips_malformed_lines(tmp_path, fresh_store):
 
 
 # ── 3. Round-trip integrity: row count + sums match the JSONL ────────
+
 
 @pytest.mark.asyncio
 async def test_migrated_rows_match_jsonl_count(tmp_path, fresh_store):
@@ -166,6 +172,7 @@ async def test_migrated_rows_match_jsonl_count(tmp_path, fresh_store):
 
 
 # ── 4. Dry-run does not modify the DB ────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_dry_run_does_not_write(tmp_path, fresh_store):

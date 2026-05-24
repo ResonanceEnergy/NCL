@@ -3401,13 +3401,10 @@ Focus on what requires attention or action."""
                     from ..persistence.predictions_writer import (
                         mirror_prediction_to_sqlite,
                     )
-                    await mirror_prediction_to_sqlite(
-                        pred_data, fallback_id=pred_file.stem
-                    )
+
+                    await mirror_prediction_to_sqlite(pred_data, fallback_id=pred_file.stem)
                 except Exception as sql_err:
-                    log.warning(
-                        f"[AGENT:PREDICT] SQLite mirror import failed: {sql_err}"
-                    )
+                    log.warning(f"[AGENT:PREDICT] SQLite mirror import failed: {sql_err}")
 
                 # ── Side effect 3: Push notification for high-confidence ──
                 if output.confidence >= 0.6 and self.push_callback:

@@ -11,6 +11,7 @@ These tests lock in two security/governance invariants:
    Constructing ``BRS`` / ``AAC`` must hard-fail so retired-pillar mandates
    stop slipping back into ``data/mandates.json``.
 """
+
 from __future__ import annotations
 
 import pytest

@@ -160,9 +160,7 @@ def find_relevant_contradictions(
     relevant.sort(key=_sort_key)
     # Second pass: stable secondary sort to put later ts first within sev.
     relevant.sort(key=lambda c: str(c.get("ts") or ""), reverse=True)
-    relevant.sort(key=lambda c: severity_rank.get(
-        str(c.get("severity") or "medium").lower(), 4
-    ))
+    relevant.sort(key=lambda c: severity_rank.get(str(c.get("severity") or "medium").lower(), 4))
     return relevant[: max(0, max_results)]
 
 
@@ -187,8 +185,7 @@ def render_conflicts_section(conflicts: list[dict]) -> str:
         src_summary = ", ".join(sources[:4]) if sources else "(sources unknown)"
 
         lines.append(
-            f"{i}. [{sev}] {entity} — {pol_summary} ({src_summary}). "
-            f"Surfaced because: {why}."
+            f"{i}. [{sev}] {entity} — {pol_summary} ({src_summary}). " f"Surfaced because: {why}."
         )
         if reason:
             lines.append(f"   Reason on file: {reason[:240]}")

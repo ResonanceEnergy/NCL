@@ -9,6 +9,7 @@ embeddings; this layer is for relational + lookup-heavy data.
 Public surface:
     from runtime.persistence import SqliteStore, get_store, init_db
 """
+
 from __future__ import annotations  # noqa: I001
 
 import asyncio
@@ -40,6 +41,7 @@ def init_db(db_path: Optional[Path] = None) -> dict:
     call ``await get_store()`` directly — same effect, no
     asyncio.run() overhead.
     """
+
     async def _do() -> dict:
         store = await get_store(db_path=db_path)
         applied = await store.apply_migrations()

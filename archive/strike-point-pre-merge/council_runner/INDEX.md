@@ -229,11 +229,11 @@ async def run_council_debate(
 ) -> dict:
     # Execute parallel council
     record = await run_parallel_council(topic, prompt, context)
-    
+
     # Persist
     store = CouncilRunStore(data_dir=DATA_DIR)
     await store.save_run(record)
-    
+
     # Return to client
     return record.model_dump()
 ```

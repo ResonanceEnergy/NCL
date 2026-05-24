@@ -72,6 +72,7 @@ def _routes_module():
     of the old shim pattern in this file — passes cleanly.
     """
     import importlib
+
     return importlib.import_module("runtime.api.routes")
 
 
@@ -88,6 +89,7 @@ def get_autonomous():
 def verify_strike_token_dep(authorization: str = Header(default="")):
     """Strike-point auth guard — delegates to routes.py at request time."""
     return _routes_module().verify_strike_token_dep(authorization)
+
 
 log = logging.getLogger(__name__)
 
@@ -181,7 +183,9 @@ async def receive_synthesis(
         try:
             pillar_enum = PillarType(pillar_str)
         except ValueError:
-            log.warning(f"[/feedback/synthesis] skipping adjustment with invalid pillar: {pillar_str!r}")  # noqa: E501
+            log.warning(
+                f"[/feedback/synthesis] skipping adjustment with invalid pillar: {pillar_str!r}"
+            )  # noqa: E501
             continue
         try:
             new_mandate = await brain.create_mandate(
@@ -277,6 +281,7 @@ async def feedback_source_authority(
     """
     try:
         from ...feedback.source_authority_learner import get_learner
+
         learner = get_learner()
         all_stats = learner.all_sources()
     except Exception as e:
@@ -315,6 +320,7 @@ async def feedback_source_authority_history(
     # write path) — these strings would otherwise be replayed verbatim.
     try:
         from ...feedback.source_authority_learner import _is_safe_source
+
         if not _is_safe_source(source):
             raise HTTPException(status_code=400, detail="invalid source identifier")
     except HTTPException:

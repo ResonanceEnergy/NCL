@@ -227,16 +227,16 @@ async def main():
         prompt="How should we integrate AI into our product?",
         context={"budget_millions": 2, "timeline_months": 6}
     )
-    
+
     # Save to disk
     store = CouncilRunStore()
     await store.save_run(record)
-    
+
     # Display results
     print(f"Consensus Score: {record.consensus.consensus_score}/100")
     print(f"Agreement Areas: {record.consensus.agreement_areas}")
     print(f"Risk Flags: {record.consensus.risk_flags}")
-    
+
     # Replay with different models
     from council_runner import ReplayEngine
     engine = ReplayEngine()
@@ -263,11 +263,11 @@ async def run_council_debate(
     context: dict = None
 ) -> dict:
     record = await run_parallel_council(topic, prompt, context)
-    
+
     # Store and return
     store = CouncilRunStore(data_dir=DATA_DIR)
     await store.save_run(record)
-    
+
     return record.model_dump()
 ```
 

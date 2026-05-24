@@ -20,6 +20,7 @@ Row shape still mirrors ``scripts/migrate_predictions_to_sqlite.py``
 exactly, so a migrated row and a live-double-written row are
 bit-identical (handy when reconciling counts during burn-in).
 """
+
 from __future__ import annotations
 
 import json
@@ -29,6 +30,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from .double_write import DoubleWriteHook
+
 
 log = logging.getLogger("ncl.persistence.predictions_writer")
 
@@ -139,9 +141,17 @@ _HOOK: DoubleWriteHook[dict] = DoubleWriteHook(
     env_flag=ENV_VAR,
     table="predictions",
     columns=(
-        "id", "created_at", "topic", "direction", "probability",
-        "confidence", "description", "cited_sources_json",
-        "linked_signals_json", "outcome", "outcome_recorded_at",
+        "id",
+        "created_at",
+        "topic",
+        "direction",
+        "probability",
+        "confidence",
+        "description",
+        "cited_sources_json",
+        "linked_signals_json",
+        "outcome",
+        "outcome_recorded_at",
     ),
     # build_row is set per-call below (needs the fallback_id closure).
     # The hook accepts None to mean "skip" so the default sentinel
@@ -154,9 +164,7 @@ _HOOK: DoubleWriteHook[dict] = DoubleWriteHook(
 
 # Outcome-only UPDATE — keeps the rest of the row untouched. The
 # migrator never sets outcome so this is the live path for resolution.
-_UPDATE_OUTCOME_SQL = (
-    "UPDATE predictions SET outcome = ?, outcome_recorded_at = ? WHERE id = ?"
-)
+_UPDATE_OUTCOME_SQL = "UPDATE predictions SET outcome = ?, outcome_recorded_at = ? WHERE id = ?"
 
 
 # ── Public API ────────────────────────────────────────────────────────

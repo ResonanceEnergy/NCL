@@ -407,9 +407,7 @@ class AsyncMemoryWriter:
                 # W10A-9: adaptive window — shrink to 10ms when queue is idle
                 # so low-load writes don't eat the full 100ms batch wait.
                 _base_ms = int(self._batch_window_s * 1000)
-                _eff_ms = self._effective_window_ms(
-                    self._queue.qsize(), self._batch_max, _base_ms
-                )
+                _eff_ms = self._effective_window_ms(self._queue.qsize(), self._batch_max, _base_ms)
                 deadline = time.monotonic() + (_eff_ms / 1000.0)
                 while len(batch) < self._batch_max:
                     remaining = deadline - time.monotonic()

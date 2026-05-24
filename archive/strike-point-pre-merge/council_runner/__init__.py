@@ -7,21 +7,22 @@ Supports deterministic replay via recorded seeds and snapshots.
 RESONANCE ENERGY / NARTIX ecosystem component for the NCL brain pipeline.
 """
 
-from .models import (
-    AgentRole,
-    AgentConfig,
-    AgentOutput,
-    ConsensusResult,
-    CouncilRunRecord,
-    ReplayConfig,
-)
 from .agents import (
     get_agent_configs,
     run_agent,
     run_parallel_council,
 )
+from .models import (
+    AgentConfig,
+    AgentOutput,
+    AgentRole,
+    ConsensusResult,
+    CouncilRunRecord,
+    ReplayConfig,
+)
 from .replay import ReplayEngine
 from .store import CouncilRunStore
+
 
 __all__ = [
     # Models

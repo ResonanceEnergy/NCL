@@ -23,8 +23,9 @@ import json
 import ssl
 import sys
 import time
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from typing import Optional
+
 
 try:
     import httpx
@@ -34,8 +35,9 @@ except ImportError:
 
 try:
     from rich.console import Console
-    from rich.table import Table
     from rich.live import Live
+    from rich.table import Table
+
     HAS_RICH = True
 except ImportError:
     HAS_RICH = False
@@ -43,9 +45,11 @@ except ImportError:
 
 # --- Service Configuration ---
 
+
 @dataclass
 class ServiceConfig:
     """Definition of a NARTIX service to monitor."""
+
     name: str
     url: str
     status_key: str = "status"
@@ -94,9 +98,11 @@ SERVICES: list[ServiceConfig] = [
 
 # --- Health Check ---
 
+
 @dataclass
 class HealthResult:
     """Result of a single service health check."""
+
     name: str
     url: str
     status: str  # UP, DOWN, DEGRADED
@@ -141,7 +147,9 @@ async def check_service(service: ServiceConfig, timeout: float = 5.0) -> HealthR
                             url=service.url,
                             status="UP",
                             response_time_ms=round(elapsed, 1),
-                            detail=f"{len(data.get('models', []))} models" if isinstance(data, dict) and "models" in data else "OK",
+                            detail=f"{len(data.get('models', []))} models"
+                            if isinstance(data, dict) and "models" in data
+                            else "OK",
                         )
 
                     actual = data.get(service.status_key, "unknown")
@@ -225,6 +233,7 @@ async def check_all_services() -> list[HealthResult]:
 
 # --- Output Formatters ---
 
+
 def print_table(results: list[HealthResult]) -> None:
     """Print results as a rich color-coded table."""
     if HAS_RICH:
@@ -256,7 +265,11 @@ def _print_rich_table(results: list[HealthResult]) -> None:
             "DEGRADED": "[bold yellow]DEGRADED[/bold yellow]",
         }.get(r.status, r.status)
 
-        time_color = "green" if r.response_time_ms < 100 else ("yellow" if r.response_time_ms < 1000 else "red")
+        time_color = (
+            "green"
+            if r.response_time_ms < 100
+            else ("yellow" if r.response_time_ms < 1000 else "red")
+        )
         time_str = f"[{time_color}]{r.response_time_ms:.0f}ms[/{time_color}]"
 
         detail = r.detail or r.error or ""
@@ -298,6 +311,7 @@ def print_json(results: list[HealthResult]) -> None:
 
 
 # --- CLI ---
+
 
 def main() -> None:
     """CLI entry point for nartix-health."""

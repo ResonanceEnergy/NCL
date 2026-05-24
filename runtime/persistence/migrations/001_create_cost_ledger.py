@@ -9,9 +9,11 @@ Usage:
     from runtime.persistence.migrations import _001 as m
     await m.migrate()
 """
+
 from __future__ import annotations
 
 from ._base import build_migration
+
 
 NAME = "001_create_cost_ledger"
 migrate, status = build_migration(NAME)

@@ -883,9 +883,14 @@ class TestLLMClientAdapter:
         from runtime.llm.client import ChatResult
 
         fake_result = ChatResult(
-            text="ok", citations=[], usage_input_tokens=0,
-            usage_output_tokens=0, cost_usd=0.0,
-            model="claude-sonnet-4-20250514", latency_ms=10, raw={},
+            text="ok",
+            citations=[],
+            usage_input_tokens=0,
+            usage_output_tokens=0,
+            cost_usd=0.0,
+            model="claude-sonnet-4-20250514",
+            latency_ms=10,
+            raw={},
         )
         with patch(
             "runtime.swarm.llm_adapter._chat",
@@ -904,9 +909,14 @@ class TestLLMClientAdapter:
         from runtime.llm.client import ChatResult
 
         fake = ChatResult(
-            text="", citations=[], usage_input_tokens=0,
-            usage_output_tokens=0, cost_usd=0.0,
-            model="x", latency_ms=0, raw={},
+            text="",
+            citations=[],
+            usage_input_tokens=0,
+            usage_output_tokens=0,
+            cost_usd=0.0,
+            model="x",
+            latency_ms=0,
+            raw={},
         )
 
         expected = [

@@ -15,6 +15,7 @@ handler validates the string downstream). We mark that assertion as
 ``xfail`` so the regression is visible without breaking CI, and we
 include a passing assertion against the documented happy-path values.
 """
+
 from __future__ import annotations
 
 import pytest

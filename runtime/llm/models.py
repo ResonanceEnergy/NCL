@@ -36,6 +36,7 @@ from .errors import UnknownModelError
 try:
     from enum import StrEnum  # type: ignore[attr-defined]
 except ImportError:  # pragma: no cover - Python 3.10 compat
+
     class StrEnum(str, Enum):  # type: ignore[no-redef]
         pass
 

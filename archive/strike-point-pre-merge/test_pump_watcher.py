@@ -5,12 +5,8 @@ Tests pump file detection, envelope parsing, brain forwarding logic, and
 the MWP pipeline copy — all without touching the filesystem or network.
 """
 
-import asyncio
 import json
-import os
-import tempfile
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch, mock_open
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -18,6 +14,7 @@ import pytest
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_envelope(
     pump_id: str = "pump-001",
@@ -48,29 +45,36 @@ def _make_envelope(
 # _priority_to_urgency
 # ---------------------------------------------------------------------------
 
+
 class TestPriorityToUrgency:
     def test_p0_is_critical(self):
         from runtime.pump_watcher import _priority_to_urgency
+
         assert _priority_to_urgency("P0") == "critical"
 
     def test_p1_is_high(self):
         from runtime.pump_watcher import _priority_to_urgency
+
         assert _priority_to_urgency("P1") == "high"
 
     def test_p2_is_normal(self):
         from runtime.pump_watcher import _priority_to_urgency
+
         assert _priority_to_urgency("P2") == "normal"
 
     def test_p3_is_low(self):
         from runtime.pump_watcher import _priority_to_urgency
+
         assert _priority_to_urgency("P3") == "low"
 
     def test_unknown_defaults_to_normal(self):
         from runtime.pump_watcher import _priority_to_urgency
+
         assert _priority_to_urgency("UNKNOWN") == "normal"
 
     def test_string_critical(self):
         from runtime.pump_watcher import _priority_to_urgency
+
         assert _priority_to_urgency("critical") == "critical"
 
 
@@ -78,15 +82,18 @@ class TestPriorityToUrgency:
 # _mark_processed
 # ---------------------------------------------------------------------------
 
+
 class TestMarkProcessed:
     def test_adds_filename(self):
         from runtime import pump_watcher
+
         pump_watcher._processed_files.clear()
         pump_watcher._mark_processed("pump-001.json")
         assert "pump-001.json" in pump_watcher._processed_files
 
     def test_idempotent(self):
         from runtime import pump_watcher
+
         pump_watcher._processed_files.clear()
         pump_watcher._mark_processed("pump-001.json")
         pump_watcher._mark_processed("pump-001.json")
@@ -94,6 +101,7 @@ class TestMarkProcessed:
 
     def test_evicts_oldest_at_cap(self):
         from runtime import pump_watcher
+
         pump_watcher._processed_files.clear()
         original_max = pump_watcher._PROCESSED_MAX
         pump_watcher._PROCESSED_MAX = 3
@@ -112,6 +120,7 @@ class TestMarkProcessed:
 # forward_pump_to_brain — success path
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_forward_pump_brain_success(tmp_path):
     """forward_pump_to_brain returns True when brain responds 200."""
@@ -123,9 +132,11 @@ async def test_forward_pump_brain_success(tmp_path):
     mock_response.status_code = 200
     mock_response.json.return_value = {"pump_id": "P-001", "status": "accepted"}
 
-    with patch("runtime.pump_watcher.STRIKE_AUTH_TOKEN", "test-token"), \
-         patch("runtime.pump_watcher.NCL_BRAIN_URL", "http://localhost:8800"), \
-         patch("httpx.AsyncClient") as mock_client_cls:
+    with (
+        patch("runtime.pump_watcher.STRIKE_AUTH_TOKEN", "test-token"),
+        patch("runtime.pump_watcher.NCL_BRAIN_URL", "http://localhost:8800"),
+        patch("httpx.AsyncClient") as mock_client_cls,
+    ):
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
@@ -133,6 +144,7 @@ async def test_forward_pump_brain_success(tmp_path):
         mock_client_cls.return_value = mock_client
 
         from runtime.pump_watcher import forward_pump_to_brain
+
         result = await forward_pump_to_brain(pump_file)
 
     assert result is True
@@ -142,16 +154,20 @@ async def test_forward_pump_brain_success(tmp_path):
 # forward_pump_to_brain — brain offline
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_forward_pump_brain_connect_error(tmp_path):
     """forward_pump_to_brain returns False when brain is unreachable."""
     import httpx as _httpx
+
     envelope = _make_envelope()
     pump_file = tmp_path / "pump-002.json"
     pump_file.write_text(json.dumps(envelope))
 
-    with patch("runtime.pump_watcher.STRIKE_AUTH_TOKEN", "test-token"), \
-         patch("httpx.AsyncClient") as mock_client_cls:
+    with (
+        patch("runtime.pump_watcher.STRIKE_AUTH_TOKEN", "test-token"),
+        patch("httpx.AsyncClient") as mock_client_cls,
+    ):
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
@@ -159,6 +175,7 @@ async def test_forward_pump_brain_connect_error(tmp_path):
         mock_client_cls.return_value = mock_client
 
         from runtime.pump_watcher import forward_pump_to_brain
+
         result = await forward_pump_to_brain(pump_file)
 
     assert result is False
@@ -167,6 +184,7 @@ async def test_forward_pump_brain_connect_error(tmp_path):
 # ---------------------------------------------------------------------------
 # forward_pump_to_brain — already acked
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_forward_pump_skips_already_acked(tmp_path):
@@ -178,6 +196,7 @@ async def test_forward_pump_skips_already_acked(tmp_path):
     with patch("httpx.AsyncClient") as mock_client_cls:
         mock_client_cls.return_value = AsyncMock()
         from runtime.pump_watcher import forward_pump_to_brain
+
         result = await forward_pump_to_brain(pump_file)
 
     assert result is True
@@ -189,6 +208,7 @@ async def test_forward_pump_skips_already_acked(tmp_path):
 # forward_pump_to_brain — invalid JSON
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_forward_pump_invalid_json(tmp_path):
     """forward_pump_to_brain returns False for corrupt files."""
@@ -196,6 +216,7 @@ async def test_forward_pump_invalid_json(tmp_path):
     pump_file.write_text("{ not valid json }")
 
     from runtime.pump_watcher import forward_pump_to_brain
+
     result = await forward_pump_to_brain(pump_file)
 
     assert result is False
@@ -204,6 +225,7 @@ async def test_forward_pump_invalid_json(tmp_path):
 # ---------------------------------------------------------------------------
 # forward_pump_to_brain — brain returns non-200
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_forward_pump_brain_rejects(tmp_path):
@@ -224,6 +246,7 @@ async def test_forward_pump_brain_rejects(tmp_path):
         mock_client_cls.return_value = mock_client
 
         from runtime.pump_watcher import forward_pump_to_brain
+
         result = await forward_pump_to_brain(pump_file)
 
     assert result is False
@@ -232,6 +255,7 @@ async def test_forward_pump_brain_rejects(tmp_path):
 # ---------------------------------------------------------------------------
 # copy_pump_to_mwp
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_copy_pump_to_mwp_creates_file(tmp_path):
@@ -244,6 +268,7 @@ async def test_copy_pump_to_mwp_creates_file(tmp_path):
 
     with patch("runtime.pump_watcher.MWP_INPUT", mwp_input):
         from runtime.pump_watcher import copy_pump_to_mwp
+
         dest = await copy_pump_to_mwp(pump_file, envelope)
 
     assert dest is not None
@@ -254,6 +279,7 @@ async def test_copy_pump_to_mwp_creates_file(tmp_path):
 # ---------------------------------------------------------------------------
 # process_pending_pumps — integration-style with real temp dirs
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_process_pending_pumps_moves_file_on_success(tmp_path):
@@ -273,14 +299,16 @@ async def test_process_pending_pumps_moves_file_on_success(tmp_path):
     mock_response.status_code = 200
     mock_response.json.return_value = {"pump_id": "pump-test-move"}
 
-    with patch("runtime.pump_watcher.INPUT_DIR", input_dir), \
-         patch("runtime.pump_watcher.PROCESSED_DIR", processed_dir), \
-         patch("runtime.pump_watcher.FAILED_DIR", failed_dir), \
-         patch("runtime.pump_watcher.MWP_INPUT", tmp_path / "01-Input"), \
-         patch("runtime.pump_watcher.STRIKE_AUTH_TOKEN", "tok"), \
-         patch("runtime.pump_watcher._processed_files", {}), \
-         patch("httpx.AsyncClient") as mock_client_cls, \
-         patch("runtime.pump_watcher.send_response_to_relay", new_callable=AsyncMock):
+    with (
+        patch("runtime.pump_watcher.INPUT_DIR", input_dir),
+        patch("runtime.pump_watcher.PROCESSED_DIR", processed_dir),
+        patch("runtime.pump_watcher.FAILED_DIR", failed_dir),
+        patch("runtime.pump_watcher.MWP_INPUT", tmp_path / "01-Input"),
+        patch("runtime.pump_watcher.STRIKE_AUTH_TOKEN", "tok"),
+        patch("runtime.pump_watcher._processed_files", {}),
+        patch("httpx.AsyncClient") as mock_client_cls,
+        patch("runtime.pump_watcher.send_response_to_relay", new_callable=AsyncMock),
+    ):
         mock_client = AsyncMock()
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
         mock_client.__aexit__ = AsyncMock(return_value=False)
@@ -288,6 +316,7 @@ async def test_process_pending_pumps_moves_file_on_success(tmp_path):
         mock_client_cls.return_value = mock_client
 
         from runtime.pump_watcher import process_pending_pumps
+
         await process_pending_pumps()
 
     # File should have moved to processed/

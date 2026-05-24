@@ -2079,9 +2079,7 @@ class NCLBrain:
             int(dump["priority"]) if dump.get("priority") is not None else None,
             dump.get("title"),
             dump.get("objective"),
-            json.dumps(
-                dump.get("success_criteria") or [], default=str, separators=(",", ":")
-            ),
+            json.dumps(dump.get("success_criteria") or [], default=str, separators=(",", ":")),
             str(dump["deadline"]) if dump.get("deadline") else None,
             json.dumps(dump.get("resources") or {}, default=str, separators=(",", ":")),
             str(status_v) if status_v is not None else "draft",
@@ -2093,9 +2091,7 @@ class NCLBrain:
             if dump.get("updated_at")
             else datetime.now(timezone.utc).isoformat(),
             str(dump["source_pump_id"]) if dump.get("source_pump_id") else None,
-            json.dumps(
-                dump.get("status_history") or [], default=str, separators=(",", ":")
-            ),
+            json.dumps(dump.get("status_history") or [], default=str, separators=(",", ":")),
             json.dumps(dump, default=str, separators=(",", ":")),
         )
 
@@ -2110,10 +2106,21 @@ class NCLBrain:
             env_flag="NCL_MANDATES_SQLITE",
             table="mandates",
             columns=(
-                "mandate_id", "pillar", "priority", "title", "objective",
-                "success_criteria", "deadline", "resources", "status",
-                "version", "created_at", "updated_at", "source_pump_id",
-                "status_history", "payload",
+                "mandate_id",
+                "pillar",
+                "priority",
+                "title",
+                "objective",
+                "success_criteria",
+                "deadline",
+                "resources",
+                "status",
+                "version",
+                "created_at",
+                "updated_at",
+                "source_pump_id",
+                "status_history",
+                "payload",
             ),
             build_row=NCLBrain._build_mandate_row,
             conflict_strategy="replace",

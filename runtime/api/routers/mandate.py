@@ -365,7 +365,8 @@ async def purge_mandates(
 
     async with brain._mandates_lock:
         candidates = [
-            mid for mid, m in brain.mandates.items()
+            mid
+            for mid, m in brain.mandates.items()
             if m.status == target and m.created_at.timestamp() < cutoff
         ]
         if not confirm:

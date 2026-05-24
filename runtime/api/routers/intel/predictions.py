@@ -64,7 +64,9 @@ router = APIRouter(tags=["intel", "predictions"])
 
 _CONSENSUS_PREFIX_RE = re.compile(r"^\s*\[Consensus:[^\]]*\]\s*", re.IGNORECASE)
 _SINGLE_MODEL_PREFIX_RE = re.compile(r"^\s*\[Single-model\]\s*", re.IGNORECASE)
-_CONSENSUS_TRAILER_RE = re.compile(r"\s*\[[^\]]+(?:concurs|disagrees|agrees)[^\]]*\]\s*", re.IGNORECASE)  # noqa: E501
+_CONSENSUS_TRAILER_RE = re.compile(
+    r"\s*\[[^\]]+(?:concurs|disagrees|agrees)[^\]]*\]\s*", re.IGNORECASE
+)  # noqa: E501
 _CONVERGING_TRAILER_RE = re.compile(r"\s*\[Converging[^\]]*\]\s*", re.IGNORECASE)
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
 
@@ -74,16 +76,54 @@ _CONSENSUS_MEMBER_RE = re.compile(r"\[([\w\-]+)\s+(?:concurs|disagrees|agrees)",
 _SINGLE_MODEL_NAME_RE = re.compile(r"\[Single-model(?::\s*([\w\-]+))?\]", re.IGNORECASE)
 
 # Direction classifier keyword sets (kept in sync with awarebot.agent)
-_PRED_BULL_TERMS = frozenset({
-    "bullish", "rally", "surge", "uptrend", "gain", "rise", "rises", "rose",
-    "increase", "increases", "increased", "upside", "higher", "outperform",
-    "beat", "beating", "exceed", "moon", "breakout",
-})
-_PRED_BEAR_TERMS = frozenset({
-    "bearish", "crash", "drop", "drops", "dropped", "fall", "falls", "fell",
-    "decline", "declines", "declined", "downside", "lower", "underperform",
-    "miss", "missed", "downturn", "pullback", "breakdown", "sell-off", "selloff",
-})
+_PRED_BULL_TERMS = frozenset(
+    {
+        "bullish",
+        "rally",
+        "surge",
+        "uptrend",
+        "gain",
+        "rise",
+        "rises",
+        "rose",
+        "increase",
+        "increases",
+        "increased",
+        "upside",
+        "higher",
+        "outperform",
+        "beat",
+        "beating",
+        "exceed",
+        "moon",
+        "breakout",
+    }
+)
+_PRED_BEAR_TERMS = frozenset(
+    {
+        "bearish",
+        "crash",
+        "drop",
+        "drops",
+        "dropped",
+        "fall",
+        "falls",
+        "fell",
+        "decline",
+        "declines",
+        "declined",
+        "downside",
+        "lower",
+        "underperform",
+        "miss",
+        "missed",
+        "downturn",
+        "pullback",
+        "breakdown",
+        "sell-off",
+        "selloff",
+    }
+)
 
 
 def _classify_prediction_direction(text: str) -> str:
@@ -157,7 +197,7 @@ def _extract_prediction_description(pred: dict) -> str:
                 return inner_pred.strip()
         except json.JSONDecodeError:
             pass
-        text = text[: match.start()] + text[match.end():]
+        text = text[: match.start()] + text[match.end() :]
 
     return text.strip()
 
@@ -275,17 +315,22 @@ async def generate_council_predictions(
         ctx24 = list(autonomous.awarebot._context_24h)
         ctx24.sort(key=lambda s: getattr(s, "score", 0), reverse=True)
         for s in ctx24[:10]:
-            hot_signals.append({
-                "title": s.title or s.content[:80],
-                "content": (s.content or "")[:200],
-                "source": s.source or "",
-                "score": getattr(s, "score", 0),
-                "tags": list(s.tags) if s.tags else [],
-            })
+            hot_signals.append(
+                {
+                    "title": s.title or s.content[:80],
+                    "content": (s.content or "")[:200],
+                    "source": s.source or "",
+                    "score": getattr(s, "score", 0),
+                    "tags": list(s.tags) if s.tags else [],
+                }
+            )
 
     if not hot_signals:
-        return {"status": "no_signals", "predictions": [],
-                "reason": "No signals in the last 24h to base predictions on"}
+        return {
+            "status": "no_signals",
+            "predictions": [],
+            "reason": "No signals in the last 24h to base predictions on",
+        }
 
     # ── Step 2: Chair (Claude) assigns unique topics ──
     signals_summary = "\n".join(
@@ -339,9 +384,14 @@ Respond ONLY in this exact JSON format (no markdown, no explanation):
         if isinstance(assignments, dict) and "assignments" in assignments:
             assignments = assignments["assignments"]
     except (json.JSONDecodeError, KeyError) as e:
-        log.error(f"[predictions:council] Failed to parse assignments: {e}\nRaw: {assignment_raw[:500]}")  # noqa: E501
-        return {"status": "error", "predictions": [],
-                "error": "Chair failed to produce valid topic assignments"}
+        log.error(
+            f"[predictions:council] Failed to parse assignments: {e}\nRaw: {assignment_raw[:500]}"
+        )  # noqa: E501
+        return {
+            "status": "error",
+            "predictions": [],
+            "error": "Chair failed to produce valid topic assignments",
+        }
 
     # ── Step 3: Each member makes their prediction in parallel ──
     async def get_member_prediction(assignment: dict) -> dict:
@@ -417,8 +467,12 @@ Respond in this JSON format (no markdown, no explanation):
                 "direction": parsed.get("direction", "neutral"),
                 "watch_for": parsed.get("watch_for", ""),
                 "reasoning": parsed.get("reasoning", ""),
-                "tags": [t for s in signal_refs if 0 <= s-1 < len(hot_signals)
-                         for t in hot_signals[s-1].get("tags", [])],
+                "tags": [
+                    t
+                    for s in signal_refs
+                    if 0 <= s - 1 < len(hot_signals)
+                    for t in hot_signals[s - 1].get("tags", [])
+                ],
                 "signal_refs": signal_refs,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "source": f"council:{member_name}",
@@ -475,12 +529,11 @@ Respond in this JSON format (no markdown, no explanation):
         from runtime.persistence.predictions_writer import (
             mirror_prediction_to_sqlite,
         )
+
         # Fallback id = file stem + member index, mirrors the migration
         # script's strategy when a row has no prediction_id of its own.
         for idx, pred in enumerate(predictions):
-            await mirror_prediction_to_sqlite(
-                pred, fallback_id=f"{pred_file.stem}-{idx}"
-            )
+            await mirror_prediction_to_sqlite(pred, fallback_id=f"{pred_file.stem}-{idx}")
     except Exception as sql_err:
         log.warning(f"[predictions:council] SQLite mirror import failed: {sql_err}")
 
@@ -494,7 +547,7 @@ Respond in this JSON format (no markdown, no explanation):
                         f"{pred.get('topic', 'N/A')} — {pred.get('content', '')[:200]}"
                     ),
                     source=f"council:prediction:{pred.get('member', 'unknown')}",
-                    importance=min(100.0, (pred.get('confidence', 0.5) * 100)),
+                    importance=min(100.0, (pred.get("confidence", 0.5) * 100)),
                     tags=["prediction", "council", pred.get("member", "unknown")],
                 )
             except Exception:
@@ -511,6 +564,7 @@ Respond in this JSON format (no markdown, no explanation):
 # IMPORTANT: Fixed paths MUST come before the parameterized {prediction_id}
 # route, otherwise FastAPI matches "accuracy" / "convergence" as a prediction_id.
 
+
 class OutcomeBody(BaseModel):
     """Request body for prediction outcome submission.
 
@@ -519,6 +573,7 @@ class OutcomeBody(BaseModel):
     pass explicit ``correct`` / ``partial`` booleans, and the query-param
     fallback below remains supported for ad-hoc curl debugging.
     """
+
     outcome: Optional[str] = Field(default=None, description="'correct' | 'incorrect' | 'partial'")
     correct: Optional[bool] = Field(default=None, description="Explicit boolean (legacy)")
     partial: Optional[bool] = Field(default=None, description="Half-credit outcome (legacy)")
@@ -528,8 +583,12 @@ class OutcomeBody(BaseModel):
 async def record_prediction_outcome(
     prediction_id: str,
     body: Optional[OutcomeBody] = Body(default=None),
-    correct: Optional[bool] = Query(default=None, description="Whether the prediction was correct (legacy query-param fallback)"),  # noqa: E501
-    partial: Optional[bool] = Query(default=None, description="Half-credit outcome (legacy query-param fallback)"),  # noqa: E501
+    correct: Optional[bool] = Query(
+        default=None, description="Whether the prediction was correct (legacy query-param fallback)"
+    ),  # noqa: E501
+    partial: Optional[bool] = Query(
+        default=None, description="Half-credit outcome (legacy query-param fallback)"
+    ),  # noqa: E501
     brain=Depends(get_brain),
     _: None = Depends(verify_strike_token_dep),
 ) -> dict:
@@ -600,8 +659,14 @@ async def record_prediction_outcome(
                     data = json.loads(f.read_text())
                 except Exception:
                     continue
-                preds = data if isinstance(data, list) else (
-                    data.get("predictions") if isinstance(data, dict) and "predictions" in data else [data]  # noqa: E501
+                preds = (
+                    data
+                    if isinstance(data, list)
+                    else (
+                        data.get("predictions")
+                        if isinstance(data, dict) and "predictions" in data
+                        else [data]  # noqa: E501
+                    )
                 )
                 for pred in preds or []:
                     if pred.get("prediction_id") != prediction_id:
@@ -636,7 +701,10 @@ async def record_prediction_outcome(
     # 4. Update the general source-authority learner (per-full-source).
     general_updates: dict[str, dict] = {}
     try:
-        from runtime.feedback.source_authority_learner import record_prediction_outcome as _gen_record  # noqa: E501, I001
+        from runtime.feedback.source_authority_learner import (
+            record_prediction_outcome as _gen_record,
+        )  # noqa: E501, I001
+
         outcome_label = "partial" if partial else ("correct" if correct else "wrong")
         general_updates = await _gen_record(
             prediction_id=prediction_id,
@@ -654,6 +722,7 @@ async def record_prediction_outcome(
         from runtime.persistence.predictions_writer import (
             mirror_outcome_to_sqlite,
         )
+
         _outcome_label = "partial" if partial else ("correct" if correct else "wrong")
         await mirror_outcome_to_sqlite(prediction_id, _outcome_label)
     except Exception as sql_err:
@@ -765,5 +834,8 @@ async def get_prediction_detail(
             except Exception:
                 pass
 
-    return {"status": "not_found", "prediction_id": prediction_id,
-            "message": "Prediction not found on disk. Use POST /prediction with a topic to generate a new one."}  # noqa: E501
+    return {
+        "status": "not_found",
+        "prediction_id": prediction_id,
+        "message": "Prediction not found on disk. Use POST /prediction with a topic to generate a new one.",  # noqa: E501
+    }

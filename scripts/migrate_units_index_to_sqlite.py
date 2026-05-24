@@ -33,6 +33,7 @@ NATRIX activation procedure (after running this script):
     2. echo NCL_UNITS_INDEX_SQLITE=true >> .env
     3. launchctl kickstart -k gui/$(id -u)/com.resonanceenergy.ncl-brain
 """
+
 from __future__ import annotations
 
 import argparse
@@ -44,12 +45,14 @@ import sys
 from pathlib import Path
 from typing import Any, Optional
 
+
 # Allow `python3 scripts/migrate_units_index_to_sqlite.py` from the repo root
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from runtime.persistence import get_store  # noqa: E402
+
 
 log = logging.getLogger("ncl.migrate.units_index")
 
@@ -212,13 +215,16 @@ async def migrate(
     if not source.exists():
         log.warning("Source not found: %s", source)
         return {
-            "scanned": 0, "inserted": 0, "skipped": 0, "errors": 0,
-            "source": str(source), "db_path": str(store.db_path),
+            "scanned": 0,
+            "inserted": 0,
+            "skipped": 0,
+            "errors": 0,
+            "source": str(source),
+            "db_path": str(store.db_path),
             "dry_run": dry_run,
         }
 
-    log.info("Streaming units from %s (batch_size=%d, dry_run=%s)",
-             source, batch_size, dry_run)
+    log.info("Streaming units from %s (batch_size=%d, dry_run=%s)", source, batch_size, dry_run)
 
     batch: list[tuple] = []
     try:
@@ -252,10 +258,14 @@ async def migrate(
     except OSError as exc:
         log.error("Could not read %s: %s", source, exc)
         return {
-            "scanned": scanned, "inserted": inserted,
-            "skipped": skipped, "errors": errors + 1,
-            "source": str(source), "db_path": str(store.db_path),
-            "dry_run": dry_run, "read_error": str(exc),
+            "scanned": scanned,
+            "inserted": inserted,
+            "skipped": skipped,
+            "errors": errors + 1,
+            "source": str(source),
+            "db_path": str(store.db_path),
+            "dry_run": dry_run,
+            "read_error": str(exc),
         }
 
     if batch:
@@ -277,7 +287,11 @@ async def migrate(
     }
     log.info(
         "DONE: scanned=%d inserted=%d skipped=%d errors=%d (db=%s)",
-        scanned, inserted, skipped, errors, store.db_path,
+        scanned,
+        inserted,
+        skipped,
+        errors,
+        store.db_path,
     )
     return result
 
@@ -336,9 +350,7 @@ def main() -> int:
         print(f"ERROR: source path does not exist: {args.source}", file=sys.stderr)
         return 2
 
-    result = asyncio.run(
-        migrate(args.source, dry_run=args.dry_run, batch_size=args.batch_size)
-    )
+    result = asyncio.run(migrate(args.source, dry_run=args.dry_run, batch_size=args.batch_size))
     print(json.dumps(result, indent=2))
     return 0
 

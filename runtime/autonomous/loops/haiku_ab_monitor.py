@@ -31,9 +31,9 @@ import logging
 
 log = logging.getLogger(__name__)
 
-_BOOT_DELAY_S = 3600        # first cycle ~1h after boot
+_BOOT_DELAY_S = 3600  # first cycle ~1h after boot
 _DISABLED_RECHECK_S = 3600  # re-check the feature flag every hour while off
-_CYCLE_S = 86400            # 24h between summaries
+_CYCLE_S = 86400  # 24h between summaries
 
 
 async def run(scheduler) -> None:
@@ -65,10 +65,7 @@ async def run(scheduler) -> None:
                 summary.get("recommendation", "?"),
             )
             # Alert if Haiku diverges meaningfully or errors out.
-            if (
-                summary.get("p95_abs_delta", 0.0) > 2.0
-                or summary.get("haiku_errors", 0) > 10
-            ):
+            if summary.get("p95_abs_delta", 0.0) > 2.0 or summary.get("haiku_errors", 0) > 10:
                 try:
                     from ...notifications.alert_dispatch import enqueue_alert
 

@@ -104,9 +104,7 @@ async def run(scheduler) -> None:
                 "[STARTUP-MIGRATIONS] Authority retag exceeded 600s budget — see _stats next boot"  # noqa: E501
             )
         except Exception as e:
-            log.warning(
-                f"[STARTUP-MIGRATIONS] Authority retag skipped: {type(e).__name__}: {e}"
-            )
+            log.warning(f"[STARTUP-MIGRATIONS] Authority retag skipped: {type(e).__name__}: {e}")
     except Exception as e:
         log.warning(f"[STARTUP-MIGRATIONS] Memory router unavailable: {e}")
     log.info("[STARTUP-MIGRATIONS] Complete")

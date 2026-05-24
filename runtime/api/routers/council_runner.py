@@ -51,6 +51,7 @@ router = APIRouter(tags=["council-runner"])
 
 # ── POST /council-runner/run — pack-routed, with v1 fallback ──────────────
 
+
 @router.post("/council-runner/run")
 async def run_council_runner(
     request: Request,
@@ -73,6 +74,7 @@ async def run_council_runner(
     ``council_pack.legacy``) so this endpoint NEVER regresses.
     """
     from .. import routes as _routes
+
     _routes._verify_strike_token(authorization)
     _routes._check_rate_limit(request)
 
@@ -115,6 +117,7 @@ async def run_council_runner(
                     async_writer = None
                     try:
                         from ...memory.async_writer import get_async_writer
+
                         async_writer = get_async_writer()
                     except Exception:
                         async_writer = None
@@ -122,6 +125,7 @@ async def run_council_runner(
                     learner = None
                     try:
                         from ...feedback.source_authority_learner import get_learner
+
                         learner = get_learner()
                     except Exception:
                         learner = None
@@ -156,13 +160,18 @@ async def run_council_runner(
                         if session.rounds:
                             r1 = session.rounds[0]
                             for member_name, reply in (r1.responses or {}).items():
-                                agent_outputs.append(AgentOutput(
-                                    role=AgentRole.PLANNER,
-                                    response_text=reply or "",
-                                    model_used=str(member_name),
-                                ))
+                                agent_outputs.append(
+                                    AgentOutput(
+                                        role=AgentRole.PLANNER,
+                                        response_text=reply or "",
+                                        model_used=str(member_name),
+                                    )
+                                )
                     except Exception as proj_err:
-                        log.debug("[/council-runner/run] pack→record projection (round 1) failed: %s", proj_err)  # noqa: E501
+                        log.debug(
+                            "[/council-runner/run] pack→record projection (round 1) failed: %s",
+                            proj_err,
+                        )  # noqa: E501
 
                     consensus_text = session.consensus or session.synthesis or ""
                     confidence_pct = 50
@@ -175,8 +184,12 @@ async def run_council_runner(
                     consensus_obj = ConsensusResult(
                         consensus_text=consensus_text,
                         consensus_score=max(0, min(100, confidence_pct)),
-                        dissent_areas=list((session.dissents or {}).keys()) if isinstance(session.dissents, dict) else [],  # noqa: E501
-                        recommendations=list(session.recommendations or []) if hasattr(session, "recommendations") else [],  # noqa: E501
+                        dissent_areas=list((session.dissents or {}).keys())
+                        if isinstance(session.dissents, dict)
+                        else [],  # noqa: E501
+                        recommendations=list(session.recommendations or [])
+                        if hasattr(session, "recommendations")
+                        else [],  # noqa: E501
                     )
 
                     record = _CRR(
@@ -188,17 +201,22 @@ async def run_council_runner(
                         provenance={
                             "routed_through": "council_pack",
                             "pack_size_items": pack_result["pack"].get("pack_size_items", 0),
-                            "surfaced_conflicts": len(pack_result["pack"].get("surfaced_conflicts", []) or []),  # noqa: E501
+                            "surfaced_conflicts": len(
+                                pack_result["pack"].get("surfaced_conflicts", []) or []
+                            ),  # noqa: E501
                             "calibration_count": len(pack_result.get("calibrations") or []),
                             "peer_reviews": len(pack_result.get("peer_review") or []),
-                            "writeback_gist_chars": len((pack_result.get("writeback") or {}).get("gist") or ""),  # noqa: E501
+                            "writeback_gist_chars": len(
+                                (pack_result.get("writeback") or {}).get("gist") or ""
+                            ),  # noqa: E501
                             "pack_session_id": session.session_id,
                         },
                         total_duration_ms=pack_duration_ms,
                     )
                     log.info(
                         "[/council-runner/run] pack path complete run_id=%s pack_session=%s",
-                        run_id, session.session_id,
+                        run_id,
+                        session.session_id,
                     )
                 except Exception as pack_err:
                     log.warning(
@@ -216,11 +234,20 @@ async def run_council_runner(
             log.exception(f"[/council-runner/run] council run failed: {e}")
 
     task = asyncio.create_task(_run())
-    task.add_done_callback(lambda t: log.error(f"Council runner task died: {t.exception()!r}") if not t.cancelled() and t.exception() else None)  # noqa: E501
-    return {"status": "started", "run_id": run_id, "message": "Council running in background. Check /council-runner/runs for results."}  # noqa: E501
+    task.add_done_callback(
+        lambda t: log.error(f"Council runner task died: {t.exception()!r}")
+        if not t.cancelled() and t.exception()
+        else None
+    )  # noqa: E501
+    return {
+        "status": "started",
+        "run_id": run_id,
+        "message": "Council running in background. Check /council-runner/runs for results.",
+    }  # noqa: E501
 
 
 # ── GET /council-runner/runs ─────────────────────────────────────────────
+
 
 @router.get("/council-runner/runs")
 async def list_council_runs(
@@ -230,6 +257,7 @@ async def list_council_runs(
 ) -> dict:
     """List council runner runs."""
     from .. import routes as _routes
+
     _routes._verify_strike_token(authorization)
     if not _routes._council_store:
         raise HTTPException(status_code=503, detail="CouncilRunner not initialized")
@@ -239,10 +267,12 @@ async def list_council_runs(
 
 # ── GET /council-runner/runs/{run_id} ────────────────────────────────────
 
+
 @router.get("/council-runner/runs/{run_id}")
 async def get_council_run(run_id: str, authorization: str = Header(default="")) -> dict:
     """Get a specific council run record."""
     from .. import routes as _routes
+
     _routes._verify_strike_token(authorization)
     if not _routes._council_store:
         raise HTTPException(status_code=503, detail="CouncilRunner not initialized")
@@ -254,10 +284,12 @@ async def get_council_run(run_id: str, authorization: str = Header(default="")) 
 
 # ── GET /council-runner/runs/{run_id}/provenance ─────────────────────────
 
+
 @router.get("/council-runner/runs/{run_id}/provenance")
 async def get_council_run_provenance(run_id: str, authorization: str = Header(default="")) -> dict:
     """Get full provenance chain for a council run."""
     from .. import routes as _routes
+
     _routes._verify_strike_token(authorization)
     if not _routes._council_store:
         raise HTTPException(status_code=503, detail="CouncilRunner not initialized")
@@ -269,6 +301,7 @@ async def get_council_run_provenance(run_id: str, authorization: str = Header(de
 
 # ── POST /council-runner/replay/{run_id} ─────────────────────────────────
 
+
 @router.post("/council-runner/replay/{run_id}")
 async def replay_council_run(
     run_id: str,
@@ -277,6 +310,7 @@ async def replay_council_run(
 ) -> dict:
     """Replay a previous council run for deterministic comparison."""
     from .. import routes as _routes
+
     _routes._verify_strike_token(authorization)
     if not _routes._replay_engine:
         raise HTTPException(status_code=503, detail="ReplayEngine not initialized")
@@ -284,7 +318,8 @@ async def replay_council_run(
     async def _replay():
         try:
             record = await _routes._replay_engine.replay(
-                run_id=run_id, temperature_override=temperature_override,
+                run_id=run_id,
+                temperature_override=temperature_override,
             )
             if _routes._council_store:
                 await _routes._council_store.save_run(record)
@@ -292,16 +327,24 @@ async def replay_council_run(
             log.exception(f"[/council-runner/replay] replay failed: {e}")
 
     task = asyncio.create_task(_replay())
-    task.add_done_callback(lambda t: log.error(f"Replay task died: {t.exception()!r}") if not t.cancelled() and t.exception() else None)  # noqa: E501
+    task.add_done_callback(
+        lambda t: log.error(f"Replay task died: {t.exception()!r}")
+        if not t.cancelled() and t.exception()
+        else None
+    )  # noqa: E501
     return {"status": "replay_started", "original_run_id": run_id}
 
 
 # ── GET /council-runner/compare/{run_id_a}/{run_id_b} ────────────────────
 
+
 @router.get("/council-runner/compare/{run_id_a}/{run_id_b}")
-async def compare_council_runs(run_id_a: str, run_id_b: str, authorization: str = Header(default="")) -> dict:  # noqa: E501
+async def compare_council_runs(
+    run_id_a: str, run_id_b: str, authorization: str = Header(default="")
+) -> dict:  # noqa: E501
     """Compare two council runs side-by-side."""
     from .. import routes as _routes
+
     _routes._verify_strike_token(authorization)
     if not _routes._replay_engine:
         raise HTTPException(status_code=503, detail="ReplayEngine not initialized")
@@ -311,6 +354,7 @@ async def compare_council_runs(run_id_a: str, run_id_b: str, authorization: str 
 
 # ── GET /council-runner/search ───────────────────────────────────────────
 
+
 @router.get("/council-runner/search")
 async def search_council_runs(
     q: str = Query(..., description="Search query for topic/prompt"),
@@ -319,6 +363,7 @@ async def search_council_runs(
 ) -> dict:
     """Search council runs by topic/prompt text."""
     from .. import routes as _routes
+
     _routes._verify_strike_token(authorization)
     if not _routes._council_store:
         raise HTTPException(status_code=503, detail="CouncilRunner not initialized")
@@ -328,10 +373,12 @@ async def search_council_runs(
 
 # ── GET /council-runner/stats ────────────────────────────────────────────
 
+
 @router.get("/council-runner/stats")
 async def get_council_runner_stats(authorization: str = Header(default="")) -> dict:
     """Get council runner statistics."""
     from .. import routes as _routes
+
     _routes._verify_strike_token(authorization)
     if not _routes._council_store:
         raise HTTPException(status_code=503, detail="CouncilRunner not initialized")

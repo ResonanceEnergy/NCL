@@ -102,7 +102,7 @@ def _is_safe_source(s: str) -> bool:
         return False
     # Belt-and-braces: explicitly reject the dangerous chars even though
     # the regex below would also reject them — keeps the intent legible.
-    for bad in ('<', '>', '"', "'", '\\'):
+    for bad in ("<", ">", '"', "'", "\\"):
         if bad in s:
             return False
     for ch in s:
@@ -130,7 +130,7 @@ def _data_dir() -> Path:
 class SourceStats:
     hits: int = 0
     misses: int = 0
-    partials: int = 0    # half-credit outcomes (count as 0.5 hit)
+    partials: int = 0  # half-credit outcomes (count as 0.5 hit)
     last_updated: str = ""
 
     @property
@@ -216,7 +216,7 @@ class SourceAuthorityLearner:
             # Without this, a crash between write_text and replace can leave
             # us with a zero-byte or torn tmp that the replace then promotes
             # into the live state file.
-            with open(tmp, 'rb+') as f:
+            with open(tmp, "rb+") as f:
                 os.fsync(f.fileno())
             os.replace(str(tmp), str(self._path))
         except Exception as exc:
@@ -244,9 +244,7 @@ class SourceAuthorityLearner:
         """Refresh the frozen ``{source: adjustment}`` snapshot from
         ``self._state``. Cheap (a dict comprehension over a few hundred
         entries) and called at most once per ``_SNAPSHOT_TTL_SEC``."""
-        self._adjustments_snapshot = {
-            src: s.adjustment for src, s in self._state.items()
-        }
+        self._adjustments_snapshot = {src: s.adjustment for src, s in self._state.items()}
         self._snapshot_ts = time.monotonic()
 
     def _maybe_refresh_snapshot(self) -> None:
@@ -331,12 +329,18 @@ class SourceAuthorityLearner:
             )
             log.info(
                 "[AUTH-LEARNER] %s outcome=%s -> adj=%.3f (h=%d m=%d p=%d)",
-                source, outcome, stats.adjustment,
-                stats.hits, stats.misses, stats.partials,
+                source,
+                outcome,
+                stats.adjustment,
+                stats.hits,
+                stats.misses,
+                stats.partials,
             )
             return stats
 
-    async def record_many(self, sources: Iterable[str], outcome: str, *, prediction_id: str = "") -> dict[str, SourceStats]:  # noqa: E501
+    async def record_many(
+        self, sources: Iterable[str], outcome: str, *, prediction_id: str = ""
+    ) -> dict[str, SourceStats]:  # noqa: E501
         """Bulk update — used by the prediction-outcome path."""
         out: dict[str, SourceStats] = {}
         for s in sources:
@@ -397,7 +401,9 @@ async def record_prediction_outcome(
         updated[src] = stats.to_dict()
     log.info(
         "[AUTH-LEARNER] prediction %s outcome=%s -> %d sources updated",
-        prediction_id, outcome, len(updated),
+        prediction_id,
+        outcome,
+        len(updated),
     )
     return updated
 

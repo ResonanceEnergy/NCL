@@ -104,7 +104,7 @@ Successfully built the **complete production-grade Python 3.12+ runtime** for NC
 
 ### Pump Prompt Flow
 ```
-iPhone (NATRIX + Grok) 
+iPhone (NATRIX + Grok)
   ↓ (via API)
 POST /pump → PumpPrompt received
   ↓
@@ -134,7 +134,7 @@ Episodic Trace → MemUnit (semantic)
   ├─ decay: importance *= 0.95^(days_since_access)
   ├─ reinforce: access += 1, importance * 1.2
   └─ search: by tags (AND), importance threshold, date range
-  
+
 Persistence: ~/NCL/data/memory/units.jsonl (NDJSON)
 ```
 

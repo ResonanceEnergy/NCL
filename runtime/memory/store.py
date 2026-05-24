@@ -1523,8 +1523,14 @@ class MemoryStore:
         # Tolerate string aliases (some old units stored the tier NAME instead
         # of the int — e.g. "scanner" → 20). RAW(10) is the safe fallback.
         _NAME_TO_TIER = {  # noqa: N806
-            "natrix": 100, "council": 80, "brain": 60, "calendar": 50,
-            "llm_single": 40, "llm": 40, "scanner": 20, "raw": 10,
+            "natrix": 100,
+            "council": 80,
+            "brain": 60,
+            "calendar": 50,
+            "llm_single": 40,
+            "llm": 40,
+            "scanner": 20,
+            "raw": 10,
         }
         _raw_auth = meta.get("authority_tier")
         auth: int = 10  # RAW fallback default
@@ -1542,6 +1548,7 @@ class MemoryStore:
         if _raw_auth is None:
             try:
                 from .authority import _tier_for_source
+
                 derived = _tier_for_source(unit.source)
                 if isinstance(derived, (int, float)):
                     auth = int(derived)
@@ -1559,6 +1566,7 @@ class MemoryStore:
         content_hash = None
         try:
             import hashlib as _hashlib
+
             text = str(unit.content or "")[:1000]
             content_hash = _hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()
         except Exception as _hash_err:
@@ -1617,11 +1625,22 @@ class MemoryStore:
             env_flag="NCL_UNITS_INDEX_SQLITE",
             table="units_index",
             columns=(
-                "unit_id", "content_hash", "source", "memory_type",
-                "authority_tier", "importance", "created_at",
-                "last_accessed", "tags", "reinforcement_count",
-                "decay_rate", "decay_score", "tier", "chroma_collection",
-                "signal_id", "fingerprint",
+                "unit_id",
+                "content_hash",
+                "source",
+                "memory_type",
+                "authority_tier",
+                "importance",
+                "created_at",
+                "last_accessed",
+                "tags",
+                "reinforcement_count",
+                "decay_rate",
+                "decay_score",
+                "tier",
+                "chroma_collection",
+                "signal_id",
+                "fingerprint",
             ),
             build_row=MemoryStore._build_units_index_row,
             conflict_strategy="replace",

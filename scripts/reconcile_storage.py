@@ -80,6 +80,7 @@ Output shape
 
 Author: NCL — W4-15, 2026-05-23.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -91,6 +92,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Iterable
+
 
 log = logging.getLogger("ncl.reconcile")
 
@@ -156,9 +158,7 @@ def _iter_jsonl(path: Path) -> Iterable[dict]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def reconcile_cost_ledger(
-    conn: sqlite3.Connection | None, jsonl_path: Path
-) -> dict:
+def reconcile_cost_ledger(conn: sqlite3.Connection | None, jsonl_path: Path) -> dict:
     """Count rows + sum spend in both stores. The cost ledger is the
     only store where dollar-sum agreement is the strongest signal — a
     row-count match can hide an amount drift.
@@ -196,9 +196,7 @@ def reconcile_cost_ledger(
             except Exception:
                 amt = Decimal("0")
             sqlite_sum += amt
-            sqlite_keys.add(
-                (row["ts"], row["source"], float(amt), row["purpose"])
-            )
+            sqlite_keys.add((row["ts"], row["source"], float(amt), row["purpose"]))
 
     in_both = jsonl_keys & sqlite_keys
     only_jsonl = jsonl_keys - sqlite_keys
@@ -221,9 +219,7 @@ def reconcile_cost_ledger(
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def reconcile_mandates(
-    conn: sqlite3.Connection | None, json_path: Path
-) -> dict:
+def reconcile_mandates(conn: sqlite3.Connection | None, json_path: Path) -> dict:
     """`data/mandates.json` is a single JSON array of mandate dicts.
     Each dict has a `mandate_id`. SQLite stores one row per id.
     """
@@ -270,9 +266,7 @@ def reconcile_mandates(
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def reconcile_units(
-    conn: sqlite3.Connection | None, jsonl_path: Path
-) -> dict:
+def reconcile_units(conn: sqlite3.Connection | None, jsonl_path: Path) -> dict:
     """`data/memory/units.jsonl` is the source-of-truth MemUnit log.
     `units_index` table is a SQLite mirror (index only, body stays in
     JSONL + Chroma — see docs/PERSISTENCE.md).
@@ -384,14 +378,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if "cost_ledger" in selected:
             log.info("Reconciling cost_ledger …")
-            out["sources"]["cost_ledger"] = reconcile_cost_ledger(
-                conn, args.cost_ledger_path
-            )
+            out["sources"]["cost_ledger"] = reconcile_cost_ledger(conn, args.cost_ledger_path)
         if "mandates" in selected:
             log.info("Reconciling mandates …")
-            out["sources"]["mandates"] = reconcile_mandates(
-                conn, args.mandates_path
-            )
+            out["sources"]["mandates"] = reconcile_mandates(conn, args.mandates_path)
         if "units" in selected:
             log.info("Reconciling units …")
             out["sources"]["units"] = reconcile_units(conn, args.units_path)

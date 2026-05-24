@@ -16,9 +16,11 @@ Usage:
     from runtime.persistence.migrations import _004 as m
     await m.migrate()
 """
+
 from __future__ import annotations
 
 from ._base import build_migration
+
 
 NAME = "004_add_composite_indexes_w8"
 migrate, status = build_migration(NAME)

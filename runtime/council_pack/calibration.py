@@ -194,6 +194,7 @@ def parse_verbalized_confidence(reply_text: str) -> Optional[dict[str, Any]]:
 # calibration on the way back. Returns (text, calibration).
 # ---------------------------------------------------------------------------
 
+
 async def run_calibrated_member(member_call, prompt: str) -> tuple[str, Optional[dict]]:
     """Invoke ``member_call(prompt)`` and parse calibration block on return.
 

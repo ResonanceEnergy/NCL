@@ -67,7 +67,9 @@ _TELL_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"\b(i'?m (an?|a) (ai|language model|assistant)[^.]*\.)", re.IGNORECASE),
     re.compile(r"\bgrok here[^.]*\.", re.IGNORECASE),
     re.compile(r"\bgemini speaking[^.]*\.", re.IGNORECASE),
-    re.compile(r"\b(claude|grok|gemini|gpt|perplexity|copilot) (says?|here|speaking)\b", re.IGNORECASE),  # noqa: E501
+    re.compile(
+        r"\b(claude|grok|gemini|gpt|perplexity|copilot) (says?|here|speaking)\b", re.IGNORECASE
+    ),  # noqa: E501
 ]
 
 
@@ -234,7 +236,8 @@ async def run_peer_review_round(
 
     log.info(
         "[PEER-REVIEW] %d reviewers produced critique on %d peers each",
-        len(reviews), targets_per_reviewer,
+        len(reviews),
+        targets_per_reviewer,
     )
     return reviews, tag_map
 

@@ -86,11 +86,10 @@ import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 import aiofiles
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from ....ncl_brain.models import PumpPrompt
 from ...deps import (
@@ -113,12 +112,15 @@ router = APIRouter(tags=["intel"])
 @router.post("/intelligence/brief")
 async def generate_intelligence_brief(
     request: Request,
-    brief_type: str = Query(default="daily", description="Brief type: daily, alert, strategic_review"),  # noqa: E501
+    brief_type: str = Query(
+        default="daily", description="Brief type: daily, alert, strategic_review"
+    ),  # noqa: E501
     intelligence=Depends(get_intelligence),
     _: None = Depends(verify_strike_token_dep),
 ) -> dict:
     """Generate a fresh intelligence brief from all data sources."""
     from .. import routes as _routes
+
     _routes._check_rate_limit(request)
     if not intelligence:
         raise HTTPException(status_code=503, detail="Intelligence engine not initialized")
@@ -134,12 +136,15 @@ async def generate_intelligence_brief(
             "text": brief.to_text(),
             "data": brief.model_dump(),
         }
-        await _routes.broadcast_event("new_brief", {
-            "brief_id": brief.brief_id,
-            "brief_type": brief_type,
-            "total_signals": brief.total_signals_processed,
-            "summary": brief.to_text()[:200],
-        })
+        await _routes.broadcast_event(
+            "new_brief",
+            {
+                "brief_id": brief.brief_id,
+                "brief_type": brief_type,
+                "total_signals": brief.total_signals_processed,
+                "summary": brief.to_text()[:200],
+            },
+        )
         return result
     except Exception as e:
         log.exception("Endpoint error: %s", e)
@@ -156,7 +161,10 @@ async def get_latest_brief(
         raise HTTPException(status_code=503, detail="Intelligence engine not initialized")
     brief = await intelligence.get_latest_brief()
     if not brief:
-        return {"status": "no_brief", "message": "No brief generated yet. POST /intelligence/brief to generate one."}  # noqa: E501
+        return {
+            "status": "no_brief",
+            "message": "No brief generated yet. POST /intelligence/brief to generate one.",
+        }  # noqa: E501
     return {
         "brief_id": brief.brief_id,
         "timestamp": brief.timestamp.isoformat(),
@@ -224,7 +232,9 @@ async def intelligence_stats(
             **legacy,
         }
 
-    raise HTTPException(status_code=503, detail="Neither Awarebot nor Intelligence engine initialized")  # noqa: E501
+    raise HTTPException(
+        status_code=503, detail="Neither Awarebot nor Intelligence engine initialized"
+    )  # noqa: E501
 
 
 @router.get("/intelligence/google-trends/health")
@@ -254,6 +264,7 @@ async def collect_intelligence_signals(
 ) -> dict:
     """Run a signal collection sweep without generating a full brief."""
     from .. import routes as _routes
+
     _routes._check_rate_limit(request)
     if not intelligence:
         raise HTTPException(status_code=503, detail="Intelligence engine not initialized")
@@ -277,17 +288,22 @@ async def collect_intelligence_signals(
                 for s in top_5
             ],
         }
-        await _routes.broadcast_event("signals_collected", {
-            "total": len(signals),
-            "sources": source_counts,
-        })
+        await _routes.broadcast_event(
+            "signals_collected",
+            {
+                "total": len(signals),
+                "sources": source_counts,
+            },
+        )
         return result
     except Exception as e:
         log.exception("Endpoint error: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-_MORNING_BRIEF_DIR = Path(os.getenv("NCL_DATA", str(Path.home() / "NCL" / "data"))) / "morning_briefs"  # noqa: E501
+_MORNING_BRIEF_DIR = (
+    Path(os.getenv("NCL_DATA", str(Path.home() / "NCL" / "data"))) / "morning_briefs"
+)  # noqa: E501
 
 
 @router.post("/intelligence/morning-brief")
@@ -301,6 +317,7 @@ async def generate_morning_brief(
     Tracks progress in intelligence. Called automatically at 6am or manually.
     """
     from .. import routes as _routes
+
     _routes._check_rate_limit(request)
     if not intelligence:
         raise HTTPException(status_code=503, detail="Intelligence engine not initialized")
@@ -352,6 +369,7 @@ Respond with ONLY the 3 topics, no preamble."""  # noqa: E501
         anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
         if anthropic_key:
             import httpx
+
             try:
                 async with httpx.AsyncClient(timeout=30) as client:
                     resp = await client.post(
@@ -361,7 +379,9 @@ Respond with ONLY the 3 topics, no preamble."""  # noqa: E501
                             "anthropic-version": "2023-06-01",
                         },
                         json={
-                            "model": os.getenv("NCL_INTEL_SUMMARY_MODEL", "claude-sonnet-4-20250514"),  # noqa: E501
+                            "model": os.getenv(
+                                "NCL_INTEL_SUMMARY_MODEL", "claude-sonnet-4-20250514"
+                            ),  # noqa: E501
                             "max_tokens": 500,
                             "messages": [{"role": "user", "content": topic_prompt}],
                         },
@@ -425,7 +445,11 @@ async def get_morning_brief(
 
     brief_path = _MORNING_BRIEF_DIR / f"morning-{date}.json"
     if not brief_path.exists():
-        return {"status": "not_found", "date": date, "message": "No morning brief for this date. POST /intelligence/morning-brief to generate one."}  # noqa: E501
+        return {
+            "status": "not_found",
+            "date": date,
+            "message": "No morning brief for this date. POST /intelligence/morning-brief to generate one.",  # noqa: E501
+        }
 
     return json.loads(brief_path.read_text())
 
@@ -444,11 +468,13 @@ async def update_morning_brief_progress(
         raise HTTPException(status_code=404, detail="No morning brief for today")
 
     data = json.loads(brief_path.read_text())
-    data["progress"].append({
-        "topic": topic,
-        "note": note,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    })
+    data["progress"].append(
+        {
+            "topic": topic,
+            "note": note,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    )
     data["status"] = "in_progress"
     brief_path.write_text(json.dumps(data, indent=2, default=str))
 
@@ -497,17 +523,29 @@ async def list_intelligence_briefs(
                             continue
                         if bid:
                             seen_ids.add(bid)
-                        entries.append({
-                            "brief_id": bid,
-                            "brief_type": d.get("brief_type", "daily"),
-                            "timestamp": d.get("timestamp", ""),
-                            "total_signals": d.get("total_signals_processed", d.get("total_signals", 0)),  # noqa: E501
-                            "sectors": len(d.get("sectors", [])) if isinstance(d.get("sectors"), list) else d.get("sectors", 0),  # noqa: E501
-                            "predictions": len(d.get("predictions", [])) if isinstance(d.get("predictions"), list) else d.get("predictions", 0),  # noqa: E501
-                            "risk_alerts": len(d.get("risk_alerts", [])) if isinstance(d.get("risk_alerts"), list) else d.get("risk_alerts", 0),  # noqa: E501
-                            "executive_summary": (d.get("executive_summary", "") or d.get("summary", ""))[:200],  # noqa: E501
-                            "source_file": briefs_file.name,
-                        })
+                        entries.append(
+                            {
+                                "brief_id": bid,
+                                "brief_type": d.get("brief_type", "daily"),
+                                "timestamp": d.get("timestamp", ""),
+                                "total_signals": d.get(
+                                    "total_signals_processed", d.get("total_signals", 0)
+                                ),  # noqa: E501
+                                "sectors": len(d.get("sectors", []))
+                                if isinstance(d.get("sectors"), list)
+                                else d.get("sectors", 0),  # noqa: E501
+                                "predictions": len(d.get("predictions", []))
+                                if isinstance(d.get("predictions"), list)
+                                else d.get("predictions", 0),  # noqa: E501
+                                "risk_alerts": len(d.get("risk_alerts", []))
+                                if isinstance(d.get("risk_alerts"), list)
+                                else d.get("risk_alerts", 0),  # noqa: E501
+                                "executive_summary": (
+                                    d.get("executive_summary", "") or d.get("summary", "")
+                                )[:200],  # noqa: E501
+                                "source_file": briefs_file.name,
+                            }
+                        )
                     except json.JSONDecodeError:
                         continue
         entries.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
@@ -539,6 +577,7 @@ async def get_brief_by_id(
                     d = json.loads(line)
                     if d.get("brief_id") == brief_id:
                         from ...intelligence.models import IntelBrief
+
                         brief = IntelBrief(**d)
                         return {
                             "brief_id": brief.brief_id,
@@ -580,6 +619,7 @@ async def escalate_intelligence_to_strike_point(
     FirstStrike on iPhone.
     """
     from .. import routes as _routes
+
     _routes._check_rate_limit(request)
     if not intelligence:
         raise HTTPException(status_code=503, detail="Intelligence engine not initialized")
@@ -592,6 +632,7 @@ async def escalate_intelligence_to_strike_point(
             if briefs_file.exists():
                 try:
                     import aiofiles as _aio
+
                     async with _aio.open(briefs_file, "r") as f:
                         async for line in f:
                             line = line.strip()
@@ -601,6 +642,7 @@ async def escalate_intelligence_to_strike_point(
                                 d = json.loads(line)
                                 if d.get("brief_id") == brief_id:
                                     from ...intelligence.models import IntelBrief
+
                                     brief = IntelBrief(**d)
                                     break
                             except (json.JSONDecodeError, Exception):
@@ -630,8 +672,11 @@ async def escalate_intelligence_to_strike_point(
     signal_summaries = []
     for sig in escalation_signals:
         direction_arrow = {
-            "bullish": "▲", "bearish": "▼", "emerging": "★",
-            "expanding": "↑", "contracting": "↓",
+            "bullish": "▲",
+            "bearish": "▼",
+            "emerging": "★",
+            "expanding": "↑",
+            "contracting": "↓",
         }.get(sig.direction.value, "●")
         change_str = f" ({sig.change_pct:+.1f}%)" if sig.change_pct is not None else ""
         signal_summaries.append(
@@ -642,8 +687,7 @@ async def escalate_intelligence_to_strike_point(
     pump_intent = (
         f"INTELLIGENCE ESCALATION — {brief.brief_type.upper()} BRIEF\n\n"
         f"Executive Summary:\n{brief.executive_summary[:500]}\n\n"
-        f"Escalated Signals ({len(escalation_signals)}):\n"
-        + "\n".join(signal_summaries) + "\n\n"
+        f"Escalated Signals ({len(escalation_signals)}):\n" + "\n".join(signal_summaries) + "\n\n"
         f"Risk Alerts: {', '.join(brief.risk_alerts[:3]) if brief.risk_alerts else 'None'}\n\n"
         f"DIRECTIVE: Analyze these intelligence signals. Identify actionable opportunities, "
         f"assess risks, and generate strategic mandates. Consider cross-signal convergence "
@@ -668,6 +712,7 @@ async def escalate_intelligence_to_strike_point(
     }
 
     if brain:
+
         async def _submit_pump():
             try:
                 pump = PumpPrompt(
@@ -681,19 +726,27 @@ async def escalate_intelligence_to_strike_point(
                 log.info(f"Escalation pump {pump_id} submitted — {mandates} mandates generated")
             except Exception as e:
                 logging.getLogger("ncl.api").warning(f"Pump submission failed: {e}")
-                pump_file = Path(_routes.config.data_dir) / "intelligence" / "escalations" / f"{pump_id}.json"  # noqa: E501
+                pump_file = (
+                    Path(_routes.config.data_dir)
+                    / "intelligence"
+                    / "escalations"
+                    / f"{pump_id}.json"
+                )  # noqa: E501
                 pump_file.parent.mkdir(parents=True, exist_ok=True)
                 pump_file.write_text(json.dumps(pump_prompt, indent=2, default=str))
 
         task = asyncio.create_task(_submit_pump())
         task.add_done_callback(
             lambda t: log.error(f"Pump submit task died: {t.exception()!r}")
-            if not t.cancelled() and t.exception() else None
+            if not t.cancelled() and t.exception()
+            else None
         )
         mandates_generated = -1
     else:
         mandates_generated = 0
-        pump_file = Path(_routes.config.data_dir) / "intelligence" / "escalations" / f"{pump_id}.json"  # noqa: E501
+        pump_file = (
+            Path(_routes.config.data_dir) / "intelligence" / "escalations" / f"{pump_id}.json"
+        )  # noqa: E501
         pump_file.parent.mkdir(parents=True, exist_ok=True)
         pump_file.write_text(json.dumps(pump_prompt, indent=2, default=str))
 
@@ -726,6 +779,7 @@ async def escalate_single_signal(
     picks a specific signal to expand on.
     """
     from .. import routes as _routes
+
     if not intelligence:
         raise HTTPException(status_code=503, detail="Intelligence engine not initialized")
 
@@ -740,10 +794,14 @@ async def escalate_single_signal(
             break
 
     if not target_signal:
-        raise HTTPException(status_code=404, detail=f"Signal {signal_id} not found in current brief")  # noqa: E501
+        raise HTTPException(
+            status_code=404, detail=f"Signal {signal_id} not found in current brief"
+        )  # noqa: E501
 
     pump_id = f"INTEL-SIG-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
-    change_str = f" ({target_signal.change_pct:+.1f}%)" if target_signal.change_pct is not None else ""  # noqa: E501
+    change_str = (
+        f" ({target_signal.change_pct:+.1f}%)" if target_signal.change_pct is not None else ""
+    )  # noqa: E501
 
     pump_intent = (
         f"SIGNAL DEEP-DIVE REQUEST\n\n"
@@ -904,7 +962,11 @@ async def acknowledge_brief(
     _: None = Depends(verify_strike_token_dep),
 ) -> dict:
     """Acknowledge an intelligence brief (marks it as read in FirstStrike)."""
-    notif_dir = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL"))) / "notifications" / "intelligence"  # noqa: E501
+    notif_dir = (
+        Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
+        / "notifications"
+        / "intelligence"
+    )  # noqa: E501
     if notif_dir.exists():
         for nf in notif_dir.glob("intel-*.json"):
             try:
@@ -966,6 +1028,7 @@ async def reddit_intel(
         scanner = intelligence._reddit
     else:
         from ...intelligence.collectors import RedditCollector
+
         scanner = RedditCollector(subreddits=[subreddit])
         owns_scanner = True
 
@@ -980,7 +1043,9 @@ async def reddit_intel(
             "posts": [
                 {
                     "title": s.title,
-                    "body": (s.metadata.get("selftext") or s.metadata.get("body") or s.content or "")[:500],  # noqa: E501
+                    "body": (
+                        s.metadata.get("selftext") or s.metadata.get("body") or s.content or ""
+                    )[:500],  # noqa: E501
                     "score": s.metadata.get("score", 0),
                     "comments": s.metadata.get("num_comments", 0),
                     "flair": s.metadata.get("flair", ""),
@@ -1013,6 +1078,7 @@ async def reddit_ticker_heat(
         scanner = intelligence._reddit
     else:
         from ...intelligence.collectors import RedditCollector
+
         scanner = RedditCollector()
         owns_scanner = True
 
@@ -1030,9 +1096,7 @@ async def reddit_ticker_heat(
             else:
                 merged[ticker] = {"wsb": 0, "superstonk": count, "total": count}
 
-        sorted_tickers = dict(
-            sorted(merged.items(), key=lambda x: x[1]["total"], reverse=True)
-        )
+        sorted_tickers = dict(sorted(merged.items(), key=lambda x: x[1]["total"], reverse=True))
 
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -1049,7 +1113,9 @@ async def reddit_ticker_heat(
 
 # ── Reddit Subreddit Management ───────────────────────────────────────────
 
-_REDDIT_SUB_CONFIG = Path(os.getenv("NCL_DATA", str(Path.home() / "NCL" / "data"))) / "reddit_subreddits.json"  # noqa: E501
+_REDDIT_SUB_CONFIG = (
+    Path(os.getenv("NCL_DATA", str(Path.home() / "NCL" / "data"))) / "reddit_subreddits.json"
+)  # noqa: E501
 
 
 def _load_reddit_subs() -> list[dict]:
@@ -1154,6 +1220,7 @@ async def run_reddit_scan(
         scanner = intelligence._reddit
     else:
         from ...intelligence.collectors import RedditCollector
+
         scanner = RedditCollector(subreddits=sub_names)
         owns_scanner = True
 
@@ -1167,19 +1234,21 @@ async def run_reddit_scan(
                 tickers = await scanner.collect_ticker_mentions(sub_name, limit=25)
 
                 for s in sorted(signals, key=lambda x: x.metadata.get("score", 0), reverse=True):
-                    all_posts.append({
-                        "title": s.title,
-                        "subreddit": sub_name,
-                        "score": s.metadata.get("score", 0),
-                        "comments": s.metadata.get("num_comments", 0),
-                        "flair": s.metadata.get("flair", ""),
-                        "sentiment": round(s.sentiment, 2),
-                        "tickers": s.metadata.get("tickers", []),
-                        "strength": s.metadata.get("strength", ""),
-                        "confidence": round(s.confidence, 2),
-                        "url": s.url,
-                        "category": s.category,
-                    })
+                    all_posts.append(
+                        {
+                            "title": s.title,
+                            "subreddit": sub_name,
+                            "score": s.metadata.get("score", 0),
+                            "comments": s.metadata.get("num_comments", 0),
+                            "flair": s.metadata.get("flair", ""),
+                            "sentiment": round(s.sentiment, 2),
+                            "tickers": s.metadata.get("tickers", []),
+                            "strength": s.metadata.get("strength", ""),
+                            "confidence": round(s.confidence, 2),
+                            "url": s.url,
+                            "category": s.category,
+                        }
+                    )
 
                 for tk, cnt in tickers.items():
                     ticker_agg[tk] = ticker_agg.get(tk, 0) + cnt
@@ -1209,7 +1278,9 @@ async def run_reddit_scan(
 # X (Twitter) Intelligence
 # ===========================================================================
 
-_X_ACCOUNTS_CONFIG = Path(os.getenv("NCL_DATA", str(Path.home() / "NCL" / "data"))) / "x_accounts.json"  # noqa: E501
+_X_ACCOUNTS_CONFIG = (
+    Path(os.getenv("NCL_DATA", str(Path.home() / "NCL" / "data"))) / "x_accounts.json"
+)  # noqa: E501
 
 
 def _load_x_accounts() -> list[dict]:
@@ -1224,6 +1295,7 @@ def _load_x_accounts() -> list[dict]:
         except Exception as _load_err:
             log.warning("Failed to load X accounts config: %s", _load_err)
     from ...councils.xai.scanner import DEFAULT_ACCOUNTS
+
     return [
         {"handle": h, "display_name": h, "added_at": datetime.now(timezone.utc).isoformat()}
         for h in DEFAULT_ACCOUNTS
@@ -1316,6 +1388,7 @@ async def run_x_scan(
     Cached for 5 minutes to prevent API rate exhaustion on repeated iOS refreshes.
     """
     import time as _time
+
     now = _time.time()
     if _x_scan_cache["data"] and (now - _x_scan_cache["timestamp"]) < _X_CACHE_TTL:
         log.info(f"[X] Returning cached scan ({now - _x_scan_cache['timestamp']:.0f}s old)")
@@ -1342,26 +1415,32 @@ async def run_x_scan(
             for tk in tickers_found:
                 ticker_agg[tk] = ticker_agg.get(tk, 0) + 1
 
-            all_posts.append({
-                "id": post.post_id,
-                "handle": post.author_handle,
-                "display_name": post.author_name,
-                "name": post.author_name,
-                "text": post.text,
-                "content": post.text,
-                "url": post.url,
-                "created_at": post.created_at,
-                "likes": post.like_count,
-                "retweets": post.retweet_count,
-                "replies": post.reply_count,
-                "impressions": post.impression_count,
-                "tickers": tickers_found,
-                "hashtags": post.hashtags,
-                "sentiment": getattr(post, "sentiment", 0.0) if hasattr(post, "sentiment") else 0.0,
-                "verified": getattr(post, "verified", False) if hasattr(post, "verified") else False,  # noqa: E501
-                "synthetic": post.synthetic,
-                "source_vector": category,
-            })
+            all_posts.append(
+                {
+                    "id": post.post_id,
+                    "handle": post.author_handle,
+                    "display_name": post.author_name,
+                    "name": post.author_name,
+                    "text": post.text,
+                    "content": post.text,
+                    "url": post.url,
+                    "created_at": post.created_at,
+                    "likes": post.like_count,
+                    "retweets": post.retweet_count,
+                    "replies": post.reply_count,
+                    "impressions": post.impression_count,
+                    "tickers": tickers_found,
+                    "hashtags": post.hashtags,
+                    "sentiment": getattr(post, "sentiment", 0.0)
+                    if hasattr(post, "sentiment")
+                    else 0.0,
+                    "verified": getattr(post, "verified", False)
+                    if hasattr(post, "verified")
+                    else False,  # noqa: E501
+                    "synthetic": post.synthetic,
+                    "source_vector": category,
+                }
+            )
 
     all_posts.sort(key=lambda x: x.get("likes", 0) + x.get("retweets", 0), reverse=True)
     top_tickers = dict(sorted(ticker_agg.items(), key=lambda x: x[1], reverse=True)[:30])
@@ -1394,6 +1473,7 @@ async def x_ticker_heatmap(
     every call.
     """
     import time as _time
+
     now = _time.time()
     if _x_ticker_cache["data"] and (now - _x_ticker_cache["timestamp"]) < _X_TICKER_CACHE_TTL:
         log.info(f"[X] Returning cached tickers ({now - _x_ticker_cache['timestamp']:.0f}s old)")
@@ -1520,6 +1600,7 @@ async def reddit_posts_alias(
         scanner = intelligence._reddit
     else:
         from ...intelligence.collectors import RedditCollector
+
         scanner = RedditCollector(subreddits=[subreddit])
         owns_scanner = True
 
@@ -1590,6 +1671,7 @@ def _save_watch_queries_to_disk(data: dict) -> None:
 def _reload_awarebot_queries() -> None:
     """Tell the live Awarebot agent to reload queries from disk."""
     from .. import routes as _routes
+
     if _routes._autonomous and _routes._autonomous.awarebot:
         _routes._autonomous.awarebot.reload_watch_queries()
 
@@ -1676,7 +1758,9 @@ async def focus_add_query(
 ) -> dict:
     """Add a query to a specific source (x, youtube, reddit)."""
     if source not in _VALID_SOURCES:
-        raise HTTPException(status_code=400, detail=f"Invalid source: {source}. Must be one of {_VALID_SOURCES}")  # noqa: E501
+        raise HTTPException(
+            status_code=400, detail=f"Invalid source: {source}. Must be one of {_VALID_SOURCES}"
+        )  # noqa: E501
     query = body.get("query")
     if not query or not isinstance(query, str):
         raise HTTPException(status_code=400, detail="Missing or invalid 'query' string in body")
@@ -1699,11 +1783,16 @@ async def focus_remove_query(
 ) -> dict:
     """Remove a query by index from a source."""
     if source not in _VALID_SOURCES:
-        raise HTTPException(status_code=400, detail=f"Invalid source: {source}. Must be one of {_VALID_SOURCES}")  # noqa: E501
+        raise HTTPException(
+            status_code=400, detail=f"Invalid source: {source}. Must be one of {_VALID_SOURCES}"
+        )  # noqa: E501
     data = _load_watch_queries_from_disk()
     queries = data.get(source, [])
     if index < 0 or index >= len(queries):
-        raise HTTPException(status_code=404, detail=f"Index {index} out of range for {source} (has {len(queries)} queries)")  # noqa: E501
+        raise HTTPException(
+            status_code=404,
+            detail=f"Index {index} out of range for {source} (has {len(queries)} queries)",
+        )  # noqa: E501
     removed = queries.pop(index)
     _save_watch_queries_to_disk(data)
     _reload_awarebot_queries()
@@ -1720,7 +1809,9 @@ async def focus_add_subreddit(
 ) -> dict:
     """Add a subreddit to a tier (accepts 1/2/3, tier1/tier2/tier3, tier_1/tier_2/tier_3)."""
     if tier not in _VALID_TIERS:
-        raise HTTPException(status_code=400, detail=f"Invalid tier: {tier}. Must be one of {_VALID_TIERS}")  # noqa: E501
+        raise HTTPException(
+            status_code=400, detail=f"Invalid tier: {tier}. Must be one of {_VALID_TIERS}"
+        )  # noqa: E501
     canonical_tier = _normalize_tier(tier)
     subreddit = body.get("subreddit")
     if not subreddit or not isinstance(subreddit, str):
@@ -1729,7 +1820,9 @@ async def focus_add_subreddit(
     subs = data.setdefault("reddit_subreddits", {})
     tier_list = subs.setdefault(canonical_tier, [])
     if subreddit in tier_list:
-        raise HTTPException(status_code=409, detail=f"Subreddit '{subreddit}' already in {canonical_tier}")  # noqa: E501
+        raise HTTPException(
+            status_code=409, detail=f"Subreddit '{subreddit}' already in {canonical_tier}"
+        )  # noqa: E501
     tier_list.append(subreddit)
     _save_watch_queries_to_disk(data)
     _reload_awarebot_queries()
@@ -1744,13 +1837,17 @@ async def focus_remove_subreddit(
 ) -> dict:
     """Remove a subreddit from a tier by name."""
     if tier not in _VALID_TIERS:
-        raise HTTPException(status_code=400, detail=f"Invalid tier: {tier}. Must be one of {_VALID_TIERS}")  # noqa: E501
+        raise HTTPException(
+            status_code=400, detail=f"Invalid tier: {tier}. Must be one of {_VALID_TIERS}"
+        )  # noqa: E501
     canonical_tier = _normalize_tier(tier)
     data = _load_watch_queries_from_disk()
     subs = data.get("reddit_subreddits", {})
     tier_list = subs.get(canonical_tier, [])
     if name not in tier_list:
-        raise HTTPException(status_code=404, detail=f"Subreddit '{name}' not found in {canonical_tier}")  # noqa: E501
+        raise HTTPException(
+            status_code=404, detail=f"Subreddit '{name}' not found in {canonical_tier}"
+        )  # noqa: E501
     tier_list.remove(name)
     _save_watch_queries_to_disk(data)
     _reload_awarebot_queries()
@@ -1836,18 +1933,8 @@ async def youtube_reports_recent(
             or data.get("topic")
             or p.stem
         )
-        video_title = (
-            first_video.get("title")
-            or data.get("video_title")
-            or data.get("title")
-            or ""
-        )
-        url = (
-            first_video.get("url")
-            or data.get("video_url")
-            or data.get("url")
-            or ""
-        )
+        video_title = first_video.get("title") or data.get("video_title") or data.get("title") or ""
+        url = first_video.get("url") or data.get("video_url") or data.get("url") or ""
         summary = (
             data.get("summary")
             or data.get("transcript_summary")
@@ -1866,24 +1953,29 @@ async def youtube_reports_recent(
         report_type = data.get("report_type", "legacy")
         video_id = first_video.get("video_id") or data.get("video_id") or ""
 
-        raw_reports.append({
-            "id": report_id,
-            "title": title,
-            "video_title": video_title,
-            "channel": first_video.get("channel") or data.get("channel") or data.get("channel_name") or "Unknown",  # noqa: E501
-            "video_id": video_id,
-            "url": url,
-            "published_at": published_at,
-            "summary": summary,
-            "insights_count": len(insights),
-            "duration_hours": data.get("total_duration_hours", 0),
-            "report_type": report_type,
-            "report_path": str(p),
-            "filename": p.name,
-            "auto_triggered": data.get("auto_triggered", False),
-            "status": data.get("status", "complete"),
-            "_mtime": mtime,
-        })
+        raw_reports.append(
+            {
+                "id": report_id,
+                "title": title,
+                "video_title": video_title,
+                "channel": first_video.get("channel")
+                or data.get("channel")
+                or data.get("channel_name")
+                or "Unknown",  # noqa: E501
+                "video_id": video_id,
+                "url": url,
+                "published_at": published_at,
+                "summary": summary,
+                "insights_count": len(insights),
+                "duration_hours": data.get("total_duration_hours", 0),
+                "report_type": report_type,
+                "report_path": str(p),
+                "filename": p.name,
+                "auto_triggered": data.get("auto_triggered", False),
+                "status": data.get("status", "complete"),
+                "_mtime": mtime,
+            }
+        )
 
     raw_count = len(raw_reports)
 
@@ -1931,7 +2023,6 @@ async def youtube_reports_recent(
     }
 
 
-
 # ===========================================================================
 # Predictions sub-router (carved out W10B-9, 2026-05-24)
 # ===========================================================================
@@ -1947,6 +2038,7 @@ async def youtube_reports_recent(
 
 from .predictions import OutcomeBody  # noqa: E402, F401
 from .predictions import router as _predictions_router  # noqa: E402
+
 
 router.include_router(_predictions_router)
 

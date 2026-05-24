@@ -12,6 +12,7 @@ calls. Adversarial content stays *present* inside the envelope (so
 genuinely relevant context isn't lost) — the envelope itself is the
 mitigation.
 """
+
 from __future__ import annotations
 
 import re

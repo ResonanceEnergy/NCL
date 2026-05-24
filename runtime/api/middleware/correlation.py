@@ -76,7 +76,7 @@ def set_request_id(req_id: str) -> None:
 
 
 def loop_request_id(prefix: str) -> str:
-    """Generate a fresh per-cycle request id of the form ``<prefix>-<hex8>``.
+    r"""Generate a fresh per-cycle request id of the form ``<prefix>-<hex8>``.
 
     Example: ``loop_request_id("loop-memcons")`` → ``loop-memcons-a3b4c5d6``.
 

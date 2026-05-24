@@ -127,8 +127,7 @@ async def run(
             cost_lines.append(
                 "Per-source: "
                 + ", ".join(
-                    f"{s}=${v:.4f}"
-                    for s, v in sorted(source_totals.items(), key=lambda x: -x[1])
+                    f"{s}=${v:.4f}" for s, v in sorted(source_totals.items(), key=lambda x: -x[1])
                 )
             )
             cost_lines.append(
@@ -276,21 +275,15 @@ async def run(
             else:
                 mc_lines.append(f"Duplicates found: {memory_report.get('duplicates_found', 0)}")
                 mc_lines.append(f"Units re-scored: {memory_report.get('units_rescored', 0)}")
-                mc_lines.append(
-                    f"Entities extracted: {memory_report.get('entities_extracted', 0)}"
-                )
-                mc_lines.append(
-                    f"Stale facts found: {memory_report.get('stale_facts_found', 0)}"
-                )
+                mc_lines.append(f"Entities extracted: {memory_report.get('entities_extracted', 0)}")
+                mc_lines.append(f"Stale facts found: {memory_report.get('stale_facts_found', 0)}")
                 mc_lines.append(f"Normalizations: {memory_report.get('normalizations', 0)}")
                 kg = memory_report.get("kg_stats", {})
                 if kg:
                     mc_lines.append(
                         f"KG nodes: {kg.get('nodes', 0)}, edges: {kg.get('edges', 0)}, components: {kg.get('components', 0)}"  # noqa: E501
                     )
-                mc_lines.append(
-                    f"Memory cycle cost: ${memory_report.get('total_cost_usd', 0):.4f}"
-                )
+                mc_lines.append(f"Memory cycle cost: ${memory_report.get('total_cost_usd', 0):.4f}")
                 mc_lines.append(
                     f"Memory cycle duration: {memory_report.get('duration_seconds', 0):.1f}s"
                 )
@@ -322,9 +315,7 @@ async def run(
                 ic_lines.append(
                     f"Under-scored signals: {intel_report.get('under_scored_signals', 0)}"
                 )
-                ic_lines.append(
-                    f"Stale predictions: {intel_report.get('predictions_stale', 0)}"
-                )
+                ic_lines.append(f"Stale predictions: {intel_report.get('predictions_stale', 0)}")
                 pma = intel_report.get("per_model_accuracy", {})
                 if pma:
                     ic_lines.append(
@@ -338,9 +329,7 @@ async def run(
                 cost_opt = intel_report.get("cost_optimization", "")
                 if cost_opt:
                     ic_lines.append(f"Cost optimization: {cost_opt[:200]}")
-                ic_lines.append(
-                    f"Intel cycle cost: ${intel_report.get('total_cost_usd', 0):.4f}"
-                )
+                ic_lines.append(f"Intel cycle cost: ${intel_report.get('total_cost_usd', 0):.4f}")
                 ic_lines.append(
                     f"Intel cycle duration: {intel_report.get('duration_seconds', 0):.1f}s"
                 )
@@ -405,8 +394,7 @@ async def run(
                 aware_lines.append(f"Signals (last 24h): {recent_signals}")
                 if tier_counts:
                     aware_lines.append(
-                        "By tier: "
-                        + ", ".join(f"{t}={c}" for t, c in sorted(tier_counts.items()))
+                        "By tier: " + ", ".join(f"{t}={c}" for t, c in sorted(tier_counts.items()))
                     )
 
             briefs_file = intel_dir / "briefs.jsonl"
@@ -728,9 +716,7 @@ async def run(
             )
             log.info("[NIGHT-WATCH] Analyst brief enqueued: %s", nw_title)
         except Exception as enq_err:
-            log.warning(
-                "[NIGHT-WATCH] dispatcher unavailable, direct POST fallback: %s", enq_err
-            )
+            log.warning("[NIGHT-WATCH] dispatcher unavailable, direct POST fallback: %s", enq_err)
             async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
                 resp = await client.post(
                     "https://ntfy.sh/ncl-natrix-intel-7x9k",

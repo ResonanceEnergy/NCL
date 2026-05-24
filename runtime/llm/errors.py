@@ -45,10 +45,7 @@ class BudgetExhausted(LLMError):  # noqa: N818
     def __init__(self, source: str, est_cost: float) -> None:
         self.source = source
         self.est_cost = est_cost
-        super().__init__(
-            f"Budget exhausted for source={source!r} "
-            f"(est_cost=${est_cost:.4f})"
-        )
+        super().__init__(f"Budget exhausted for source={source!r} " f"(est_cost=${est_cost:.4f})")
 
 
 class CircuitOpen(LLMError):  # noqa: N818
@@ -61,9 +58,7 @@ class CircuitOpen(LLMError):  # noqa: N818
     def __init__(self, provider: str, until: float) -> None:
         self.provider = provider
         self.until = until
-        super().__init__(
-            f"Circuit OPEN for provider={provider!r} until ts={until:.0f}"
-        )
+        super().__init__(f"Circuit OPEN for provider={provider!r} until ts={until:.0f}")
 
 
 class RateLimited(LLMError):  # noqa: N818
@@ -92,9 +87,7 @@ class FatalAPIError(LLMError):
     def __init__(self, status: int, body: str = "") -> None:
         self.status = status
         self.body = body[:500]
-        super().__init__(
-            f"Fatal API error (status={status}): {self.body!s}"
-        )
+        super().__init__(f"Fatal API error (status={status}): {self.body!s}")
 
 
 class MalformedResponseError(LLMError):

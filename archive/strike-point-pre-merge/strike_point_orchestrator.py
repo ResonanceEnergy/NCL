@@ -42,6 +42,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+
 # ── Hard-fail startup check for httpx ────────────────────────────────────
 # Every notification + Brain feedback path uses httpx. Without it the orch
 # silently degrades to "file fallback" forever and pretends to work
@@ -64,7 +65,9 @@ except ImportError as _exc:
 
 NCL_BASE = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
 NCC_BASE = Path(os.getenv("NCL_NCC_BASE", str(Path.home() / "Projects" / "ncc-server")))
-FIRST_STRIKE_BASE = Path(os.getenv("NCL_FIRST_STRIKE_BASE", str(Path.home() / "Projects" / "FirstStrike")))
+FIRST_STRIKE_BASE = Path(
+    os.getenv("NCL_FIRST_STRIKE_BASE", str(Path.home() / "Projects" / "FirstStrike"))
+)
 # BRS / AAC pillars were retired 2026-05-23 per NATRIX directive. Their
 # base paths, intelligence dirs, and signal feeds are intentionally absent.
 
@@ -141,6 +144,7 @@ async def _get_spo_client() -> "httpx.AsyncClient":
     """Return a shared HTTP client for Strike Point Orchestrator calls."""
     global _spo_client
     import httpx
+
     if _spo_client is None or _spo_client.is_closed:
         async with _get_spo_lock():
             if _spo_client is None or _spo_client.is_closed:
@@ -177,6 +181,7 @@ log = logging.getLogger("ncl.strike-point")
 
 
 # ── Notification System ───────────────────────────────────────────────────
+
 
 async def notify_natrix(title: str, message: str, priority: int = 0) -> bool:
     """
@@ -285,14 +290,22 @@ async def notify_intelligence_brief(brief: dict, top_n: int = 3) -> bool:
     exec_summary = brief.get("executive_summary", "")
 
     # Build a punchy executive summary — lead with the "so what"
-    headline = exec_summary[:200] if exec_summary else f"{brief_type} brief — {total_signals} signals processed"
+    headline = (
+        exec_summary[:200]
+        if exec_summary
+        else f"{brief_type} brief — {total_signals} signals processed"
+    )
 
     # Extract predictions / key takeaways for context
     predictions = brief.get("predictions", [])
     sectors = brief.get("sectors", [])
     prediction_line = ""
     if predictions:
-        top_pred = predictions[0] if isinstance(predictions[0], str) else predictions[0].get("text", str(predictions[0]))
+        top_pred = (
+            predictions[0]
+            if isinstance(predictions[0], str)
+            else predictions[0].get("text", str(predictions[0]))
+        )
         prediction_line = f"\n\n🔮 {str(top_pred)[:120]}"
 
     # Top signal one-liners — include brief context snippet
@@ -304,14 +317,24 @@ async def notify_intelligence_brief(brief: dict, top_n: int = 3) -> bool:
         source = sig.get("source", "")
         content = sig.get("content", "") or sig.get("description", "")
         snippet = f" — {content[:60]}" if content else ""
-        arrow = {"bullish": "▲", "bearish": "▼", "emerging": "★", "expanding": "↑", "contracting": "↓"}.get(direction, "●")
+        arrow = {
+            "bullish": "▲",
+            "bearish": "▼",
+            "emerging": "★",
+            "expanding": "↑",
+            "contracting": "↓",
+        }.get(direction, "●")
         signal_lines.append(f"{arrow} {title}{snippet}")
 
     # Risk alerts — include the first alert's actual text
     risk_alerts = brief.get("risk_alerts", [])
     risk_line = ""
     if risk_alerts:
-        first_risk = risk_alerts[0] if isinstance(risk_alerts[0], str) else risk_alerts[0].get("text", str(risk_alerts[0]))
+        first_risk = (
+            risk_alerts[0]
+            if isinstance(risk_alerts[0], str)
+            else risk_alerts[0].get("text", str(risk_alerts[0]))
+        )
         risk_line = f"\n\n⚠ RISK: {str(first_risk)[:100]}"
         if len(risk_alerts) > 1:
             risk_line += f" (+{len(risk_alerts)-1} more)"
@@ -351,7 +374,9 @@ async def notify_intelligence_brief(brief: dict, top_n: int = 3) -> bool:
                     "Content-Type": "text/plain; charset=utf-8",
                     "Title": safe_title,
                     "Priority": str(ntfy_priority),
-                    "Tags": "rotating_light,chart_with_upwards_trend" if priority >= 1 else "brain,chart_with_upwards_trend",
+                    "Tags": "rotating_light,chart_with_upwards_trend"
+                    if priority >= 1
+                    else "brain,chart_with_upwards_trend",
                     "Click": f"{NCL_BRAIN_URL}/app",
                 },
                 timeout=15.0,
@@ -410,10 +435,14 @@ async def notify_intel_signal_alert(signal: dict) -> bool:
     confidence = signal.get("confidence", 0)
 
     arrow = {"bullish": "▲", "bearish": "▼", "emerging": "★"}.get(direction, "●")
-    change_str = f" ({'+' if change_pct > 0 else ''}{change_pct:.1f}%)" if change_pct is not None else ""
+    change_str = (
+        f" ({'+' if change_pct > 0 else ''}{change_pct:.1f}%)" if change_pct is not None else ""
+    )
 
     # Build a human-readable punchline from signal content
-    content = signal.get("content", "") or signal.get("description", "") or signal.get("summary", "")
+    content = (
+        signal.get("content", "") or signal.get("description", "") or signal.get("summary", "")
+    )
     punchline = content[:200].strip() if content else ""
     # If no content blob, synthesize a readable sentence from metadata
     if not punchline:
@@ -457,9 +486,7 @@ def _write_intel_notification(
     ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
 
     # Extract actionable signal IDs for FirstStrike action buttons
-    top_signal_ids = [
-        sig.get("signal_id", "") for sig in brief_data.get("top_signals", [])[:5]
-    ]
+    top_signal_ids = [sig.get("signal_id", "") for sig in brief_data.get("top_signals", [])[:5]]
 
     notif = {
         "id": f"intel-{ts}",
@@ -565,6 +592,7 @@ async def build_execution_context(mandate: dict) -> dict:
 
 # ── Mandate Dispatch ─────────────────────────────────────────────────────
 
+
 async def dispatch_mandate(mandate: dict) -> dict:
     """
     Dispatch an approved mandate from NCL to NCC.
@@ -608,9 +636,10 @@ async def dispatch_mandate(mandate: dict) -> dict:
         # optionally POSTs to NCC_WEBHOOK_URL — circuit breaker + telemetry.
         # BRS/AAC were retired 2026-05-23 and now raise UnknownPillarError.
         from runtime.dispatch.pillar_router import (
-            get_default_router,
             UnknownPillarError,
+            get_default_router,
         )
+
         router = get_default_router()
         # Build the dispatch payload from the execution_context, ensuring the
         # pillar field (used for routing) reflects the validated value.
@@ -632,8 +661,11 @@ async def dispatch_mandate(mandate: dict) -> dict:
         intake_file = dispatch_result.intake_path or ""
         log.info(
             "Mandate %s routed to %s (intake=%s, webhook=%s, circuit_open=%s)",
-            mandate_id, pillar, intake_file,
-            dispatch_result.webhook_status, dispatch_result.circuit_open,
+            mandate_id,
+            pillar,
+            intake_file,
+            dispatch_result.webhook_status,
+            dispatch_result.circuit_open,
         )
 
         # Step 4: legacy HTTP NCC dispatch — kept for NCC only.
@@ -652,16 +684,22 @@ async def dispatch_mandate(mandate: dict) -> dict:
         exec_input = EXEC_PIPELINE / "01-Input"
         exec_input.mkdir(parents=True, exist_ok=True)
         exec_pump = exec_input / f"pump-{mandate_id}.json"
-        exec_pump.write_text(json.dumps({
-            "pump_id": pump_id or mandate_id,
-            "mandate_id": mandate_id,
-            "raw_intent": mandate.get("objective", title),
-            "target_pillar": pillar,
-            "priority": mandate.get("priority_level", "P2"),
-            "aac_context": execution_context.get("aac_context", {}),
-            "brs_context": execution_context.get("brs_context", {}),
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }, indent=2, default=str))
+        exec_pump.write_text(
+            json.dumps(
+                {
+                    "pump_id": pump_id or mandate_id,
+                    "mandate_id": mandate_id,
+                    "raw_intent": mandate.get("objective", title),
+                    "target_pillar": pillar,
+                    "priority": mandate.get("priority_level", "P2"),
+                    "aac_context": execution_context.get("aac_context", {}),
+                    "brs_context": execution_context.get("brs_context", {}),
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                },
+                indent=2,
+                default=str,
+            )
+        )
 
         # Step 6: Auto-trigger execution loop for NCC coding mandates only.
         execution_triggered = False
@@ -763,7 +801,9 @@ def _validate_mandate(mandate: dict) -> dict:
     # Strict allowlist: reject any ID containing path-traversal characters (/, \, ..)
     _MANDATE_ID_RE = re.compile(r"^MANDATE-[a-zA-Z0-9_-]+$")
     if not mandate_id or not _MANDATE_ID_RE.match(mandate_id):
-        errors.append(f"Invalid mandate_id format: '{mandate_id}' (expected MANDATE-<alphanumeric>)")
+        errors.append(
+            f"Invalid mandate_id format: '{mandate_id}' (expected MANDATE-<alphanumeric>)"
+        )
         _ORCH_QUALITY["rejected_invalid_id"] += 1
 
     priority = mandate.get("priority_level", "")
@@ -777,7 +817,7 @@ def _validate_mandate(mandate: dict) -> dict:
     inferred = _infer_pillar(mandate)
     if not inferred:
         # BRS/AAC are retired — surface a clearer error if a legacy mandate sneaks in.
-        bad = str(mandate.get('pillar', '')).strip().upper()
+        bad = str(mandate.get("pillar", "")).strip().upper()
         if bad in _RETIRED_PILLARS:
             errors.append(f"Pillar '{bad}' was retired 2026-05-23 — NCC only")
         else:
@@ -801,9 +841,22 @@ def _is_coding_mandate(mandate: dict) -> bool:
     """Check if this mandate involves coding work (should trigger execution loop)."""
     title = (mandate.get("title", "") + " " + mandate.get("objective", "")).lower()
     coding_keywords = [
-        "build", "ship", "code", "implement", "deploy", "fix", "create",
-        "develop", "script", "module", "service", "api", "endpoint",
-        "pipeline", "automation", "dashboard",
+        "build",
+        "ship",
+        "code",
+        "implement",
+        "deploy",
+        "fix",
+        "create",
+        "develop",
+        "script",
+        "module",
+        "service",
+        "api",
+        "endpoint",
+        "pipeline",
+        "automation",
+        "dashboard",
     ]
     return any(kw in title for kw in coding_keywords)
 
@@ -874,7 +927,10 @@ def _trigger_execution_loop(pump_id: str) -> None:
 
     try:
         cmd = [
-            sys.executable, "-m", "runtime.execution_loop", pump_id,
+            sys.executable,
+            "-m",
+            "runtime.execution_loop",
+            pump_id,
         ]
         proc = subprocess.Popen(
             cmd,
@@ -890,6 +946,7 @@ def _trigger_execution_loop(pump_id: str) -> None:
 
 
 # ── Feedback Processing ──────────────────────────────────────────────────
+
 
 async def process_execution_feedback(pump_id: str) -> dict:
     """
@@ -916,27 +973,35 @@ async def process_execution_feedback(pump_id: str) -> dict:
 
     # 2. Save to feedback-synthesis
     FEEDBACK_DIR.mkdir(parents=True, exist_ok=True)
-    report_file = FEEDBACK_DIR / f"exec-report-{pump_id}-{datetime.now(timezone.utc).strftime('%Y%m%d')}.json"
-    report_file.write_text(json.dumps({
-        "report_id": f"NCC-EXEC-{pump_id}",
-        "source": "NCC",
-        "pump_id": pump_id,
-        "status": status,
-        "summary": summary,
-        "artifacts": feedback.get("artifacts", []),
-        "metrics": feedback.get("metrics", {}),
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }, indent=2))
+    report_file = (
+        FEEDBACK_DIR / f"exec-report-{pump_id}-{datetime.now(timezone.utc).strftime('%Y%m%d')}.json"
+    )
+    report_file.write_text(
+        json.dumps(
+            {
+                "report_id": f"NCC-EXEC-{pump_id}",
+                "source": "NCC",
+                "pump_id": pump_id,
+                "status": status,
+                "summary": summary,
+                "artifacts": feedback.get("artifacts", []),
+                "metrics": feedback.get("metrics", {}),
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            },
+            indent=2,
+        )
+    )
     log.info(f"Feedback saved to {report_file.name}")
 
     # 3. Notify NATRIX — include the actual summary so the push tells you what happened
     emoji = "✅" if status == "complete" else "⚠️" if status == "escalated" else "📋"
     artifacts = feedback.get("artifacts", [])
-    artifact_line = f"\n\nArtifacts: {', '.join(str(a) for a in artifacts[:3])}" if artifacts else ""
+    artifact_line = (
+        f"\n\nArtifacts: {', '.join(str(a) for a in artifacts[:3])}" if artifacts else ""
+    )
     await notify_natrix(
         f"{emoji} {status.title()}: {summary[:50]}",
-        f"{summary[:300]}{artifact_line}\n\n"
-        f"📊 {NCL_BRAIN_URL}/app",
+        f"{summary[:300]}{artifact_line}\n\n" f"📊 {NCL_BRAIN_URL}/app",
         priority=1 if status == "escalated" else 0,
     )
 
@@ -992,6 +1057,7 @@ def _get_notification_counts(notif_dir: Path) -> tuple[int, int]:
     notification file on each call to get_pipeline_status().
     """
     import time as _time
+
     global _notif_cache, _notif_cache_ts
 
     now = _time.monotonic()
@@ -1032,7 +1098,11 @@ def get_pipeline_status() -> dict:
     }
 
     # Stage 3: Execution pipeline
-    exec_input = list((EXEC_PIPELINE / "01-Input").glob("pump-*.json")) if (EXEC_PIPELINE / "01-Input").exists() else []
+    exec_input = (
+        list((EXEC_PIPELINE / "01-Input").glob("pump-*.json"))
+        if (EXEC_PIPELINE / "01-Input").exists()
+        else []
+    )
     working = list(WORKING_FILES.glob("*")) if WORKING_FILES.exists() else []
     status["stages"]["3_execution"] = {
         "queued": len(exec_input),
@@ -1041,7 +1111,11 @@ def get_pipeline_status() -> dict:
     }
 
     # Stage 4: Feedback
-    feedback_files = list((EXEC_PIPELINE / "05-Output").glob("feedback-*.json")) if (EXEC_PIPELINE / "05-Output").exists() else []
+    feedback_files = (
+        list((EXEC_PIPELINE / "05-Output").glob("feedback-*.json"))
+        if (EXEC_PIPELINE / "05-Output").exists()
+        else []
+    )
     status["stages"]["4_feedback"] = {
         "completed_feedbacks": len(feedback_files),
     }
@@ -1057,14 +1131,15 @@ def get_pipeline_status() -> dict:
     # AAC/BRS pillars retired 2026-05-23 — data_sources kept for back-compat
     status["data_sources"] = {
         "aac_intelligence": False,  # retired
-        "brs_signals": False,       # retired
-        "aac_reports": False,       # retired
+        "brs_signals": False,  # retired
+        "aac_reports": False,  # retired
     }
 
     return status
 
 
 # ── Mandate Watcher (Service Mode) ───────────────────────────────────────
+
 
 class _BoundedSet:
     """Set with a maximum size — evicts oldest entries when full.
@@ -1092,13 +1167,15 @@ class _BoundedSet:
             log.warning(
                 "[orchestrator] _BoundedSet evicted oldest entry %r (maxlen=%d, total_evicted=%d) — "
                 "that mandate may be re-processed if it reappears",
-                evicted, self._maxlen, self._evicted_total,
+                evicted,
+                self._maxlen,
+                self._evicted_total,
             )
 
 
 _MAX_DISPATCH_RETRIES = 5
-_BACKOFF_BASE = 1.0       # seconds
-_BACKOFF_MAX = 60.0        # seconds
+_BACKOFF_BASE = 1.0  # seconds
+_BACKOFF_MAX = 60.0  # seconds
 
 
 async def watch_mandates(poll_interval: int = 30) -> None:
@@ -1151,7 +1228,7 @@ async def watch_mandates(poll_interval: int = 30) -> None:
                             retry_counts[mf.name] = retries + 1
                             # Exponential backoff with full jitter to avoid thundering-herd
                             # retries when many mandates fail at once (e.g. brain restart).
-                            _exp = min(_BACKOFF_MAX, _BACKOFF_BASE * (2 ** retries))
+                            _exp = min(_BACKOFF_MAX, _BACKOFF_BASE * (2**retries))
                             backoff = random.uniform(_BACKOFF_BASE, _exp)
                             log.error(
                                 "dispatch_mandate failed for %s: %s — retry %d/%d, backoff %.1fs",
@@ -1203,17 +1280,28 @@ async def watch_mandates(poll_interval: int = 30) -> None:
 
 # ── CLI ───────────────────────────────────────────────────────────────────
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Strike Point Orchestrator — NCL ↔ NCC Interface",
     )
     group = parser.add_mutually_exclusive_group()
-    group.add_argument("--watch", action="store_true", help="Run as mandate watcher service (default)")
-    group.add_argument("--dispatch", type=str, metavar="MANDATE_ID", help="Dispatch a specific mandate")
-    group.add_argument("--feedback", type=str, metavar="PUMP_ID", help="Process feedback for a pump")
+    group.add_argument(
+        "--watch", action="store_true", help="Run as mandate watcher service (default)"
+    )
+    group.add_argument(
+        "--dispatch", type=str, metavar="MANDATE_ID", help="Dispatch a specific mandate"
+    )
+    group.add_argument(
+        "--feedback", type=str, metavar="PUMP_ID", help="Process feedback for a pump"
+    )
     group.add_argument("--status", action="store_true", help="Show pipeline status")
-    group.add_argument("--notify", type=str, metavar="MESSAGE", help="Send test notification to NATRIX")
-    parser.add_argument("--poll", type=int, default=30, help="Poll interval for watch mode (seconds)")
+    group.add_argument(
+        "--notify", type=str, metavar="MESSAGE", help="Send test notification to NATRIX"
+    )
+    parser.add_argument(
+        "--poll", type=int, default=30, help="Poll interval for watch mode (seconds)"
+    )
 
     args = parser.parse_args()
 

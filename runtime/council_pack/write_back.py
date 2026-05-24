@@ -197,7 +197,11 @@ async def write_back_council(
 
     log.info(
         "[WRITEBACK] session=%s council=%s gist=%d summary=%d transcript=%d",
-        session_id, council_type, len(gist), len(summary), len(transcript),
+        session_id,
+        council_type,
+        len(gist),
+        len(summary),
+        len(transcript),
     )
     return {
         "gist": gist,

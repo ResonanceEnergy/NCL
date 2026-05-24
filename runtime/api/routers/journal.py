@@ -92,7 +92,14 @@ async def create_journal_entry(
             importance=body.importance,
             source_context=body.source_context,
         )
-        return {"status": "created", "entry": entry if isinstance(entry, dict) else entry.__dict__ if hasattr(entry, "__dict__") else vars(entry)}  # noqa: E501
+        return {
+            "status": "created",
+            "entry": entry
+            if isinstance(entry, dict)
+            else entry.__dict__
+            if hasattr(entry, "__dict__")
+            else vars(entry),
+        }  # noqa: E501
     except Exception as e:
         log.exception("Endpoint error: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -114,6 +121,7 @@ async def list_journal_entries(
     try:
         tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
         from datetime import date as date_type
+
         parsed_from = date_type.fromisoformat(date_from) if date_from else None
         parsed_to = date_type.fromisoformat(date_to) if date_to else None
         entries = await journal_store.get_entries(
@@ -125,7 +133,9 @@ async def list_journal_entries(
         )
         serialized = []
         for e in entries:
-            serialized.append(e if isinstance(e, dict) else e.__dict__ if hasattr(e, "__dict__") else vars(e))  # noqa: E501
+            serialized.append(
+                e if isinstance(e, dict) else e.__dict__ if hasattr(e, "__dict__") else vars(e)
+            )  # noqa: E501
         return {"entries": serialized, "count": len(serialized)}
     except Exception as e:
         log.exception("Endpoint error: %s", e)
@@ -145,7 +155,9 @@ async def journal_today(
         entries = await journal_store.get_today_entries()
         serialized = []
         for e in entries:
-            serialized.append(e if isinstance(e, dict) else e.__dict__ if hasattr(e, "__dict__") else vars(e))  # noqa: E501
+            serialized.append(
+                e if isinstance(e, dict) else e.__dict__ if hasattr(e, "__dict__") else vars(e)
+            )  # noqa: E501
         return {"date": today.isoformat(), "entries": serialized, "count": len(serialized)}
     except Exception as e:
         log.exception("Endpoint error: %s", e)
@@ -165,7 +177,13 @@ async def get_journal_entry(
         entry = await journal_store.get_entry(entry_id)
         if not entry:
             raise HTTPException(status_code=404, detail=f"Entry {entry_id} not found")
-        return entry if isinstance(entry, dict) else entry.__dict__ if hasattr(entry, "__dict__") else vars(entry)  # noqa: E501
+        return (
+            entry
+            if isinstance(entry, dict)
+            else entry.__dict__
+            if hasattr(entry, "__dict__")
+            else vars(entry)
+        )  # noqa: E501
     except HTTPException:
         raise
     except Exception as e:
@@ -187,7 +205,9 @@ async def search_journal(
         results = await journal_store.search(query=q, limit=limit)
         serialized = []
         for e in results:
-            serialized.append(e if isinstance(e, dict) else e.__dict__ if hasattr(e, "__dict__") else vars(e))  # noqa: E501
+            serialized.append(
+                e if isinstance(e, dict) else e.__dict__ if hasattr(e, "__dict__") else vars(e)
+            )  # noqa: E501
         return {"query": q, "results": serialized, "count": len(serialized)}
     except Exception as e:
         log.exception("Endpoint error: %s", e)
@@ -211,7 +231,14 @@ async def create_journal_tip(
             tags=body.tags,
             source=body.source,
         )
-        return {"status": "created", "tip": tip if isinstance(tip, dict) else tip.__dict__ if hasattr(tip, "__dict__") else vars(tip)}  # noqa: E501
+        return {
+            "status": "created",
+            "tip": tip
+            if isinstance(tip, dict)
+            else tip.__dict__
+            if hasattr(tip, "__dict__")
+            else vars(tip),
+        }  # noqa: E501
     except Exception as e:
         log.exception("Endpoint error: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -234,7 +261,9 @@ async def list_journal_tips(
         tips = await journal_store.get_tips(category=category, tags=tag_list, query=q, limit=limit)  # noqa: E501
         serialized = []
         for t in tips:
-            serialized.append(t if isinstance(t, dict) else t.__dict__ if hasattr(t, "__dict__") else vars(t))  # noqa: E501
+            serialized.append(
+                t if isinstance(t, dict) else t.__dict__ if hasattr(t, "__dict__") else vars(t)
+            )  # noqa: E501
         return {"tips": serialized, "count": len(serialized)}
     except Exception as e:
         log.exception("Endpoint error: %s", e)
@@ -253,7 +282,9 @@ async def contextual_tips(
         tips = await context_tips.get_contextual_tips()
         serialized = []
         for t in tips:
-            serialized.append(t if isinstance(t, dict) else t.__dict__ if hasattr(t, "__dict__") else vars(t))  # noqa: E501
+            serialized.append(
+                t if isinstance(t, dict) else t.__dict__ if hasattr(t, "__dict__") else vars(t)
+            )  # noqa: E501
         return {"tips": serialized, "count": len(serialized)}
     except Exception as e:
         log.exception("Endpoint error: %s", e)
@@ -272,8 +303,18 @@ async def get_journal_reflection(
     try:
         reflection = await journal_store.get_reflection(date)
         if not reflection:
-            return {"date": date, "status": "no_reflection", "message": "No reflection for this date. POST /journal/reflect to generate one."}  # noqa: E501
-        return reflection if isinstance(reflection, dict) else reflection.__dict__ if hasattr(reflection, "__dict__") else vars(reflection)  # noqa: E501
+            return {
+                "date": date,
+                "status": "no_reflection",
+                "message": "No reflection for this date. POST /journal/reflect to generate one.",
+            }  # noqa: E501
+        return (
+            reflection
+            if isinstance(reflection, dict)
+            else reflection.__dict__
+            if hasattr(reflection, "__dict__")
+            else vars(reflection)
+        )  # noqa: E501
     except Exception as e:
         log.exception("Endpoint error: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -292,7 +333,9 @@ async def list_journal_reflections(
         reflections = await journal_store.get_recent_reflections(days=days)
         serialized = []
         for r in reflections:
-            serialized.append(r if isinstance(r, dict) else r.__dict__ if hasattr(r, "__dict__") else vars(r))  # noqa: E501
+            serialized.append(
+                r if isinstance(r, dict) else r.__dict__ if hasattr(r, "__dict__") else vars(r)
+            )  # noqa: E501
         return {"reflections": serialized, "count": len(serialized), "days": days}
     except Exception as e:
         log.exception("Endpoint error: %s", e)
@@ -309,7 +352,14 @@ async def trigger_reflection(
         raise HTTPException(status_code=503, detail="Reflection engine not initialized")
     try:
         reflection = await reflection_engine.generate_daily_reflection()
-        return {"status": "generated", "reflection": reflection if isinstance(reflection, dict) else reflection.__dict__ if hasattr(reflection, "__dict__") else vars(reflection)}  # noqa: E501
+        return {
+            "status": "generated",
+            "reflection": reflection
+            if isinstance(reflection, dict)
+            else reflection.__dict__
+            if hasattr(reflection, "__dict__")
+            else vars(reflection),
+        }  # noqa: E501
     except Exception as e:
         log.exception("Endpoint error: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -327,7 +377,9 @@ async def journal_insights(
         insights = await journal_store.get_insights()
         serialized = []
         for i in insights:
-            serialized.append(i if isinstance(i, dict) else i.__dict__ if hasattr(i, "__dict__") else vars(i))  # noqa: E501
+            serialized.append(
+                i if isinstance(i, dict) else i.__dict__ if hasattr(i, "__dict__") else vars(i)
+            )  # noqa: E501
         return {"insights": serialized, "count": len(serialized)}
     except Exception as e:
         log.exception("Endpoint error: %s", e)
@@ -345,7 +397,10 @@ async def journal_analytics(
         raise HTTPException(status_code=503, detail="Journal store not initialized")
     try:
         analytics = await journal_store.get_analytics(days=days)
-        return {"days": days, "analytics": analytics if isinstance(analytics, dict) else {"data": analytics}}  # noqa: E501
+        return {
+            "days": days,
+            "analytics": analytics if isinstance(analytics, dict) else {"data": analytics},
+        }  # noqa: E501
     except Exception as e:
         log.exception("Endpoint error: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")

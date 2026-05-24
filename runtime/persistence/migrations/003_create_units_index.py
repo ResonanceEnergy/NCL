@@ -15,9 +15,11 @@ Usage:
     from runtime.persistence.migrations import _003 as m
     await m.migrate()
 """
+
 from __future__ import annotations
 
 from ._base import build_migration
+
 
 NAME = "003_create_units_index"
 migrate, status = build_migration(NAME)

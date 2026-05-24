@@ -152,9 +152,7 @@ async def run(scheduler) -> dict:
 
     google_api_key_intel = os.environ.get("GOOGLE_API_KEY", "")
 
-    async def _call_gemini(
-        prompt: str, label: str, max_tokens: int = 1024
-    ) -> tuple[str, float]:
+    async def _call_gemini(prompt: str, label: str, max_tokens: int = 1024) -> tuple[str, float]:
         """Make a Gemini 2.5 Flash call, return (text, cost_usd). Raises on failure."""
         if not google_api_key_intel:
             raise RuntimeError("No GOOGLE_API_KEY")
@@ -230,7 +228,9 @@ async def run(scheduler) -> dict:
 
         # Tokenize each signal's content into keyword sets
         def _tokenize_signal(sig: dict) -> set[str]:
-            text = f"{sig.get('title', '')} {sig.get('content', '')} {' '.join(sig.get('tags', []))}"  # noqa: E501
+            text = (
+                f"{sig.get('title', '')} {sig.get('content', '')} {' '.join(sig.get('tags', []))}"  # noqa: E501
+            )
             tokens = set(t.lower() for t in re.findall(r"\b[a-zA-Z0-9]{4,}\b", text))
             # Filter out very common words
             stopwords = {
@@ -759,9 +759,7 @@ async def run(scheduler) -> dict:
             if not has_outcome:
                 try:
                     pred_dt = (
-                        datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-                        if ts_str
-                        else None
+                        datetime.fromisoformat(ts_str.replace("Z", "+00:00")) if ts_str else None
                     )
                     if pred_dt and pred_dt < cutoff_14d_dt:
                         stale_predictions.append(
@@ -800,8 +798,7 @@ async def run(scheduler) -> dict:
                     stale_summary = (
                         "\n\nUNRESOLVED PREDICTIONS (older than 14 days, no outcome recorded):\n"  # noqa: E501
                         + "\n".join(
-                            f"- {p['topic']} ({p.get('file', '')})"
-                            for p in stale_predictions[:10]
+                            f"- {p['topic']} ({p.get('file', '')})" for p in stale_predictions[:10]
                         )
                     )
 
@@ -852,9 +849,7 @@ async def run(scheduler) -> dict:
                 if haiku_text and gemini_text:
                     combined_parts.append(f"=== Haiku Assessment ===\n{haiku_text}")
                     combined_parts.append(f"=== Gemini Assessment ===\n{gemini_text}")
-                    log.info(
-                        "[NIGHT-WATCH/INTEL] I4: Got assessments from both Haiku and Gemini"
-                    )
+                    log.info("[NIGHT-WATCH/INTEL] I4: Got assessments from both Haiku and Gemini")
                 elif haiku_text:
                     combined_parts.append(haiku_text)
                 elif gemini_text:
@@ -943,9 +938,7 @@ async def run(scheduler) -> dict:
                     "and high-importance signals, suggest the top 3 topics that would benefit from "  # noqa: E501
                     "a full council debate (multi-LLM deliberation with Claude, Grok, Gemini, GPT). "  # noqa: E501
                     "Explain why each topic matters.\n\n"
-                    "INPUTS:\n"
-                    + "\n".join(f"- {inp}" for inp in suggestion_inputs[:30])
-                    + "\n\n"
+                    "INPUTS:\n" + "\n".join(f"- {inp}" for inp in suggestion_inputs[:30]) + "\n\n"
                     "Format as:\n"
                     "1. TOPIC: [topic]\n   WHY: [reasoning]\n"
                     "2. TOPIC: [topic]\n   WHY: [reasoning]\n"
@@ -969,9 +962,7 @@ async def run(scheduler) -> dict:
                     topics: list[str] = []
                     for line_text in text.split("\n"):
                         line_text = line_text.strip()
-                        if line_text and re.match(
-                            r"^\d+\.?\s*TOPIC:", line_text, re.IGNORECASE
-                        ):
+                        if line_text and re.match(r"^\d+\.?\s*TOPIC:", line_text, re.IGNORECASE):
                             topic_text = re.sub(
                                 r"^\d+\.?\s*TOPIC:\s*", "", line_text, flags=re.IGNORECASE
                             ).strip()
@@ -1262,9 +1253,7 @@ async def run(scheduler) -> dict:
         else:
             report["cost_optimization"] = "No API key — skipped LLM analysis"
 
-        log.info(
-            "[NIGHT-WATCH/INTEL] Task I6: analyzed %d days of cost history", len(historical)
-        )
+        log.info("[NIGHT-WATCH/INTEL] Task I6: analyzed %d days of cost history", len(historical))
 
     except asyncio.TimeoutError:
         report["errors"].append("I6: timeout")

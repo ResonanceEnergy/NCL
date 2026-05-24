@@ -152,6 +152,7 @@ async def _budget_can_admit(budget_key: str, est_cost: float) -> bool:
     """
     try:
         from .. import cost_tracker
+
         return await cost_tracker.check_budget(budget_key, est_cost)
     except Exception as exc:  # noqa: BLE001 - defensive
         log.debug("budget check failed (allowing call): %s", exc)
@@ -169,6 +170,7 @@ async def _record_cost(
     """Fire-and-forget cost record. Swallow all errors."""
     try:
         from .. import cost_tracker
+
         await cost_tracker.record_cost(
             source=budget_key,
             amount_usd=cost_usd,
@@ -219,9 +221,7 @@ def _raise_for_status(resp: httpx.Response, provider: str) -> None:
 
 # Allowed Anthropic content-block types. Anything outside this set is
 # treated as suspicious (could be a MITM injection or a corrupted upstream).
-_ANTHROPIC_ALLOWED_BLOCK_TYPES = frozenset(
-    {"text", "tool_use", "document", "thinking"}
-)
+_ANTHROPIC_ALLOWED_BLOCK_TYPES = frozenset({"text", "tool_use", "document", "thinking"})
 
 
 def _validate_anthropic_response(data: Any) -> None:
@@ -419,6 +419,7 @@ async def _call_anthropic(
     if documents and spec.supports_citations:
         try:
             from ..council_pack.citations import parse_citations
+
             citations = parse_citations(data)
         except Exception as exc:  # noqa: BLE001 - defensive
             log.debug("parse_citations failed: %s", exc)
@@ -511,9 +512,7 @@ _PROVIDER_ENV_KEYS: dict[Provider, str] = {
 }
 
 
-def _openai_shape_messages(
-    messages: list[dict], system: Optional[str]
-) -> list[dict]:
+def _openai_shape_messages(messages: list[dict], system: Optional[str]) -> list[dict]:
     """Flatten messages to the OpenAI/xAI/Perplexity wire shape.
 
     - System prompt (from kwarg) is prepended as a ``role=system`` message.
@@ -642,7 +641,8 @@ async def _call_google(
             sys_text = msg.get("content", "")
             if isinstance(sys_text, list):
                 sys_text = "\n".join(
-                    b.get("text", "") for b in sys_text
+                    b.get("text", "")
+                    for b in sys_text
                     if isinstance(b, dict) and b.get("type") == "text"
                 )
             pending_system = (pending_system + "\n\n" + sys_text) if pending_system else sys_text
@@ -652,7 +652,8 @@ async def _call_google(
         text_content = msg.get("content", "")
         if isinstance(text_content, list):
             text_content = "\n".join(
-                b.get("text", "") for b in text_content
+                b.get("text", "")
+                for b in text_content
                 if isinstance(b, dict) and b.get("type") == "text"
             )
         if pending_system and role == "user":
@@ -820,12 +821,10 @@ async def chat(
             # (provider,status) per hour via the deduped AlertDispatcher.
             try:
                 from ..notifications.alert_dispatch import enqueue_alert
+
                 enqueue_alert(
                     title=f"LLM {spec.provider.value} fatal HTTP {fexc.status}",
-                    body=(
-                        f"model={spec.name} budget_key={budget_key} "
-                        f"body={fexc.body[:200]}"
-                    ),
+                    body=(f"model={spec.name} budget_key={budget_key} " f"body={fexc.body[:200]}"),
                     priority="4",
                     tags="warning,robot",
                     dedup_key=f"llm-fatal:{spec.provider.value}:{fexc.status}",

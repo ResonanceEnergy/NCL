@@ -23,6 +23,7 @@ The objects exported by each shim — ``NAME``, ``migrate``, ``status`` —
 keep the same names and signatures the old hand-rolled files had, so
 nothing on the call side has to change.
 """
+
 from __future__ import annotations
 
 import logging

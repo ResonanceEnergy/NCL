@@ -98,9 +98,7 @@ async def retry_with_jitter(
     if len(base_delays) < attempts - 1:
         # Pad with the last delay so misconfigured callers don't IndexError.
         last = base_delays[-1] if base_delays else 5.0
-        base_delays = base_delays + tuple(
-            last for _ in range(attempts - 1 - len(base_delays))
-        )
+        base_delays = base_delays + tuple(last for _ in range(attempts - 1 - len(base_delays)))
 
     last_exc: BaseException | None = None
     for attempt in range(attempts):
@@ -116,25 +114,35 @@ async def retry_with_jitter(
             if status in _FATAL_HTTP or isinstance(exc, FatalAPIError):
                 log.warning(
                     "[%s] fatal HTTP %s — no retry (%s)",
-                    label, status, type(exc).__name__,
+                    label,
+                    status,
+                    type(exc).__name__,
                 )
                 raise
             if attempt < attempts - 1:
                 if status in _RETRYABLE_HTTP:
                     log.info(
                         "[%s] transient HTTP %s — retry %d/%d",
-                        label, status, attempt + 1, attempts - 1,
+                        label,
+                        status,
+                        attempt + 1,
+                        attempts - 1,
                     )
                 else:
                     log.debug(
                         "[%s] transient '%s' — retry %d/%d",
-                        label, type(exc).__name__, attempt + 1, attempts - 1,
+                        label,
+                        type(exc).__name__,
+                        attempt + 1,
+                        attempts - 1,
                     )
                 continue
             # Out of attempts
             log.warning(
                 "[%s] exhausted %d attempts — last error: %s",
-                label, attempts, str(exc)[:200],
+                label,
+                attempts,
+                str(exc)[:200],
             )
             raise
     # Should be unreachable, but be safe.
@@ -232,9 +240,10 @@ class CircuitBreaker:
         if self._consecutive_failures >= self.fail_threshold:
             self._opened_at = time.monotonic()
             log.warning(
-                "[circuit:%s] OPEN after %d consecutive failures "
-                "(cooldown=%.0fs)",
-                self.provider, self._consecutive_failures, self.recovery_seconds,
+                "[circuit:%s] OPEN after %d consecutive failures " "(cooldown=%.0fs)",
+                self.provider,
+                self._consecutive_failures,
+                self.recovery_seconds,
             )
 
 

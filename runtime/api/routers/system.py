@@ -42,12 +42,14 @@ router = APIRouter(tags=["system"])
 # Real, file-backed cost tracking with per-source daily budgets.
 # Backed by runtime/cost_tracker.py — JSONL ledger + daily summaries.
 
+
 @router.get("/system/costs")
 async def system_costs(_: None = Depends(verify_strike_token_dep)):
     """Return today's cost summary by source with budget enforcement status.
     The iOS Settings > Costs tab reads from this endpoint.
     """
     from ...cost_tracker import get_tracker
+
     tracker = await get_tracker()
     summary = await tracker.get_daily_summary()
 
@@ -55,14 +57,16 @@ async def system_costs(_: None = Depends(verify_strike_token_dep)):
     services = []
     for source, info in summary.get("sources", {}).items():
         if info["spent_usd"] > 0 or info["budget_usd"] > 0:
-            services.append({
-                "name": source,
-                "cost": info["spent_usd"],
-                "detail": f"Budget: ${info['budget_usd']:.2f}/day | {info['pct_used']:.0f}% used | {info['calls']} calls",  # noqa: E501
-                "budget": info["budget_usd"],
-                "calls": info["calls"],
-                "blocked": info["blocked"],
-            })
+            services.append(
+                {
+                    "name": source,
+                    "cost": info["spent_usd"],
+                    "detail": f"Budget: ${info['budget_usd']:.2f}/day | {info['pct_used']:.0f}% used | {info['calls']} calls",  # noqa: E501
+                    "budget": info["budget_usd"],
+                    "calls": info["calls"],
+                    "blocked": info["blocked"],
+                }
+            )
 
     return {
         "services": sorted(services, key=lambda s: s["cost"], reverse=True),
@@ -78,6 +82,7 @@ async def system_costs(_: None = Depends(verify_strike_token_dep)):
 async def system_costs_today(_: None = Depends(verify_strike_token_dep)):
     """Detailed today's cost breakdown — per source, per category."""
     from ...cost_tracker import get_tracker
+
     tracker = await get_tracker()
     return await tracker.get_daily_summary()
 
@@ -86,6 +91,7 @@ async def system_costs_today(_: None = Depends(verify_strike_token_dep)):
 async def system_costs_history(days: int = 30, _: None = Depends(verify_strike_token_dep)):
     """Historical daily cost summaries."""
     from ...cost_tracker import get_tracker
+
     tracker = await get_tracker()
     return await tracker.get_historical(days)
 
@@ -94,6 +100,7 @@ async def system_costs_history(days: int = 30, _: None = Depends(verify_strike_t
 async def system_costs_ledger(days: int = 7, _: None = Depends(verify_strike_token_dep)):
     """Raw cost ledger entries for the last N days."""
     from ...cost_tracker import get_tracker
+
     tracker = await get_tracker()
     entries = await tracker.get_full_ledger(days)
     return {"entries": entries, "count": len(entries)}
@@ -109,6 +116,7 @@ async def system_costs_record(
 ):
     """Record a cost entry. Called by NCL services after API calls."""
     from ...cost_tracker import record_cost
+
     await record_cost(service, cost, category, detail)
     return {"status": "recorded"}
 
@@ -118,6 +126,7 @@ async def system_costs_reset(_: None = Depends(verify_strike_token_dep)):
     """Reset today's cost tracking. Use at start of new billing period."""
     # The JSONL ledger is append-only — reset just clears in-memory totals
     from ...cost_tracker import get_tracker
+
     tracker = await get_tracker()
     async with tracker._lock:
         tracker._daily_totals.clear()
@@ -148,6 +157,7 @@ async def system_health_rollup(
     # 2) Disk fallback
     try:
         from pathlib import Path as _P  # noqa: N814
+
         if autonomous is not None:
             data_dir = autonomous.data_dir
         else:
@@ -161,6 +171,7 @@ async def system_health_rollup(
     # 3) Synchronous build fallback
     try:
         from ...health.rollup import build_health_rollup
+
         return await build_health_rollup(autonomous, brain)
     except Exception as e:
         return {
@@ -199,6 +210,7 @@ async def system_memory_profile(
     vms_mb = None
     try:
         import resource as _r
+
         # ru_maxrss is in bytes on macOS, kilobytes on Linux. We're on macOS.
         rss_mb = round(_r.getrusage(_r.RUSAGE_SELF).ru_maxrss / (1024 * 1024), 1)
     except Exception:
@@ -305,9 +317,10 @@ async def system_memory_profile(
 # the surface). Brain LaunchAgent binds uvicorn to 0.0.0.0:8800, so the IP
 # check is the only thing keeping non-localhost scrapers out.
 
+
 def _esc(label_value: str) -> str:
     """Escape a Prometheus label value per the exposition format spec."""
-    return label_value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")
+    return label_value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
 
 
 def _fmt_metric(name: str, value, *, labels: dict | None = None) -> str:
@@ -374,6 +387,7 @@ async def prometheus_metrics(
         # Fall back to master strike token — lazy-import the verifier so
         # we don't depend on routes.py at module load time.
         from .. import routes as _routes
+
         _routes._verify_strike_token(authorization)
 
     out: list[str] = []
@@ -399,6 +413,7 @@ async def prometheus_metrics(
     try:
         if brain is not None and brain.memory_store is not None:
             import asyncio as _asyncio
+
             ms_stats = await _asyncio.wait_for(brain.memory_store.get_stats(), timeout=2.0)
             total = ms_stats.get("total_units")
             out.append(_fmt_metric("ncl_memory_units_total", total))
@@ -425,19 +440,30 @@ async def prometheus_metrics(
     try:
         import asyncio as _asyncio  # noqa: I001
         from ...cost_tracker import get_tracker
+
         tracker = await _asyncio.wait_for(get_tracker(), timeout=2.0)
         summary = await _asyncio.wait_for(tracker.get_daily_summary(), timeout=2.0)
         for source, info in (summary.get("sources") or {}).items():
-            out.append(_fmt_metric("ncl_cost_today_usd", info.get("spent_usd"), labels={"source": source}))  # noqa: E501
-            out.append(_fmt_metric("ncl_cost_budget_usd", info.get("budget_usd"), labels={"source": source}))  # noqa: E501
-            out.append(_fmt_metric("ncl_cost_calls_today", info.get("calls"), labels={"source": source}))  # noqa: E501
+            out.append(
+                _fmt_metric("ncl_cost_today_usd", info.get("spent_usd"), labels={"source": source})
+            )  # noqa: E501
+            out.append(
+                _fmt_metric(
+                    "ncl_cost_budget_usd", info.get("budget_usd"), labels={"source": source}
+                )
+            )  # noqa: E501
+            out.append(
+                _fmt_metric("ncl_cost_calls_today", info.get("calls"), labels={"source": source})
+            )  # noqa: E501
     except Exception:
         pass
 
     # ── ncl_scheduler_active_tasks / ncl_scheduler_dead_tasks ───────────
     out.append("# HELP ncl_scheduler_active_tasks Number of scheduler tasks currently running.\n")
     out.append("# TYPE ncl_scheduler_active_tasks gauge\n")
-    out.append("# HELP ncl_scheduler_dead_tasks Number of scheduler tasks that have crashed and not yet been restarted.\n")  # noqa: E501
+    out.append(
+        "# HELP ncl_scheduler_dead_tasks Number of scheduler tasks that have crashed and not yet been restarted.\n"  # noqa: E501
+    )
     out.append("# TYPE ncl_scheduler_dead_tasks gauge\n")
     try:
         if autonomous is not None:
@@ -449,16 +475,23 @@ async def prometheus_metrics(
         pass
 
     # ── ncl_async_writer_queue_depth / ncl_async_writer_dlq_depth ───────
-    out.append("# HELP ncl_async_writer_queue_depth Items currently queued in the async memory writer.\n")  # noqa: E501
+    out.append(
+        "# HELP ncl_async_writer_queue_depth Items currently queued in the async memory writer.\n"
+    )  # noqa: E501
     out.append("# TYPE ncl_async_writer_queue_depth gauge\n")
-    out.append("# HELP ncl_async_writer_dlq_depth Items in the async memory writer dead-letter queue.\n")  # noqa: E501
+    out.append(
+        "# HELP ncl_async_writer_dlq_depth Items in the async memory writer dead-letter queue.\n"
+    )  # noqa: E501
     out.append("# TYPE ncl_async_writer_dlq_depth gauge\n")
     out.append("# HELP ncl_async_writer_enqueued_total Total items enqueued since process start.\n")
     out.append("# TYPE ncl_async_writer_enqueued_total counter\n")
-    out.append("# HELP ncl_async_writer_drained_total Total items successfully drained since process start.\n")  # noqa: E501
+    out.append(
+        "# HELP ncl_async_writer_drained_total Total items successfully drained since process start.\n"  # noqa: E501
+    )
     out.append("# TYPE ncl_async_writer_drained_total counter\n")
     try:
         from ...memory.async_writer import get_async_writer
+
         aw_stats = get_async_writer().get_stats()
         out.append(_fmt_metric("ncl_async_writer_queue_depth", aw_stats.get("queue_size")))
         out.append(_fmt_metric("ncl_async_writer_dlq_depth", aw_stats.get("dlq_size")))
@@ -468,7 +501,9 @@ async def prometheus_metrics(
         pass
 
     # ── ncl_council_sessions_today_total ────────────────────────────────
-    out.append("# HELP ncl_council_sessions_today_total Council sessions created so far today (UTC).\n")  # noqa: E501
+    out.append(
+        "# HELP ncl_council_sessions_today_total Council sessions created so far today (UTC).\n"
+    )  # noqa: E501
     out.append("# TYPE ncl_council_sessions_today_total counter\n")
     try:
         if brain is not None:

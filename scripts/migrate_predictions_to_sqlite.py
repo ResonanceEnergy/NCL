@@ -34,6 +34,7 @@ NATRIX activation procedure (after running this script):
     2. echo NCL_PREDICTIONS_SQLITE=true >> .env   # (when the SQL-backed reader lands)
     3. launchctl kickstart -k gui/$(id -u)/com.resonanceenergy.ncl-brain
 """
+
 from __future__ import annotations
 
 import argparse
@@ -46,12 +47,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
+
 # Allow `python3 scripts/migrate_predictions_to_sqlite.py` from the repo root
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from runtime.persistence import get_store  # noqa: E402
+
 
 log = logging.getLogger("ncl.migrate.predictions")
 
@@ -255,7 +258,9 @@ def entry_to_row(path: Path, entry: dict) -> Optional[tuple]:
         _as_json_array(entry.get("cited_sources") or entry.get("cited_sources_full")),
         _as_json_array(entry.get("linked_signals")),
         entry.get("outcome") if isinstance(entry.get("outcome"), str) else None,
-        entry.get("outcome_recorded_at") if isinstance(entry.get("outcome_recorded_at"), str) else None,
+        entry.get("outcome_recorded_at")
+        if isinstance(entry.get("outcome_recorded_at"), str)
+        else None,
     )
 
 
@@ -344,7 +349,12 @@ async def migrate(source: Path, *, dry_run: bool = False, batch_size: int = 500)
     }
     log.info(
         "DONE: files=%d scanned=%d inserted=%d errors=%d final_count=%d (db=%s)",
-        len(files), scanned, inserted, errors, final_count, store.db_path,
+        len(files),
+        scanned,
+        inserted,
+        errors,
+        final_count,
+        store.db_path,
     )
     return result
 

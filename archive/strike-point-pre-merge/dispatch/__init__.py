@@ -6,14 +6,15 @@ NCC is the only live dispatch target. BRS and AAC were retired on
 """
 
 from .pillar_router import (
+    VALID_PILLARS,
     DispatchError,
     DispatchResult,
     PillarRouter,
     UnknownPillarError,
-    VALID_PILLARS,
     get_default_router,
     reset_default_router,
 )
+
 
 __all__ = [
     "DispatchError",

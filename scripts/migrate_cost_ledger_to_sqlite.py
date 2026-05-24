@@ -23,16 +23,17 @@ Idempotency note:
     cost_tracker is still appending to is safe (new lines will be picked
     up; already-imported lines will be ignored).
 """
+
 from __future__ import annotations
 
 import argparse
 import asyncio
 import json
 import logging
-import os
 import sys
 from pathlib import Path
 from typing import Iterable
+
 
 # Allow `python3 scripts/migrate_cost_ledger_to_sqlite.py` from the repo root
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -40,6 +41,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from runtime.persistence import get_store  # noqa: E402
+
 
 log = logging.getLogger("ncl.migrate.cost_ledger")
 
@@ -181,7 +183,11 @@ async def migrate(source: Path, *, dry_run: bool = False, batch_size: int = 500)
     }
     log.info(
         "DONE: scanned=%d inserted=%d skipped=%d errors=%d (db=%s)",
-        scanned, inserted, skipped, errors, store.db_path,
+        scanned,
+        inserted,
+        skipped,
+        errors,
+        store.db_path,
     )
     return result
 

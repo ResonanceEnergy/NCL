@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional, Any
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
@@ -59,9 +59,7 @@ class AgentOutput(BaseModel):
     duration_ms: int = 0
     model_used: str = "unknown"
     token_count: int = 0
-    timestamp: str = Field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
-    )
+    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -90,9 +88,7 @@ class ReplayConfig(BaseModel):
 
     run_id: str
     replay_seed: str
-    force_models: dict[str, str] = Field(
-        default_factory=dict
-    )  # role → model override
+    force_models: dict[str, str] = Field(default_factory=dict)  # role → model override
     temperature_override: Optional[float] = None
 
 
@@ -107,14 +103,10 @@ class CouncilRunRecord(BaseModel):
     run_id: str
     topic: str
     prompt: str
-    timestamp: str = Field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
-    )
+    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     agent_outputs: list[AgentOutput] = Field(default_factory=list)
     consensus: Optional[ConsensusResult] = None
     provenance: dict[str, Any] = Field(default_factory=dict)
     replay_seed: str = ""
-    snapshot: dict[str, Any] = Field(
-        default_factory=dict
-    )  # State for deterministic replay
+    snapshot: dict[str, Any] = Field(default_factory=dict)  # State for deterministic replay
     total_duration_ms: int = 0

@@ -9,11 +9,11 @@ Demonstrates:
 """
 
 import asyncio
-import json
+
 from council_runner import (
-    run_parallel_council,
-    ReplayEngine,
     CouncilRunStore,
+    ReplayEngine,
+    run_parallel_council,
 )
 
 
@@ -65,15 +65,13 @@ async def main():
                 f"{output.duration_ms}ms)"
             )
             print(f"  Model: {output.model_used}")
-            print(f"  Key Points: {', '.join(output.key_points[:2]) if output.key_points else 'N/A'}")
+            print(
+                f"  Key Points: {', '.join(output.key_points[:2]) if output.key_points else 'N/A'}"
+            )
             if output.risks_identified:
-                print(
-                    f"  Risks: {', '.join(output.risks_identified[:2])}"
-                )
+                print(f"  Risks: {', '.join(output.risks_identified[:2])}")
             if output.dissent_notes:
-                print(
-                    f"  Dissent: {', '.join(output.dissent_notes[:1])}"
-                )
+                print(f"  Dissent: {', '.join(output.dissent_notes[:1])}")
 
         # Display consensus
         print("\n" + "=" * 80)
@@ -81,9 +79,15 @@ async def main():
         print("=" * 80)
         if record.consensus:
             print(f"Consensus Score: {record.consensus.consensus_score}/100")
-            print(f"Agreement Areas: {', '.join(record.consensus.agreement_areas[:2]) if record.consensus.agreement_areas else 'N/A'}")
-            print(f"Dissent Areas: {', '.join(record.consensus.dissent_areas[:2]) if record.consensus.dissent_areas else 'N/A'}")
-            print(f"Risk Flags: {', '.join(record.consensus.risk_flags[:2]) if record.consensus.risk_flags else 'N/A'}")
+            print(
+                f"Agreement Areas: {', '.join(record.consensus.agreement_areas[:2]) if record.consensus.agreement_areas else 'N/A'}"
+            )
+            print(
+                f"Dissent Areas: {', '.join(record.consensus.dissent_areas[:2]) if record.consensus.dissent_areas else 'N/A'}"
+            )
+            print(
+                f"Risk Flags: {', '.join(record.consensus.risk_flags[:2]) if record.consensus.risk_flags else 'N/A'}"
+            )
             if record.consensus.recommendations:
                 print(f"Recommendations: {', '.join(record.consensus.recommendations[:2])}")
 
@@ -97,17 +101,17 @@ async def main():
 
         store = CouncilRunStore(data_dir="./data")
         await store.save_run(record)
-        print(f"✓ Run saved to store")
+        print("✓ Run saved to store")
 
         # Retrieve and verify
         retrieved = await store.get_run(record.run_id)
-        print(f"✓ Run retrieved from store")
+        print("✓ Run retrieved from store")
         print(f"  Topic: {retrieved.topic}")
         print(f"  Agents: {len(retrieved.agent_outputs)} outputs")
 
         # Get stats
         stats = await store.get_stats()
-        print(f"\nStore Statistics:")
+        print("\nStore Statistics:")
         print(f"  Total runs: {stats['total_runs']}")
         print(f"  Avg consensus score: {stats['avg_consensus_score']}")
         print(f"  Avg duration: {stats['avg_duration_ms']}ms")
@@ -135,7 +139,7 @@ async def main():
 
             # Compare
             comparison = await replay_engine.compare_runs(record.run_id, replayed.run_id)
-            print(f"\nComparison Report:")
+            print("\nComparison Report:")
             print(f"  Score delta: {comparison['consensus_score_delta']}")
             print(f"  Duration delta: {comparison['duration_delta_ms']}ms")
             if comparison["agreement_areas_changed"]["added"]:
@@ -158,7 +162,7 @@ async def main():
         provenance = await store.get_provenance(record.run_id)
         print(f"Run: {provenance['run_id'][:8]}")
         print(f"Topic: {provenance['topic']}")
-        print(f"Agents:")
+        print("Agents:")
         for agent in provenance["agents"]:
             print(
                 f"  • {agent['role']:8s} | Model: {agent['model']:20s} | "
@@ -168,9 +172,7 @@ async def main():
 
     except Exception as e:
         print(f"✗ Council execution failed: {e}")
-        print(
-            "\nNote: This example requires API keys for Claude, Grok, or Ollama."
-        )
+        print("\nNote: This example requires API keys for Claude, Grok, or Ollama.")
         print("  Set ANTHROPIC_API_KEY, XAI_API_KEY, or OLLAMA_HOST environment variables.")
 
 

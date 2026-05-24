@@ -13,6 +13,7 @@ actual Pydantic field on ``runtime.ncl_brain.models.Mandate`` is
 a future migration renames it to ``target_pillar``, update the param
 names below.
 """
+
 from __future__ import annotations
 
 import pytest

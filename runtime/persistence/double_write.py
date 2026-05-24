@@ -28,6 +28,7 @@ rowcount and NEVER raises.
 W10A-4 pillar-enum-guard semantics are preserved by making ``build_row``
 return ``None`` for rows that fail validation — the hook just skips them.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -35,7 +36,6 @@ import logging
 import os
 from typing import (
     Any,
-    Awaitable,
     Callable,
     Generic,
     Iterable,
@@ -44,6 +44,7 @@ from typing import (
     Sequence,
     TypeVar,
 )
+
 
 log = logging.getLogger("ncl.persistence.double_write")
 
@@ -393,9 +394,7 @@ class DoubleWriteHook(Generic[T]):
             except asyncio.CancelledError:
                 raise
             except Exception as e:  # noqa: BLE001
-                self._warn_once(
-                    f"drainer execute_many failed (batch={len(batch)}): {e}"
-                )
+                self._warn_once(f"drainer execute_many failed (batch={len(batch)}): {e}")
                 # Brief backoff so we don't hot-loop against a stuck DB.
                 await asyncio.sleep(0.25)
             finally:

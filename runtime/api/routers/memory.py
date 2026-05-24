@@ -260,8 +260,13 @@ async def search_memory_fused(
 
 class MemoryStoreRequest(BaseModel):
     """Request to store a new memory unit."""
+
     content: str = Field(..., min_length=1, max_length=50000, description="Memory content to store")
-    source: str = Field(..., min_length=1, description="Source identifier (e.g. 'first-strike-ios', 'council:session-id')")  # noqa: E501
+    source: str = Field(
+        ...,
+        min_length=1,
+        description="Source identifier (e.g. 'first-strike-ios', 'council:session-id')",
+    )  # noqa: E501
     importance: float = Field(default=50.0, ge=0.0, le=100.0, description="Importance score 0-100")
     tags: list[str] = Field(default_factory=list, description="Search tags")
 
@@ -413,6 +418,7 @@ async def score_memory_content(
         return {"error": "content is required"}
 
     from ...memory.importance_scorer import score_memory as _score_memory
+
     result = await _score_memory(content, source, tags, use_llm=use_llm)
     return result
 
@@ -429,6 +435,7 @@ async def extract_entities_endpoint(
         return {"error": "content is required"}
 
     from ...memory.entity_extractor import extract_entities_and_relationships
+
     result = await extract_entities_and_relationships(content, use_llm=use_llm)
     return result
 
@@ -511,6 +518,7 @@ async def get_memory_budget_summary(
     """Today's per-category context-token spend + caps + platform pct."""
     try:
         from ...memory.budget_tracker import get_tracker as _bt_get
+
         tracker = await _bt_get()
         return await tracker.get_daily_summary()
     except Exception as e:
@@ -531,6 +539,7 @@ async def get_ab_test_summary(
     """
     try:
         from ...memory.ab_test import compute_summary, is_ab_enabled
+
         return {
             "enabled": is_ab_enabled(),
             **compute_summary(window_hours=max(1, min(720, int(window_hours)))),
@@ -548,6 +557,7 @@ async def get_memory_budget_history(
     """Per-day rollup of context-token spend for the last N days."""
     try:
         from ...memory.budget_tracker import get_tracker as _bt_get
+
         tracker = await _bt_get()
         history = await tracker.get_history(days=max(1, min(int(days), 90)))
         return {"days": days, "history": history}
@@ -565,6 +575,7 @@ async def check_memory_budget(
     """Pre-flight budget gate for a planned context injection."""
     try:
         from ...memory.budget_tracker import get_tracker as _bt_get
+
         tracker = await _bt_get()
         allowed, reason = await tracker.check_budget(category, int(est_tokens))
         return {
@@ -634,31 +645,36 @@ async def list_memory_by_authority(
             tier_name = AuthorityTier(int(tv)).name.lower()
         except ValueError:
             tier_name = "raw"
-        out.append({
-            "unit_id": u.unit_id,
-            "source": u.source,
-            "content": (u.content[:500] + ("…" if len(u.content) > 500 else "")),
-            "importance": float(u.importance),
-            "memory_type": getattr(u, "memory_type", "episodic"),
-            "memory_tier": getattr(u, "memory_tier", "SML"),
-            "authority_tier": int(tv),
-            "authority_tier_name": tier_name,
-            "tags": list(u.tags or []),
-            "created_at": (
-                u.created_at.isoformat()
-                if hasattr(u.created_at, "isoformat") else str(u.created_at)
-            ),
-            "last_accessed": (
-                u.last_accessed.isoformat()
-                if hasattr(u.last_accessed, "isoformat") else str(u.last_accessed)
-            ),
-        })
+        out.append(
+            {
+                "unit_id": u.unit_id,
+                "source": u.source,
+                "content": (u.content[:500] + ("…" if len(u.content) > 500 else "")),
+                "importance": float(u.importance),
+                "memory_type": getattr(u, "memory_type", "episodic"),
+                "memory_tier": getattr(u, "memory_tier", "SML"),
+                "authority_tier": int(tv),
+                "authority_tier_name": tier_name,
+                "tags": list(u.tags or []),
+                "created_at": (
+                    u.created_at.isoformat()
+                    if hasattr(u.created_at, "isoformat")
+                    else str(u.created_at)
+                ),
+                "last_accessed": (
+                    u.last_accessed.isoformat()
+                    if hasattr(u.last_accessed, "isoformat")
+                    else str(u.last_accessed)
+                ),
+            }
+        )
 
     return {
         "min_tier": floor_int,
         "min_tier_name": (
             AuthorityTier(floor_int).name.lower()
-            if floor_int in {int(t) for t in AuthorityTier} else None
+            if floor_int in {int(t) for t in AuthorityTier}
+            else None
         ),
         "matched": len(matching),
         "returned": len(out),
@@ -676,6 +692,7 @@ async def backfill_authority_endpoint(
         return {"error": "Memory store not available"}
     try:
         from ...memory.authority import backfill_authority_tiers
+
         result = await backfill_authority_tiers(brain.memory_store)
         return {"status": "ok", **result}
     except Exception as e:
@@ -698,6 +715,7 @@ async def retag_authority_endpoint(
         return {"error": "Memory store not available"}
     try:
         from ...memory.authority import retag_authority_tiers
+
         result = await retag_authority_tiers(brain.memory_store)
         return {"status": "ok", **result}
     except Exception as e:
@@ -720,6 +738,7 @@ async def bootstrap_claude_md_endpoint(
         return {"error": "Memory store not available"}
     try:
         from ...memory.claude_md_bootstrap import bootstrap_claude_md
+
         result = await bootstrap_claude_md(brain.memory_store)
         return {"status": "ok", **result}
     except Exception as e:
@@ -763,6 +782,7 @@ async def get_async_writer_stats(
     """Snapshot of AsyncMemoryWriter queue / drainer / DLQ health."""
     try:
         from ...memory.async_writer import get_async_writer
+
         return get_async_writer().get_stats()
     except RuntimeError:
         return {"error": "AsyncMemoryWriter not initialized"}
@@ -778,6 +798,7 @@ async def get_async_writer_dlq(
     """Recent dead-letter queue entries (newest first, capped at ``limit``)."""
     try:
         from ...memory.async_writer import get_async_writer
+
         items = get_async_writer().get_dlq(limit=max(1, min(500, limit)))
         return {"count": len(items), "items": items}
     except RuntimeError:
@@ -793,6 +814,7 @@ async def retry_async_writer_dlq(
     """Re-enqueue all DLQ entries under MAX_ATTEMPTS for another try."""
     try:
         from ...memory.async_writer import get_async_writer
+
         n = await get_async_writer().retry_dlq()
         return {"status": "ok", "requeued": n}
     except RuntimeError:
@@ -979,7 +1001,10 @@ async def pin_working_context_item(
     tags = payload.get("tags") or []
     promote_id = target_id or None
     item = await wc.promote_item(
-        content=content, source=source, tags=tags, item_id=promote_id,
+        content=content,
+        source=source,
+        tags=tags,
+        item_id=promote_id,
     )
     return {"status": "pinned", "item_id": item.item_id, "promoted": True}
 
@@ -1062,7 +1087,10 @@ async def promote_working_context_item(
     if not content:
         raise HTTPException(status_code=400, detail="content is required")
     item = await autonomous._working_context.promote_item(
-        content=content, source=source, tags=tags, item_id=item_id,
+        content=content,
+        source=source,
+        tags=tags,
+        item_id=item_id,
     )
     ctx = autonomous._working_context.get_current()
     return {
@@ -1136,11 +1164,13 @@ async def score_working_context_items(
                 theme_tokens = set(_re.findall(r"[a-z0-9_-]{3,}", theme.lower()))
                 if content_tokens & theme_tokens:
                     matched.append(theme)
-        scores.append({
-            "content": content[:100],
-            "relevance": round(relevance, 4),
-            "matched_themes": matched,
-        })
+        scores.append(
+            {
+                "content": content[:100],
+                "relevance": round(relevance, 4),
+                "matched_themes": matched,
+            }
+        )
 
     return {"scores": scores}
 
@@ -1194,6 +1224,7 @@ async def delete_memory_unit(
     chroma_deleted = 0
     try:
         from ...memory.chroma_gc import delete_unit_embeddings
+
         chroma_deleted = await delete_unit_embeddings(store, [unit_id]) or 0
     except Exception as e:
         log.warning(f"[unit-delete] chroma cleanup failed for {unit_id}: {e}")
@@ -1288,18 +1319,22 @@ async def list_pending_conflicts(
             delta = abs(float(imps[0]) - float(imps[1])) if len(imps) == 2 else None
         except (TypeError, ValueError):
             delta = None
-        items.append({
-            "conflict_id": r.get("conflict_id"),
-            "unit_a": units[0] if len(units) > 0 else None,
-            "unit_b": units[1] if len(units) > 1 else None,
-            "importance_delta": delta,
-            "tags_shared": list(r.get("shared_entities") or ([r.get("entity")] if r.get("entity") else [])),  # noqa: E501
-            "queued_at": r.get("ts") or r.get("queued_at"),
-            "severity": r.get("severity"),
-            "entity": r.get("entity"),
-            "reason": r.get("reason"),
-            "schema_version": r.get("schema_version", 0),
-        })
+        items.append(
+            {
+                "conflict_id": r.get("conflict_id"),
+                "unit_a": units[0] if len(units) > 0 else None,
+                "unit_b": units[1] if len(units) > 1 else None,
+                "importance_delta": delta,
+                "tags_shared": list(
+                    r.get("shared_entities") or ([r.get("entity")] if r.get("entity") else [])
+                ),  # noqa: E501
+                "queued_at": r.get("ts") or r.get("queued_at"),
+                "severity": r.get("severity"),
+                "entity": r.get("entity"),
+                "reason": r.get("reason"),
+                "schema_version": r.get("schema_version", 0),
+            }
+        )
 
     return {"count": len(items), "items": items}
 
@@ -1320,6 +1355,7 @@ async def get_authority_learner_history(
     """
     try:
         from ...feedback.source_authority_learner import get_learner
+
         learner = get_learner()
         all_state = learner.all_sources()
         if source in all_state:
@@ -1404,8 +1440,14 @@ async def get_prediction_provenance(
                 data = json.loads(f.read_text())
             except Exception:
                 continue
-            preds = data if isinstance(data, list) else (
-                data.get("predictions") if isinstance(data, dict) and "predictions" in data else [data]  # noqa: E501
+            preds = (
+                data
+                if isinstance(data, list)
+                else (
+                    data.get("predictions")
+                    if isinstance(data, dict) and "predictions" in data
+                    else [data]  # noqa: E501
+                )
             )
             for pred in preds or []:
                 if pred.get("prediction_id") == prediction_id:
@@ -1431,6 +1473,7 @@ async def get_prediction_provenance(
     try:
         from ...feedback.source_authority_learner import get_learner  # noqa: I001
         from ...memory.authority import tier_for_source, AuthorityTier
+
         learner = get_learner()
         all_state = learner.all_sources()
         for src in cited_full or cited_platforms:
@@ -1445,14 +1488,10 @@ async def get_prediction_provenance(
                 "authority_tier": tier_val,
                 "authority_tier_name": tier_name,
                 "learned_adjustment": round(learner.adjustment_for(src), 4),
-                "effective_weight": round(
-                    learner.effective_weight(src, tier_val / 100.0), 4
-                ),
+                "effective_weight": round(learner.effective_weight(src, tier_val / 100.0), 4),
                 "factors": {
                     "static_tier": tier_val,
-                    "learned_quality": (
-                        round(stats.posterior_mean, 4) if stats else 0.5
-                    ),
+                    "learned_quality": (round(stats.posterior_mean, 4) if stats else 0.5),
                     "n_observations": stats.n if stats else 0,
                 },
                 "unit_id": None,  # signal_id → unit_id resolver not yet wired

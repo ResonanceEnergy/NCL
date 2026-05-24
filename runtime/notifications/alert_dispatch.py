@@ -199,9 +199,7 @@ class AlertDispatcher:
                 if self._client is not None:
                     await self._client.aclose()
             except Exception as _close_err:
-                log.warning(
-                    "[alert_dispatch] httpx client aclose swallowed: %s", _close_err
-                )
+                log.warning("[alert_dispatch] httpx client aclose swallowed: %s", _close_err)
             self._client = None
 
     def _pop_next_eligible(self) -> Optional[Alert]:
@@ -274,7 +272,7 @@ class AlertDispatcher:
                 name="ncl-alert-dispatch-sentinel",
             )
             log.info(
-                "[ALERT] sentinel started — interval=%.0fs stale_threshold=%.0fs depth_threshold=%d flag=%s",
+                "[ALERT] sentinel started — interval=%.0fs stale_threshold=%.0fs depth_threshold=%d flag=%s",  # noqa: E501
                 _SENTINEL_INTERVAL_S,
                 _SENTINEL_STALE_S,
                 _SENTINEL_DEPTH_THRESHOLD,
@@ -313,7 +311,7 @@ class AlertDispatcher:
                     except Exception as fe:
                         log.error("[ALERT] sentinel flag write failed: %s", fe)
                     log.critical(
-                        "[ALERT] DISPATCHER STUCK — depth=%d stale=%.0fs last_send=%.0f last_error=%s",
+                        "[ALERT] DISPATCHER STUCK — depth=%d stale=%.0fs last_send=%.0f last_error=%s",  # noqa: E501
                         depth,
                         stale_s,
                         last,

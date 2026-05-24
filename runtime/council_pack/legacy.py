@@ -163,18 +163,14 @@ async def _call_model(
     # Try Grok second
     if model_preference in ("grok", "default"):
         try:
-            response = await _call_grok(
-                http_client, prompt, system_prompt, temperature, max_tokens
-            )
+            response = await _call_grok(http_client, prompt, system_prompt, temperature, max_tokens)
             return response, "grok-3"
         except Exception as e:
             log.warning(f"Grok call failed, trying Ollama: {e}")
 
     # Try Ollama last (local fallback)
     try:
-        response = await _call_ollama(
-            http_client, prompt, system_prompt, temperature, max_tokens
-        )
+        response = await _call_ollama(http_client, prompt, system_prompt, temperature, max_tokens)
         return response, "qwen3:32b"
     except Exception as e:
         log.error(f"All model calls failed: {e}")
@@ -194,6 +190,7 @@ async def _call_claude(
         raise ValueError("ANTHROPIC_API_KEY not set")
 
     from ..cost_tracker import check_budget, record_cost
+
     if not await check_budget("anthropic", 0.25):
         raise RuntimeError("Anthropic daily budget exceeded")
 
@@ -219,9 +216,15 @@ async def _call_claude(
     input_t = usage.get("input_tokens", 0)
     output_t = usage.get("output_tokens", 0)
     cost = (input_t / 1000 * 0.003) + (output_t / 1000 * 0.015)
-    await record_cost("anthropic", cost, "council_runner",
-                      f"claude-sonnet in={input_t} out={output_t}",
-                      model="claude-sonnet-4-20250514", input_tokens=input_t, output_tokens=output_t)  # noqa: E501
+    await record_cost(
+        "anthropic",
+        cost,
+        "council_runner",
+        f"claude-sonnet in={input_t} out={output_t}",
+        model="claude-sonnet-4-20250514",
+        input_tokens=input_t,
+        output_tokens=output_t,
+    )  # noqa: E501
 
     return data["content"][0]["text"]
 
@@ -239,6 +242,7 @@ async def _call_grok(
         raise ValueError("XAI_API_KEY not set")
 
     from ..cost_tracker import check_budget, record_cost
+
     if not await check_budget("xai", 0.10):
         raise RuntimeError("xAI daily budget exceeded")
 
@@ -263,9 +267,15 @@ async def _call_grok(
     input_t = usage.get("prompt_tokens", 0)
     output_t = usage.get("completion_tokens", 0)
     cost = (input_t / 1000 * 0.005) + (output_t / 1000 * 0.015)
-    await record_cost("xai", cost, "council_runner",
-                      f"grok-3 in={input_t} out={output_t}",
-                      model="grok-3", input_tokens=input_t, output_tokens=output_t)
+    await record_cost(
+        "xai",
+        cost,
+        "council_runner",
+        f"grok-3 in={input_t} out={output_t}",
+        model="grok-3",
+        input_tokens=input_t,
+        output_tokens=output_t,
+    )
 
     return data["choices"][0]["message"]["content"]
 
@@ -339,9 +349,7 @@ async def run_agent(
                 json_text = response_text[json_start:json_end]
                 parsed_output = json.loads(json_text)
         except (json.JSONDecodeError, ValueError):
-            log.warning(
-                f"Could not parse JSON from {config.role.value} agent response"
-            )
+            log.warning(f"Could not parse JSON from {config.role.value} agent response")
 
         # Extract standard fields from parsed output
         key_points = parsed_output.get("key_points", [])
@@ -423,7 +431,9 @@ def _synthesize_consensus(outputs: list[AgentOutput]) -> ConsensusResult:
     consensus_score = int((avg_confidence * 0.6 + agreement_ratio * 0.4) * 100)
 
     # Build consensus text from agreement areas
-    consensus_text = "Consensus areas: " + "; ".join(agreement_areas) if agreement_areas else "Limited agreement"  # noqa: E501
+    consensus_text = (
+        "Consensus areas: " + "; ".join(agreement_areas) if agreement_areas else "Limited agreement"
+    )  # noqa: E501
 
     # Recommendations: merge from all outputs (simplified)
     recommendations = []

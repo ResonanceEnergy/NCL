@@ -244,6 +244,7 @@ def _warn_once_per_hour(key: str, msg: str, *args) -> None:
         _log_warned_at[key] = now
         log.warning(msg, *args)
 
+
 # Strike point authentication token — load from config (.env) FIRST, then env var,
 # then .strike_token file, then auto-gen + persist to .strike_token.
 _TOKEN_FILE = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL"))) / ".strike_token"

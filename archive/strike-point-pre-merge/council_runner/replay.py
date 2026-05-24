@@ -8,13 +8,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from .models import CouncilRunRecord, ReplayConfig
 from .agents import run_parallel_council
+from .models import CouncilRunRecord, ReplayConfig
+
 
 log = logging.getLogger("ncl.council_runner.replay")
 
@@ -101,6 +100,7 @@ class ReplayEngine:
 
     async def list_runs(self, limit: int = 50) -> list[dict]:
         """List summary of saved runs."""
+
         def _read_all() -> list[dict]:
             runs = []
             run_files = sorted(
@@ -149,21 +149,25 @@ class ReplayEngine:
             ),
             "agreement_areas_changed": {
                 "removed": [
-                    a for a in (record_a.consensus.agreement_areas if record_a.consensus else [])
+                    a
+                    for a in (record_a.consensus.agreement_areas if record_a.consensus else [])
                     if a not in (record_b.consensus.agreement_areas if record_b.consensus else [])
                 ],
                 "added": [
-                    a for a in (record_b.consensus.agreement_areas if record_b.consensus else [])
+                    a
+                    for a in (record_b.consensus.agreement_areas if record_b.consensus else [])
                     if a not in (record_a.consensus.agreement_areas if record_a.consensus else [])
                 ],
             },
             "risk_flags_changed": {
                 "removed": [
-                    r for r in (record_a.consensus.risk_flags if record_a.consensus else [])
+                    r
+                    for r in (record_a.consensus.risk_flags if record_a.consensus else [])
                     if r not in (record_b.consensus.risk_flags if record_b.consensus else [])
                 ],
                 "added": [
-                    r for r in (record_b.consensus.risk_flags if record_b.consensus else [])
+                    r
+                    for r in (record_b.consensus.risk_flags if record_b.consensus else [])
                     if r not in (record_a.consensus.risk_flags if record_a.consensus else [])
                 ],
             },

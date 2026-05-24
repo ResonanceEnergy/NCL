@@ -27,6 +27,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+
 # --- Config ---
 
 NCL_BASE = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
@@ -54,8 +55,11 @@ CIRCUIT_MAX_BACKOFF_SECONDS = int(os.getenv("NCL_CIRCUIT_MAX_BACKOFF", "120"))
 class _CircuitBreaker:
     """Simple closed/open circuit breaker with exponential backoff."""
 
-    def __init__(self, threshold: int = CIRCUIT_FAIL_THRESHOLD,
-                 max_backoff: float = CIRCUIT_MAX_BACKOFF_SECONDS) -> None:
+    def __init__(
+        self,
+        threshold: int = CIRCUIT_FAIL_THRESHOLD,
+        max_backoff: float = CIRCUIT_MAX_BACKOFF_SECONDS,
+    ) -> None:
         self.threshold = threshold
         self.max_backoff = max_backoff
         self._failures = 0
@@ -80,7 +84,8 @@ class _CircuitBreaker:
         self._open_until = time.monotonic() + backoff
         log.warning(
             "CircuitBreaker: failure #%d — bridge open for %.0fs",
-            self._failures, backoff,
+            self._failures,
+            backoff,
         )
 
     def __repr__(self) -> str:
@@ -219,7 +224,9 @@ def write_copilot_prompt(prompt: str, pump_id: str, iteration: int) -> Path:
     WORKING_FILES.mkdir(parents=True, exist_ok=True)
 
     prompt_file = EXECUTION_DIR / "current-copilot-prompt.md"
-    prompt_file.write_text(f"# Copilot Prompt — {pump_id} (iteration {iteration})\n\n```\n{prompt}\n```\n")
+    prompt_file.write_text(
+        f"# Copilot Prompt — {pump_id} (iteration {iteration})\n\n```\n{prompt}\n```\n"
+    )
 
     # Also write as a .txt for easy copy-paste
     txt_file = EXECUTION_DIR / f"copilot-prompt-{pump_id}-v{iteration}.txt"
@@ -339,7 +346,12 @@ def load_task_plan(pump_id: str) -> dict:
         return {"pump_id": pump_id, "raw_intent": content, "target_pillar": "NCL", "priority": "P2"}
 
     log.warning("No task plan found — using minimal template")
-    return {"pump_id": pump_id, "raw_intent": "See pump file", "target_pillar": "NCL", "priority": "P2"}
+    return {
+        "pump_id": pump_id,
+        "raw_intent": "See pump file",
+        "target_pillar": "NCL",
+        "priority": "P2",
+    }
 
 
 def load_council_output(pump_id: str) -> dict:
@@ -411,7 +423,8 @@ def _try_claude_code_bridge(prompt: str, pump_id: str, iteration: int) -> bool:
         log.warning(
             "CircuitBreaker OPEN — skipping Claude Code bridge for %s (failures=%d). "
             "Will retry after cool-down.",
-            pump_id, _claude_code_breaker._failures,
+            pump_id,
+            _claude_code_breaker._failures,
         )
         return False
 
@@ -425,7 +438,9 @@ def _try_claude_code_bridge(prompt: str, pump_id: str, iteration: int) -> bool:
 
     # Fix #9: Isolate each execution in its own temp directory to prevent
     # cross-pump file contamination
-    exec_tmpdir = tempfile.mkdtemp(prefix=f"ncl-exec-{pump_id}-v{iteration}-", dir=str(EXECUTION_DIR))
+    exec_tmpdir = tempfile.mkdtemp(
+        prefix=f"ncl-exec-{pump_id}-v{iteration}-", dir=str(EXECUTION_DIR)
+    )
     exec_working = Path(exec_tmpdir)
 
     # Fix #5: Clear stale working files from previous executions that could
@@ -462,9 +477,12 @@ def _try_claude_code_bridge(prompt: str, pump_id: str, iteration: int) -> bool:
             [
                 claude_path,
                 "--print",  # Non-interactive: print output and exit
-                "--max-turns", "10",
-                "--output-format", "text",
-                "-p", claude_prompt,
+                "--max-turns",
+                "10",
+                "--output-format",
+                "text",
+                "-p",
+                claude_prompt,
             ],
             cwd=str(exec_working),
             stdout=subprocess.PIPE,
@@ -488,6 +506,7 @@ def _try_claude_code_bridge(prompt: str, pump_id: str, iteration: int) -> bool:
         # Build a result-like namespace for downstream code
         class _Result:
             pass
+
         result = _Result()
         result.returncode = proc.returncode
         result.stdout = stdout
@@ -507,7 +526,9 @@ def _try_claude_code_bridge(prompt: str, pump_id: str, iteration: int) -> bool:
         )
 
         if result.returncode == 0:
-            log.info(f"Claude Code executed successfully for {pump_id} iteration {iteration} ({elapsed:.1f}s)")
+            log.info(
+                f"Claude Code executed successfully for {pump_id} iteration {iteration} ({elapsed:.1f}s)"
+            )
             # Copy files from isolated temp dir to WORKING_FILES for downstream
             created_files = list(exec_working.glob("*"))
             for f in created_files:
@@ -548,8 +569,11 @@ def get_health() -> dict:
             "state": "open" if _claude_code_breaker.is_open else "closed",
             "consecutive_failures": _claude_code_breaker._failures,
             "open_until": (
-                datetime.fromtimestamp(_claude_code_breaker._open_until, tz=timezone.utc).isoformat()
-                if _claude_code_breaker._open_until > 0 else None
+                datetime.fromtimestamp(
+                    _claude_code_breaker._open_until, tz=timezone.utc
+                ).isoformat()
+                if _claude_code_breaker._open_until > 0
+                else None
             ),
         },
         "execution_mode": EXECUTION_MODE,
@@ -630,7 +654,8 @@ def _run_execution_loop_inner(pump_id: str, start_iteration: int = 1) -> dict:
         log.info(f"Building Copilot prompt — iteration {iteration}/{MAX_CODING_ITERATIONS}")
 
         prompt = build_copilot_prompt(
-            task_plan, council_output,
+            task_plan,
+            council_output,
             iteration=iteration,
             previous_issues=issues if iteration > 1 else None,
         )
@@ -648,7 +673,9 @@ def _run_execution_loop_inner(pump_id: str, start_iteration: int = 1) -> dict:
                 summary = f"Auto-executed via Claude Code CLI (iteration {iteration}, {len(created)} files)"
                 feedback = run_sign_off(pump_id, summary, iterations=iteration)
                 # Fix #8: Record actual execution time
-                feedback["metrics"]["total_time_seconds"] = round(time.monotonic() - loop_start_time, 1)
+                feedback["metrics"]["total_time_seconds"] = round(
+                    time.monotonic() - loop_start_time, 1
+                )
                 return feedback
             else:
                 log.warning("Claude Code ran but produced no files — retrying")
@@ -667,18 +694,20 @@ def _run_execution_loop_inner(pump_id: str, start_iteration: int = 1) -> dict:
             print(f"{'='*60}")
             print(f"\n  Prompt: {prompt_path}")
             print(f"  Working files: {WORKING_FILES}/")
-            print(f"\n  Next steps:")
-            print(f"  1. Send prompt to Copilot Chat in VS Code")
-            print(f"  2. Copilot generates code in working-files/")
+            print("\n  Next steps:")
+            print("  1. Send prompt to Copilot Chat in VS Code")
+            print("  2. Copilot generates code in working-files/")
             print(f"  3. Run: python3 -m runtime.execution_loop {pump_id} --review")
-            print(f"     to proceed to review phase")
+            print("     to proceed to review phase")
             break
 
         iteration += 1
 
     # If max iterations reached, escalate
     if iteration > MAX_CODING_ITERATIONS:
-        log.warning(f"Max coding iterations ({MAX_CODING_ITERATIONS}) reached — escalating to NATRIX")
+        log.warning(
+            f"Max coding iterations ({MAX_CODING_ITERATIONS}) reached — escalating to NATRIX"
+        )
         return create_feedback_payload(
             pump_id=pump_id,
             status="escalated",
@@ -707,7 +736,9 @@ def run_sign_off(pump_id: str, summary: str, iterations: int = 1) -> dict:
         pump_id=pump_id,
         status="complete",
         summary=summary,
-        artifacts=[f.name for f in WORKING_FILES.iterdir() if f.is_file()] if WORKING_FILES.exists() else [],
+        artifacts=[f.name for f in WORKING_FILES.iterdir() if f.is_file()]
+        if WORKING_FILES.exists()
+        else [],
         iterations=iterations,
         review_rounds=0,
     )
@@ -723,8 +754,12 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage:")
         print("  python3 -m runtime.execution_loop <pump-id>          Build Copilot prompt")
-        print("  python3 -m runtime.execution_loop <pump-id> --review  Sign off and stage for review")
-        print("  python3 -m runtime.execution_loop <pump-id> --iterate <n>  Build fix prompt (iteration n)")
+        print(
+            "  python3 -m runtime.execution_loop <pump-id> --review  Sign off and stage for review"
+        )
+        print(
+            "  python3 -m runtime.execution_loop <pump-id> --iterate <n>  Build fix prompt (iteration n)"
+        )
         sys.exit(1)
 
     pump_id = sys.argv[1].strip()

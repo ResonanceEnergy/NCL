@@ -51,6 +51,7 @@ class _FakeResponse:
         if 200 <= self.status_code < 300:
             return
         import httpx
+
         raise httpx.HTTPStatusError(
             f"HTTP {self.status_code}",
             request=httpx.Request("POST", "http://fake"),
@@ -91,6 +92,7 @@ def _no_real_cost_tracker(monkeypatch):
 
     Specific tests override these.
     """
+
     async def _allow(*_a, **_k):
         return True
 
@@ -121,6 +123,7 @@ def test_unknown_model_raises_UnknownModelError():  # noqa: N802
             model="not-a-real-model",
             messages=[{"role": "user", "content": "hi"}],
         )
+
     with pytest.raises(UnknownModelError) as ei:
         asyncio.run(_go())
     assert "not-a-real-model" in str(ei.value)
@@ -149,9 +152,7 @@ def test_circuit_breaker_opens_after_5_consecutive_failures(monkeypatch):
     )
 
     # Use a small threshold so the test is fast.
-    breaker = CircuitBreaker.for_provider(
-        "anthropic", fail_threshold=5, recovery_seconds=300.0
-    )
+    breaker = CircuitBreaker.for_provider("anthropic", fail_threshold=5, recovery_seconds=300.0)
 
     async def _one():
         return await chat(
@@ -166,9 +167,9 @@ def test_circuit_breaker_opens_after_5_consecutive_failures(monkeypatch):
         with pytest.raises(Exception):
             asyncio.run(_one())
 
-    assert breaker.consecutive_failures >= 5, (
-        f"expected >=5 failures, got {breaker.consecutive_failures}"
-    )
+    assert (
+        breaker.consecutive_failures >= 5
+    ), f"expected >=5 failures, got {breaker.consecutive_failures}"
     assert breaker.is_open, "breaker should be OPEN after 5 failures"
 
     # Next call should be refused BEFORE the handler runs.
@@ -176,9 +177,9 @@ def test_circuit_breaker_opens_after_5_consecutive_failures(monkeypatch):
     with pytest.raises(CircuitOpen) as ei:
         asyncio.run(_one())
     assert "anthropic" in str(ei.value)
-    assert call_count["n"] == handler_calls_before, (
-        "handler must NOT be invoked when circuit is open"
-    )
+    assert (
+        call_count["n"] == handler_calls_before
+    ), "handler must NOT be invoked when circuit is open"
 
 
 # ── Test 3: budget gate raises before call ───────────────────────────────
@@ -188,6 +189,7 @@ def test_budget_exhausted_raises_before_call(monkeypatch):
     """If cost_tracker.check_budget returns False the chat() call must
     raise BudgetExhausted BEFORE invoking the provider handler.
     """
+
     async def _deny(*_a, **_k):
         return False
 
@@ -233,9 +235,7 @@ def test_anthropic_citations_documents_passed_through(monkeypatch):
         return _FakeResponse(
             status_code=200,
             json_body={
-                "content": [
-                    {"type": "text", "text": "answer with citation [1]"}
-                ],
+                "content": [{"type": "text", "text": "answer with citation [1]"}],
                 "usage": {"input_tokens": 42, "output_tokens": 8},
             },
         )
@@ -280,9 +280,9 @@ def test_anthropic_citations_documents_passed_through(monkeypatch):
     msgs = body["messages"]
     assert len(msgs) == 1 and msgs[0]["role"] == "user"
     content = msgs[0]["content"]
-    assert isinstance(content, list), (
-        "user content must be a content-block list when documents are passed"
-    )
+    assert isinstance(
+        content, list
+    ), "user content must be a content-block list when documents are passed"
     # First block must be the document we passed in
     assert content[0]["type"] == "document"
     assert content[0]["citations"] == {"enabled": True}

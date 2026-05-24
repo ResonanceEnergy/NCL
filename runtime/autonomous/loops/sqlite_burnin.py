@@ -40,12 +40,12 @@ log = logging.getLogger(__name__)
 _BURNIN_DIR = Path("/Users/natrix/dev/NCL/data/persistence/burnin")
 _SCRIPT_PATH = "/Users/natrix/dev/NCL/scripts/sqlite_burn_in_verify.py"
 _PYTHON_BIN = "/opt/homebrew/bin/python3"
-_BOOT_DELAY_S = 600              # 10 min cold-start delay
-_CYCLE_S = 6 * 3600              # 6h between verifier runs
-_EMERGENCY_RECHECK_S = 60        # how often to wake while ESTOP held
+_BOOT_DELAY_S = 600  # 10 min cold-start delay
+_CYCLE_S = 6 * 3600  # 6h between verifier runs
+_EMERGENCY_RECHECK_S = 60  # how often to wake while ESTOP held
 _SUBPROCESS_TIMEOUT_S = 120
 _ROTATION_BYTES = 5 * 1024 * 1024  # 5 MB soft rotation cap
-_DRIFT_ALERT_THRESHOLD = 200     # jsonl_only growth between cycles
+_DRIFT_ALERT_THRESHOLD = 200  # jsonl_only growth between cycles
 
 
 async def run(scheduler) -> None:
@@ -67,14 +67,15 @@ async def run(scheduler) -> None:
             continue
         try:
             proc = await asyncio.create_subprocess_exec(
-                _PYTHON_BIN, _SCRIPT_PATH,
-                "--table", "all", "--json",
+                _PYTHON_BIN,
+                _SCRIPT_PATH,
+                "--table",
+                "all",
+                "--json",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout_b, _ = await asyncio.wait_for(
-                proc.communicate(), timeout=_SUBPROCESS_TIMEOUT_S
-            )
+            stdout_b, _ = await asyncio.wait_for(proc.communicate(), timeout=_SUBPROCESS_TIMEOUT_S)
             payload = json.loads(stdout_b.decode("utf-8", errors="replace"))
             payload["ts"] = datetime.now(timezone.utc).isoformat()
             # Soft 5 MB rotation guard — mirrors contradicts_index.jsonl
@@ -103,7 +104,8 @@ async def run(scheduler) -> None:
                 prev_drift[table] = drift
                 log.info(
                     "[BURNIN] %s jsonl_only=%d (delta %+d) sqlite_only=%d match=%s",
-                    table, drift,
+                    table,
+                    drift,
                     growth,
                     int(div.get("sqlite_only_count", 0) or 0),
                     entry.get("match"),
@@ -115,6 +117,7 @@ async def run(scheduler) -> None:
                 if table != "cost_ledger" and growth > _DRIFT_ALERT_THRESHOLD:
                     try:
                         from ...notifications.alert_dispatch import enqueue_alert
+
                         enqueue_alert(
                             title=f"SQLite burn-in drift on {table}",
                             body=f"jsonl_only grew {prior}→{drift} (+{growth}) — live double-write may be missing writes",  # noqa: E501

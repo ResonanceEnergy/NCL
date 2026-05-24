@@ -147,8 +147,12 @@ def record_importance(
             if sonnet_score is not None and haiku_score is not None
             else None
         ),
-        "cost_usd_sonnet": _cost(tokens_in, tokens_out_sonnet, SONNET_INPUT_PER_MTOK, SONNET_OUTPUT_PER_MTOK),  # noqa: E501
-        "cost_usd_haiku": _cost(tokens_in, tokens_out_haiku, HAIKU_INPUT_PER_MTOK, HAIKU_OUTPUT_PER_MTOK),  # noqa: E501
+        "cost_usd_sonnet": _cost(
+            tokens_in, tokens_out_sonnet, SONNET_INPUT_PER_MTOK, SONNET_OUTPUT_PER_MTOK
+        ),  # noqa: E501
+        "cost_usd_haiku": _cost(
+            tokens_in, tokens_out_haiku, HAIKU_INPUT_PER_MTOK, HAIKU_OUTPUT_PER_MTOK
+        ),  # noqa: E501
     }
     _append_jsonl(_data_root() / "scores.jsonl", row)
 
@@ -215,11 +219,16 @@ async def score_memory_ab(
     # Pass-through when A/B is off — keeps the call-site change one-line.
     if not is_ab_enabled() or not use_llm:
         from .importance_scorer import score_memory
+
         return await score_memory(content, source, tags, use_llm=use_llm, model=SONNET_MODEL)
 
     # Both models, concurrent. ``asyncio.gather`` keeps wall-clock = max(sonnet, haiku).
-    sonnet_task = _call_one(content=content, source=source, tags=tags, model=SONNET_MODEL, timeout=timeout)  # noqa: E501
-    haiku_task = _call_one(content=content, source=source, tags=tags, model=HAIKU_MODEL, timeout=timeout)  # noqa: E501
+    sonnet_task = _call_one(
+        content=content, source=source, tags=tags, model=SONNET_MODEL, timeout=timeout
+    )  # noqa: E501
+    haiku_task = _call_one(
+        content=content, source=source, tags=tags, model=HAIKU_MODEL, timeout=timeout
+    )  # noqa: E501
     sonnet, haiku = await asyncio.gather(sonnet_task, haiku_task)
 
     # Persist the comparison row. tokens_in/out aren't returned by
@@ -337,7 +346,12 @@ def compute_summary(window_hours: int = 24) -> dict:
     if not rows:
         return {"window_hours": window_hours, "rows": 0, "recommendation": "needs_more_data"}
 
-    paired = [r for r in rows if r.get("sonnet", {}).get("score") is not None and r.get("haiku", {}).get("score") is not None]  # noqa: E501
+    paired = [
+        r
+        for r in rows
+        if r.get("sonnet", {}).get("score") is not None
+        and r.get("haiku", {}).get("score") is not None
+    ]  # noqa: E501
 
     sonnet_scores = [r["sonnet"]["score"] for r in paired]
     haiku_scores = [r["haiku"]["score"] for r in paired]

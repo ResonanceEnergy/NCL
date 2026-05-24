@@ -22,6 +22,7 @@ Idempotency note:
     INSERT OR IGNORE makes the migration safe to re-run any number of
     times — already-imported mandates are silently skipped.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -32,12 +33,14 @@ import sys
 from pathlib import Path
 from typing import Any
 
+
 # Allow `python3 scripts/migrate_mandates_to_sqlite.py` from the repo root
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from runtime.persistence import get_store  # noqa: E402
+
 
 log = logging.getLogger("ncl.migrate.mandates")
 
@@ -152,8 +155,12 @@ async def migrate(source: Path, *, dry_run: bool = False, batch_size: int = 500)
     if not source.exists():
         log.warning("Source not found: %s", source)
         return {
-            "scanned": 0, "inserted": 0, "skipped": 0, "errors": 0,
-            "source": str(source), "db_path": str(store.db_path),
+            "scanned": 0,
+            "inserted": 0,
+            "skipped": 0,
+            "errors": 0,
+            "source": str(source),
+            "db_path": str(store.db_path),
             "dry_run": dry_run,
         }
 
@@ -162,8 +169,12 @@ async def migrate(source: Path, *, dry_run: bool = False, batch_size: int = 500)
     except (json.JSONDecodeError, OSError) as exc:
         log.error("Could not parse %s: %s", source, exc)
         return {
-            "scanned": 0, "inserted": 0, "skipped": 0, "errors": 1,
-            "source": str(source), "db_path": str(store.db_path),
+            "scanned": 0,
+            "inserted": 0,
+            "skipped": 0,
+            "errors": 1,
+            "source": str(source),
+            "db_path": str(store.db_path),
             "dry_run": dry_run,
             "parse_error": str(exc),
         }
@@ -206,7 +217,11 @@ async def migrate(source: Path, *, dry_run: bool = False, batch_size: int = 500)
     }
     log.info(
         "DONE: scanned=%d inserted=%d skipped=%d errors=%d (db=%s)",
-        scanned, inserted, skipped, errors, store.db_path,
+        scanned,
+        inserted,
+        skipped,
+        errors,
+        store.db_path,
     )
     return result
 

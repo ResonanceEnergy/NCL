@@ -20,16 +20,16 @@ from pathlib import Path
 
 import pytest
 
+
 # Make ``runtime`` importable from the repo root when tests run via pytest.
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from runtime.dispatch.pillar_router import (  # noqa: E402
-    DispatchResult,
+    VALID_PILLARS,
     PillarRouter,
     UnknownPillarError,
-    VALID_PILLARS,
     reset_default_router,
 )
 from runtime.ncl_brain.models import (  # noqa: E402
@@ -62,10 +62,7 @@ def intake_dirs(tmp_path):
 @pytest.fixture
 def router(intake_dirs):
     """A PillarRouter with intake dirs in tmp_path and no webhooks."""
-    cfg = {
-        p: {"intake_dir": intake_dirs[p], "webhook_url": None}
-        for p in VALID_PILLARS
-    }
+    cfg = {p: {"intake_dir": intake_dirs[p], "webhook_url": None} for p in VALID_PILLARS}
     return PillarRouter(config=cfg)
 
 
@@ -133,6 +130,7 @@ async def test_idempotent_redispatch(router, intake_dirs):
 @pytest.mark.asyncio
 async def test_circuit_breaker_skips_after_3_failures(router, intake_dirs, monkeypatch):
     """3 consecutive write failures open the breaker; further calls short-circuit."""
+
     # Monkey-patch the file write to always blow up.
     def _boom(self, intake_dir, mandate_id, mandate_dict):
         raise OSError("simulated disk full")
@@ -241,8 +239,12 @@ def test_failed_cannot_jump_straight_to_active():
     m.transition_to(MandateStatus.ACTIVE)
     m.transition_to(MandateStatus.FAILED, reason="boom")
 
-    for target in (MandateStatus.ACTIVE, MandateStatus.IN_PROGRESS,
-                   MandateStatus.COMPLETED, MandateStatus.PENDING_APPROVAL):
+    for target in (
+        MandateStatus.ACTIVE,
+        MandateStatus.IN_PROGRESS,
+        MandateStatus.COMPLETED,
+        MandateStatus.PENDING_APPROVAL,
+    ):
         with pytest.raises(ValueError, match="Invalid mandate transition"):
             m.transition_to(target)
     # But DRAFT works.

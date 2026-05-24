@@ -38,6 +38,7 @@ import httpx
 
 # --- Time-windowed Bloom Filter for processed ID tracking (Fix #13) ---
 
+
 class _TimeWindowedBloomFilter:
     """Approximate membership filter with time-based expiry.
 
@@ -88,6 +89,7 @@ class _TimeWindowedBloomFilter:
             return True
         return False
 
+
 # --- Config ---
 
 # Hydrate STRIKE_AUTH_TOKEN from macOS keychain if not already in env.
@@ -95,10 +97,20 @@ class _TimeWindowedBloomFilter:
 if not os.getenv("STRIKE_AUTH_TOKEN"):
     try:
         import subprocess as _sp
+
         _r = _sp.run(
-            ["security", "find-generic-password", "-s", "ncl-strike-auth-token",
-             "-a", "natrix", "-w"],
-            capture_output=True, text=True, timeout=2,
+            [
+                "security",
+                "find-generic-password",
+                "-s",
+                "ncl-strike-auth-token",
+                "-a",
+                "natrix",
+                "-w",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=2,
         )
         if _r.returncode == 0 and _r.stdout.strip():
             os.environ["STRIKE_AUTH_TOKEN"] = _r.stdout.strip()
@@ -216,12 +228,18 @@ if not STRIKE_AUTH_TOKEN:
     )
 
 
-
 def _priority_to_urgency(priority: str) -> str:
     """Map pump priority to NCL brain urgency."""
     mapping = {
-        "P0": "critical", "P1": "high", "P2": "normal", "P3": "low", "P4": "low",
-        "critical": "critical", "high": "high", "medium": "normal", "low": "low",
+        "P0": "critical",
+        "P1": "high",
+        "P2": "normal",
+        "P3": "low",
+        "P4": "low",
+        "critical": "critical",
+        "high": "high",
+        "medium": "normal",
+        "low": "low",
     }
     return mapping.get(priority, "normal")
 
@@ -328,7 +346,9 @@ def _extract_prompt(envelope: dict) -> dict:
     if isinstance(p, str) and p:
         return {"raw_intent": p, "rawIntent": p}
     # iOS Shortcuts shape: rawIntent/formattedPrompt at top level
-    if any(k in envelope for k in ("rawIntent", "raw_intent", "formattedPrompt", "formatted_prompt")):
+    if any(
+        k in envelope for k in ("rawIntent", "raw_intent", "formattedPrompt", "formatted_prompt")
+    ):
         return envelope
     return {}
 
@@ -339,9 +359,7 @@ async def forward_pump_to_brain(pump_file: Path) -> bool:
     Returns True if successfully forwarded.
     """
     try:
-        envelope = await asyncio.to_thread(
-            lambda: json.loads(pump_file.read_bytes())
-        )
+        envelope = await asyncio.to_thread(lambda: json.loads(pump_file.read_bytes()))
 
         prompt = _extract_prompt(envelope)
         pump_id = envelope.get("pump_id", pump_file.stem)
@@ -439,8 +457,7 @@ async def forward_pump_to_brain(pump_file: Path) -> bool:
             return True
         else:
             log.warning(
-                f"Brain rejected {pump_file.name}: {resp.status_code} "
-                f"body={resp.text[:200]!r}"
+                f"Brain rejected {pump_file.name}: {resp.status_code} " f"body={resp.text[:200]!r}"
             )
             return False
 
@@ -451,9 +468,7 @@ async def forward_pump_to_brain(pump_file: Path) -> bool:
         log.error(f"Invalid JSON in {pump_file.name}")
         return False
     except Exception as e:
-        log.error(
-            f"Error processing {pump_file.name}: {type(e).__name__}: {e!r}"
-        )
+        log.error(f"Error processing {pump_file.name}: {type(e).__name__}: {e!r}")
         return False
 
 
@@ -477,7 +492,9 @@ async def process_pending_pumps():
                 continue  # still in backoff period
         if _retry_counts.get(pump_file.name, 0) >= _MAX_RETRIES:
             # Max retries exceeded — move to failed/
-            log.error(f"Max retries ({_MAX_RETRIES}) exceeded for {pump_file.name} — moving to failed/")
+            log.error(
+                f"Max retries ({_MAX_RETRIES}) exceeded for {pump_file.name} — moving to failed/"
+            )
             try:
                 dest = FAILED_DIR / pump_file.name
                 await asyncio.to_thread(shutil.move, str(pump_file), str(dest))
@@ -495,9 +512,7 @@ async def process_pending_pumps():
 
         # Read envelope — skip file if unreadable
         try:
-            envelope = await asyncio.to_thread(
-                lambda p=pump_file: json.loads(p.read_bytes())
-            )
+            envelope = await asyncio.to_thread(lambda p=pump_file: json.loads(p.read_bytes()))
         except (json.JSONDecodeError, OSError) as e:
             log.error(f"Cannot read {pump_file.name}: {e} — skipping")
             continue
@@ -518,7 +533,9 @@ async def process_pending_pumps():
 
         # Extract session ID for response push (defensive: prompt may be str or absent)
         prompt_dict = _extract_prompt(envelope)
-        metadata = prompt_dict.get("metadata") if isinstance(prompt_dict.get("metadata"), dict) else {}
+        metadata = (
+            prompt_dict.get("metadata") if isinstance(prompt_dict.get("metadata"), dict) else {}
+        )
         session_id = metadata.get("session_id", "") if isinstance(metadata, dict) else ""
         prompt_id = prompt_dict.get("id") or envelope.get("id")
 
@@ -551,7 +568,7 @@ async def process_pending_pumps():
             # Fix #14: Record failure and compute exponential backoff
             attempts = _retry_counts.get(pump_file.name, 0) + 1
             _retry_counts[pump_file.name] = attempts
-            backoff_secs = min(2 ** attempts, 300)  # max 5 min backoff
+            backoff_secs = min(2**attempts, 300)  # max 5 min backoff
             _retry_backoff_until[pump_file.name] = time.monotonic() + backoff_secs
             log.warning(
                 f"Forward failed for {pump_file.name} (attempt {attempts}/{_MAX_RETRIES}) "
@@ -578,7 +595,6 @@ async def run_watcher():
         global _shutdown
         log.info(f"Signal {signum} received — shutting down pump watcher gracefully")
         _shutdown = True
-
 
     for sig in (signal.SIGINT, signal.SIGTERM):
         try:
