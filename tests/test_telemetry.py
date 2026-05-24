@@ -1,14 +1,10 @@
 """Tests for NCL telemetry system."""
-import tempfile
-from pathlib import Path
-
-import pytest
 
 from runtime.telemetry.schema import (
     RedactionRule,
-    TelemetryRecord,
-    TelemetryLevel,
     TelemetryCategory,
+    TelemetryLevel,
+    TelemetryRecord,
 )
 
 
@@ -53,13 +49,8 @@ def test_redaction_nested_dict():
     """Test recursive dict redaction."""
     data = {
         "user_email": "user@example.com",
-        "metadata": {
-            "phone": "555-123-4567",
-            "config": {
-                "api_key": "sk-abc123def456ghi789jkl012"
-            }
-        },
-        "ips": ["192.168.1.1", "10.0.0.1"]
+        "metadata": {"phone": "555-123-4567", "config": {"api_key": "sk-abc123def456ghi789jkl012"}},
+        "ips": ["192.168.1.1", "10.0.0.1"],
     }
 
     redacted = RedactionRule.redact_dict(data)
@@ -96,10 +87,7 @@ def test_record_redacted_method():
         category=TelemetryCategory.PUMP,
         workflow="pump_intake",
         action="received",
-        payload={
-            "user_email": "test@example.com",
-            "ip_address": "192.168.1.1"
-        }
+        payload={"user_email": "test@example.com", "ip_address": "192.168.1.1"},
     )
 
     redacted_payload = RedactionRule.redact_dict(record.payload or {})
@@ -164,7 +152,7 @@ def test_telemetry_record_with_counters_and_gauges():
         workflow="council_run",
         action="completed",
         counters={"agents_run": 3, "items_processed": 42},
-        gauges={"avg_confidence": 0.87, "consensus_score": 92.5}
+        gauges={"avg_confidence": 0.87, "consensus_score": 92.5},
     )
 
     assert record.counters == {"agents_run": 3, "items_processed": 42}

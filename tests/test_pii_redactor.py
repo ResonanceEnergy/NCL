@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import time
 
-import pytest
-
 from runtime.memory.pii_redactor import (
     PIIRedactor,
     RedactionResult,
@@ -16,6 +14,7 @@ from runtime.memory.pii_redactor import (
 # ---------------------------------------------------------------------------
 # Core pattern coverage
 # ---------------------------------------------------------------------------
+
 
 def test_detects_email_and_phone_us():
     text = "Call me at 555-123-4567 or email john@example.com"
@@ -36,10 +35,7 @@ def test_detects_ssn():
 
 
 def test_detects_anthropic_and_openai_api_keys():
-    text = (
-        "ANTHROPIC=sk-ant-abc123DEFghi456jklMNO_test "
-        "OPENAI=sk-abcdef123456ghijklmnopqr"
-    )
+    text = "ANTHROPIC=sk-ant-abc123DEFghi456jklMNO_test " "OPENAI=sk-abcdef123456ghijklmnopqr"
     r = PIIRedactor.scan(text)
     types = {f["type"] for f in r.findings}
     # The anthropic key must classify as api_key_anthropic, not as
@@ -67,16 +63,14 @@ def test_detects_private_address():
 # Allowlist — infrastructure must NOT be flagged
 # ---------------------------------------------------------------------------
 
+
 def test_allowlist_tailscale_and_localhost():
-    text = (
-        "Brain at 100.72.223.123:8800, dev at 127.0.0.1, "
-        "but customer at 73.42.18.5"
-    )
+    text = "Brain at 100.72.223.123:8800, dev at 127.0.0.1, " "but customer at 73.42.18.5"
     r = PIIRedactor.scan(text)
     ipv4_findings = [f for f in r.findings if f["type"] == "ipv4"]
-    assert len(ipv4_findings) == 1, (
-        f"expected 1 non-allowlisted ipv4, got {[f['original'] for f in ipv4_findings]}"
-    )
+    assert (
+        len(ipv4_findings) == 1
+    ), f"expected 1 non-allowlisted ipv4, got {[f['original'] for f in ipv4_findings]}"
     assert ipv4_findings[0]["original"] == "73.42.18.5"
     # Allowlisted IPs must appear verbatim in the output
     assert "100.72.223.123" in r.redacted_text
@@ -95,6 +89,7 @@ def test_strict_mode_account_id_off_by_default():
 # ---------------------------------------------------------------------------
 # Stable tokens / idempotency
 # ---------------------------------------------------------------------------
+
 
 def test_stable_token_is_deterministic():
     t1 = _stable_token("email", "foo@bar.com")
@@ -143,6 +138,7 @@ def test_empty_text_safe():
 # Performance — must stay under the budget
 # ---------------------------------------------------------------------------
 
+
 def test_perf_typical_memory_unit_under_5ms():
     """A ~2 KB unit (well above the median) must scan in well under 5 ms."""
     text = (
@@ -176,6 +172,7 @@ def test_perf_single_scan_under_1ms_target():
 # ---------------------------------------------------------------------------
 # Audit dict — must never leak the raw value
 # ---------------------------------------------------------------------------
+
 
 def test_audit_dict_omits_raw_values():
     r = PIIRedactor.scan("email alice@example.com, ssn 123-45-6789")

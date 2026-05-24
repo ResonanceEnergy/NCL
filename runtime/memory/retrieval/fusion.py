@@ -25,7 +25,7 @@ import logging
 import os
 import re
 import time
-from typing import TYPE_CHECKING, Iterable, Optional
+from typing import TYPE_CHECKING, Optional
 
 from ..authority import (
     AuthorityTier,
@@ -33,11 +33,12 @@ from ..authority import (
     tier_for_source,
 )
 
+
 log = logging.getLogger("ncl.memory.retrieval.fusion")
 
 if TYPE_CHECKING:
-    from ..store import MemoryStore
     from ..knowledge_graph import KnowledgeGraph
+    from ..store import MemoryStore
     from .bm25 import BM25Index
 
 # Default per-signal weights — entity overlap is noisier so it gets a
@@ -83,6 +84,18 @@ class FusedRetriever:
         self.bm25 = bm25_index
         self.kg = knowledge_graph
         self.k = max(1, int(k))
+        # Source-authority learner — lazy singleton, optional. When set,
+        # ``retrieve()`` multiplies each candidate's static tier weight by
+        # ``learner.adjustment_for(source)`` (in [0.6, 1.4]) before the
+        # final RRF score reweight, then clamps to [0.05, 1.5]. None ⇒
+        # behaviour identical to the pre-learner retrieval path.
+        self._learner = None
+        try:
+            from ...feedback.source_authority_learner import get_learner
+
+            self._learner = get_learner()
+        except Exception as _exc:
+            log.debug("[FUSION] learner unavailable: %s", _exc)
 
     # ------------------------------------------------------------------
 
@@ -235,7 +248,10 @@ class FusedRetriever:
         units_by_id = await self.store._load_units_batch(wanted_ids) if wanted_ids else {}
 
         reweighted: list[tuple[str, float, float, float, dict]] = []
-        # tuple: (uid, final_score, raw_rrf, authority_w, breakdown)
+        # tuple: (uid, final_score, raw_rrf, final_authority_w, breakdown)
+        # Track per-source learner adjustments for telemetry — only the
+        # ones that actually deviate from the prior (1.0).
+        adj_deviations: list[tuple[str, float]] = []  # (source, adjustment)
         for uid, raw_score, br in candidate_window:
             unit = units_by_id.get(uid)
             if not unit:
@@ -247,15 +263,39 @@ class FusedRetriever:
                 tier = tier_for_source(getattr(unit, "source", ""))
                 tv = int(tier)
             aw = authority_weight(int(tv))
-            final = raw_score * aw
-            reweighted.append((uid, final, raw_score, aw, br))
+            # Layer learner adjustment on top of the static tier weight.
+            # Static prior (NATRIX=1.0, SCANNER=0.2, …) × empirical
+            # posterior factor in [0.6, 1.4], clamped to [0.05, 1.5].
+            unit_source = getattr(unit, "source", "") or ""
+            if self._learner is not None and unit_source:
+                try:
+                    learner_adj = float(self._learner.adjustment_for(unit_source))
+                except Exception:
+                    learner_adj = 1.0
+            else:
+                learner_adj = 1.0
+            final_aw = max(0.05, min(1.5, aw * learner_adj))
+            final = raw_score * final_aw
+            reweighted.append((uid, final, raw_score, final_aw, br))
+            if abs(learner_adj - 1.0) > 1e-6:
+                adj_deviations.append((unit_source, learner_adj))
 
         reweighted.sort(key=lambda x: x[1], reverse=True)
+
+        # Telemetry — log the top-3 candidates whose learner adjustment
+        # deviated most from the prior (1.0). Cheap (sort over a short
+        # list) and only fires when the learner is actually pulling
+        # candidates around.
+        if adj_deviations:
+            adj_deviations.sort(key=lambda x: abs(x[1] - 1.0), reverse=True)
+            top3 = ", ".join(f"{src}: {adj:.2f}" for src, adj in adj_deviations[:3])
+            log.info("[FUSION] learner adjustments applied: top3=%s", top3)
 
         # 2026-05-22 cross-cutting quality directive: drop sub-threshold
         # noise so the top-k surfaces real matches. Tunable via env so
         # eval / debugging can lower it temporarily.
         import os
+
         try:
             min_fused = float(os.environ.get("NCL_FUSION_MIN_SCORE", "0.0"))
         except ValueError:
@@ -266,9 +306,19 @@ class FusedRetriever:
         # candidates, hand them to Cohere for a relevance cross-pass, then
         # take final top_k. Graceful: any failure path returns the original
         # ordering, so this is safe to opt in.
-        rerank_enabled = os.environ.get(
-            "NCL_FUSION_RERANK_ENABLED", "false"
-        ).strip().lower() in ("1", "true", "yes", "on")
+        #
+        # 2026-05-23 COST EMERGENCY: default remains "false" (opt-in).
+        # Cohere Rerank 3.5 costs ~$2 / 1k searches. With FusedRetriever
+        # backing the iOS Memory→Search "Smart" mode + every chat memory
+        # lookup, even modest usage saturates the $1/day cohere budget
+        # quickly. Operators who want better recall can set
+        # NCL_FUSION_RERANK_ENABLED=true explicitly after raising the cap.
+        rerank_enabled = os.environ.get("NCL_FUSION_RERANK_ENABLED", "false").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
 
         slice_n = 30 if rerank_enabled else max(top_k, 1)
 
@@ -278,30 +328,33 @@ class FusedRetriever:
                 continue
             unit = units_by_id[uid]
             meta = getattr(unit, "metadata", None) or {}
-            tier_val = int(meta.get("authority_tier",
-                                    int(tier_for_source(getattr(unit, "source", "")))))
+            tier_val = int(
+                meta.get("authority_tier", int(tier_for_source(getattr(unit, "source", ""))))
+            )
             try:
                 tier_name = AuthorityTier(tier_val).name.lower()
             except ValueError:
                 tier_name = "raw"
             awarebot_tier = meta.get("tier") or meta.get("route_level")
-            prelim.append({
-                "unit_id": uid,
-                "content": (unit.content[:500] + ("…" if len(unit.content) > 500 else "")),
-                "source": unit.source,
-                "importance": float(unit.importance),
-                "memory_type": getattr(unit, "memory_type", "episodic"),
-                "memory_tier": getattr(unit, "memory_tier", "SML"),
-                "tags": list(unit.tags or []),
-                "fused_score": round(final_score, 6),
-                "rrf_score": round(raw_score, 6),
-                "authority_tier": tier_val,
-                "authority_tier_name": tier_name,
-                "authority_weight": round(aw, 3),
-                "tier": awarebot_tier,
-                "signal_id": meta.get("signal_id"),
-                "signal_breakdown": br,
-            })
+            prelim.append(
+                {
+                    "unit_id": uid,
+                    "content": (unit.content[:500] + ("…" if len(unit.content) > 500 else "")),
+                    "source": unit.source,
+                    "importance": float(unit.importance),
+                    "memory_type": getattr(unit, "memory_type", "episodic"),
+                    "memory_tier": getattr(unit, "memory_tier", "SML"),
+                    "tags": list(unit.tags or []),
+                    "fused_score": round(final_score, 6),
+                    "rrf_score": round(raw_score, 6),
+                    "authority_tier": tier_val,
+                    "authority_tier_name": tier_name,
+                    "authority_weight": round(aw, 3),
+                    "tier": awarebot_tier,
+                    "signal_id": meta.get("signal_id"),
+                    "signal_breakdown": br,
+                }
+            )
 
         if rerank_enabled and len(prelim) > 1:
             prelim = await self._rerank_with_cohere(query, prelim, top_k=top_k)
@@ -312,9 +365,15 @@ class FusedRetriever:
         log.info(
             "[FUSION] q=%r top_k=%d vector=%d bm25=%d entity=%d fused=%d "
             "candidates=%d rerank=%s in %.3fs",
-            query[:60], top_k,
-            len(vector_r), len(bm25_r), len(entity_r), len(fused),
-            len(candidate_window), "on" if rerank_enabled else "off", elapsed,
+            query[:60],
+            top_k,
+            len(vector_r),
+            len(bm25_r),
+            len(entity_r),
+            len(fused),
+            len(candidate_window),
+            "on" if rerank_enabled else "off",
+            elapsed,
         )
         return results
 
@@ -360,6 +419,7 @@ class FusedRetriever:
         # already over budget. Best-effort lookup.
         try:
             from ...cost_tracker import get_tracker
+
             tracker = await get_tracker()
             if hasattr(tracker, "can_spend"):
                 ok, _ = await tracker.can_spend("anthropic", 0.01)
@@ -370,63 +430,41 @@ class FusedRetriever:
             pass
 
         # Compact JSON over the wire — index ↔ unit_id mapping is local.
-        compact = [
-            {"i": i, "text": (c["content"] or "")[:300]}
-            for i, c in enumerate(candidates)
-        ]
+        compact = [{"i": i, "text": (c["content"] or "")[:300]} for i, c in enumerate(candidates)]
         prompt = (
             "Rank these memory snippets by relevance to the QUERY. "
-            "Reply ONLY with JSON: {\"scores\": [[i, score_0_100], ...]}.\n\n"
+            'Reply ONLY with JSON: {"scores": [[i, score_0_100], ...]}.\n\n'
             f"QUERY: {query}\n\nSNIPPETS:\n{json.dumps(compact, ensure_ascii=False)}"
         )
 
         try:
-            import httpx
-            async with httpx.AsyncClient(timeout=8.0) as client:
-                resp = await client.post(
-                    "https://api.anthropic.com/v1/messages",
-                    headers={
-                        "x-api-key": api_key,
-                        "anthropic-version": "2023-06-01",
-                        "content-type": "application/json",
-                    },
-                    json={
-                        "model": "claude-haiku-4-5",
-                        "max_tokens": 800,
-                        "messages": [{"role": "user", "content": prompt}],
-                    },
-                )
-            if resp.status_code != 200:
-                log.warning("[FUSION-RERANK] HTTP %d", resp.status_code)
-                return []
-            data = resp.json()
-            text = data.get("content", [{}])[0].get("text", "")
+            # W6-D: routed through runtime.llm facade. Facade owns cost
+            # recording, retries, and budget gating. We still record
+            # memory-budget telemetry separately.
+            from ...llm import chat as _llm_chat
+
+            result = await _llm_chat(
+                model="claude-haiku-4-5",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=800,
+                temperature=0.7,
+                budget_key="anthropic",
+                timeout_s=8.0,
+            )
+            text = result.text or ""
             text = re.sub(r"```json\s*", "", text)
             text = re.sub(r"```\s*", "", text)
             parsed = json.loads(text.strip())
             scores = parsed.get("scores", [])
-
-            # Cost tracking
-            try:
-                from ...cost_tracker import record_cost
-                usage = data.get("usage", {})
-                in_t = usage.get("input_tokens", 0)
-                out_t = usage.get("output_tokens", 0)
-                # Haiku pricing (USD per 1M tokens, in/out)
-                cost = (in_t * 0.80 + out_t * 4.00) / 1_000_000
-                await record_cost("anthropic", cost, "fusion_rerank",
-                                  f"rerank in={in_t} out={out_t}")
-            except Exception:
-                pass
 
             # Memory budget telemetry — log the prompt-context tokens fed
             # into the reranker. Prefer Anthropic's reported usage when
             # available, fall back to a chars/4 estimate of the prompt.
             try:
                 from ..budget_tracker import record as _bt_record
-                usage = data.get("usage", {}) or {}
-                tokens_in = int(usage.get("input_tokens") or max(1, len(prompt) // 4))
-                tokens_out = int(usage.get("output_tokens") or 0)
+
+                tokens_in = int(result.usage_input_tokens or max(1, len(prompt) // 4))
+                tokens_out = int(result.usage_output_tokens or 0)
                 await _bt_record(
                     "retrieval_rerank",
                     tokens_in,
@@ -483,6 +521,7 @@ class FusedRetriever:
         # Budget gate — Cohere rerank ≈ $0.002 per call.
         try:
             from ...cost_tracker import get_tracker
+
             tracker = await get_tracker()
             ok = await tracker.can_spend("cohere", 0.002)
             if not ok:
@@ -572,6 +611,7 @@ class FusedRetriever:
         # Record cost — flat $0.002 per search regardless of doc count.
         try:
             from ...cost_tracker import record_cost
+
             await record_cost(
                 "cohere",
                 0.002,
@@ -585,6 +625,7 @@ class FusedRetriever:
 
         log.info(
             "[FUSION:RERANK] applied — model=rerank-v3.5 cands=%d top=%d",
-            len(candidates), len(ranked),
+            len(candidates),
+            len(ranked),
         )
         return ranked[:top_k] if ranked else candidates

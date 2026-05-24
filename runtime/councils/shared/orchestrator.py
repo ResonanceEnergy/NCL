@@ -25,7 +25,8 @@ import logging
 import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Optional, Callable, Awaitable
+from typing import Any, Awaitable, Callable, Optional
+
 
 log = logging.getLogger("ncl.councils.orchestrator")
 
@@ -33,6 +34,7 @@ log = logging.getLogger("ncl.councils.orchestrator")
 @dataclass
 class AgentRole:
     """Definition of a council agent role."""
+
     name: str
     role: str
     goal: str
@@ -46,6 +48,7 @@ class AgentRole:
 @dataclass
 class AgentOutput:
     """Output from a single agent's work."""
+
     role: str
     model_used: str
     content: str
@@ -57,6 +60,7 @@ class AgentOutput:
 @dataclass
 class OrchestratorResult:
     """Final result from the full orchestrator pipeline."""
+
     session_id: str
     pipeline: str  # "youtube" or "x"
     agents_run: list[AgentOutput] = field(default_factory=list)
@@ -201,7 +205,8 @@ If it doesn't lead to understanding or action, cut it.""",
 # Keys are read fresh inside each function to support rotation without restart.
 # Do NOT cache them at module level.
 
-import httpx as _httpx
+import httpx as _httpx  # noqa: E402
+
 
 # Shared HTTP clients — lazily created on first use so they are instantiated
 # inside a running event loop.  Call close_shared_clients() on shutdown.
@@ -260,59 +265,48 @@ async def close_shared_clients() -> None:
         _ollama_client = None
 
 
-async def _call_claude(system: str, prompt: str, temperature: float = 0.3, max_tokens: int = 4096) -> str:
-    """Call Anthropic Claude API."""
-    anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
-    if not anthropic_key:
+async def _call_claude(
+    system: str, prompt: str, temperature: float = 0.3, max_tokens: int = 4096
+) -> str:
+    """Call Anthropic Claude via the unified LLM facade.
+
+    The facade owns budget gating, retry/backoff, circuit breaking, and
+    cost recording — this wrapper just maps the orchestrator's call
+    shape onto it. Returns "" on any error so the agent fallback chain
+    can try the next backend.
+    """
+    if not os.getenv("ANTHROPIC_API_KEY"):
         return ""
 
-    from ...cost_tracker import check_budget, record_cost
-    if not await check_budget("anthropic", 0.25):
-        log.warning("Anthropic daily budget exceeded — orchestrator call blocked")
-        return ""
-
+    model = os.getenv("COUNCIL_CLAUDE_MODEL", "claude-sonnet-4-20250514")
     try:
-        model = os.getenv("COUNCIL_CLAUDE_MODEL", "claude-sonnet-4-20250514")
-        client = await _get_claude_client()
-        resp = await client.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": anthropic_key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": model,
-                "max_tokens": max_tokens,
-                "system": system,
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": temperature,
-            },
+        from runtime.llm import chat
+
+        result = await chat(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            system=system,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            budget_key="anthropic",
+            timeout_s=60.0,
         )
-        resp.raise_for_status()
-        data = resp.json()
-
-        usage = data.get("usage", {})
-        input_t = usage.get("input_tokens", 0)
-        output_t = usage.get("output_tokens", 0)
-        cost = (input_t / 1000 * 0.003) + (output_t / 1000 * 0.015)
-        await record_cost("anthropic", cost, "orchestrator",
-                          f"{model} in={input_t} out={output_t}",
-                          model=model, input_tokens=input_t, output_tokens=output_t)
-
-        return data["content"][0]["text"]
+        return result.text
     except Exception as e:
         log.warning(f"Claude call failed: {e}")
         return ""
 
 
-async def _call_grok(system: str, prompt: str, temperature: float = 0.5, max_tokens: int = 4096) -> str:
+async def _call_grok(
+    system: str, prompt: str, temperature: float = 0.5, max_tokens: int = 4096
+) -> str:
     """Call xAI Grok API."""
     xai_key = os.getenv("XAI_API_KEY", "")
     if not xai_key:
         return ""
 
     from ...cost_tracker import check_budget, record_cost
+
     if not await check_budget("xai", 0.10):
         log.warning("xAI daily budget exceeded — orchestrator call blocked")
         return ""
@@ -343,9 +337,15 @@ async def _call_grok(system: str, prompt: str, temperature: float = 0.5, max_tok
         input_t = usage.get("prompt_tokens", 0)
         output_t = usage.get("completion_tokens", 0)
         cost = (input_t / 1000 * 0.005) + (output_t / 1000 * 0.015)
-        await record_cost("xai", cost, "orchestrator",
-                          f"{model} in={input_t} out={output_t}",
-                          model=model, input_tokens=input_t, output_tokens=output_t)
+        await record_cost(
+            "xai",
+            cost,
+            "orchestrator",
+            f"{model} in={input_t} out={output_t}",
+            model=model,
+            input_tokens=input_t,
+            output_tokens=output_t,
+        )
 
         return data["choices"][0]["message"]["content"]
     except Exception as e:
@@ -353,7 +353,9 @@ async def _call_grok(system: str, prompt: str, temperature: float = 0.5, max_tok
         return ""
 
 
-async def _call_ollama(system: str, prompt: str, temperature: float = 0.4, max_tokens: int = 4096) -> str:
+async def _call_ollama(
+    system: str, prompt: str, temperature: float = 0.4, max_tokens: int = 4096
+) -> str:
     """Call local Ollama."""
     try:
         model = os.getenv("OLLAMA_COUNCIL_MODEL", "qwen3:32b")
@@ -378,8 +380,8 @@ async def _call_ollama(system: str, prompt: str, temperature: float = 0.4, max_t
         return ""
 
 
-_MEMBER_RESPONSE_TIMEOUT = 30.0   # seconds per backend attempt (per spec)
-_AGENT_TOTAL_TIMEOUT = 120.0      # total budget for all backend fallbacks
+_MEMBER_RESPONSE_TIMEOUT = 30.0  # seconds per backend attempt (per spec)
+_AGENT_TOTAL_TIMEOUT = 120.0  # total budget for all backend fallbacks
 
 
 async def _call_agent(
@@ -404,6 +406,7 @@ async def _call_agent(
         (response_text, model_used) — ("", "none") if all backends fail.
     """
     import time
+
     start = time.monotonic()
 
     # Build preference-ordered backend list
@@ -473,6 +476,7 @@ async def _call_agent(
 
 # ── JSON Extraction Helper ────────────────────────────────────────────────
 
+
 def _extract_json(text: str) -> dict[str, Any] | list:
     """
     Robustly extract a JSON object or array from LLM output.
@@ -492,7 +496,7 @@ def _extract_json(text: str) -> dict[str, Any] | list:
         pass
 
     # Find first { or [ and attempt to match balanced braces
-    for start_char, end_char in [('{', '}'), ('[', ']')]:
+    for start_char, end_char in [("{", "}"), ("[", "]")]:
         start_idx = stripped.find(start_char)
         if start_idx == -1:
             continue
@@ -504,7 +508,7 @@ def _extract_json(text: str) -> dict[str, Any] | list:
             if escape_next:
                 escape_next = False
                 continue
-            if ch == '\\' and in_string:
+            if ch == "\\" and in_string:
                 escape_next = True
                 continue
             if ch == '"' and not escape_next:
@@ -517,7 +521,7 @@ def _extract_json(text: str) -> dict[str, Any] | list:
             elif ch == end_char:
                 depth -= 1
                 if depth == 0:
-                    candidate = stripped[start_idx:i + 1]
+                    candidate = stripped[start_idx : i + 1]
                     try:
                         return json.loads(candidate)
                     except (json.JSONDecodeError, ValueError):
@@ -584,6 +588,7 @@ class CouncilOrchestrator:
             OrchestratorResult with all agent outputs and final synthesis
         """
         import time
+
         start = time.monotonic()
 
         result = OrchestratorResult(session_id=session_id, pipeline=pipeline)
@@ -620,9 +625,7 @@ class CouncilOrchestrator:
                 output.structured = _extract_json(response)
 
                 # Add this agent's output to context for next agent
-                accumulated_context += (
-                    f"\n\n## {agent.name} Output\n\n{response}\n"
-                )
+                accumulated_context += f"\n\n## {agent.name} Output\n\n{response}\n"
                 # Prevent unbounded growth
                 accumulated_context = _truncate_context(accumulated_context)
 
@@ -647,6 +650,7 @@ class CouncilOrchestrator:
 
 
 # ── Convenience function ──────────────────────────────────────────────────
+
 
 async def run_multi_agent_analysis(
     source_material: str,

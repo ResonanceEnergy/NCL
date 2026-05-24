@@ -4,14 +4,13 @@ Analyzes sources, extracts findings, identifies contradictions,
 and produces synthesis narratives with recommendations.
 """
 
-import json
 import logging
-import os
 from typing import Any, Optional
 
 import httpx
 
 from .models import Finding, ResearchBrief, ResearchResult, ResearchStatus, SourceResult
+
 
 log = logging.getLogger("uni.synthesizer")
 
@@ -133,9 +132,7 @@ class ResearchSynthesizer:
         condensed_findings = self._condense_findings(result.findings, max_count=5)
 
         # Generate recommendations from findings
-        recommendations = self._generate_recommendations(
-            result.key_takeaways, condensed_findings
-        )
+        recommendations = self._generate_recommendations(result.key_takeaways, condensed_findings)
 
         # Identify risk factors
         risk_factors = self._identify_risks(condensed_findings, result.sources_consulted)
@@ -207,42 +204,25 @@ KNOWLEDGE GAPS:
         return prompt
 
     async def _call_claude(self, prompt: str) -> str:
-        """Call Claude API for synthesis."""
+        """Call Claude API for synthesis (via runtime.llm facade).
+
+        Migrated to ``runtime.llm.chat`` in Wave 5: the facade now owns
+        retry/jitter, circuit breaker, budget gate, and cost recording.
+        """
         if not self.claude_api_key:
             raise ValueError("Claude API key not configured")
 
-        resp = await self.http_client.post(
-            f"{self.anthropic_base_url}/v1/messages",
-            headers={
-                "x-api-key": self.claude_api_key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": "claude-sonnet-4-20250514",
-                "max_tokens": 2048,
-                "messages": [{"role": "user", "content": prompt}],
-            },
+        # Lazy import to avoid circular ref at module load
+        from ..llm import chat
+
+        result = await chat(
+            model="claude-sonnet-4-20250514",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=2048,
+            budget_key="anthropic",
+            timeout_s=90.0,
         )
-        resp.raise_for_status()
-        data = resp.json()
-        content = data.get("content", [])
-        if not content or not isinstance(content, list):
-            raise ValueError(f"Unexpected Claude response: {list(data.keys())}")
-
-        # Track cost
-        try:
-            from ..cost_tracker import record_cost
-            usage = data.get("usage", {})
-            input_t = usage.get("input_tokens", 0)
-            output_t = usage.get("output_tokens", 0)
-            cost_usd = (input_t * 3.0 + output_t * 15.0) / 1_000_000
-            await record_cost("anthropic", cost_usd, "uni_synthesis",
-                              f"claude synthesis in={input_t} out={output_t}")
-        except Exception:
-            pass
-
-        return content[0].get("text", "")
+        return result.text
 
     async def _call_grok(self, prompt: str) -> str:
         """Call Grok API for synthesis."""
@@ -268,12 +248,14 @@ KNOWLEDGE GAPS:
         # Track cost
         try:
             from ..cost_tracker import record_cost
+
             usage = data.get("usage", {})
             input_t = usage.get("prompt_tokens", 0)
             output_t = usage.get("completion_tokens", 0)
             cost_usd = (input_t * 2.0 + output_t * 10.0) / 1_000_000
-            await record_cost("xai", cost_usd, "uni_synthesis",
-                              f"grok-3 synthesis in={input_t} out={output_t}")
+            await record_cost(
+                "xai", cost_usd, "uni_synthesis", f"grok-3 synthesis in={input_t} out={output_t}"
+            )
         except Exception:
             pass
 
@@ -292,17 +274,13 @@ KNOWLEDGE GAPS:
         resp.raise_for_status()
         return resp.json().get("response", "")
 
-    def _fallback_synthesis(
-        self, query: str, sources: list[SourceResult]
-    ) -> str:
+    def _fallback_synthesis(self, query: str, sources: list[SourceResult]) -> str:
         """Generate fallback synthesis when all AI models fail."""
         text = f"Research synthesis for: {query}\n\n"
         text += f"Sources analyzed: {len(sources)}\n"
 
         avg_relevance = sum(s.relevance_score for s in sources) / len(sources) if sources else 0
-        avg_credibility = (
-            sum(s.credibility_score for s in sources) / len(sources) if sources else 0
-        )
+        avg_credibility = sum(s.credibility_score for s in sources) / len(sources) if sources else 0
 
         text += f"Average relevance: {avg_relevance:.1%}\n"
         text += f"Average credibility: {avg_credibility:.1%}\n\n"
@@ -322,7 +300,7 @@ KNOWLEDGE GAPS:
         # Parse synthesis for findings section
         if "KEY FINDINGS:" in synthesis:
             findings_text = synthesis.split("KEY FINDINGS:")[1].split("\n\n")[0]
-            lines = [l.strip().lstrip("-").strip() for l in findings_text.split("\n") if l.strip()]
+            lines = [l.strip().lstrip("-").strip() for l in findings_text.split("\n") if l.strip()]  # noqa: E741
 
             for line in lines:
                 if line:
@@ -354,14 +332,12 @@ KNOWLEDGE GAPS:
 
         if "KEY TAKEAWAYS:" in synthesis:
             takeaways_text = synthesis.split("KEY TAKEAWAYS:")[1].split("\n\n")[0]
-            lines = [l.strip().lstrip("-").strip() for l in takeaways_text.split("\n") if l.strip()]
+            lines = [l.strip().lstrip("-").strip() for l in takeaways_text.split("\n") if l.strip()]  # noqa: E741
             takeaways = lines[:5]
 
         return takeaways
 
-    def _calculate_confidence(
-        self, sources: list[SourceResult], findings: list[Finding]
-    ) -> float:
+    def _calculate_confidence(self, sources: list[SourceResult], findings: list[Finding]) -> float:
         """Calculate overall confidence score."""
         if not sources:
             return 0.0
@@ -376,7 +352,9 @@ KNOWLEDGE GAPS:
         )
 
         # Weighted average
-        confidence = (avg_credibility * 0.4) + (avg_relevance * 0.3) + (avg_finding_confidence * 0.3)
+        confidence = (
+            (avg_credibility * 0.4) + (avg_relevance * 0.3) + (avg_finding_confidence * 0.3)
+        )
         return min(1.0, max(0.0, confidence))
 
     def _extract_summary(self, synthesis: str) -> str:
@@ -393,9 +371,7 @@ KNOWLEDGE GAPS:
         sorted_findings = sorted(findings, key=lambda f: f.confidence, reverse=True)
         return sorted_findings[:max_count]
 
-    def _generate_recommendations(
-        self, takeaways: list[str], findings: list[Finding]
-    ) -> list[str]:
+    def _generate_recommendations(self, takeaways: list[str], findings: list[Finding]) -> list[str]:
         """Generate recommendations from findings."""
         recommendations = []
 
@@ -405,9 +381,7 @@ KNOWLEDGE GAPS:
 
         return recommendations
 
-    def _identify_risks(
-        self, findings: list[Finding], sources: list[SourceResult]
-    ) -> list[str]:
+    def _identify_risks(self, findings: list[Finding], sources: list[SourceResult]) -> list[str]:
         """Identify risk factors from findings."""
         risks = []
 

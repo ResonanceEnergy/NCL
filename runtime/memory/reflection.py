@@ -24,14 +24,9 @@ The Reflector runs as a lightweight batch process during hourly
 consolidation. The full LLM-based reflection runs daily.
 """
 
-import asyncio
-import json
 import logging
-import os
 import re
-from collections import defaultdict
-from datetime import datetime, timezone, timedelta
-from typing import Optional, Any
+
 
 log = logging.getLogger("ncl.memory.reflection")
 
@@ -99,10 +94,13 @@ class MemoryReflector:
                         # Same topic area — check for importance divergence
                         imp_diff = abs(unit.importance - other_unit_obj.importance)
                         if imp_diff > 40:
-                            conflicts.append((
-                                uid, other_id,
-                                f"Importance divergence ({imp_diff:.0f}) on shared tags: {', '.join(sorted(shared_tags)[:3])}"
-                            ))
+                            conflicts.append(
+                                (
+                                    uid,
+                                    other_id,
+                                    f"Importance divergence ({imp_diff:.0f}) on shared tags: {', '.join(sorted(shared_tags)[:3])}",  # noqa: E501
+                                )
+                            )
 
         return {
             "duplicates": duplicates,
@@ -115,7 +113,7 @@ class MemoryReflector:
                 "low_quality_found": len(low_quality),
                 "conflicts_found": len(conflicts),
                 "avg_quality": sum(quality_scores.values()) / max(1, len(quality_scores)),
-            }
+            },
         }
 
     def _score_quality(self, unit) -> float:
@@ -171,10 +169,11 @@ class MemoryReflector:
     def _fingerprint(self, content: str) -> str:
         """Create a normalized fingerprint for dedup."""
         import hashlib
+
         # Normalize: lowercase, strip whitespace, remove punctuation
-        normalized = re.sub(r'[^\w\s]', '', content.lower().strip())
+        normalized = re.sub(r"[^\w\s]", "", content.lower().strip())
         # Use first 200 chars for fingerprint
-        normalized = ' '.join(normalized.split())[:200]
+        normalized = " ".join(normalized.split())[:200]
         return hashlib.md5(normalized.encode()).hexdigest()
 
 
@@ -243,7 +242,7 @@ class MemoryCurator:
             survivor.tags = list(set(survivor.tags + victim.tags))[:20]
             survivor.reinforcement_count += victim.reinforcement_count
 
-            if hasattr(survivor, 'consolidated_from'):
+            if hasattr(survivor, "consolidated_from"):
                 survivor.consolidated_from.append(victim.unit_id)
 
             merged.append((survivor.unit_id, [victim.unit_id]))
@@ -266,11 +265,16 @@ class MemoryCurator:
             if unit.unit_id in merged_away:
                 continue
 
-            tier = getattr(unit, 'memory_tier', 'SML')
+            tier = getattr(unit, "memory_tier", "SML")
             q = quality_scores.get(unit.unit_id, 0.5)
 
             # Promote SML -> LML: high quality + high importance + reinforced
-            if tier == "SML" and q >= 0.7 and unit.importance >= 60 and unit.reinforcement_count >= 2:
+            if (
+                tier == "SML"
+                and q >= 0.7
+                and unit.importance >= 60
+                and unit.reinforcement_count >= 2
+            ):
                 unit.memory_tier = "LML"
                 unit.decay_rate = 0.999  # Slow decay
                 promoted.append(unit.unit_id)
@@ -286,8 +290,8 @@ class MemoryCurator:
             for unit in units:
                 if unit.unit_id in merged_away:
                     continue
-                entities = getattr(unit, 'entities', [])
-                relationships = getattr(unit, 'relationships', [])
+                entities = getattr(unit, "entities", [])
+                relationships = getattr(unit, "relationships", [])
                 if entities:
                     await self.knowledge_graph.add_entities(entities, unit.unit_id)
                     kg_updates += len(entities)
@@ -297,7 +301,7 @@ class MemoryCurator:
 
         # 5. Set reflection_quality on all surviving units
         for unit in units:
-            if unit.unit_id not in merged_away and hasattr(unit, 'reflection_quality'):
+            if unit.unit_id not in merged_away and hasattr(unit, "reflection_quality"):
                 unit.reflection_quality = quality_scores.get(unit.unit_id)
 
         return {
@@ -313,5 +317,5 @@ class MemoryCurator:
                 "promoted_count": len(promoted),
                 "demoted_count": len(demoted),
                 "surviving": len(units) - len(merged_away),
-            }
+            },
         }

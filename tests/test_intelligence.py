@@ -10,15 +10,14 @@ Covers:
   - Persistence helpers
 """
 
-import asyncio
 import json
-from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch, mock_open
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from runtime.intelligence.engine import IntelligenceEngine, SignalCorrelator
 from runtime.intelligence.models import (
     IntelBrief,
     IntelSignal,
@@ -27,16 +26,15 @@ from runtime.intelligence.models import (
     PredictionMarketSignal,
     SectorSnapshot,
     SignalDirection,
-    SocialSignal,
     SourceType,
     TrendSignal,
 )
-from runtime.intelligence.engine import IntelligenceEngine, SignalCorrelator
 
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 def _make_config(**overrides):
     """Build a minimal config namespace for IntelligenceEngine."""
@@ -230,8 +228,10 @@ class TestSignalScoring:
 
     def test_score_capped_at_100(self):
         sig = _signal(
-            change_pct=100, confidence=1.0,
-            direction=SignalDirection.EMERGING, volume=999999,
+            change_pct=100,
+            confidence=1.0,
+            direction=SignalDirection.EMERGING,
+            volume=999999,
         )
         assert sig.importance_score() <= 100.0
 
@@ -403,24 +403,35 @@ class TestBriefGeneration:
     @pytest.mark.asyncio
     async def test_generate_brief_with_signals(self, mock_engine):
         """Brief generation with a mix of signal types."""
-        mock_engine._trends.collect_daily_trends = AsyncMock(return_value=[
-            _trend_signal("AI revolution"),
-        ])
-        mock_engine._crypto.collect_market_overview = AsyncMock(return_value=[
-            _market_signal("BTC", 62000, 3.5),
-        ])
-        mock_engine._polymarket.collect_trending_markets = AsyncMock(return_value=[
-            _prediction_signal("Will AI pass Turing test?", 0.65, 100000),
-        ])
-        mock_engine._news.collect_top_headlines = AsyncMock(return_value=[
-            NewsSignal(
-                source=SourceType.NEWS, title="Fed holds rates",
-                content="Federal Reserve holds rates steady",
-                headline="Fed holds rates", source_name="Reuters",
-                category="macro", confidence=0.7,
-                direction=SignalDirection.NEUTRAL,
-            ),
-        ])
+        mock_engine._trends.collect_daily_trends = AsyncMock(
+            return_value=[
+                _trend_signal("AI revolution"),
+            ]
+        )
+        mock_engine._crypto.collect_market_overview = AsyncMock(
+            return_value=[
+                _market_signal("BTC", 62000, 3.5),
+            ]
+        )
+        mock_engine._polymarket.collect_trending_markets = AsyncMock(
+            return_value=[
+                _prediction_signal("Will AI pass Turing test?", 0.65, 100000),
+            ]
+        )
+        mock_engine._news.collect_top_headlines = AsyncMock(
+            return_value=[
+                NewsSignal(
+                    source=SourceType.NEWS,
+                    title="Fed holds rates",
+                    content="Federal Reserve holds rates steady",
+                    headline="Fed holds rates",
+                    source_name="Reuters",
+                    category="macro",
+                    confidence=0.7,
+                    direction=SignalDirection.NEUTRAL,
+                ),
+            ]
+        )
 
         brief = await mock_engine.generate_brief()
         assert brief.total_signals_processed == 4
@@ -433,9 +444,11 @@ class TestBriefGeneration:
         mock_engine._trends.collect_daily_trends = AsyncMock(
             side_effect=RuntimeError("Trends API down")
         )
-        mock_engine._crypto.collect_market_overview = AsyncMock(return_value=[
-            _market_signal("ETH", 3200, -1.2),
-        ])
+        mock_engine._crypto.collect_market_overview = AsyncMock(
+            return_value=[
+                _market_signal("ETH", 3200, -1.2),
+            ]
+        )
 
         brief = await mock_engine.generate_brief()
         # Should still succeed with partial data
@@ -456,19 +469,31 @@ class TestBriefGeneration:
     async def test_brief_risk_alerts_filter_noise(self, mock_engine):
         """Risk alerts should filter out sports/entertainment and low-volume."""
         bearish_macro = _signal(
-            category="macro", direction=SignalDirection.BEARISH,
-            confidence=0.9, change_pct=30, volume=50000,
-            title="Bond yields spike", content="10Y treasury yield surges",
+            category="macro",
+            direction=SignalDirection.BEARISH,
+            confidence=0.9,
+            change_pct=30,
+            volume=50000,
+            title="Bond yields spike",
+            content="10Y treasury yield surges",
         )
         bearish_sports = _signal(
-            category="sports", direction=SignalDirection.BEARISH,
-            confidence=0.9, change_pct=30, volume=50000,
-            title="Team loses game", content="Sports noise",
+            category="sports",
+            direction=SignalDirection.BEARISH,
+            confidence=0.9,
+            change_pct=30,
+            volume=50000,
+            title="Team loses game",
+            content="Sports noise",
         )
         low_vol = _signal(
-            category="macro", direction=SignalDirection.BEARISH,
-            confidence=0.9, change_pct=30, volume=500,
-            title="Obscure metric", content="Low volume noise",
+            category="macro",
+            direction=SignalDirection.BEARISH,
+            confidence=0.9,
+            change_pct=30,
+            volume=500,
+            title="Obscure metric",
+            content="Low volume noise",
         )
         mock_engine._news.collect_top_headlines = AsyncMock(
             return_value=[bearish_macro, bearish_sports, low_vol]
@@ -500,9 +525,7 @@ class TestExecutiveSummary:
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.raise_for_status = MagicMock()
-        mock_resp.json.return_value = {
-            "content": [{"text": "Markets are volatile today."}]
-        }
+        mock_resp.json.return_value = {"content": [{"text": "Markets are volatile today."}]}
         engine_with_key._llm_client.post = AsyncMock(return_value=mock_resp)
 
         result = await engine_with_key._generate_executive_summary([], [], [], [])
@@ -534,8 +557,10 @@ class TestExecutiveSummary:
 
         sectors = [
             SectorSnapshot(
-                sector="crypto", direction=SignalDirection.BULLISH,
-                signal_count=5, avg_confidence=0.8,
+                sector="crypto",
+                direction=SignalDirection.BULLISH,
+                signal_count=5,
+                avg_confidence=0.8,
             )
         ]
         result = await engine._generate_executive_summary(sectors, [], [], [])
@@ -549,8 +574,10 @@ class TestExecutiveSummary:
     def test_template_summary_with_sectors(self, engine):
         sectors = [
             SectorSnapshot(
-                sector="ai_tech", direction=SignalDirection.EXPANDING,
-                signal_count=10, avg_confidence=0.75,
+                sector="ai_tech",
+                direction=SignalDirection.EXPANDING,
+                signal_count=10,
+                avg_confidence=0.75,
             )
         ]
         result = engine._template_summary(sectors, [], [])
@@ -605,7 +632,7 @@ class TestStats:
         engine._reddit.collect_all = AsyncMock(return_value=[])
         engine._reddit.collect_ticker_mentions = AsyncMock(return_value={})
 
-        signals = await engine.collect_all_signals()
+        signals = await engine.collect_all_signals()  # noqa: F841
         stats = engine.get_stats()
         assert stats["total_signals_collected"] == 1
         assert stats["last_collection"] is not None
@@ -710,8 +737,10 @@ class TestBriefToText:
             executive_summary="Things are happening.",
             sectors=[
                 SectorSnapshot(
-                    sector="crypto", direction=SignalDirection.BULLISH,
-                    signal_count=3, avg_confidence=0.85,
+                    sector="crypto",
+                    direction=SignalDirection.BULLISH,
+                    signal_count=3,
+                    avg_confidence=0.85,
                 )
             ],
             predictions=[{"question": "Will X?", "probability": 0.6, "volume": 1000}],

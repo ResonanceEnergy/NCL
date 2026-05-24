@@ -16,6 +16,7 @@ from typing import Any, Optional
 
 from . import MemoryEvalRunner
 
+
 log = logging.getLogger("ncl.memory.eval.loop")
 
 # Default cadence — weekly
@@ -51,7 +52,7 @@ async def _memory_eval_loop(brain: Any) -> None:
       3. Diffs against the prior persisted run.
       4. Records ``last_memory_eval_at`` + ``last_memory_eval_result`` on the scheduler.
       5. Pushes an ntfy alert via the central AlertDispatcher on regression > 5%.
-    """
+    """  # noqa: E501
     scheduler = getattr(brain, "scheduler", None)
     stats = getattr(scheduler, "_stats", None) if scheduler is not None else None
 
@@ -90,8 +91,10 @@ async def _memory_eval_loop(brain: Any) -> None:
             agg = result.get("aggregate", {})
             log.info(
                 "[MEMORY-EVAL] Run complete — hit@5=%.3f hit@10=%.3f mrr=%.3f recall@10=%.3f",
-                agg.get("hit5", 0), agg.get("hit10", 0),
-                agg.get("mrr", 0), agg.get("recall10", 0),
+                agg.get("hit5", 0),
+                agg.get("hit10", 0),
+                agg.get("mrr", 0),
+                agg.get("recall10", 0),
             )
 
             if stats is not None:

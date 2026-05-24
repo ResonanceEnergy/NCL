@@ -30,17 +30,21 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+
 log = logging.getLogger("ncl.councils.xai.x_oauth")
 
 NCL_BASE = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
 TOKEN_FILE = NCL_BASE / "data" / "x_oauth_tokens.json"
 
+
 # X OAuth 2.0 config — set these in .env
 def _get_client_id() -> str:
     return os.getenv("X_OAUTH_CLIENT_ID", "")
 
+
 def _get_client_secret() -> str:
     return os.getenv("X_OAUTH_CLIENT_SECRET", "")
+
 
 # Callback URL — must match what's registered in the X Developer Portal
 REDIRECT_URI = os.getenv("X_OAUTH_REDIRECT_URI", "http://127.0.0.1:8800/x/oauth/callback")
@@ -50,7 +54,7 @@ SCOPES = ["tweet.read", "users.read", "like.read", "bookmark.read", "offline.acc
 
 # PKCE state — stored in memory for the duration of the auth flow.
 # NOTE: module-level global dict — only supports a single concurrent auth flow.
-# If multiple users need simultaneous OAuth, refactor to per-session state (e.g. keyed by state param).
+# If multiple users need simultaneous OAuth, refactor to per-session state (e.g. keyed by state param).  # noqa: E501
 _auth_state: dict = {}
 
 
@@ -220,12 +224,14 @@ async def refresh_access_token() -> dict:
             resp.raise_for_status()
             token_data = resp.json()
 
-        tokens.update({
-            "access_token": token_data.get("access_token", ""),
-            "refresh_token": token_data.get("refresh_token", tokens.get("refresh_token", "")),
-            "expires_in": token_data.get("expires_in", 7200),
-            "obtained_at": datetime.now(timezone.utc).isoformat(),
-        })
+        tokens.update(
+            {
+                "access_token": token_data.get("access_token", ""),
+                "refresh_token": token_data.get("refresh_token", tokens.get("refresh_token", "")),
+                "expires_in": token_data.get("expires_in", 7200),
+                "obtained_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
         _save_tokens(tokens)
         os.environ["X_USER_ACCESS_TOKEN"] = tokens["access_token"]
 

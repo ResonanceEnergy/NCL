@@ -1,0 +1,1 @@
+{"id":"smoke-ios","rawIntent":"watcher iOS-shape smoke","formattedPrompt":"verify iOS top-level fields parse","targetPillar":"NCL","priority":"P3","timestamp":"2026-05-15T17:30:00Z","metadata":{"source":"smoke","session_id":"sess-ios"}}

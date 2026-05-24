@@ -20,6 +20,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
+
 log = logging.getLogger("ncl.lde.ingestor")
 
 # Cache directory for downloaded audio
@@ -36,15 +37,27 @@ def detect_url_type(url: str) -> str:
     """Detect the type of URL for routing to the correct extractor."""
     url_lower = url.lower()
 
-    if any(domain in url_lower for domain in [
-        "youtube.com", "youtu.be", "youtube-nocookie.com",
-    ]):
+    if any(
+        domain in url_lower
+        for domain in [
+            "youtube.com",
+            "youtu.be",
+            "youtube-nocookie.com",
+        ]
+    ):
         return "youtube"
 
-    if any(domain in url_lower for domain in [
-        "vimeo.com", "dailymotion.com", "twitch.tv", "rumble.com",
-        "bitchute.com", "odysee.com",
-    ]):
+    if any(
+        domain in url_lower
+        for domain in [
+            "vimeo.com",
+            "dailymotion.com",
+            "twitch.tv",
+            "rumble.com",
+            "bitchute.com",
+            "odysee.com",
+        ]
+    ):
         return "video"
 
     if any(ext in url_lower for ext in [".mp3", ".mp4", ".wav", ".m4a", ".webm"]):
@@ -88,8 +101,12 @@ async def _ingest_video(url: str, source_type: str) -> dict[str, str]:
     if not audio_path:
         log.error(f"Audio download failed for {url}")
         return {
-            "url": url, "source_type": source_type, "title": "",
-            "text": "", "duration_seconds": "0", "method": "failed",
+            "url": url,
+            "source_type": source_type,
+            "title": "",
+            "text": "",
+            "duration_seconds": "0",
+            "method": "failed",
         }
 
     # Step 2: Transcribe
@@ -119,8 +136,12 @@ async def _ingest_article(url: str) -> dict[str, str]:
         if text and len(text) > 100:
             log.info(f"Extracted via trafilatura: {len(text)} chars")
             return {
-                "url": url, "source_type": "article", "title": title,
-                "text": text, "duration_seconds": "0", "method": "trafilatura",
+                "url": url,
+                "source_type": "article",
+                "title": title,
+                "text": text,
+                "duration_seconds": "0",
+                "method": "trafilatura",
             }
     except Exception as e:
         log.debug(f"trafilatura failed: {e}")
@@ -131,8 +152,12 @@ async def _ingest_article(url: str) -> dict[str, str]:
         if text and len(text) > 100:
             log.info(f"Extracted via newspaper3k: {len(text)} chars")
             return {
-                "url": url, "source_type": "article", "title": title,
-                "text": text, "duration_seconds": "0", "method": "newspaper3k",
+                "url": url,
+                "source_type": "article",
+                "title": title,
+                "text": text,
+                "duration_seconds": "0",
+                "method": "newspaper3k",
             }
     except Exception as e:
         log.debug(f"newspaper3k failed: {e}")
@@ -143,16 +168,24 @@ async def _ingest_article(url: str) -> dict[str, str]:
         if text and len(text) > 50:
             log.info(f"Extracted via httpx: {len(text)} chars")
             return {
-                "url": url, "source_type": "article", "title": title,
-                "text": text, "duration_seconds": "0", "method": "httpx",
+                "url": url,
+                "source_type": "article",
+                "title": title,
+                "text": text,
+                "duration_seconds": "0",
+                "method": "httpx",
             }
     except Exception as e:
         log.debug(f"httpx extraction failed: {e}")
 
     log.warning(f"All extraction methods failed for {url}")
     return {
-        "url": url, "source_type": "article", "title": "",
-        "text": "", "duration_seconds": "0", "method": "failed",
+        "url": url,
+        "source_type": "article",
+        "title": "",
+        "text": "",
+        "duration_seconds": "0",
+        "method": "failed",
     }
 
 
@@ -172,11 +205,13 @@ def _download_audio(url: str) -> tuple[Optional[Path], str]:
     ydl_opts = {
         "format": "bestaudio/best",
         "outtmpl": str(AUDIO_CACHE / "%(id)s.%(ext)s"),
-        "postprocessors": [{
-            "key": "FFmpegExtractAudio",
-            "preferredcodec": "mp3",
-            "preferredquality": "128",
-        }],
+        "postprocessors": [
+            {
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "128",
+            }
+        ],
         "quiet": True,
         "no_warnings": True,
     }
@@ -237,7 +272,9 @@ def _try_faster_whisper(audio_path: Path) -> tuple[str, float]:
 
     try:
         start = time.monotonic()
-        model = WhisperModel(WHISPER_MODEL, device=WHISPER_DEVICE, compute_type=WHISPER_COMPUTE_TYPE)
+        model = WhisperModel(
+            WHISPER_MODEL, device=WHISPER_DEVICE, compute_type=WHISPER_COMPUTE_TYPE
+        )
         segments_iter, info = model.transcribe(
             str(audio_path),
             beam_size=5,
@@ -301,13 +338,18 @@ def _try_openai_whisper(audio_path: Path) -> tuple[str, float]:
 
     try:
         import httpx
+
         with open(audio_path, "rb") as f:
             response = httpx.post(
                 "https://api.openai.com/v1/audio/transcriptions",
                 headers={"Authorization": f"Bearer {api_key}"},
                 files={"file": (audio_path.name, f, "audio/mpeg")},
-                data={"model": "whisper-1", "language": "en", "response_format": "verbose_json",
-                      "timestamp_granularities[]": "segment"},
+                data={
+                    "model": "whisper-1",
+                    "language": "en",
+                    "response_format": "verbose_json",
+                    "timestamp_granularities[]": "segment",
+                },
                 timeout=300.0,
             )
             response.raise_for_status()
@@ -331,6 +373,7 @@ def _try_openai_whisper(audio_path: Path) -> tuple[str, float]:
 def _extract_trafilatura(url: str) -> tuple[str, str]:
     """Extract article text via trafilatura."""
     import trafilatura
+
     downloaded = trafilatura.fetch_url(url)
     if not downloaded:
         return "", ""
@@ -344,29 +387,32 @@ def _extract_trafilatura(url: str) -> tuple[str, str]:
 def _extract_newspaper(url: str) -> tuple[str, str]:
     """Extract article text via newspaper3k."""
     from newspaper import Article
+
     article = Article(url)
     article.download()
     article.parse()
     return article.text or "", article.title or ""
 
 
-_ingestor_client: Optional["httpx.AsyncClient"] = None
-_ingestor_lock: Optional["asyncio.Lock"] = None
+_ingestor_client: Optional["httpx.AsyncClient"] = None  # noqa: F821
+_ingestor_lock: Optional["asyncio.Lock"] = None  # noqa: F821
 
 
-def _get_ingestor_lock() -> "asyncio.Lock":
+def _get_ingestor_lock() -> "asyncio.Lock":  # noqa: F821
     global _ingestor_lock
     import asyncio
+
     if _ingestor_lock is None:
         _ingestor_lock = asyncio.Lock()
     return _ingestor_lock
 
 
-async def _get_ingestor_client() -> "httpx.AsyncClient":
+async def _get_ingestor_client() -> "httpx.AsyncClient":  # noqa: F821
     """Return a shared HTTP client for LDE ingestor fetches."""
     global _ingestor_client
+
     import httpx
-    import asyncio
+
     if _ingestor_client is None or _ingestor_client.is_closed:
         async with _get_ingestor_lock():
             if _ingestor_client is None or _ingestor_client.is_closed:
@@ -377,9 +423,9 @@ async def _get_ingestor_client() -> "httpx.AsyncClient":
 async def _extract_httpx(url: str) -> tuple[str, str]:
     """Basic HTTP fetch + HTML tag stripping as last resort."""
     client = await _get_ingestor_client()
-    resp = await client.get(url, headers={
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) NCL-LDE/1.0"
-    })
+    resp = await client.get(
+        url, headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) NCL-LDE/1.0"}
+    )
     resp.raise_for_status()
     html = resp.text
 

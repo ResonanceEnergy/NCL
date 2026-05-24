@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
+
 log = logging.getLogger("ncl.councils.youtube.scraper")
 
 
@@ -54,22 +55,44 @@ MAX_TOTAL_DURATION_HOURS = 24
 
 # Strike Point relevance keywords — scored for priority selection
 STRIKE_POINT_KEYWORDS: list[str] = [
-    "crypto", "bitcoin", "ethereum", "altcoin", "defi",
-    "market", "stocks", "trading", "investing", "economy",
-    "eurodollar", "fed", "interest rate", "inflation", "macro",
-    "AI", "artificial intelligence", "machine learning", "automation",
-    "mindset", "entrepreneur", "business", "wealth",
-    "polymarket", "prediction", "forecast",
+    "crypto",
+    "bitcoin",
+    "ethereum",
+    "altcoin",
+    "defi",
+    "market",
+    "stocks",
+    "trading",
+    "investing",
+    "economy",
+    "eurodollar",
+    "fed",
+    "interest rate",
+    "inflation",
+    "macro",
+    "AI",
+    "artificial intelligence",
+    "machine learning",
+    "automation",
+    "mindset",
+    "entrepreneur",
+    "business",
+    "wealth",
+    "polymarket",
+    "prediction",
+    "forecast",
 ]
 
 # Where to store downloaded audio temporarily
-AUDIO_CACHE_DIR = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL"))) / ".cache" / "youtube-audio"
+AUDIO_CACHE_DIR = (
+    Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL"))) / ".cache" / "youtube-audio"
+)
 
 
 # YouTube Data API v3 quota: 10,000 units/day. yt-dlp doesn't consume quota
 # but we respect a polite crawl rate to avoid bot-detection blocks.
-_CHANNEL_SCRAPE_DELAY_SECONDS = 2.0   # minimum gap between channel scrapes
-_MAX_RETRIES_PER_CHANNEL = 2          # retry once on transient failure
+_CHANNEL_SCRAPE_DELAY_SECONDS = 2.0  # minimum gap between channel scrapes
+_MAX_RETRIES_PER_CHANNEL = 2  # retry once on transient failure
 
 
 def get_channel_list() -> list[str]:
@@ -168,28 +191,34 @@ def scrape_recent_videos(
                         upload_date = entry.get("upload_date", "")
                         if upload_date and upload_date < cutoff_str:
                             continue
-                        all_videos.append({
-                            "video_id": entry.get("id", ""),
-                            "title": entry.get("title", "Untitled"),
-                            "channel": channel_name,
-                            "channel_id": info.get("channel_id", ""),
-                            "upload_date": upload_date,
-                            "duration": entry.get("duration") or 0,
-                            "url": f"https://www.youtube.com/watch?v={entry.get('id', '')}",
-                            "description": entry.get("description", "")[:500],
-                            "view_count": entry.get("view_count") or 0,
-                            "like_count": entry.get("like_count") or 0,
-                            "tags": entry.get("tags") or [],
-                            "thumbnail": entry.get("thumbnail", ""),
-                        })
+                        all_videos.append(
+                            {
+                                "video_id": entry.get("id", ""),
+                                "title": entry.get("title", "Untitled"),
+                                "channel": channel_name,
+                                "channel_id": info.get("channel_id", ""),
+                                "upload_date": upload_date,
+                                "duration": entry.get("duration") or 0,
+                                "url": f"https://www.youtube.com/watch?v={entry.get('id', '')}",
+                                "description": entry.get("description", "")[:500],
+                                "view_count": entry.get("view_count") or 0,
+                                "like_count": entry.get("like_count") or 0,
+                                "tags": entry.get("tags") or [],
+                                "thumbnail": entry.get("thumbnail", ""),
+                            }
+                        )
                 break  # Success — no retry needed
             except Exception as e:
                 if attempt < _MAX_RETRIES_PER_CHANNEL - 1:
                     wait = 5.0 * (attempt + 1)
-                    log.warning(f"Scrape attempt {attempt+1} failed for {channel_url}: {e} — retrying in {wait:.0f}s")
+                    log.warning(
+                        f"Scrape attempt {attempt+1} failed for {channel_url}: {e} — retrying in {wait:.0f}s"  # noqa: E501
+                    )
                     time.sleep(wait)
                 else:
-                    log.error(f"Failed to scrape {channel_url} after {_MAX_RETRIES_PER_CHANNEL} attempts: {e}")
+                    log.error(
+                        f"Failed to scrape {channel_url} after {_MAX_RETRIES_PER_CHANNEL} attempts: {e}"  # noqa: E501
+                    )
 
     # ── Strike Point scoring ─────────────────────────────────────────
     # Score each video by keyword relevance, then select highest-scoring
@@ -212,7 +241,9 @@ def scrape_recent_videos(
     for video in all_videos:
         dur = video.get("duration", 0) or 0
         if total_seconds + dur > max_seconds:
-            log.info(f"Duration cap reached ({total_seconds/3600:.1f}h) — stopping at {len(selected)} videos")
+            log.info(
+                f"Duration cap reached ({total_seconds/3600:.1f}h) — stopping at {len(selected)} videos"  # noqa: E501
+            )
             break
         selected.append(video)
         total_seconds += dur
@@ -223,7 +254,9 @@ def scrape_recent_videos(
     )
     if selected:
         top = selected[0]
-        log.info(f"  Top hit: \"{top['title']}\" (score={top.get('strike_score', 0)}, {top.get('duration', 0)//60}m)")
+        log.info(
+            f"  Top hit: \"{top['title']}\" (score={top.get('strike_score', 0)}, {top.get('duration', 0)//60}m)"  # noqa: E501
+        )
     return selected
 
 
@@ -248,11 +281,13 @@ def download_audio(
     ydl_opts = {
         "format": "bestaudio/best",
         "outtmpl": str(out_dir / "%(id)s.%(ext)s"),
-        "postprocessors": [{
-            "key": "FFmpegExtractAudio",
-            "preferredcodec": "mp3",
-            "preferredquality": "128",
-        }],
+        "postprocessors": [
+            {
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "128",
+            }
+        ],
         "quiet": True,
         "no_warnings": True,
     }
@@ -263,7 +298,9 @@ def download_audio(
             video_id = info.get("id", "unknown")
             mp3_path = out_dir / f"{video_id}.mp3"
             if mp3_path.exists():
-                log.info(f"Audio downloaded → {mp3_path.name} ({mp3_path.stat().st_size / 1024 / 1024:.1f}MB)")
+                log.info(
+                    f"Audio downloaded → {mp3_path.name} ({mp3_path.stat().st_size / 1024 / 1024:.1f}MB)"  # noqa: E501
+                )
                 return mp3_path
 
             # yt-dlp might use a different extension
@@ -320,6 +357,7 @@ def download_batch(
 
 
 # ── Strike Point Scoring ──────────────────────────────────────────────
+
 
 def _strike_point_score(video: dict) -> float:
     """

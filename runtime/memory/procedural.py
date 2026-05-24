@@ -28,7 +28,6 @@ Budget:
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import logging
@@ -40,7 +39,32 @@ from typing import Any, Optional
 
 import aiofiles
 
+from ..config import flags
+
+
 log = logging.getLogger("ncl.memory.procedural")
+
+
+# ── SQLite units-index fast path (W6-A) ───────────────────────────────────
+#
+# Procedural skill cache refresh is a one-shot lookup (`procedural_skill`
+# tag, 365d window) — low frequency, but retrofitted for consistency.
+# When ``NCL_UNITS_INDEX_SQLITE=true``, try the SQLite ``units_index`` table
+# first (W4-14, store.py:_search_units_via_sqlite_index). Falls back to the
+# canonical ``search_units`` path on flag-off or ANY failure — flag-off
+# behavior is bit-identical to before this retrofit.
+async def _maybe_indexed_search(memory_store, **kwargs):
+    """Drop-in replacement for ``memory_store.search_units(**kwargs)``."""
+    if flags.units_index_sqlite():
+        try:
+            unit_ids = await memory_store._search_units_via_sqlite_index(**kwargs)
+            if unit_ids:
+                units_by_id = await memory_store._load_units_batch(set(unit_ids))
+                return [units_by_id[uid] for uid in unit_ids if uid in units_by_id]
+        except Exception as e:
+            log.debug("[PROCEDURAL] sqlite index search failed (%s) — falling back", e)
+    return await memory_store.search_units(**kwargs)
+
 
 # ── Tunables ──────────────────────────────────────────────────────────
 LLM_NIGHTLY_CAP_USD = 0.50
@@ -49,17 +73,18 @@ LLM_MAX_TOKENS = 600
 LLM_TIMEOUT_S = 20.0
 
 # Lookback windows
-COUNCIL_DOWNSTREAM_WINDOW_H = 24    # mandate must be created within 24h of council
-TRADE_DOWNSTREAM_WINDOW_H = 6       # trade must be entered within 6h of alert
+COUNCIL_DOWNSTREAM_WINDOW_H = 24  # mandate must be created within 24h of council
+TRADE_DOWNSTREAM_WINDOW_H = 6  # trade must be entered within 6h of alert
 
 # Skill reinforcement
-MIN_EVIDENCE_FOR_SKILL = 1          # 1 chain = candidate skill; more = stronger
+MIN_EVIDENCE_FOR_SKILL = 1  # 1 chain = candidate skill; more = stronger
 HIGH_IMPORTANCE_BOOST = 5.0
 
 
 # ─────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────
+
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -101,6 +126,7 @@ def _stable_skill_id(kind: str, trigger: str) -> str:
 # ─────────────────────────────────────────────────────────────────────
 # Main class
 # ─────────────────────────────────────────────────────────────────────
+
 
 class ProceduralDistiller:
     """
@@ -171,8 +197,10 @@ class ProceduralDistiller:
             consensus = (sess.get("consensus") or "").strip()
             synthesis = (sess.get("synthesis") or "").strip()
             status = (sess.get("status") or "").lower()
-            has_signal = bool(consensus) or bool(synthesis) or status in (
-                "complete", "completed", "synthesizing"
+            has_signal = (
+                bool(consensus)
+                or bool(synthesis)
+                or status in ("complete", "completed", "synthesizing")
             )
             if not has_signal:
                 # No usable output yet — skip.
@@ -199,37 +227,35 @@ class ProceduralDistiller:
             outcome, success = self._score_mandate_outcomes(downstream)
 
             chain_id = f"council:{sess.get('session_id', 'unknown')}"
-            chains.append({
-                "kind": "council",
-                "chain_id": chain_id,
-                "council_id": sess.get("session_id"),
-                "council_topic": sess.get("topic", ""),
-                "consensus": consensus or synthesis[:500],
-                "chair": sess.get("chair"),
-                "members": sess.get("members", []),
-                "completed_at": (
-                    _parse_iso(sess.get("completed_at")) or created
-                ).isoformat(),
-                "mandates": [
-                    {
-                        "mandate_id": m.get("mandate_id"),
-                        "title": m.get("title"),
-                        "objective": m.get("objective", "")[:300],
-                        "status": m.get("status"),
-                        "pillar": m.get("pillar"),
-                        "priority": m.get("priority"),
-                    }
-                    for m in downstream
-                ],
-                "outcome": outcome,
-                "success_score": success,
-            })
+            chains.append(
+                {
+                    "kind": "council",
+                    "chain_id": chain_id,
+                    "council_id": sess.get("session_id"),
+                    "council_topic": sess.get("topic", ""),
+                    "consensus": consensus or synthesis[:500],
+                    "chair": sess.get("chair"),
+                    "members": sess.get("members", []),
+                    "completed_at": (_parse_iso(sess.get("completed_at")) or created).isoformat(),
+                    "mandates": [
+                        {
+                            "mandate_id": m.get("mandate_id"),
+                            "title": m.get("title"),
+                            "objective": m.get("objective", "")[:300],
+                            "status": m.get("status"),
+                            "pillar": m.get("pillar"),
+                            "priority": m.get("priority"),
+                        }
+                        for m in downstream
+                    ],
+                    "outcome": outcome,
+                    "success_score": success,
+                }
+            )
 
         return chains
 
-    def _score_mandate_outcomes(
-        self, mandates: list[dict]
-    ) -> tuple[str, float]:
+    def _score_mandate_outcomes(self, mandates: list[dict]) -> tuple[str, float]:
         """Aggregate downstream mandate status into outcome + success score."""
         if not mandates:
             return "abandoned", 0.0
@@ -313,32 +339,34 @@ class ProceduralDistiller:
                 outcome = "breakeven"
 
             chain_id = f"trade:{t.get('id', 'unknown')}"
-            chains.append({
-                "kind": "trade",
-                "chain_id": chain_id,
-                "alert_signal": {
-                    "strategy": strategy,
-                    "symbol": t.get("symbol"),
-                    "direction": t.get("direction", "long"),
-                    "asset_type": t.get("asset_type", "stock"),
-                    "scanner_data": scanner_data,
-                },
-                "trade": {
-                    "id": t.get("id"),
-                    "symbol": t.get("symbol"),
-                    "direction": t.get("direction"),
-                    "entry_price": t.get("entry_price"),
-                    "stop_loss": t.get("stop_loss"),
-                    "target_1": t.get("target_1"),
-                    "risk_reward_ratio": t.get("risk_reward_ratio"),
-                    "days_held": t.get("days_held"),
-                    "entry_date": t.get("entry_date"),
-                    "exit_date": t.get("exit_date"),
-                },
-                "outcome": outcome,
-                "r_multiple": r_mult,
-                "exit_reason": exit_reason or None,
-            })
+            chains.append(
+                {
+                    "kind": "trade",
+                    "chain_id": chain_id,
+                    "alert_signal": {
+                        "strategy": strategy,
+                        "symbol": t.get("symbol"),
+                        "direction": t.get("direction", "long"),
+                        "asset_type": t.get("asset_type", "stock"),
+                        "scanner_data": scanner_data,
+                    },
+                    "trade": {
+                        "id": t.get("id"),
+                        "symbol": t.get("symbol"),
+                        "direction": t.get("direction"),
+                        "entry_price": t.get("entry_price"),
+                        "stop_loss": t.get("stop_loss"),
+                        "target_1": t.get("target_1"),
+                        "risk_reward_ratio": t.get("risk_reward_ratio"),
+                        "days_held": t.get("days_held"),
+                        "entry_date": t.get("entry_date"),
+                        "exit_date": t.get("exit_date"),
+                    },
+                    "outcome": outcome,
+                    "r_multiple": r_mult,
+                    "exit_reason": exit_reason or None,
+                }
+            )
 
         return chains
 
@@ -360,7 +388,7 @@ class ProceduralDistiller:
             domain = "governance"
         elif kind == "trade":
             sig = chain.get("alert_signal", {})
-            trigger_seed = f"{sig.get('strategy', 'SCANNER')} {sig.get('direction', '')} {sig.get('symbol', '')}".strip()
+            trigger_seed = f"{sig.get('strategy', 'SCANNER')} {sig.get('direction', '')} {sig.get('symbol', '')}".strip()  # noqa: E501
             domain = "trading"
         else:
             trigger_seed = chain.get("chain_id", "unknown")
@@ -423,6 +451,7 @@ class ProceduralDistiller:
         """Check the anthropic daily budget for this distillation pass."""
         try:
             from ..cost_tracker import check_budget
+
             return await check_budget("anthropic", LLM_NIGHTLY_CAP_USD)
         except Exception as e:
             log.debug(f"Budget check failed (treating as DENY): {e}")
@@ -446,9 +475,9 @@ class ProceduralDistiller:
                 "consensus": (chain.get("consensus") or "")[:1200],
                 "outcome": chain.get("outcome"),
                 "success_score": chain.get("success_score"),
-                "mandate_titles": [
-                    (m.get("title") or "")[:120] for m in chain.get("mandates", [])
-                ][:5],
+                "mandate_titles": [(m.get("title") or "")[:120] for m in chain.get("mandates", [])][
+                    :5
+                ],
             }
             sys_hint = (
                 "You distill governance workflows (council debate -> mandate -> outcome) "
@@ -481,57 +510,35 @@ class ProceduralDistiller:
         )
 
         try:
-            import httpx
-            async with httpx.AsyncClient(timeout=LLM_TIMEOUT_S) as client:
-                resp = await client.post(
-                    "https://api.anthropic.com/v1/messages",
-                    headers={
-                        "x-api-key": api_key,
-                        "anthropic-version": "2023-06-01",
-                        "content-type": "application/json",
-                    },
-                    json={
-                        "model": LLM_MODEL,
-                        "max_tokens": LLM_MAX_TOKENS,
-                        "messages": [{"role": "user", "content": prompt}],
-                    },
-                )
-            if resp.status_code != 200:
-                log.debug(f"LLM distill HTTP {resp.status_code}: {resp.text[:200]}")
-                return None
-            data = resp.json()
+            # W6-D: routed through runtime.llm facade. Facade owns cost
+            # recording, retries, and budget gating. We still record
+            # memory-budget telemetry separately.
+            from ..llm import chat as _llm_chat
 
-            # Cost tracking (Sonnet 4 pricing)
-            try:
-                from ..cost_tracker import record_cost
-                usage = data.get("usage", {})
-                in_t = usage.get("input_tokens", 0)
-                out_t = usage.get("output_tokens", 0)
-                cost = (in_t * 3.00 + out_t * 15.00) / 1_000_000
-                await record_cost(
-                    "anthropic", cost, "procedural_distill",
-                    f"distill {chain.get('kind')} in={in_t} out={out_t}",
-                )
-            except Exception:
-                pass
+            result = await _llm_chat(
+                model=LLM_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=LLM_MAX_TOKENS,
+                temperature=0.7,
+                budget_key="anthropic",
+                timeout_s=LLM_TIMEOUT_S,
+            )
 
             # Memory budget telemetry — track prompt-context tokens fed into
             # each distillation call. Best-effort.
             try:
                 from .budget_tracker import record as _bt_record
-                usage = data.get("usage", {}) or {}
-                tokens_in = int(usage.get("input_tokens") or 0)
-                tokens_out = int(usage.get("output_tokens") or 0)
+
                 await _bt_record(
                     "procedural_distill",
-                    tokens_in,
-                    tokens_out=tokens_out,
+                    int(result.usage_input_tokens or 0),
+                    tokens_out=int(result.usage_output_tokens or 0),
                     source=f"distill:{chain.get('kind', 'unknown')}",
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                log.warning("[PROCEDURAL] budget_tracker record swallowed: %s", e)
 
-            text = data.get("content", [{}])[0].get("text", "").strip()
+            text = (result.text or "").strip()
             # Strip any code fences just in case
             text = re.sub(r"^```(?:json)?\s*", "", text)
             text = re.sub(r"\s*```$", "", text)
@@ -551,16 +558,14 @@ class ProceduralDistiller:
         kind = chain.get("kind")
         if kind == "council":
             topic = (chain.get("council_topic") or "untitled council")[:120]
-            mandate_titles = [
-                (m.get("title") or "?")[:80] for m in chain.get("mandates", [])[:3]
-            ]
+            mandate_titles = [(m.get("title") or "?")[:80] for m in chain.get("mandates", [])[:3]]
             return {
                 "name": f"Council pattern: {topic[:60]}",
                 "trigger": f"Pump or topic resembling: {topic}",
                 "procedure": (
                     "1. Spawn council on the matched topic.\n"
                     "2. Wait for consensus or synthesis.\n"
-                    f"3. Issue downstream mandates similar to: {' | '.join(mandate_titles) or 'n/a'}.\n"
+                    f"3. Issue downstream mandates similar to: {' | '.join(mandate_titles) or 'n/a'}.\n"  # noqa: E501
                     "4. Track each mandate to terminal status."
                 ),
                 "_via": "rule",
@@ -579,8 +584,8 @@ class ProceduralDistiller:
                 ),
                 "procedure": (
                     f"1. Confirm {strat} entry criteria on {sym}.\n"
-                    f"2. Enter {dirn} at ~{trade.get('entry_price')} with stop {trade.get('stop_loss')}.\n"
-                    f"3. First target {trade.get('target_1')} (R:R {trade.get('risk_reward_ratio')}).\n"
+                    f"2. Enter {dirn} at ~{trade.get('entry_price')} with stop {trade.get('stop_loss')}.\n"  # noqa: E501
+                    f"3. First target {trade.get('target_1')} (R:R {trade.get('risk_reward_ratio')}).\n"  # noqa: E501
                     "4. Trail or scale per strategy rules; close on stop or target."
                 ),
                 "_via": "rule",
@@ -605,7 +610,9 @@ class ProceduralDistiller:
         skill_id = skill["skill_id"]
         await self._refresh_skills_cache()
 
-        existing_unit = self._existing_skills_cache.get(skill_id) if self._existing_skills_cache else None
+        existing_unit = (
+            self._existing_skills_cache.get(skill_id) if self._existing_skills_cache else None
+        )
 
         if existing_unit is not None:
             # Reinforce: merge evidence, bump counts, recompute success_rate,
@@ -626,33 +633,40 @@ class ProceduralDistiller:
             success_rate = round(success_count / ev_count, 3) if ev_count else 0.0
 
             merged = dict(prior_blob)
-            merged.update({
-                "evidence": new_evidence,
-                "evidence_count": ev_count,
-                "success_count": success_count,
-                "success_rate": success_rate,
-                "last_reinforced": _utc_now().isoformat(),
-                # Refresh procedure/name/trigger only if the new distill ran
-                # via LLM and the prior was rule-based.
-                "name": (
-                    skill["name"]
-                    if skill.get("distilled_by") == "llm" and prior_blob.get("distilled_by") != "llm"
-                    else prior_blob.get("name", skill["name"])
-                ),
-                "procedure": (
-                    skill["procedure"]
-                    if skill.get("distilled_by") == "llm" and prior_blob.get("distilled_by") != "llm"
-                    else prior_blob.get("procedure", skill["procedure"])
-                ),
-                "trigger": prior_blob.get("trigger", skill["trigger"]),
-                "skill_id": skill_id,
-                "kind": prior_blob.get("kind", skill.get("kind")),
-                "domain": prior_blob.get("domain", skill.get("domain")),
-                "distilled_by": (
-                    "llm" if "llm" in (skill.get("distilled_by", ""), prior_blob.get("distilled_by", "")) else "rule"
-                ),
-                "first_observed": prior_blob.get("first_observed", skill["first_observed"]),
-            })
+            merged.update(
+                {
+                    "evidence": new_evidence,
+                    "evidence_count": ev_count,
+                    "success_count": success_count,
+                    "success_rate": success_rate,
+                    "last_reinforced": _utc_now().isoformat(),
+                    # Refresh procedure/name/trigger only if the new distill ran
+                    # via LLM and the prior was rule-based.
+                    "name": (
+                        skill["name"]
+                        if skill.get("distilled_by") == "llm"
+                        and prior_blob.get("distilled_by") != "llm"
+                        else prior_blob.get("name", skill["name"])
+                    ),
+                    "procedure": (
+                        skill["procedure"]
+                        if skill.get("distilled_by") == "llm"
+                        and prior_blob.get("distilled_by") != "llm"
+                        else prior_blob.get("procedure", skill["procedure"])
+                    ),
+                    "trigger": prior_blob.get("trigger", skill["trigger"]),
+                    "skill_id": skill_id,
+                    "kind": prior_blob.get("kind", skill.get("kind")),
+                    "domain": prior_blob.get("domain", skill.get("domain")),
+                    "distilled_by": (
+                        "llm"
+                        if "llm"
+                        in (skill.get("distilled_by", ""), prior_blob.get("distilled_by", ""))
+                        else "rule"
+                    ),
+                    "first_observed": prior_blob.get("first_observed", skill["first_observed"]),
+                }
+            )
 
             # Reinforce via API: read unit (which boosts importance), then
             # rewrite content + tags via _persist_reinforcement-equivalent.
@@ -665,12 +679,14 @@ class ProceduralDistiller:
             )
             # Tags: ensure procedural_skill + skill:<id> tags
             tag_set = set(existing_unit.tags or [])
-            tag_set.update([
-                "procedural_skill",
-                f"skill:{skill_id}",
-                f"domain:{merged.get('domain', 'general')}",
-                f"kind:{merged.get('kind', 'unknown')}",
-            ])
+            tag_set.update(
+                [
+                    "procedural_skill",
+                    f"skill:{skill_id}",
+                    f"domain:{merged.get('domain', 'general')}",
+                    f"kind:{merged.get('kind', 'unknown')}",
+                ]
+            )
             existing_unit.tags = sorted(tag_set)
 
             # Use the store's internal persist_reinforcement if available;
@@ -688,12 +704,14 @@ class ProceduralDistiller:
 
     async def _create_skill_unit(self, skill_id: str, blob: dict) -> None:
         """Create a fresh procedural MemUnit for this skill."""
-        tags = sorted({
-            "procedural_skill",
-            f"skill:{skill_id}",
-            f"domain:{blob.get('domain', 'general')}",
-            f"kind:{blob.get('kind', 'unknown')}",
-        })
+        tags = sorted(
+            {
+                "procedural_skill",
+                f"skill:{skill_id}",
+                f"domain:{blob.get('domain', 'general')}",
+                f"kind:{blob.get('kind', 'unknown')}",
+            }
+        )
         # Importance starts at 60 (above LML default thresholds for
         # promotion/preservation) but not so high that low-evidence skills
         # crowd out high-evidence semantic facts.
@@ -742,8 +760,11 @@ class ProceduralDistiller:
             return
         cache: dict[str, Any] = {}
         try:
-            units = await self.memory_store.search_units(
-                tags=["procedural_skill"], importance_threshold=0.0, days_back=365
+            units = await _maybe_indexed_search(
+                self.memory_store,
+                tags=["procedural_skill"],
+                importance_threshold=0.0,
+                days_back=365,
             )
         except Exception as e:
             log.debug(f"Skills cache load failed: {e}")
@@ -753,7 +774,7 @@ class ProceduralDistiller:
         for u in units:
             sid = None
             # Prefer explicit skill:<id> tag (cheap lookup)
-            for t in (u.tags or []):
+            for t in u.tags or []:
                 if t.startswith("skill:"):
                     sid = t.split(":", 1)[1]
                     break
@@ -858,16 +879,14 @@ class ProceduralDistiller:
             mem_dir = getattr(self.memory_store, "data_dir", None)
             if mem_dir is not None:
                 candidates.append(Path(mem_dir).parent / relative)
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug("[PROCEDURAL] memory_store.data_dir lookup swallowed: %s", e)
         # Last resort: env-driven dir
         env_dir = os.getenv("NCL_DATA_DIR")
         if env_dir:
             candidates.append(Path(env_dir).expanduser() / relative)
         # Repo default
-        candidates.append(
-            Path(__file__).resolve().parents[2] / "data" / relative
-        )
+        candidates.append(Path(__file__).resolve().parents[2] / "data" / relative)
         for c in candidates:
             try:
                 if c and c.exists():
@@ -882,6 +901,7 @@ class ProceduralDistiller:
 # ─────────────────────────────────────────────────────────────────────
 # Night Watch Phase 2.5 entry point
 # ─────────────────────────────────────────────────────────────────────
+
 
 async def run_procedural_distillation(brain: Any) -> dict:
     """
@@ -925,6 +945,7 @@ async def run_procedural_distillation(brain: Any) -> dict:
     paper_engine = None
     try:
         from ..portfolio.paper_routes import _engine as _paper_engine
+
         paper_engine = _paper_engine
     except Exception:
         paper_engine = None
@@ -980,9 +1001,12 @@ async def run_procedural_distillation(brain: Any) -> dict:
             report["errors"] += 1
 
     log.info(
-        "[PROCEDURAL] Phase 2.5 done: %d chains -> %d skills (%d new, %d reinforced); LLM=%d rule=%d",
-        report["chains_mined"], report["skills_distilled"],
-        report["new_skills"], report["reinforced"],
-        report["via_llm"], report["via_rule"],
+        "[PROCEDURAL] Phase 2.5 done: %d chains -> %d skills (%d new, %d reinforced); LLM=%d rule=%d",  # noqa: E501
+        report["chains_mined"],
+        report["skills_distilled"],
+        report["new_skills"],
+        report["reinforced"],
+        report["via_llm"],
+        report["via_rule"],
     )
     return report

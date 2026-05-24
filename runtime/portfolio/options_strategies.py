@@ -22,7 +22,7 @@ of the three named playbooks.
 from __future__ import annotations
 
 import re
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import Any, Iterable, Optional
 
@@ -36,19 +36,19 @@ from typing import Any, Iterable, Optional
 class StrategyDefinition:
     """Static description of one options strategy."""
 
-    key: str                       # "0DTE" | "5DAY" | "LONGCALL"
-    name: str                      # "0DTE Index Credit"
-    tagline: str                   # one-line subtitle
-    description: str               # 2-3 sentence overview
+    key: str  # "0DTE" | "5DAY" | "LONGCALL"
+    name: str  # "0DTE Index Credit"
+    tagline: str  # one-line subtitle
+    description: str  # 2-3 sentence overview
     best_market_conditions: list[str]
     entry_triggers: list[str]
     exit_rules: list[str]
     sizing_rule: str
-    greeks_profile: dict[str, str]   # {"delta": "...", "theta": "...", ...}
+    greeks_profile: dict[str, str]  # {"delta": "...", "theta": "...", ...}
     typical_dte_range: tuple[int, int]  # (min_dte, max_dte) inclusive
     common_pitfalls: list[str]
     practitioners: list[str]
-    color_hex: str = "#AF52DE"     # for iOS badge tint
+    color_hex: str = "#AF52DE"  # for iOS badge tint
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -106,7 +106,7 @@ ZERO_DTE = StrategyDefinition(
     },
     typical_dte_range=(0, 0),
     common_pitfalls=[
-        "Sizing for the win rate, not the tail loss — 70% wins / 30% blowouts is a losing math if losses aren't capped",
+        "Sizing for the win rate, not the tail loss — 70% wins / 30% blowouts is a losing math if losses aren't capped",  # noqa: E501
         "Trading 0DTE on single-name equities (assignment + earnings risk)",
         "Adding to losers — pin risk is non-linear past the short strike",
         "Holding into the final 15 minutes when gamma is at its peak",
@@ -116,7 +116,7 @@ ZERO_DTE = StrategyDefinition(
         "SpotGamma (dealer-flow context for 0DTE)",
         "Theta Profits (9k+ trade journal on 0DTE breakeven condor)",
     ],
-    color_hex="#FF3B30",   # red — high-octane / fast clock
+    color_hex="#FF3B30",  # red — high-octane / fast clock
 )
 
 
@@ -170,7 +170,7 @@ FIVE_DAY_SWING = StrategyDefinition(
         "Sky View Trading (vertical spread mechanics)",
         "Damocles (credit-spread exit rule frameworks)",
     ],
-    color_hex="#FF7300",   # orange — medium tempo
+    color_hex="#FF7300",  # orange — medium tempo
 )
 
 
@@ -187,13 +187,13 @@ LONG_CALL = StrategyDefinition(
     best_market_conditions=[
         "IV rank < 40 — buying premium when implied vol is rich is a tax",
         "Clean uptrend on the daily / weekly chart (price > 50 SMA > 200 SMA)",
-        "Catalyst within the holding window (earnings, product launch, FDA, etc.) — but BEFORE the IV ramp",
+        "Catalyst within the holding window (earnings, product launch, FDA, etc.) — but BEFORE the IV ramp",  # noqa: E501
         "Avoid the week of earnings — IV crush will hurt even if direction is right",
     ],
     entry_triggers=[
         "Breakout above a multi-month base with confirming volume",
         "Bullish unusual call flow accumulating in 30-90 DTE strikes",
-        "Strike selection: 0.70-0.80 delta ITM (stock replacement) OR 0.40-0.55 delta ATM (leverage)",
+        "Strike selection: 0.70-0.80 delta ITM (stock replacement) OR 0.40-0.55 delta ATM (leverage)",  # noqa: E501
         "Expiry: minimum 45 DTE to keep theta tolerable; 60-90 DTE is the sweet spot",
     ],
     exit_rules=[
@@ -225,7 +225,7 @@ LONG_CALL = StrategyDefinition(
         "projectfinance (Chris Butler) — long-call mechanics + Greeks walkthrough",
         "tastytrade — when NOT to buy calls (IVR > 50 caveat)",
     ],
-    color_hex="#30D158",   # green — bullish / patient
+    color_hex="#30D158",  # green — bullish / patient
 )
 
 
@@ -430,7 +430,7 @@ def suggest_entries(
                     continue
             else:
                 # GOAT/Bravo hit on an index without flow context → still useful
-                match_reason = f"Index-class underlying suitable for 0DTE"
+                match_reason = "Index-class underlying suitable for 0DTE"
 
         elif key == "5DAY":
             # Vertical-spread candidates: liquid flow OR a fresh GOAT/Bravo setup
@@ -441,9 +441,7 @@ def suggest_entries(
                 bias = "bullish" if ratio >= 1.5 else "bearish" if ratio <= 0.6 else "neutral"
                 if bias == "neutral":
                     continue
-                match_reason = (
-                    f"${premium/1000:.0f}k flow, {bias} bias — vertical spread fits"
-                )
+                match_reason = f"${premium/1000:.0f}k flow, {bias} bias — vertical spread fits"
             elif setup in {"breakout", "trend", "momentum", "swing"}:
                 match_reason = f"Scanner '{setup}' setup, 7-21 DTE vertical-spread window"
             else:

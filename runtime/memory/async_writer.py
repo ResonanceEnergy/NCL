@@ -42,7 +42,24 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
+from ..config import flags
+
+
 log = logging.getLogger("ncl.memory.async_writer")
+
+# W10B-12 — once-per-hour rate-limit for swallowed-exception warnings on hot paths.
+_log_warned_at: dict[str, float] = {}
+
+
+def _warn_once_per_hour(key: str, msg: str, *args) -> None:
+    """Emit log.warning at most once per 3600s per ``key``."""
+    import time as _t
+
+    now = _t.time()
+    last = _log_warned_at.get(key, 0.0)
+    if now - last >= 3600.0:
+        _log_warned_at[key] = now
+        log.warning(msg, *args)
 
 
 # ── Tunables (env-overridable) ────────────────────────────────────────────
@@ -66,9 +83,15 @@ SONNET_MODEL = "claude-sonnet-4-20250514"
 SONNET_PER_CALL_EST = 0.01
 
 # Drainer-internal thresholds (matches existing memory_store conventions)
-SCORING_DEFAULT_IMPORTANCE = 50.0   # `importance == 50.0` => unscored
-SCORING_RULE_TRIGGER = 7.0          # rule score >= 7 => worth Sonnet pass
-ENTITY_LLM_TRIGGER = 70.0           # importance >= 70 => worth Sonnet extract
+# 2026-05-23 COST EMERGENCY: thresholds raised to reduce Sonnet enrichment
+# call volume. Brain hit $29/day ($9 over $20 platform cap), with
+# async_writer accounting for ~35% of anthropic spend via importance
+# scoring + entity extraction on too many low-value units. Raising the
+# triggers means fewer borderline units burn the Sonnet budget; high-value
+# (rule score >= 9, importance >= 85) signals still get the full treatment.
+SCORING_DEFAULT_IMPORTANCE = 50.0  # `importance == 50.0` => unscored
+SCORING_RULE_TRIGGER = 9.0  # was 7.0 — only the strongest rule-scored items pay for Sonnet
+ENTITY_LLM_TRIGGER = 85.0  # was 70.0 — only top-tier importance pays for Sonnet entity extract
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -100,6 +123,7 @@ async def _retry_with_jitter(coro_factory, *, label: str = "anthropic_call"):
     Returns the wrapped result, or raises the last exception.
     """
     import random
+
     last_exc: Optional[BaseException] = None
     for attempt, base in enumerate((0.0,) + _RETRY_DELAYS_S):
         if base > 0:
@@ -120,20 +144,27 @@ async def _retry_with_jitter(coro_factory, *, label: str = "anthropic_call"):
             if status in _FATAL_HTTP:
                 log.warning(
                     "[ASYNC_WRITER:%s] fatal HTTP %s — no retry",
-                    label, status,
+                    label,
+                    status,
                 )
                 raise
             if status in _RETRYABLE_HTTP and attempt < len(_RETRY_DELAYS_S):
                 log.info(
                     "[ASYNC_WRITER:%s] transient HTTP %s — retry %d/%d",
-                    label, status, attempt + 1, len(_RETRY_DELAYS_S),
+                    label,
+                    status,
+                    attempt + 1,
+                    len(_RETRY_DELAYS_S),
                 )
                 continue
             # Non-HTTP exception (network, JSON parse) — let retry continue
             if attempt < len(_RETRY_DELAYS_S):
                 log.debug(
                     "[ASYNC_WRITER:%s] transient error '%s' — retry %d/%d",
-                    label, type(e).__name__, attempt + 1, len(_RETRY_DELAYS_S),
+                    label,
+                    type(e).__name__,
+                    attempt + 1,
+                    len(_RETRY_DELAYS_S),
                 )
                 continue
             raise
@@ -154,9 +185,7 @@ class WriteRequest:
     tags: list[str] = field(default_factory=list)
     entities: list[str] = field(default_factory=list)
     metadata: dict = field(default_factory=dict)
-    enqueued_at: str = field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
-    )
+    enqueued_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     # Optional sync (non-async) callback fired AFTER the unit is persisted.
     # Signature: callback(unit_or_None, error_or_None) -> None
     callback: Optional[Callable] = None
@@ -240,9 +269,10 @@ class AsyncMemoryWriter:
                 self._queue.task_done()
                 self._stats["dropped_oldest_total"] += 1
                 log.warning(
-                    "[ASYNC_WRITER] queue full (%d) — dropped oldest from %s "
-                    "(enqueued_at=%s)",
-                    self._queue.maxsize, dropped.source, dropped.enqueued_at,
+                    "[ASYNC_WRITER] queue full (%d) — dropped oldest from %s " "(enqueued_at=%s)",
+                    self._queue.maxsize,
+                    dropped.source,
+                    dropped.enqueued_at,
                 )
             except asyncio.QueueEmpty:
                 pass
@@ -280,7 +310,9 @@ class AsyncMemoryWriter:
         ]
         log.info(
             "[ASYNC_WRITER] started %d drainer(s), queue_max=%d, dlq_cap=%d",
-            self._drainer_concurrency, self._queue.maxsize, self._dlq.maxlen,
+            self._drainer_concurrency,
+            self._queue.maxsize,
+            self._dlq.maxlen,
         )
 
     async def stop(self) -> None:
@@ -307,6 +339,26 @@ class AsyncMemoryWriter:
 
     # ── Drainer ──────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _effective_window_ms(queue_size: int, batch_max: int, base_window_ms: int) -> int:
+        """Adaptive batch-fill window (W10A-9).
+
+        Under high load we want to wait the full window so the batch fills and
+        we amortize the write-lock; under idle load we don't want to pay 100ms
+        of latency on every single write.
+
+        - queue_size >= batch_max * 0.5  -> base_window_ms (high load, wait)
+        - queue_size <  batch_max * 0.25 -> 10ms (idle, drain fast)
+        - otherwise                      -> 50ms
+        """
+        if batch_max <= 1:
+            return base_window_ms
+        if queue_size >= (batch_max // 2):
+            return base_window_ms
+        if queue_size < max(1, batch_max // 4):
+            return 10
+        return 50
+
     async def _drainer(self, worker_id: int) -> None:
         """Pull → enrich → persist → mark done. Never crashes the pool.
 
@@ -325,7 +377,9 @@ class AsyncMemoryWriter:
         """
         log.debug(
             "[ASYNC_WRITER:%d] drainer started (batch_max=%d, window_ms=%d, batched=%s)",
-            worker_id, self._batch_max, int(self._batch_window_s * 1000),
+            worker_id,
+            self._batch_max,
+            int(self._batch_window_s * 1000),
             self._supports_batch,
         )
         while True:
@@ -336,10 +390,27 @@ class AsyncMemoryWriter:
                 log.debug("[ASYNC_WRITER:%d] drainer cancelled", worker_id)
                 return
 
+            # W10B-7: stamp a fresh per-batch correlation id BEFORE we
+            # touch enrichment/persist. Every log line emitted while
+            # processing this batch (PII redaction, Sonnet enrichment,
+            # batch persist) will share `[req=aw-drain-<hex8>]`.
+            try:
+                from ..api.middleware.correlation import loop_request_id, set_request_id
+
+                set_request_id(loop_request_id("aw-drain"))
+            except Exception:  # pragma: no cover — defensive: never break drainer
+                pass
+
             # Collect a batch (skipped entirely if batch_max==1 or no batch support)
             batch: list[WriteRequest] = [first]
             if self._supports_batch and self._batch_max > 1:
-                deadline = time.monotonic() + self._batch_window_s
+                # W10A-9: adaptive window — shrink to 10ms when queue is idle
+                # so low-load writes don't eat the full 100ms batch wait.
+                _base_ms = int(self._batch_window_s * 1000)
+                _eff_ms = self._effective_window_ms(
+                    self._queue.qsize(), self._batch_max, _base_ms
+                )
+                deadline = time.monotonic() + (_eff_ms / 1000.0)
                 while len(batch) < self._batch_max:
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
@@ -352,7 +423,8 @@ class AsyncMemoryWriter:
                         # Wait up to the remaining window for one more
                         try:
                             nxt = await asyncio.wait_for(
-                                self._queue.get(), timeout=remaining,
+                                self._queue.get(),
+                                timeout=remaining,
                             )
                             batch.append(nxt)
                         except asyncio.TimeoutError:
@@ -388,7 +460,8 @@ class AsyncMemoryWriter:
                 # this is the truly-unexpected case.
                 log.error(
                     "[ASYNC_WRITER:%d] drainer caught unhandled: %s",
-                    worker_id, e,
+                    worker_id,
+                    e,
                 )
                 for req in batch:
                     self._stats["failed_total"] += 1
@@ -397,15 +470,13 @@ class AsyncMemoryWriter:
                 latency = time.monotonic() - t0
                 cur = self._stats["avg_drain_latency_s"]
                 self._stats["avg_drain_latency_s"] = (
-                    cur + self._ema_alpha * (latency - cur)
-                    if cur > 0 else latency
+                    cur + self._ema_alpha * (latency - cur) if cur > 0 else latency
                 )
                 # Rolling avg batch size
                 bs = float(len(batch))
                 avg_bs = self._stats["avg_batch_size"]
                 self._stats["avg_batch_size"] = (
-                    avg_bs + self._ema_alpha * (bs - avg_bs)
-                    if avg_bs > 0 else bs
+                    avg_bs + self._ema_alpha * (bs - avg_bs) if avg_bs > 0 else bs
                 )
                 self._stats["batches_total"] += 1
                 self._stats["queue_size"] = self._queue.qsize()
@@ -429,24 +500,29 @@ class AsyncMemoryWriter:
                 except Exception as cb_e:
                     log.debug(
                         "[ASYNC_WRITER:%d] callback error: %s",
-                        worker_id, cb_e,
+                        worker_id,
+                        cb_e,
                     )
         except Exception as e:  # noqa: BLE001
             self._stats["failed_total"] += 1
             self._push_dlq(req, str(e))
             log.warning(
                 "[ASYNC_WRITER:%d] drain failed (source=%s): %s",
-                worker_id, req.source, e,
+                worker_id,
+                req.source,
+                e,
             )
             if req.callback:
                 try:
                     req.callback(None, e)
-                except Exception:
-                    pass
+                except Exception as _cb_err:
+                    _warn_once_per_hour(
+                        "drainer_cb_error_path",
+                        "[ASYNC_WRITER] drainer error-path callback swallowed: %s",
+                        _cb_err,
+                    )
 
-    async def _process_batch(
-        self, batch: list[WriteRequest], worker_id: int
-    ) -> None:
+    async def _process_batch(self, batch: list[WriteRequest], worker_id: int) -> None:
         """Batched path — enrich items concurrently, persist under one lock.
 
         Per-item failures during enrichment go to DLQ but do NOT abort the
@@ -454,26 +530,30 @@ class AsyncMemoryWriter:
         persist_units_batch durability contract.
         """
         # Step 1 — concurrent enrichment outside any lock
-        enrich_tasks = [
-            asyncio.create_task(self._enrich_only(req)) for req in batch
-        ]
+        enrich_tasks = [asyncio.create_task(self._enrich_only(req)) for req in batch]
         enrich_results = await asyncio.gather(*enrich_tasks, return_exceptions=True)
 
         # Step 2 — split into persistable + failed
-        to_persist: list[tuple[WriteRequest, "MemUnit"]] = []
+        to_persist: list[tuple[WriteRequest, "MemUnit"]] = []  # noqa: F821
         for req, result in zip(batch, enrich_results):
             if isinstance(result, BaseException):
                 self._stats["failed_total"] += 1
                 self._push_dlq(req, f"enrich_failed: {result}")
                 log.debug(
                     "[ASYNC_WRITER:%d] enrich failed (source=%s): %s",
-                    worker_id, req.source, result,
+                    worker_id,
+                    req.source,
+                    result,
                 )
                 if req.callback:
                     try:
                         req.callback(None, result)
-                    except Exception:
-                        pass
+                    except Exception as _cb_err:
+                        _warn_once_per_hour(
+                            "drainer_cb_enrich_failed",
+                            "[ASYNC_WRITER] enrich-failed callback swallowed: %s",
+                            _cb_err,
+                        )
                 continue
             to_persist.append((req, result))
 
@@ -482,14 +562,14 @@ class AsyncMemoryWriter:
 
         # Step 3 — single-lock batch persist
         try:
-            await self.memory_store.persist_units_batch(
-                [u for _, u in to_persist]
-            )
+            await self.memory_store.persist_units_batch([u for _, u in to_persist])
         except Exception as e:
             # Whole-batch failure — DLQ everything and let retry_dlq pick up
             log.warning(
                 "[ASYNC_WRITER:%d] batch persist failed (n=%d): %s",
-                worker_id, len(to_persist), e,
+                worker_id,
+                len(to_persist),
+                e,
             )
             for req, _ in to_persist:
                 self._stats["failed_total"] += 1
@@ -497,8 +577,12 @@ class AsyncMemoryWriter:
                 if req.callback:
                     try:
                         req.callback(None, e)
-                    except Exception:
-                        pass
+                    except Exception as _cb_err:
+                        _warn_once_per_hour(
+                            "drainer_cb_batch_persist_failed",
+                            "[ASYNC_WRITER] batch-persist-failed callback swallowed: %s",
+                            _cb_err,
+                        )
             return
 
         # Step 4 — success bookkeeping + per-item callbacks
@@ -511,7 +595,8 @@ class AsyncMemoryWriter:
                 except Exception as cb_e:
                     log.debug(
                         "[ASYNC_WRITER:%d] callback error: %s",
-                        worker_id, cb_e,
+                        worker_id,
+                        cb_e,
                     )
 
     async def _enrich_only(self, req: WriteRequest):
@@ -534,12 +619,15 @@ class AsyncMemoryWriter:
         """
         # Lazy imports to avoid circular ref
         import uuid
+
         from ..ncl_brain.models import MemUnit
-        from .pii_redactor import PIIRedactor
         from .authority import tier_for_source as _tier_for_source
+        from .pii_redactor import PIIRedactor
         from .store import (
-            MAX_CONTENT_LENGTH, LML_MEMORY_TYPES,
-            DECAY_RATE_LML, DECAY_RATE_SML,
+            DECAY_RATE_LML,
+            DECAY_RATE_SML,
+            LML_MEMORY_TYPES,
+            MAX_CONTENT_LENGTH,
         )
 
         content = req.content or ""
@@ -587,9 +675,7 @@ class AsyncMemoryWriter:
             meta["authority_tier"] = int(_tier_for_source(req.source))
 
         # PII audit record (fire-and-forget; doesn't gate persist)
-        if pii_result.redaction_count > 0 and hasattr(
-            self.memory_store, "_record_pii_redaction"
-        ):
+        if pii_result.redaction_count > 0 and hasattr(self.memory_store, "_record_pii_redaction"):
             try:
                 await self.memory_store._record_pii_redaction(
                     unit_id=unit.unit_id,
@@ -656,7 +742,11 @@ class AsyncMemoryWriter:
                 tags=req.tags[:10] if req.tags else [],
                 memory_type=req.memory_type,
             )
-            if req.metadata and unit is not None and isinstance(getattr(unit, "metadata", None), dict):
+            if (
+                req.metadata
+                and unit is not None
+                and isinstance(getattr(unit, "metadata", None), dict)
+            ):
                 for k, v in req.metadata.items():
                     unit.metadata.setdefault(k, v)
 
@@ -686,12 +776,20 @@ class AsyncMemoryWriter:
         # Cheap rule-based pre-check (no LLM, no API call)
         try:
             from .importance_scorer import rule_based_score
+
             rule_score = rule_based_score(req.content, req.source, req.tags)
         except Exception as e:
             log.debug("[ASYNC_WRITER] rule_based_score failed: %s", e)
             return
 
-        if rule_score < SCORING_RULE_TRIGGER:
+        # while A/B harness is collecting data, expand the LLM-scoring eligibility
+        # window from rule_score>=9 to rule_score>=7. Restores pre-cost-emergency
+        # threshold during the trial only.
+        effective_trigger = SCORING_RULE_TRIGGER
+        if flags.ab_haiku_enabled():
+            effective_trigger = 7.0
+
+        if rule_score < effective_trigger:
             # Not high-value — use the rule score (1-10 → 0-100 scale)
             req.importance = max(0.0, min(100.0, rule_score * 10.0))
             return
@@ -701,6 +799,7 @@ class AsyncMemoryWriter:
         # rule-based score, which is good enough to keep the unit findable.
         try:
             from ..cost_tracker import check_budget
+
             if not await check_budget("anthropic", SONNET_PER_CALL_EST):
                 self._stats["llm_scoring_budget_skips"] += 1
                 self._stats["enrichment_skipped_budget"] += 1
@@ -712,17 +811,36 @@ class AsyncMemoryWriter:
         # Retry-wrapped Sonnet call. 429/529/503 -> exp backoff w/ jitter,
         # 401/403/404 -> immediate fatal skip + ntfy. Any other exception
         # bumps `enrichment_skipped_other` and uses the rule-only score.
+        from .ab_test import is_ab_enabled, score_memory_ab
         from .importance_scorer import score_memory
 
         async def _score_call():
+            # When NCL_AB_HAIKU=true, route through the A/B harness which
+            # fires Sonnet AND Haiku in parallel and shadow-records Haiku.
+            # The active Sonnet result is still what flows back into req —
+            # production behavior is byte-identical.
+            if is_ab_enabled():
+                return await score_memory_ab(
+                    req.content,
+                    req.source,
+                    req.tags,
+                    use_llm=True,
+                    unit_id=getattr(req, "unit_id", None),
+                )
             try:
                 return await score_memory(
-                    req.content, req.source, req.tags,
-                    use_llm=True, model=SONNET_MODEL,
+                    req.content,
+                    req.source,
+                    req.tags,
+                    use_llm=True,
+                    model=SONNET_MODEL,
                 )
             except TypeError:
                 return await score_memory(
-                    req.content, req.source, req.tags, use_llm=True,
+                    req.content,
+                    req.source,
+                    req.tags,
+                    use_llm=True,
                 )
 
         try:
@@ -734,13 +852,18 @@ class AsyncMemoryWriter:
                 req.memory_type = inferred
         except BaseException as e:
             resp = getattr(e, "response", None)
-            status = getattr(resp, "status_code", None) if resp is not None else getattr(e, "status_code", None)
+            status = (
+                getattr(resp, "status_code", None)
+                if resp is not None
+                else getattr(e, "status_code", None)
+            )
             if status in _FATAL_HTTP:
                 self._stats["llm_scoring_fatal_skips"] += 1
                 self._stats["enrichment_skipped_other"] += 1
                 # Fire-and-forget ntfy alert — fatal config issue (bad key, etc).
                 try:
                     from ..notifications.alert_dispatch import enqueue_alert
+
                     enqueue_alert(
                         title="AsyncWriter fatal Sonnet HTTP",
                         body=f"score_memory got HTTP {status} — check ANTHROPIC_API_KEY",
@@ -748,8 +871,12 @@ class AsyncMemoryWriter:
                         dedup_key="async_writer_fatal_score",
                         source="memory",
                     )
-                except Exception:
-                    pass
+                except Exception as _alert_err:
+                    log.warning(
+                        "[ASYNC_WRITER] fatal-HTTP alert enqueue swallowed (status=%s): %s",
+                        status,
+                        _alert_err,
+                    )
                 # Fall back to rule score
                 req.importance = max(0.0, min(100.0, rule_score * 10.0))
             else:
@@ -771,6 +898,7 @@ class AsyncMemoryWriter:
 
         try:
             from ..cost_tracker import check_budget
+
             if not await check_budget("anthropic", SONNET_PER_CALL_EST):
                 self._stats["llm_entity_budget_skips"] += 1
                 self._stats["enrichment_skipped_budget"] += 1
@@ -783,11 +911,16 @@ class AsyncMemoryWriter:
         async def _entity_call():
             try:
                 return await extract_entities_and_relationships(
-                    req.content, req.source, use_llm=True, model=SONNET_MODEL,
+                    req.content,
+                    req.source,
+                    use_llm=True,
+                    model=SONNET_MODEL,
                 )
             except TypeError:
                 return await extract_entities_and_relationships(
-                    req.content, req.source, use_llm=True,
+                    req.content,
+                    req.source,
+                    use_llm=True,
                 )
 
         try:
@@ -798,12 +931,17 @@ class AsyncMemoryWriter:
                 req.entities = sorted(set(req.entities) | set(new_ents))[:20]
         except BaseException as e:
             resp = getattr(e, "response", None)
-            status = getattr(resp, "status_code", None) if resp is not None else getattr(e, "status_code", None)
+            status = (
+                getattr(resp, "status_code", None)
+                if resp is not None
+                else getattr(e, "status_code", None)
+            )
             if status in _FATAL_HTTP:
                 self._stats["llm_entity_fatal_skips"] += 1
                 self._stats["enrichment_skipped_other"] += 1
                 try:
                     from ..notifications.alert_dispatch import enqueue_alert
+
                     enqueue_alert(
                         title="AsyncWriter fatal Sonnet HTTP",
                         body=f"entity_extract got HTTP {status} — check ANTHROPIC_API_KEY",
@@ -820,22 +958,122 @@ class AsyncMemoryWriter:
 
     # ── DLQ ──────────────────────────────────────────────────────────────
 
+    # DLQ saturation alerting: fire at most one ntfy alert every 5 minutes
+    # when the DLQ ring-buffer is at or above 90% of capacity. Past mistake
+    # was ignoring slow-growing DLQs; by the time anyone noticed, the buffer
+    # had wrapped and we'd lost the original failure context.
+    _DLQ_ALERT_THRESHOLD = 0.90
+    _DLQ_ALERT_DEDUP_S = 300.0
+
+    def _maybe_alert_dlq_saturation(self) -> None:
+        """Emit one ntfy alert if DLQ has crossed 90% capacity.
+
+        De-duped to one alert per 5 minutes via ``_last_dlq_alert_ts``.
+        Routes through the central AlertDispatcher when available; falls
+        back to a critical log line otherwise (matches the pattern used
+        by cost_tracker.py and the memory eval loop).
+        """
+        cap = self._dlq.maxlen or 0
+        if cap <= 0:
+            return
+        size = len(self._dlq)
+        if size < int(cap * self._DLQ_ALERT_THRESHOLD):
+            return
+        now = time.monotonic()
+        last = getattr(self, "_last_dlq_alert_ts", 0.0)
+        if now - last < self._DLQ_ALERT_DEDUP_S:
+            return
+        self._last_dlq_alert_ts = now
+        body = (
+            f"async_writer DLQ at {size}/{cap} "
+            f"({(size / cap) * 100:.0f}% of cap). Newest failures may be "
+            f"about to wrap. Inspect: GET /memory/async-writer/dlq"
+        )
+        try:
+            from ..notifications import enqueue_alert  # local import — avoid
+
+            # pulling notifications stack at module load time
+            enqueue_alert(
+                title="NCL memory DLQ saturated",
+                body=body,
+                priority="4",
+                tags="warning,memory",
+                dedup_key="async_writer_dlq_saturation",
+                source="async_writer",
+            )
+        except Exception as enq_err:
+            log.critical(
+                "[ASYNC_WRITER] DLQ saturated (%d/%d) — AlertDispatcher " "unavailable (%s): %s",
+                size,
+                cap,
+                enq_err,
+                body,
+            )
+
     def _push_dlq(self, req: WriteRequest, reason: str) -> None:
-        """Append a failure to the DLQ (ring-buffer)."""
-        self._dlq.append({
-            "source": req.source,
-            "content_preview": (req.content or "")[:160],
-            "importance": req.importance,
-            "memory_type": req.memory_type,
-            "tags": list(req.tags or [])[:10],
-            "entities": list(req.entities or [])[:10],
-            "metadata": dict(req.metadata or {}),
-            "enqueued_at": req.enqueued_at,
-            "failed_at": datetime.now(timezone.utc).isoformat(),
-            "reason": reason,
-            "attempts": req._attempts,
-        })
+        """Append a failure to the DLQ (ring-buffer).
+
+        W8-A2 (2026-05-24): the deque is a ring buffer — when it's at
+        maxlen, `append()` silently drops the oldest entry. That's the
+        audit's #10 "DLQ silently dropping under sustained failure" gap.
+        Detect the eviction and ntfy with a distinct dedup_key so the
+        signal isn't lost behind the 90%-saturation alert.
+        """
+        evicted_one = self._dlq.maxlen is not None and len(self._dlq) >= self._dlq.maxlen
+        self._dlq.append(
+            {
+                "source": req.source,
+                "content_preview": (req.content or "")[:160],
+                "importance": req.importance,
+                "memory_type": req.memory_type,
+                "tags": list(req.tags or [])[:10],
+                "entities": list(req.entities or [])[:10],
+                "metadata": dict(req.metadata or {}),
+                "enqueued_at": req.enqueued_at,
+                "failed_at": datetime.now(timezone.utc).isoformat(),
+                "reason": reason,
+                "attempts": req._attempts,
+            }
+        )
         self._stats["dlq_size"] = len(self._dlq)
+        if evicted_one:
+            self._stats["dlq_evictions"] = self._stats.get("dlq_evictions", 0) + 1
+            self._maybe_alert_dlq_overflow()
+        self._maybe_alert_dlq_saturation()
+
+    # W8-A2 DLQ overflow alerting — separate signal from saturation:
+    # saturation says "ring is filling"; overflow says "we just dropped
+    # an entry on the floor". AlertDispatcher already does its own 1h
+    # dedup on `dedup_key`, so we don't need to track timestamps here.
+    def _maybe_alert_dlq_overflow(self) -> None:
+        cap = self._dlq.maxlen or 0
+        evictions = self._stats.get("dlq_evictions", 0)
+        body = (
+            f"async_writer DLQ ring full (cap={cap}); oldest entry "
+            f"was just evicted. Cumulative evictions this run: {evictions}. "
+            f"Drain or inspect: GET /memory/async-writer/dlq, "
+            f"POST /memory/async-writer/retry-dlq."
+        )
+        try:
+            from ..notifications import enqueue_alert
+
+            enqueue_alert(
+                title="NCL memory DLQ overflow",
+                body=body,
+                priority="5",
+                tags="critical,memory,boom",
+                dedup_key="async_writer_dlq_overflow",
+                source="async_writer",
+            )
+        except Exception as enq_err:
+            log.critical(
+                "[ASYNC_WRITER] DLQ overflow (cap=%d, evictions=%d) — "
+                "AlertDispatcher unavailable (%s): %s",
+                cap,
+                evictions,
+                enq_err,
+                body,
+            )
 
     async def retry_dlq(self) -> int:
         """Re-enqueue all DLQ entries that haven't exhausted MAX_ATTEMPTS.
@@ -908,8 +1146,7 @@ def get_async_writer() -> AsyncMemoryWriter:
     global _writer_singleton
     if _writer_singleton is None:
         raise RuntimeError(
-            "AsyncMemoryWriter not initialized — "
-            "call init_async_writer(memory_store) first"
+            "AsyncMemoryWriter not initialized — " "call init_async_writer(memory_store) first"
         )
     return _writer_singleton
 

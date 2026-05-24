@@ -20,6 +20,7 @@ City registry lives in `local_events.py:CITIES` (single source of truth).
 Cache: `data/calendar/city_events_cache.jsonl` (refreshed by ncl-city-events
 loop in scheduler.py, atomic writes).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -31,11 +32,12 @@ import re
 import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 import httpx
 
 from .local_events import CITIES, LOCAL_EVENT_CATEGORIES
+
 
 log = logging.getLogger("ncl.calendar.city_scanner")
 
@@ -80,8 +82,8 @@ _CACHE_TTL = 3600  # 1 hour
 
 # Browser UA pool for Reddit/Eventbrite scraping (bot UAs get 403'd)
 _BROWSER_UAS = [
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",  # noqa: E501
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",  # noqa: E501
     "Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0",
 ]
 _ua_index = 0
@@ -205,7 +207,9 @@ async def _from_ticketmaster(city_id: str, start: date, end: date) -> list[dict]
                         },
                     )
                     if r.status_code != 200:
-                        log.debug("[city_scanner:tm] %s %s -> %d", city_id, classification, r.status_code)
+                        log.debug(
+                            "[city_scanner:tm] %s %s -> %d", city_id, classification, r.status_code
+                        )
                         continue
                     body = r.json()
                     for ev in body.get("_embedded", {}).get("events", []):
@@ -241,21 +245,25 @@ async def _from_ticketmaster(city_id: str, start: date, end: date) -> list[dict]
                             "Arts & Theatre": "cultural",
                             "Family": "community",
                         }
-                        rows.append(_make_event(
-                            city_id=city_id,
-                            source="ticketmaster",
-                            date_str=d,
-                            title=ev.get("name", "Event")[:200],
-                            description=(ev.get("info") or ev.get("pleaseNote") or venue_name or "")[:400],
-                            category=cat_map.get(classification, "community"),
-                            time_str=(t[:5] if t else None),
-                            url=ev.get("url"),
-                            venue=venue_name,
-                            image_url=image,
-                            ticket_required=True,
-                            price_range=price_range,
-                            tags=[classification.lower().split()[0]],
-                        ))
+                        rows.append(
+                            _make_event(
+                                city_id=city_id,
+                                source="ticketmaster",
+                                date_str=d,
+                                title=ev.get("name", "Event")[:200],
+                                description=(
+                                    ev.get("info") or ev.get("pleaseNote") or venue_name or ""
+                                )[:400],
+                                category=cat_map.get(classification, "community"),
+                                time_str=(t[:5] if t else None),
+                                url=ev.get("url"),
+                                venue=venue_name,
+                                image_url=image,
+                                ticket_required=True,
+                                price_range=price_range,
+                                tags=[classification.lower().split()[0]],
+                            )
+                        )
                 except Exception as e:
                     log.debug("[city_scanner:tm] %s %s exc=%s", city_id, classification, e)
     except Exception as e:
@@ -272,8 +280,7 @@ async def _from_eventbrite(city_id: str, start: date, end: date) -> list[dict]:
     rows: list[dict] = []
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(12.0), follow_redirects=True) as client:
-            r = await client.get(url, headers={"User-Agent": _next_ua(),
-                                               "Accept": "text/html"})
+            r = await client.get(url, headers={"User-Agent": _next_ua(), "Accept": "text/html"})
             if r.status_code != 200 or not r.text:
                 log.debug("[city_scanner:eb] %s -> %d", city_id, r.status_code)
                 return []
@@ -286,12 +293,14 @@ async def _from_eventbrite(city_id: str, start: date, end: date) -> list[dict]:
     # Prefer BeautifulSoup if available
     try:
         from bs4 import BeautifulSoup  # type: ignore
+
         soup = BeautifulSoup(html, "html.parser")
-        # Eventbrite events appear as JSON-LD payload tags or as eds-event-card-content--styled. Most reliable: JSON-LD <script type="application/ld+json">.
+        # Eventbrite events appear as JSON-LD payload tags or as eds-event-card-content--styled. Most reliable: JSON-LD <script type="application/ld+json">.  # noqa: E501
         for tag in soup.find_all("script", attrs={"type": "application/ld+json"}):
             try:
                 data = json.loads(tag.string or "{}")
-            except Exception:
+            except Exception as e:
+                log.debug("[CITY-SCAN] eventbrite JSON-LD parse swallowed: %s", e)
                 continue
             items = data if isinstance(data, list) else [data]
             for it in items:
@@ -299,19 +308,24 @@ async def _from_eventbrite(city_id: str, start: date, end: date) -> list[dict]:
                     continue
                 if it.get("@type") not in ("Event", "MusicEvent", "Festival", "TheaterEvent"):
                     continue
-                parsed.append({
-                    "title": it.get("name", "")[:200],
-                    "start": it.get("startDate", ""),
-                    "url": it.get("url"),
-                    "image": it.get("image") if isinstance(it.get("image"), str) else None,
-                    "venue": (it.get("location", {}) or {}).get("name") if isinstance(it.get("location"), dict) else None,
-                    "description": (it.get("description") or "")[:400],
-                })
+                parsed.append(
+                    {
+                        "title": it.get("name", "")[:200],
+                        "start": it.get("startDate", ""),
+                        "url": it.get("url"),
+                        "image": it.get("image") if isinstance(it.get("image"), str) else None,
+                        "venue": (it.get("location", {}) or {}).get("name")
+                        if isinstance(it.get("location"), dict)
+                        else None,
+                        "description": (it.get("description") or "")[:400],
+                    }
+                )
     except ImportError:
         # Fallback: regex JSON-LD blocks
         for m in re.finditer(
             r'<script[^>]*type=["\']application/ld\+json["\'][^>]*>(.+?)</script>',
-            html, flags=re.DOTALL | re.IGNORECASE,
+            html,
+            flags=re.DOTALL | re.IGNORECASE,
         ):
             try:
                 data = json.loads(m.group(1))
@@ -323,14 +337,16 @@ async def _from_eventbrite(city_id: str, start: date, end: date) -> list[dict]:
                     continue
                 if it.get("@type") not in ("Event", "MusicEvent", "Festival", "TheaterEvent"):
                     continue
-                parsed.append({
-                    "title": (it.get("name") or "")[:200],
-                    "start": it.get("startDate", ""),
-                    "url": it.get("url"),
-                    "image": it.get("image") if isinstance(it.get("image"), str) else None,
-                    "venue": None,
-                    "description": (it.get("description") or "")[:400],
-                })
+                parsed.append(
+                    {
+                        "title": (it.get("name") or "")[:200],
+                        "start": it.get("startDate", ""),
+                        "url": it.get("url"),
+                        "image": it.get("image") if isinstance(it.get("image"), str) else None,
+                        "venue": None,
+                        "description": (it.get("description") or "")[:400],
+                    }
+                )
 
     for p in parsed:
         d_iso = (p.get("start") or "")[:10]
@@ -345,27 +361,30 @@ async def _from_eventbrite(city_id: str, start: date, end: date) -> list[dict]:
         t_iso = None
         if len(p.get("start", "")) >= 16 and "T" in p["start"]:
             t_iso = p["start"][11:16]
-        rows.append(_make_event(
-            city_id=city_id,
-            source="eventbrite",
-            date_str=d_iso,
-            title=p["title"] or "Eventbrite event",
-            description=p.get("description", ""),
-            category="community",
-            time_str=t_iso,
-            url=p.get("url"),
-            venue=p.get("venue"),
-            image_url=p.get("image"),
-            ticket_required=True,
-            tags=["eventbrite"],
-        ))
+        rows.append(
+            _make_event(
+                city_id=city_id,
+                source="eventbrite",
+                date_str=d_iso,
+                title=p["title"] or "Eventbrite event",
+                description=p.get("description", ""),
+                category="community",
+                time_str=t_iso,
+                url=p.get("url"),
+                venue=p.get("venue"),
+                image_url=p.get("image"),
+                ticket_required=True,
+                tags=["eventbrite"],
+            )
+        )
     return rows
 
 
 _EVENT_KEYWORDS = re.compile(
     r"\b(event|concert|festival|show|gig|exhibit|exhibition|expo|market|"
     r"parade|fiesta|carnaval|carnival|fair|tournament|race|"
-    r"meetup|gathering|opening|premiere|gala)\b", re.IGNORECASE
+    r"meetup|gathering|opening|premiere|gala)\b",
+    re.IGNORECASE,
 )
 
 
@@ -397,7 +416,9 @@ async def _from_reddit(city_id: str, start: date, end: date) -> list[dict]:
         created = post.get("created_utc") or 0
         # Filter: event-like
         is_event = (
-            "event" in flair or "concert" in flair or "festival" in flair
+            "event" in flair
+            or "concert" in flair
+            or "festival" in flair
             or "ann" in flair  # announcement
             or _EVENT_KEYWORDS.search(title)
             or _EVENT_KEYWORDS.search(body[:200])
@@ -415,16 +436,18 @@ async def _from_reddit(city_id: str, start: date, end: date) -> list[dict]:
             if not (start <= today <= end):
                 continue
             ts = today
-        rows.append(_make_event(
-            city_id=city_id,
-            source="reddit",
-            date_str=ts.isoformat(),
-            title=title[:200] or "Reddit post",
-            description=(body[:400] or post.get("subreddit_name_prefixed", "")),
-            category="community",
-            url=f"https://reddit.com{permalink}" if permalink else None,
-            tags=["reddit", f"r/{sub}", flair] if flair else ["reddit", f"r/{sub}"],
-        ))
+        rows.append(
+            _make_event(
+                city_id=city_id,
+                source="reddit",
+                date_str=ts.isoformat(),
+                title=title[:200] or "Reddit post",
+                description=(body[:400] or post.get("subreddit_name_prefixed", "")),
+                category="community",
+                url=f"https://reddit.com{permalink}" if permalink else None,
+                tags=["reddit", f"r/{sub}", flair] if flair else ["reddit", f"r/{sub}"],
+            )
+        )
     return rows
 
 
@@ -464,11 +487,14 @@ async def _from_google_trends(city_id: str, start: date, end: date) -> list[dict
                                 qstr = row.get("query", "") or ""
                                 if not qstr or len(qstr) < 4:
                                     continue
-                                out.append({
-                                    "title": qstr.title(),
-                                    "value": int(row.get("value", 0) or 0),
-                                })
-                    except Exception:
+                                out.append(
+                                    {
+                                        "title": qstr.title(),
+                                        "value": int(row.get("value", 0) or 0),
+                                    }
+                                )
+                    except Exception as e:
+                        log.debug("[CITY-SCAN] trends keyword row swallowed: %s", e)
                         continue
                 return out
             except Exception as e:
@@ -485,15 +511,17 @@ async def _from_google_trends(city_id: str, start: date, end: date) -> list[dict
     if not (start <= today <= end):
         return []
     for item in raw[:10]:
-        rows.append(_make_event(
-            city_id=city_id,
-            source="trends",
-            date_str=today.isoformat(),
-            title=f"Trending: {item['title']}",
-            description=f"Rising search interest (score {item.get('value', 0)})",
-            category="community",
-            tags=["trending"],
-        ))
+        rows.append(
+            _make_event(
+                city_id=city_id,
+                source="trends",
+                date_str=today.isoformat(),
+                title=f"Trending: {item['title']}",
+                description=f"Rising search interest (score {item.get('value', 0)})",
+                category="community",
+                tags=["trending"],
+            )
+        )
     return rows
 
 
@@ -549,17 +577,19 @@ async def _from_news(city_id: str, start: date, end: date) -> list[dict]:
             continue
         if not (start <= d_obj <= end):
             continue
-        rows.append(_make_event(
-            city_id=city_id,
-            source="news",
-            date_str=published,
-            title=(art.get("title") or "News")[:200],
-            description=(art.get("description") or "")[:400],
-            category="community",
-            url=art.get("url"),
-            image_url=art.get("urlToImage"),
-            tags=["news", art.get("source", {}).get("name", "")[:50]],
-        ))
+        rows.append(
+            _make_event(
+                city_id=city_id,
+                source="news",
+                date_str=published,
+                title=(art.get("title") or "News")[:200],
+                description=(art.get("description") or "")[:400],
+                category="community",
+                url=art.get("url"),
+                image_url=art.get("urlToImage"),
+                tags=["news", art.get("source", {}).get("name", "")[:50]],
+            )
+        )
     return rows
 
 
@@ -582,12 +612,27 @@ def _from_curated_jsonl(city_id: str, start: date, end: date) -> list[dict]:
         return rows
 
     weekday_map = {
-        "monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
-        "friday": 4, "saturday": 5, "sunday": 6,
+        "monday": 0,
+        "tuesday": 1,
+        "wednesday": 2,
+        "thursday": 3,
+        "friday": 4,
+        "saturday": 5,
+        "sunday": 6,
     }
-    month_map = {
-        "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
-        "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+    month_map = {  # noqa: F841
+        "jan": 1,
+        "feb": 2,
+        "mar": 3,
+        "apr": 4,
+        "may": 5,
+        "jun": 6,
+        "jul": 7,
+        "aug": 8,
+        "sep": 9,
+        "oct": 10,
+        "nov": 11,
+        "dec": 12,
     }
 
     for line in lines:
@@ -607,18 +652,20 @@ def _from_curated_jsonl(city_id: str, start: date, end: date) -> list[dict]:
             except Exception:
                 continue
             if start <= d_obj <= end:
-                rows.append(_make_event(
-                    city_id=city_id,
-                    source="curated",
-                    date_str=date_field,
-                    title=title,
-                    description=raw.get("description", ""),
-                    category=raw.get("category", "community"),
-                    time_str=raw.get("time"),
-                    url=raw.get("url"),
-                    venue=raw.get("venue"),
-                    tags=raw.get("tags", []),
-                ))
+                rows.append(
+                    _make_event(
+                        city_id=city_id,
+                        source="curated",
+                        date_str=date_field,
+                        title=title,
+                        description=raw.get("description", ""),
+                        category=raw.get("category", "community"),
+                        time_str=raw.get("time"),
+                        url=raw.get("url"),
+                        venue=raw.get("venue"),
+                        tags=raw.get("tags", []),
+                    )
+                )
             continue
 
         # Recurring (expand into the window)
@@ -645,17 +692,19 @@ def _from_curated_jsonl(city_id: str, start: date, end: date) -> list[dict]:
                 in_season = cur.strftime("%b").lower() in [s.lower() for s in season]
             in_day = is_daily or (cur.weekday() == target_weekday)
             if in_day and in_season:
-                rows.append(_make_event(
-                    city_id=city_id,
-                    source="curated",
-                    date_str=cur.isoformat(),
-                    title=title,
-                    description=raw.get("description", ""),
-                    category=raw.get("category", "community"),
-                    time_str=raw.get("time"),
-                    venue=raw.get("venue"),
-                    tags=raw.get("tags", []) + ["recurring"],
-                ))
+                rows.append(
+                    _make_event(
+                        city_id=city_id,
+                        source="curated",
+                        date_str=cur.isoformat(),
+                        title=title,
+                        description=raw.get("description", ""),
+                        category=raw.get("category", "community"),
+                        time_str=raw.get("time"),
+                        venue=raw.get("venue"),
+                        tags=raw.get("tags", []) + ["recurring"],
+                    )
+                )
             cur = cur + timedelta(days=1)
     return rows
 
@@ -673,15 +722,17 @@ def _from_notable_dates(city_id: str, start: date, end: date) -> list[dict]:
                 continue
             if not (start <= d_obj <= end):
                 continue
-            rows.append(_make_event(
-                city_id=city_id,
-                source="notable_date",
-                date_str=d_obj.isoformat(),
-                title=item.get("title", "Notable date"),
-                description=item.get("description", ""),
-                category=item.get("category", "notable_date"),
-                tags=item.get("tags", []) + ["annual"],
-            ))
+            rows.append(
+                _make_event(
+                    city_id=city_id,
+                    source="notable_date",
+                    date_str=d_obj.isoformat(),
+                    title=item.get("title", "Notable date"),
+                    description=item.get("description", ""),
+                    category=item.get("category", "notable_date"),
+                    tags=item.get("tags", []) + ["annual"],
+                )
+            )
             # If an end_month/end_day is set, fill the range
             end_m, end_d = item.get("end_month"), item.get("end_day")
             if end_m and end_d:
@@ -692,15 +743,17 @@ def _from_notable_dates(city_id: str, start: date, end: date) -> list[dict]:
                 cur = d_obj + timedelta(days=1)
                 while cur <= end_obj and cur <= end:
                     if cur >= start:
-                        rows.append(_make_event(
-                            city_id=city_id,
-                            source="notable_date",
-                            date_str=cur.isoformat(),
-                            title=f"{item.get('title')} (ongoing)",
-                            description=item.get("description", ""),
-                            category=item.get("category", "notable_date"),
-                            tags=item.get("tags", []) + ["annual", "ongoing"],
-                        ))
+                        rows.append(
+                            _make_event(
+                                city_id=city_id,
+                                source="notable_date",
+                                date_str=cur.isoformat(),
+                                title=f"{item.get('title')} (ongoing)",
+                                description=item.get("description", ""),
+                                category=item.get("category", "notable_date"),
+                                tags=item.get("tags", []) + ["annual", "ongoing"],
+                            )
+                        )
                     cur = cur + timedelta(days=1)
     return rows
 
@@ -913,9 +966,11 @@ class CityEventScanner:
             return
 
         today = date.today()
-        proximity_boost = lambda d_iso: (
-            10 if d_iso <= (today + timedelta(days=7)).isoformat()
-            else 5 if d_iso <= (today + timedelta(days=30)).isoformat()
+        proximity_boost = lambda d_iso: (  # noqa: E731
+            10
+            if d_iso <= (today + timedelta(days=7)).isoformat()
+            else 5
+            if d_iso <= (today + timedelta(days=30)).isoformat()
             else 0
         )
         base = {
@@ -939,22 +994,24 @@ class CityEventScanner:
                 f"{ev.get('description', '')[:200]}"
             ).strip()
             try:
-                await self.async_writer.enqueue(WriteRequest(
-                    content=content,
-                    source=f"awarebot:city_events:{city_id}",
-                    importance=float(imp),
-                    memory_type="episodic",
-                    tags=["city_events", city_id, cat] + (ev.get("tags") or [])[:5],
-                    metadata={
-                        "city_id": city_id,
-                        "event_id": ev.get("id"),
-                        "date": ev["date"],
-                        "category": cat,
-                        "source": ev.get("source"),
-                        "url": ev.get("url"),
-                        "authority_tier": "scanner",
-                    },
-                ))
+                await self.async_writer.enqueue(
+                    WriteRequest(
+                        content=content,
+                        source=f"awarebot:city_events:{city_id}",
+                        importance=float(imp),
+                        memory_type="episodic",
+                        tags=["city_events", city_id, cat] + (ev.get("tags") or [])[:5],
+                        metadata={
+                            "city_id": city_id,
+                            "event_id": ev.get("id"),
+                            "date": ev["date"],
+                            "category": cat,
+                            "source": ev.get("source"),
+                            "url": ev.get("url"),
+                            "authority_tier": "scanner",
+                        },
+                    )
+                )
             except Exception as e:
                 log.debug("[city_scanner] enqueue failed for %s: %s", ev.get("id"), e)
 

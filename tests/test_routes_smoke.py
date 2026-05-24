@@ -157,9 +157,7 @@ def test_pump_auto_flow_true_returns_background_envelope_immediately(
     assert body["status"] == "accepted"
 
 
-def test_pump_auto_flow_false_returns_brain_result_directly(
-    client, brain_stub, valid_token
-):
+def test_pump_auto_flow_false_returns_brain_result_directly(client, brain_stub, valid_token):
     """When auto_flow=false, /pump must NOT detach — it should await the
     brain call and return its dict verbatim. Used by dashboards that want
     synchronous storage-only semantics without council overhead."""

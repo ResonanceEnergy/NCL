@@ -17,31 +17,53 @@ from dataclasses import dataclass
 from typing import Optional
 
 from .planktonxd_scorer import (
+    _days_until,
     estimate_true_probability,
     suggested_bet_size,
-    _days_until,
 )
 
 
 WEATHER_KEYWORDS = [
-    "rain", "snow", "temperature", "hurricane", "tornado", "drought",
-    "weather", "climate", "storm", "wind", "hail", "tropical", "blizzard",
-    "heat wave", "cold front", "earthquake", "flood", "wildfire", "monsoon",
-    "typhoon", "cyclone", "sleet", "frost", "humidity",
+    "rain",
+    "snow",
+    "temperature",
+    "hurricane",
+    "tornado",
+    "drought",
+    "weather",
+    "climate",
+    "storm",
+    "wind",
+    "hail",
+    "tropical",
+    "blizzard",
+    "heat wave",
+    "cold front",
+    "earthquake",
+    "flood",
+    "wildfire",
+    "monsoon",
+    "typhoon",
+    "cyclone",
+    "sleet",
+    "frost",
+    "humidity",
 ]
 
 # Titles containing these substrings are treated as NOT weather markets even
 # if a weather keyword fires. Lets a single string filter rule out the most
 # common false positives without us needing tag-based classification.
 NON_WEATHER_DISQUALIFIERS = [
-    "hail mary",            # 'Project Hail Mary' movie
+    "hail mary",  # 'Project Hail Mary' movie
     "carolina hurricanes",  # NHL team
-    "miami hurricanes",     # NCAA team
-    "snowden",              # Edward Snowden
+    "miami hurricanes",  # NCAA team
+    "snowden",  # Edward Snowden
     "snow leopard",
     "rain man",
-    "storm chasers", "storm trooper",
-    "wind farm", "tailwind",
+    "storm chasers",
+    "storm trooper",
+    "wind farm",
+    "tailwind",
     "frosty",
 ]
 
@@ -58,6 +80,7 @@ def is_weather_market(title: str, tags: Optional[list] = None) -> bool:
     match "Ukraine", "wind" must not match "winding".
     """
     import re
+
     if _is_disqualified(title):
         return False
     hay = (title or "").lower()
@@ -76,6 +99,7 @@ def is_weather_market(title: str, tags: Optional[list] = None) -> bool:
 def derive_weather_event(title: str) -> str:
     """Best-effort label for the kind of weather event in this market title."""
     import re
+
     t = (title or "").lower()
     mapping = [
         ("hurricane", "hurricane"),
@@ -117,6 +141,7 @@ def derive_location(title: str) -> str:
     'Temperature in Phoenix > 110°F').
     """
     import re
+
     if not title:
         return ""
     m = re.search(r"\bin\s+([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+){0,2})", title)
@@ -127,7 +152,7 @@ def derive_location(title: str) -> str:
 
 # ── Sizing thresholds (slightly more conservative than PlanktonXD) ──
 WB_PRICE_FLOOR = 0.001
-WB_PRICE_CEIL = 0.10        # WeatherBetter accepts a wider band — up to 10¢
+WB_PRICE_CEIL = 0.10  # WeatherBetter accepts a wider band — up to 10¢
 WB_MIN_EDGE = 0.005
 
 
@@ -138,7 +163,7 @@ class ScoredWeatherMarket:
     market_id: str
     slug: str
     title: str
-    category: str               # always "weather"
+    category: str  # always "weather"
     weather_event_type: str
     location: str
     yes_price: float
@@ -146,7 +171,7 @@ class ScoredWeatherMarket:
     volume_24h: float
     liquidity: float
     end_date: str
-    bet_type: str               # tail | contrarian
+    bet_type: str  # tail | contrarian
     outcome: str
     entry_price: float
     edge: float
@@ -155,7 +180,7 @@ class ScoredWeatherMarket:
     implied_payoff_multiple: float
     suggested_size_usd: float
     confidence: float
-    edge_score: float           # liquidity × edge × proximity-to-resolve
+    edge_score: float  # liquidity × edge × proximity-to-resolve
     days_until_resolve: Optional[float]
 
 
@@ -212,7 +237,7 @@ def score_weather_market(
         proximity = 0.3
     else:
         proximity = 1.0 - (days / 30.0) * 0.7
-    liq_factor = math.log10(max(liquidity, 1.0)) / 4.0   # 0..1 over [1, 10000]
+    liq_factor = math.log10(max(liquidity, 1.0)) / 4.0  # 0..1 over [1, 10000]
     edge_score = edge * (1.0 + liq_factor) * proximity
 
     confidence = min(edge * 10.0, 1.0)

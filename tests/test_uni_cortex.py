@@ -9,14 +9,10 @@ Covers:
 """
 
 import json
-import os
-import tempfile
 from datetime import datetime, timezone
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
-import pytest_asyncio
 
 from runtime.uni.cortex import ResearchCortex
 from runtime.uni.models import (
@@ -75,7 +71,9 @@ def _make_finding(claim="Test finding"):
     )
 
 
-def _make_research_result(task_id="test-task-1", query="test query", status=ResearchStatus.COMPLETE):
+def _make_research_result(
+    task_id="test-task-1", query="test query", status=ResearchStatus.COMPLETE
+):
     """Helper to create a minimal ResearchResult."""
     return ResearchResult(
         task_id=task_id,
@@ -115,7 +113,7 @@ class TestResearchCortexInit:
 
     def test_creates_directory_structure(self, tmp_data_dir):
         """Cortex should create uni/, results/, briefs/ directories on init."""
-        cortex = ResearchCortex(data_dir=str(tmp_data_dir))
+        cortex = ResearchCortex(data_dir=str(tmp_data_dir))  # noqa: F841
 
         assert (tmp_data_dir / "uni").is_dir()
         assert (tmp_data_dir / "uni" / "results").is_dir()
@@ -176,7 +174,9 @@ class TestResearchPipeline:
             patch.object(cortex.planner, "plan_research") as mock_plan,
             patch.object(cortex.gatherer, "gather_all", new_callable=AsyncMock) as mock_gather,
             patch.object(cortex.synthesizer, "synthesize", new_callable=AsyncMock) as mock_synth,
-            patch.object(cortex.synthesizer, "create_brief", new_callable=AsyncMock) as mock_brief_fn,
+            patch.object(
+                cortex.synthesizer, "create_brief", new_callable=AsyncMock
+            ) as mock_brief_fn,
         ):
             mock_plan.return_value = {
                 "sub_questions": ["What is X?"],
@@ -206,7 +206,9 @@ class TestResearchPipeline:
             patch.object(cortex.planner, "plan_research") as mock_plan,
             patch.object(cortex.gatherer, "gather_all", new_callable=AsyncMock) as mock_gather,
             patch.object(cortex.synthesizer, "synthesize", new_callable=AsyncMock) as mock_synth,
-            patch.object(cortex.synthesizer, "create_brief", new_callable=AsyncMock) as mock_brief_fn,
+            patch.object(
+                cortex.synthesizer, "create_brief", new_callable=AsyncMock
+            ) as mock_brief_fn,
         ):
             mock_plan.return_value = {
                 "sub_questions": ["q"],
@@ -239,7 +241,9 @@ class TestResearchPipeline:
             patch.object(cortex.planner, "plan_research") as mock_plan,
             patch.object(cortex.gatherer, "gather_all", new_callable=AsyncMock) as mock_gather,
             patch.object(cortex.synthesizer, "synthesize", new_callable=AsyncMock) as mock_synth,
-            patch.object(cortex.synthesizer, "create_brief", new_callable=AsyncMock) as mock_brief_fn,
+            patch.object(
+                cortex.synthesizer, "create_brief", new_callable=AsyncMock
+            ) as mock_brief_fn,
         ):
             mock_plan.return_value = {
                 "sub_questions": ["q"],
@@ -264,7 +268,9 @@ class TestResearchPipeline:
             patch.object(cortex.planner, "plan_research") as mock_plan,
             patch.object(cortex.gatherer, "gather_all", new_callable=AsyncMock) as mock_gather,
             patch.object(cortex.synthesizer, "synthesize", new_callable=AsyncMock) as mock_synth,
-            patch.object(cortex.synthesizer, "create_brief", new_callable=AsyncMock) as mock_brief_fn,
+            patch.object(
+                cortex.synthesizer, "create_brief", new_callable=AsyncMock
+            ) as mock_brief_fn,
         ):
             mock_plan.return_value = {
                 "sub_questions": [],
@@ -280,7 +286,9 @@ class TestResearchPipeline:
 
             # Planner should have received default sources
             call_kwargs = mock_plan.call_args
-            assert SourceType.WEB in call_kwargs.kwargs.get("sources_requested", call_kwargs[1].get("sources_requested", []))
+            assert SourceType.WEB in call_kwargs.kwargs.get(
+                "sources_requested", call_kwargs[1].get("sources_requested", [])
+            )
 
     @pytest.mark.asyncio
     async def test_research_with_custom_depth_and_sources(self, cortex):
@@ -289,7 +297,9 @@ class TestResearchPipeline:
             patch.object(cortex.planner, "plan_research") as mock_plan,
             patch.object(cortex.gatherer, "gather_all", new_callable=AsyncMock) as mock_gather,
             patch.object(cortex.synthesizer, "synthesize", new_callable=AsyncMock) as mock_synth,
-            patch.object(cortex.synthesizer, "create_brief", new_callable=AsyncMock) as mock_brief_fn,
+            patch.object(
+                cortex.synthesizer, "create_brief", new_callable=AsyncMock
+            ) as mock_brief_fn,
         ):
             mock_plan.return_value = {
                 "sub_questions": [],
@@ -309,7 +319,9 @@ class TestResearchPipeline:
             )
 
             call_kwargs = mock_plan.call_args
-            assert call_kwargs.kwargs.get("depth", call_kwargs[1].get("depth")) == ResearchDepth.DEEP
+            assert (
+                call_kwargs.kwargs.get("depth", call_kwargs[1].get("depth")) == ResearchDepth.DEEP
+            )
 
     @pytest.mark.asyncio
     async def test_research_records_duration(self, cortex):
@@ -321,7 +333,9 @@ class TestResearchPipeline:
             patch.object(cortex.planner, "plan_research") as mock_plan,
             patch.object(cortex.gatherer, "gather_all", new_callable=AsyncMock) as mock_gather,
             patch.object(cortex.synthesizer, "synthesize", new_callable=AsyncMock) as mock_synth,
-            patch.object(cortex.synthesizer, "create_brief", new_callable=AsyncMock) as mock_brief_fn,
+            patch.object(
+                cortex.synthesizer, "create_brief", new_callable=AsyncMock
+            ) as mock_brief_fn,
         ):
             mock_plan.return_value = {
                 "sub_questions": [],

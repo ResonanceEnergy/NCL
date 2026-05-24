@@ -1,0 +1,22 @@
+{
+  "pump_id": "PUMP-20260514-005",
+  "relay_id": "RLY-20260514221415-BEE79E8",
+  "received_at": "2026-05-15T04:14:15.939720+00:00",
+  "source": "first-strike-ios",
+  "pipeline": "STRIKE-POINT",
+  "mandate_ref": "MANDATE-2026-008",
+  "prompt": {
+    "id": "TEST-FA09E87E",
+    "raw_intent": "E2E pipeline test \u2014 verify pump lands in NCL mandate-generation/input/",
+    "formatted_prompt": "This is an automated E2E test pump prompt for MANDATE-2026-008 verification.",
+    "target_pillar": "NCL",
+    "priority": "P2",
+    "timestamp": "2026-05-15T04:14:15.934904+00:00",
+    "metadata": {
+      "source": "e2e-test",
+      "app_version": "test-1.0.0",
+      "grok_formatted": false,
+      "session_id": "test-session-fd5f36"
+    }
+  }
+}

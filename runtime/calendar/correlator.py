@@ -20,13 +20,15 @@ Public surface (called by the Calendar Agent):
     escalate_alerts(events, now)
     attach_correlations(events, solar_state, moon_phase, now)
 """
+
 from __future__ import annotations
 
 import hashlib
 import logging
 from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
-from typing import Any, Iterable
+from typing import Any
+
 
 log = logging.getLogger("ncl.calendar.correlator")
 
@@ -172,8 +174,7 @@ def dedup_events(events: list[dict]) -> list[dict]:
             continue
         if sid in by_source_id:
             union(by_source_id[sid], i)
-            log.debug("dedup: merging on source_id=%s (rows %d,%d)",
-                      sid, by_source_id[sid], i)
+            log.debug("dedup: merging on source_id=%s (rows %d,%d)", sid, by_source_id[sid], i)
         else:
             by_source_id[sid] = i
 
@@ -190,7 +191,7 @@ def dedup_events(events: list[dict]) -> list[dict]:
             ev_i = events[i]
             tickers_i = _as_set(ev_i.get("tickers"))
             title_i = ev_i.get("title", "")
-            for j in indices[a_pos + 1:]:
+            for j in indices[a_pos + 1 :]:
                 if find(i) == find(j):
                     continue
                 ev_j = events[j]
@@ -198,15 +199,19 @@ def dedup_events(events: list[dict]) -> list[dict]:
                 tickers_j = _as_set(ev_j.get("tickers"))
                 if tickers_i and tickers_j and tickers_i & tickers_j:
                     union(i, j)
-                    log.debug("dedup: ticker overlap %s on %s (rows %d,%d)",
-                              tickers_i & tickers_j, dkey, i, j)
+                    log.debug(
+                        "dedup: ticker overlap %s on %s (rows %d,%d)",
+                        tickers_i & tickers_j,
+                        dkey,
+                        i,
+                        j,
+                    )
                     continue
                 # rule 3 — fuzzy title
                 sim = _title_similarity(title_i, ev_j.get("title", ""))
                 if sim >= _TITLE_SIM_THRESHOLD:
                     union(i, j)
-                    log.debug("dedup: title sim=%.2f on %s (rows %d,%d)",
-                              sim, dkey, i, j)
+                    log.debug("dedup: title sim=%.2f on %s (rows %d,%d)", sim, dkey, i, j)
 
     # Collect groups in original order.
     groups: dict[int, list[int]] = {}
@@ -287,8 +292,9 @@ def _merge_group(members: list[dict]) -> dict:
     if related_ids:
         merged["related_ids"] = sorted(related_ids, key=str)
     merged["merged_from"] = len(members)
-    log.debug("dedup: merged %d events into id=%s (%s)",
-              len(members), merged["id"], merged.get("title"))
+    log.debug(
+        "dedup: merged %d events into id=%s (%s)", len(members), merged["id"], merged.get("title")
+    )
     return merged
 
 
@@ -357,46 +363,50 @@ def correlate_sun_moon(solar_state: dict, moon_phase: dict) -> list[dict]:
 
     # --- Full moon + Kp >= 5 ---
     if phase_name == "Full Moon" and current_kp is not None and current_kp >= 5:
-        flags.append({
-            "id": _convergence_id(today, "full_moon_geostorm"),
-            "date": today,
-            "title": "Geomagnetic storm during full moon",
-            "description": (
-                f"Full Moon coincides with Kp={current_kp:.1f} "
-                "(active geomagnetic conditions). Heightened market "
-                "and biological volatility historically observed."
-            ),
-            "category": "cross",
-            "impact": "high",
-            "priority": 4,
-            "source": "cross",
-            "all_day": True,
-            "flag_type": "full_moon_geostorm",
-            "metrics": {"kp": current_kp, "phase": phase_name},
-        })
+        flags.append(
+            {
+                "id": _convergence_id(today, "full_moon_geostorm"),
+                "date": today,
+                "title": "Geomagnetic storm during full moon",
+                "description": (
+                    f"Full Moon coincides with Kp={current_kp:.1f} "
+                    "(active geomagnetic conditions). Heightened market "
+                    "and biological volatility historically observed."
+                ),
+                "category": "cross",
+                "impact": "high",
+                "priority": 4,
+                "source": "cross",
+                "all_day": True,
+                "flag_type": "full_moon_geostorm",
+                "metrics": {"kp": current_kp, "phase": phase_name},
+            }
+        )
 
     # --- New moon + X-class flare ---
     if phase_name == "New Moon" and _flare_class_starts_with(xray, "X"):
-        flags.append({
-            "id": _convergence_id(today, "new_moon_xflare"),
-            "date": today,
-            "title": "X-class flare during new moon",
-            "description": (
-                f"New Moon coincides with X-class solar flare "
-                f"(flux={xray.get('flux')}). Reset-energy phase under "
-                "extreme solar forcing — re-anchor intentions."
-            ),
-            "category": "cross",
-            "impact": "high",
-            "priority": 4,
-            "source": "cross",
-            "all_day": True,
-            "flag_type": "new_moon_xflare",
-            "metrics": {
-                "flare_class": xray.get("flare_class"),
-                "phase": phase_name,
-            },
-        })
+        flags.append(
+            {
+                "id": _convergence_id(today, "new_moon_xflare"),
+                "date": today,
+                "title": "X-class flare during new moon",
+                "description": (
+                    f"New Moon coincides with X-class solar flare "
+                    f"(flux={xray.get('flux')}). Reset-energy phase under "
+                    "extreme solar forcing — re-anchor intentions."
+                ),
+                "category": "cross",
+                "impact": "high",
+                "priority": 4,
+                "source": "cross",
+                "all_day": True,
+                "flag_type": "new_moon_xflare",
+                "metrics": {
+                    "flare_class": xray.get("flare_class"),
+                    "phase": phase_name,
+                },
+            }
+        )
 
     # --- Solstice / equinox + disturbed geomag ---
     # Agent 1 uses "seasonal_marker" with "next_event"; legacy used "solar_calendar"
@@ -408,33 +418,30 @@ def correlate_sun_moon(solar_state: dict, moon_phase: dict) -> list[dict]:
     if not isinstance(next_event, dict):
         next_event = {}
     days_until = next_event.get("days_until")
-    if (
-        days_until is not None
-        and days_until <= 1
-        and current_kp is not None
-        and current_kp >= 5
-    ):
-        flags.append({
-            "id": _convergence_id(today, "seasonal_pivot_disturbed"),
-            "date": today,
-            "title": "Seasonal pivot under disturbed conditions",
-            "description": (
-                f"{next_event.get('name','seasonal pivot')} in "
-                f"{days_until} day(s) with Kp={current_kp:.1f}. "
-                "Liminal window — expect emotional and market noise."
-            ),
-            "category": "cross",
-            "impact": "medium",
-            "priority": 3,
-            "source": "cross",
-            "all_day": True,
-            "flag_type": "seasonal_pivot_disturbed",
-            "metrics": {
-                "kp": current_kp,
-                "event": next_event.get("name"),
-                "days_until": days_until,
-            },
-        })
+    if days_until is not None and days_until <= 1 and current_kp is not None and current_kp >= 5:
+        flags.append(
+            {
+                "id": _convergence_id(today, "seasonal_pivot_disturbed"),
+                "date": today,
+                "title": "Seasonal pivot under disturbed conditions",
+                "description": (
+                    f"{next_event.get('name','seasonal pivot')} in "
+                    f"{days_until} day(s) with Kp={current_kp:.1f}. "
+                    "Liminal window — expect emotional and market noise."
+                ),
+                "category": "cross",
+                "impact": "medium",
+                "priority": 3,
+                "source": "cross",
+                "all_day": True,
+                "flag_type": "seasonal_pivot_disturbed",
+                "metrics": {
+                    "kp": current_kp,
+                    "event": next_event.get("name"),
+                    "days_until": days_until,
+                },
+            }
+        )
 
     # --- Perigee + CME ---
     # We accept either an explicit ``is_perigee`` flag on moon_phase
@@ -446,27 +453,32 @@ def correlate_sun_moon(solar_state: dict, moon_phase: dict) -> list[dict]:
         if isinstance(synodic, (int, float)) and 26.5 <= synodic <= 28.5:
             is_perigee = True
     if is_perigee and cme_count > 0:
-        flags.append({
-            "id": _convergence_id(today, "perigee_cme"),
-            "date": today,
-            "title": "Perigee + CME convergence",
-            "description": (
-                f"Lunar perigee with {cme_count} active CME alert(s). "
-                "Gravitational and electromagnetic forcing align — "
-                "raise risk awareness across positions."
-            ),
-            "category": "cross",
-            "impact": "high",
-            "priority": 4,
-            "source": "cross",
-            "all_day": True,
-            "flag_type": "perigee_cme",
-            "metrics": {"cme_alerts": cme_count, "phase": phase_name},
-        })
+        flags.append(
+            {
+                "id": _convergence_id(today, "perigee_cme"),
+                "date": today,
+                "title": "Perigee + CME convergence",
+                "description": (
+                    f"Lunar perigee with {cme_count} active CME alert(s). "
+                    "Gravitational and electromagnetic forcing align — "
+                    "raise risk awareness across positions."
+                ),
+                "category": "cross",
+                "impact": "high",
+                "priority": 4,
+                "source": "cross",
+                "all_day": True,
+                "flag_type": "perigee_cme",
+                "metrics": {"cme_alerts": cme_count, "phase": phase_name},
+            }
+        )
 
     if flags:
-        log.info("correlate_sun_moon: emitted %d convergence flag(s): %s",
-                 len(flags), [f["flag_type"] for f in flags])
+        log.info(
+            "correlate_sun_moon: emitted %d convergence flag(s): %s",
+            len(flags),
+            [f["flag_type"] for f in flags],
+        )
     return flags
 
 
@@ -480,7 +492,12 @@ def _should_escalate(event: dict, now: datetime) -> tuple[bool, str]:
     today_iso = now.date().isoformat()
 
     # Solar event with Kp >= 7 or X-class flare.
-    if cat == "solar" or src in {"solar", "swpc", "noaa"} or event.get("flag_type", "").startswith("full_moon") or event.get("flag_type", "").startswith("new_moon"):
+    if (
+        cat == "solar"
+        or src in {"solar", "swpc", "noaa"}
+        or event.get("flag_type", "").startswith("full_moon")
+        or event.get("flag_type", "").startswith("new_moon")
+    ):
         kp = event.get("kp")
         if kp is None:
             metrics = event.get("metrics") or {}
@@ -492,17 +509,13 @@ def _should_escalate(event: dict, now: datetime) -> tuple[bool, str]:
         if kp_val is not None and kp_val >= 7:
             return True, f"kp>=7 ({kp_val})"
 
-        flare = (event.get("flare_class")
-                 or (event.get("metrics") or {}).get("flare_class")
-                 or "")
+        flare = event.get("flare_class") or (event.get("metrics") or {}).get("flare_class") or ""
         if isinstance(flare, str) and flare.upper().startswith("X"):
             return True, f"X-class flare ({flare})"
 
     # Prediction due within next 6h.
     if cat == "prediction" or src == "prediction":
-        due = (event.get("due_at")
-               or event.get("deadline")
-               or event.get("predicted_at"))
+        due = event.get("due_at") or event.get("deadline") or event.get("predicted_at")
         due_dt = _parse_event_date(due)
         if due_dt is not None:
             delta = due_dt - now
@@ -553,8 +566,9 @@ def escalate_alerts(events: list[dict], now: datetime) -> list[dict]:
             new_ev["impact"] = "critical"
             new_ev["priority"] = 5
             new_ev["escalation_reason"] = reason
-            log.info("escalate_alerts: %s -> critical (%s)",
-                     ev.get("title") or ev.get("id"), reason)
+            log.info(
+                "escalate_alerts: %s -> critical (%s)", ev.get("title") or ev.get("id"), reason
+            )
             escalated.append(new_ev)
         else:
             rest.append(ev)

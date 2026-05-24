@@ -1,4 +1,5 @@
 """Pydantic models for feedback reports. See feedback-synthesis/SCHEMA.md."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -7,7 +8,8 @@ from typing import Any, Literal, Optional
 from pydantic import BaseModel, Field
 
 
-PillarName = Literal["NCC", "BRS", "AAC"]
+# BRS/AAC retired 2026-05-23 — only NCC is a live feedback source.
+PillarName = Literal["NCC"]
 ReportType = Literal["execution", "revenue", "capital", "health"]
 Outcome = Literal["success", "partial", "failed", "blocked"]
 

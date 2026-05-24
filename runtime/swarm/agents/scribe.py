@@ -11,9 +11,10 @@ import logging
 import time
 import traceback
 
-from . import register_agent
 from ..agent_base import SwarmAgent
 from ..models import SubtaskNode, TaskResult, TaskStatus
+from . import register_agent
+
 
 logger = logging.getLogger("ncl.swarm.scribe")
 
@@ -47,12 +48,14 @@ class ScribeAgent(SwarmAgent):
             structure = task.input_data.get("structure", [])
 
             content_block = f"\nSource Content/Data:\n{content}" if content else ""
-            structure_str = (
-                f"\nRequired Sections: {', '.join(structure)}" if structure else ""
-            )
+            structure_str = f"\nRequired Sections: {', '.join(structure)}" if structure else ""
 
             # Map length to approximate word count
-            length_map = {"short": "500-800 words", "medium": "1000-2000 words", "long": "2500-4000 words"}
+            length_map = {
+                "short": "500-800 words",
+                "medium": "1000-2000 words",
+                "long": "2500-4000 words",
+            }
             target_length = length_map.get(max_length, "1000-2000 words")
 
             # --- Phase 1: Qwen for bulk drafting ---
@@ -81,11 +84,13 @@ class ScribeAgent(SwarmAgent):
             )
             total_cost += draft_response.cost_cents  # Should be 0 for local
 
-            await self.checkpoint({
-                "phase": "draft_complete",
-                "doc_type": doc_type,
-                "draft_length": len(draft_response.content),
-            })
+            await self.checkpoint(
+                {
+                    "phase": "draft_complete",
+                    "doc_type": doc_type,
+                    "draft_length": len(draft_response.content),
+                }
+            )
 
             # --- Phase 2: Claude for polish and editing ---
             polish_prompt = (

@@ -8,13 +8,11 @@ Mocks aiohttp.ClientSession to verify:
   - Composite get_full_solar_state and snapshot_to_disk
   - Seasonal marker math-fallback path
 """
+
 from __future__ import annotations
 
 import json
-import time
-from datetime import date, datetime, timezone
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import date
 
 import pytest
 
@@ -22,6 +20,7 @@ from runtime.calendar import solar_service
 
 
 # ─── Helpers to fake aiohttp ────────────────────────────────────────
+
 
 class _FakeResp:
     """Minimal stand-in for aiohttp response with json/text + status."""
@@ -138,13 +137,13 @@ XRAY_OK = [
     {
         "time_tag": "2026-05-21T17:00:00Z",
         "satellite": 16,
-        "flux": 2.3e-6,            # C-class
+        "flux": 2.3e-6,  # C-class
         "energy": "0.1-0.8nm",
     },
     {
         "time_tag": "2026-05-21T17:01:00Z",
         "satellite": 16,
-        "flux": 4.1e-8,            # short channel, should be IGNORED
+        "flux": 4.1e-8,  # short channel, should be IGNORED
         "energy": "0.05-0.4nm",
     },
 ]
@@ -190,7 +189,7 @@ ALERTS_OK = [
     {
         "product_id": "K04",
         "issue_datetime": "2026-05-21 17:00:00",
-        "message": "ALERT: Geomagnetic K-index of 6 (G2 Moderate storm) observed."
+        "message": "ALERT: Geomagnetic K-index of 6 (G2 Moderate storm) observed.",
     },
     {
         "product_id": "FOO",
@@ -214,6 +213,7 @@ F107_OK_LEGACY = {"Flux": "155.2", "TimeStamp": "2026-05-21 18:00:00"}
 
 
 # ─── Sunrise / Sun times ────────────────────────────────────────────
+
 
 async def test_get_sun_times_parses_response(monkeypatch):
     _install_session(monkeypatch, {"sunrise-sunset.org": _FakeResp(json_data=SUNRISE_OK)})
@@ -239,6 +239,7 @@ async def test_get_sun_times_cache_hit(monkeypatch):
 
 
 # ─── Kp index ────────────────────────────────────────────────────────
+
 
 async def test_kp_index_parsing(monkeypatch):
     _install_session(monkeypatch, {"noaa-planetary-k-index.json": _FakeResp(json_data=KP_OK)})
@@ -272,6 +273,7 @@ async def test_kp_index_stale_fallback(monkeypatch):
 
 # ─── Solar wind ──────────────────────────────────────────────────────
 
+
 async def test_solar_wind_parsing_skips_null_rows(monkeypatch):
     _install_session(monkeypatch, {"plasma-1-day.json": _FakeResp(json_data=WIND_OK)})
     out = await solar_service._fetch_solar_wind()
@@ -282,6 +284,7 @@ async def test_solar_wind_parsing_skips_null_rows(monkeypatch):
 
 # ─── X-ray flux ──────────────────────────────────────────────────────
 
+
 async def test_xray_parses_long_channel(monkeypatch):
     _install_session(monkeypatch, {"xrays-6-hour.json": _FakeResp(json_data=XRAY_OK)})
     out = await solar_service._fetch_xray_flux()
@@ -290,6 +293,7 @@ async def test_xray_parses_long_channel(monkeypatch):
 
 
 # ─── Proton flux ─────────────────────────────────────────────────────
+
 
 async def test_proton_flux_parses(monkeypatch):
     _install_session(monkeypatch, {"integral-protons-1-day.json": _FakeResp(json_data=PROTON_OK)})
@@ -300,11 +304,15 @@ async def test_proton_flux_parses(monkeypatch):
 
 # ─── Sunspot + F10.7 ────────────────────────────────────────────────
 
+
 async def test_sunspot_data_combines(monkeypatch):
-    _install_session(monkeypatch, {
-        "observed-solar-cycle-indices.json": _FakeResp(json_data=SSN_OK),
-        "10cm-flux.json": _FakeResp(json_data=F107_OK),
-    })
+    _install_session(
+        monkeypatch,
+        {
+            "observed-solar-cycle-indices.json": _FakeResp(json_data=SSN_OK),
+            "10cm-flux.json": _FakeResp(json_data=F107_OK),
+        },
+    )
     out = await solar_service.get_sunspot_data()
     assert out["sunspot_number"]["ssn"] == 125.7
     assert out["f10_7_flux"]["f10_7"] == 155.2
@@ -312,14 +320,18 @@ async def test_sunspot_data_combines(monkeypatch):
 
 async def test_f107_legacy_dict_shape(monkeypatch):
     """SWPC has shipped 10cm-flux.json as a dict in the past; we still parse it."""
-    _install_session(monkeypatch, {
-        "10cm-flux.json": _FakeResp(json_data=F107_OK_LEGACY),
-    })
+    _install_session(
+        monkeypatch,
+        {
+            "10cm-flux.json": _FakeResp(json_data=F107_OK_LEGACY),
+        },
+    )
     out = await solar_service._fetch_f107_flux()
     assert out["f10_7"] == 155.2
 
 
 # ─── Aurora forecast ────────────────────────────────────────────────
+
 
 async def test_3day_kp_forecast_parses_text(monkeypatch):
     _install_session(monkeypatch, {"3-day-forecast.txt": _FakeResp(text_data=KP_3DAY_TEXT)})
@@ -329,11 +341,14 @@ async def test_3day_kp_forecast_parses_text(monkeypatch):
 
 
 async def test_get_aurora_forecast_combines(monkeypatch):
-    _install_session(monkeypatch, {
-        "ovation_aurora_latest.json": _FakeResp(json_data=OVATION_OK),
-        "3-day-forecast.txt": _FakeResp(text_data=KP_3DAY_TEXT),
-        "noaa-planetary-k-index.json": _FakeResp(json_data=KP_OK),
-    })
+    _install_session(
+        monkeypatch,
+        {
+            "ovation_aurora_latest.json": _FakeResp(json_data=OVATION_OK),
+            "3-day-forecast.txt": _FakeResp(text_data=KP_3DAY_TEXT),
+            "noaa-planetary-k-index.json": _FakeResp(json_data=KP_OK),
+        },
+    )
     out = await solar_service.get_aurora_forecast("edmonton")
     assert out["city_id"] == "edmonton"
     assert out["current_kp"] == 5.67
@@ -343,16 +358,20 @@ async def test_get_aurora_forecast_combines(monkeypatch):
 
 
 async def test_aurora_visibility_low_latitude(monkeypatch):
-    _install_session(monkeypatch, {
-        "ovation_aurora_latest.json": _FakeResp(json_data=OVATION_OK),
-        "3-day-forecast.txt": _FakeResp(text_data=KP_3DAY_TEXT),
-        "noaa-planetary-k-index.json": _FakeResp(json_data=KP_OK),
-    })
+    _install_session(
+        monkeypatch,
+        {
+            "ovation_aurora_latest.json": _FakeResp(json_data=OVATION_OK),
+            "3-day-forecast.txt": _FakeResp(text_data=KP_3DAY_TEXT),
+            "noaa-planetary-k-index.json": _FakeResp(json_data=KP_OK),
+        },
+    )
     out = await solar_service.get_aurora_forecast("panama_city")
     assert out["visibility_now"] == "no"
 
 
 # ─── CME / alerts ────────────────────────────────────────────────────
+
 
 async def test_cme_alerts_filtering(monkeypatch):
     _install_session(monkeypatch, {"alerts.json": _FakeResp(json_data=ALERTS_OK)})
@@ -368,6 +387,7 @@ async def test_cme_alerts_filtering(monkeypatch):
 
 # ─── Schumann ───────────────────────────────────────────────────────
 
+
 def test_schumann_baseline():
     out = solar_service.get_schumann_resonance()
     assert out["fundamental_frequency_hz"] == 7.83
@@ -376,6 +396,7 @@ def test_schumann_baseline():
 
 
 # ─── Seasonal marker ────────────────────────────────────────────────
+
 
 def test_seasonal_marker_math_fallback():
     """Force fallback path by temporarily disabling skyfield."""
@@ -408,6 +429,7 @@ def test_seasonal_marker_winter():
 
 # ─── Full solar state composite ────────────────────────────────────
 
+
 async def test_get_full_solar_state(monkeypatch):
     routes = {
         "sunrise-sunset.org": _FakeResp(json_data=SUNRISE_OK),
@@ -424,8 +446,16 @@ async def test_get_full_solar_state(monkeypatch):
     _install_session(monkeypatch, routes)
     state = await solar_service.get_full_solar_state("edmonton")
     # All sections present
-    for key in ("sun_times", "space_weather", "sunspot", "aurora",
-                "cme_alerts", "schumann", "seasonal_marker", "solar_energy_mode"):
+    for key in (
+        "sun_times",
+        "space_weather",
+        "sunspot",
+        "aurora",
+        "cme_alerts",
+        "schumann",
+        "seasonal_marker",
+        "solar_energy_mode",
+    ):
         assert key in state, f"missing {key}"
     # Storm conditions in our fixtures
     assert state["solar_energy_mode"] in ("active", "storm", "severe", "unsettled")
@@ -433,6 +463,7 @@ async def test_get_full_solar_state(monkeypatch):
 
 
 # ─── Snapshot persistence ───────────────────────────────────────────
+
 
 async def test_snapshot_to_disk(monkeypatch, tmp_path):
     routes = {
@@ -469,6 +500,7 @@ async def test_snapshot_to_disk(monkeypatch, tmp_path):
 
 # ─── Energy mode derivation ─────────────────────────────────────────
 
+
 def test_solar_energy_mode_quiet():
     mode = solar_service._derive_solar_energy_mode(
         kp_index={"current_kp": 2.0},
@@ -491,13 +523,17 @@ def test_solar_energy_mode_severe():
 
 # ─── Generic helpers ────────────────────────────────────────────────
 
-@pytest.mark.parametrize("val,expected", [
-    ("3.14", 3.14),
-    (2, 2.0),
-    ("null", None),
-    ("none", None),
-    (None, None),
-    ("not a number", None),
-])
+
+@pytest.mark.parametrize(
+    "val,expected",
+    [
+        ("3.14", 3.14),
+        (2, 2.0),
+        ("null", None),
+        ("none", None),
+        (None, None),
+        ("not a number", None),
+    ],
+)
 def test_safe_float(val, expected):
     assert solar_service._safe_float(val) == expected

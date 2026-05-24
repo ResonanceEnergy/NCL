@@ -4,12 +4,12 @@ Every telemetry record passes through redaction rules before persistence.
 UI toggle defaults to privacy-safe mode. CI lint enforces schema compliance.
 """
 
+import hashlib
+import re
+import uuid as _uuid
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
-import uuid as _uuid
-import re
-import hashlib
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -43,9 +43,7 @@ class RedactionRule:
     """Redaction rules for privacy-safe telemetry."""
 
     # PII patterns to scrub
-    EMAIL_PATTERN = re.compile(
-        r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
-    )
+    EMAIL_PATTERN = re.compile(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
     PHONE_PATTERN = re.compile(r"\b\d{3}[-.]?\d{3}[-.]?\d{4}\b")
     SSN_PATTERN = re.compile(r"\b\d{3}-?\d{2}-?\d{4}\b")
     API_KEY_PATTERN = re.compile(r"(sk-|xai-|key-|token-)[a-zA-Z0-9_-]{20,}")
@@ -80,9 +78,7 @@ class RedactionRule:
             elif isinstance(v, dict):
                 result[k] = cls.redact_dict(v)
             elif isinstance(v, list):
-                result[k] = [
-                    cls.redact(i) if isinstance(i, str) else i for i in v
-                ]
+                result[k] = [cls.redact(i) if isinstance(i, str) else i for i in v]
             else:
                 result[k] = v
         return result
@@ -98,40 +94,26 @@ class TelemetryRecord(BaseModel):
 
     record_id: str = Field(default_factory=lambda: str(_uuid.uuid4()))
     category: TelemetryCategory
-    workflow: str = Field(
-        ..., description="Workflow name (e.g., 'pump_intake', 'council_debate')"
-    )
-    action: str = Field(
-        ..., description="Specific action (e.g., 'started', 'completed', 'failed')"
-    )
+    workflow: str = Field(..., description="Workflow name (e.g., 'pump_intake', 'council_debate')")
+    action: str = Field(..., description="Specific action (e.g., 'started', 'completed', 'failed')")
 
     # Timing
-    timestamp: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
-    duration_ms: Optional[float] = Field(
-        default=None, description="Operation duration in ms"
-    )
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    duration_ms: Optional[float] = Field(default=None, description="Operation duration in ms")
 
     # Context (privacy-safe)
-    correlation_id: Optional[str] = Field(
-        default=None, description="Hashed correlation ID"
-    )
+    correlation_id: Optional[str] = Field(default=None, description="Hashed correlation ID")
     session_id: Optional[str] = Field(default=None)
 
     # Metrics
-    counters: dict[str, int] = Field(
-        default_factory=dict, description="Count metrics"
-    )
+    counters: dict[str, int] = Field(default_factory=dict, description="Count metrics")
     gauges: dict[str, float] = Field(
         default_factory=dict, description="Gauge metrics (current values)"
     )
 
     # Status
     success: bool = True
-    error_type: Optional[str] = Field(
-        default=None, description="Error class name, not message"
-    )
+    error_type: Optional[str] = Field(default=None, description="Error class name, not message")
 
     # Payload (only in VERBOSE mode, always redacted)
     payload: dict[str, Any] = Field(default_factory=dict)
@@ -153,9 +135,7 @@ class TelemetryRecord(BaseModel):
         data = self.model_dump()
         data["payload"] = RedactionRule.redact_dict(data.get("payload", {}))
         if data.get("correlation_id"):
-            data["correlation_id"] = RedactionRule.hash_identifier(
-                data["correlation_id"]
-            )
+            data["correlation_id"] = RedactionRule.hash_identifier(data["correlation_id"])
         return TelemetryRecord(**data)
 
 

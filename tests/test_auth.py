@@ -13,11 +13,10 @@ Run:
     pytest tests/test_auth.py -v --asyncio-mode=auto
 """
 
-import pytest
-import os
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
+import pytest
 from fastapi.testclient import TestClient
 
 # Import the FastAPI app from routes module
@@ -250,7 +249,6 @@ def test_mandates_list_valid_auth(test_client, valid_token, monkeypatch):
     assert response.status_code in [200, 503]
 
 
-
 def test_mandates_get_requires_auth(test_client):
     """
     Test: GET /mandates/{mandate_id} without token returns 401/403.
@@ -262,7 +260,6 @@ def test_mandates_get_requires_auth(test_client):
     assert response.status_code == 401
     data = response.json()
     assert "detail" in data
-
 
 
 def test_mandates_get_valid_auth(test_client, valid_token, monkeypatch):
@@ -283,7 +280,6 @@ def test_mandates_get_valid_auth(test_client, valid_token, monkeypatch):
     assert response.status_code in [200, 404, 503]
 
 
-
 def test_memory_query_requires_auth(test_client):
     """
     Test: GET /memory/query without token returns 401/403.
@@ -295,7 +291,6 @@ def test_memory_query_requires_auth(test_client):
     assert response.status_code == 401
     data = response.json()
     assert "detail" in data
-
 
 
 def test_memory_query_valid_auth(test_client, valid_token, monkeypatch):
@@ -314,7 +309,6 @@ def test_memory_query_valid_auth(test_client, valid_token, monkeypatch):
     assert response.status_code != 401
     assert response.status_code != 403
     assert response.status_code in [200, 503]
-
 
 
 def test_feedback_requires_auth(test_client):
@@ -360,7 +354,6 @@ def test_feedback_valid_auth(test_client, valid_token, monkeypatch):
     assert response.status_code != 401
     assert response.status_code != 403
     assert response.status_code in [200, 503]
-
 
 
 def test_auth_token_format_bearer(test_client, valid_token, monkeypatch):
@@ -426,7 +419,6 @@ def test_pump_approval_requires_auth(test_client):
     assert "detail" in data
 
 
-
 def test_pump_approval_valid_auth(test_client, valid_token, monkeypatch):
     """
     Test: POST /pump/approve/{pump_id} with valid token succeeds (auth-wise).
@@ -456,7 +448,6 @@ def test_pump_reject_requires_auth(test_client):
     assert response.status_code == 401
     data = response.json()
     assert "detail" in data
-
 
 
 def test_pump_reject_valid_auth(test_client, valid_token, monkeypatch):

@@ -40,9 +40,10 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
+
 
 log = logging.getLogger("ncl.portfolio.memory_bridge")
 
@@ -52,7 +53,7 @@ log = logging.getLogger("ncl.portfolio.memory_bridge")
 # ---------------------------------------------------------------------------
 
 # How often to write the "current state" semantic snapshot to memory.
-SNAPSHOT_INTERVAL_MARKET_S = 3_600   # 1 hour during market hours
+SNAPSHOT_INTERVAL_MARKET_S = 3_600  # 1 hour during market hours
 SNAPSHOT_INTERVAL_OFFHOURS_S = 21_600  # 6 hours off-hours
 
 # Significant-move thresholds (percentage)
@@ -80,6 +81,7 @@ IMPORTANCE_BP_RISK = 95.0
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -89,7 +91,9 @@ def _is_market_open() -> bool:
     circular import while still being one true Sat/Sun check."""
     utc_now = _now_utc()
     month = utc_now.month
-    is_dst = 3 < month < 11 or (month == 3 and utc_now.day >= 8) or (month == 11 and utc_now.day <= 7)
+    is_dst = (
+        3 < month < 11 or (month == 3 and utc_now.day >= 8) or (month == 11 and utc_now.day <= 7)
+    )
     offset = timedelta(hours=-4) if is_dst else timedelta(hours=-5)
     et = utc_now + offset
     if et.weekday() >= 5:
@@ -129,9 +133,11 @@ def _fmt_money(value: float, currency: str = "CAD") -> str:
 # Bridge
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class _PrevSnapshot:
     """In-memory cache of the most-recent good summary + positions."""
+
     summary: dict = field(default_factory=dict)
     positions: list[dict] = field(default_factory=list)
     positions_by_key: dict[str, dict] = field(default_factory=dict)
@@ -278,7 +284,8 @@ class PortfolioMemoryBridge:
         singleton isn't initialized (test environments, early-boot races).
         """
         try:
-            from ..memory.async_writer import get_async_writer, WriteRequest
+            from ..memory.async_writer import WriteRequest, get_async_writer
+
             req = WriteRequest(
                 content=content,
                 source=source,
@@ -291,8 +298,12 @@ class PortfolioMemoryBridge:
         except RuntimeError:
             # async writer not initialised yet — try direct path
             await self._direct_create(
-                content=content, source=source, importance=importance,
-                memory_type=memory_type, tags=tags, metadata=metadata,
+                content=content,
+                source=source,
+                importance=importance,
+                memory_type=memory_type,
+                tags=tags,
+                metadata=metadata,
             )
         except Exception as exc:
             log.debug("[BRIDGE] enqueue failed (%s): %s", source, exc)
@@ -317,6 +328,7 @@ class PortfolioMemoryBridge:
             # global that gets assigned inside lifespan(), so a stale
             # `from ... import brain` would always see None.
             import runtime.api.routes as _routes  # late import
+
             _brain = getattr(_routes, "brain", None)
             if _brain is None or not getattr(_brain, "memory_store", None):
                 return False
@@ -438,6 +450,7 @@ class PortfolioMemoryBridge:
             # Re-fetch each call — `_autonomous` is a module-level global
             # populated inside lifespan().
             import runtime.api.routes as _routes  # late import to dodge cycle
+
             _autonomous = getattr(_routes, "_autonomous", None)
         except Exception:
             return
@@ -507,7 +520,12 @@ class PortfolioMemoryBridge:
             source="portfolio:position_opened",
             importance=IMPORTANCE_POSITION_OPEN,
             memory_type="episodic",
-            tags=["portfolio", "portfolio:position_opened", f"symbol:{sym}", f"broker:{broker.lower()}"],
+            tags=[
+                "portfolio",
+                "portfolio:position_opened",
+                f"symbol:{sym}",
+                f"broker:{broker.lower()}",
+            ],
             metadata={
                 "symbol": sym,
                 "quantity": qty,
@@ -539,7 +557,12 @@ class PortfolioMemoryBridge:
             source="portfolio:position_closed",
             importance=IMPORTANCE_POSITION_CLOSE,
             memory_type="episodic",
-            tags=["portfolio", "portfolio:position_closed", f"symbol:{sym}", f"broker:{broker.lower()}"],
+            tags=[
+                "portfolio",
+                "portfolio:position_closed",
+                f"symbol:{sym}",
+                f"broker:{broker.lower()}",
+            ],
             metadata={
                 "symbol": sym,
                 "quantity": qty,
@@ -569,7 +592,12 @@ class PortfolioMemoryBridge:
             source="portfolio:quantity_change",
             importance=IMPORTANCE_QUANTITY_CHANGE,
             memory_type="episodic",
-            tags=["portfolio", "portfolio:quantity_change", f"symbol:{sym}", f"broker:{broker.lower()}"],
+            tags=[
+                "portfolio",
+                "portfolio:quantity_change",
+                f"symbol:{sym}",
+                f"broker:{broker.lower()}",
+            ],
             metadata={
                 "symbol": sym,
                 "broker": broker,
@@ -618,7 +646,7 @@ class PortfolioMemoryBridge:
             )
 
         # Per-position moves
-        for pos in (positions or []):
+        for pos in positions or []:
             pos_pct = _safe_float(pos.get("daily_pl_pct"))
             if abs(pos_pct) < POSITION_DAY_MOVE_PCT:
                 continue
@@ -639,8 +667,11 @@ class PortfolioMemoryBridge:
                 importance=IMPORTANCE_SIGNIFICANT_MOVE,
                 memory_type="episodic",
                 tags=[
-                    "portfolio", "portfolio:significant_move", "scope:position",
-                    f"symbol:{sym}", f"broker:{broker.lower()}",
+                    "portfolio",
+                    "portfolio:significant_move",
+                    "scope:position",
+                    f"symbol:{sym}",
+                    f"broker:{broker.lower()}",
                 ],
                 metadata={
                     "scope": "position",
@@ -672,7 +703,7 @@ class PortfolioMemoryBridge:
         # raw account list lives on the PortfolioManager. Use what we
         # have from `summary["accounts"]` and supplement with broker
         # fields if available.
-        for acct in (summary.get("accounts", []) or []):
+        for acct in summary.get("accounts", []) or []:
             # `value` here is total account value, not buying power.
             # The /portfolio/accounts response carries buying_power.
             bp = _safe_float(acct.get("buying_power"))

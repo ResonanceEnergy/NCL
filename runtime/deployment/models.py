@@ -1,13 +1,14 @@
 """launchd Deployment Models — service definitions and status tracking."""
 
-from enum import Enum
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional, List
+from enum import Enum
+from typing import List, Optional
 
 
 class ServiceName(Enum):
     """Enumeration of NCL services managed by launchd."""
+
     NCL_BRAIN = "ncl-brain"
     PUMP_WATCHER = "pump-watcher"
     ORCHESTRATOR = "orchestrator"
@@ -16,6 +17,7 @@ class ServiceName(Enum):
 
 class ServiceStatus(Enum):
     """Current operational status of a service."""
+
     RUNNING = "running"
     STOPPED = "stopped"
     ERROR = "error"
@@ -24,6 +26,7 @@ class ServiceStatus(Enum):
 
 class ServiceHealth(Enum):
     """Health assessment of a service."""
+
     HEALTHY = "healthy"
     DEGRADED = "degraded"
     UNHEALTHY = "unhealthy"
@@ -33,6 +36,7 @@ class ServiceHealth(Enum):
 @dataclass
 class ServiceDefinition:
     """Configuration definition for a launchd service."""
+
     name: ServiceName
     plist_label: str
     plist_path: str
@@ -55,6 +59,7 @@ class ServiceDefinition:
 @dataclass
 class ServiceState:
     """Current state and health information for a running service."""
+
     name: ServiceName
     status: ServiceStatus
     health: ServiceHealth
@@ -74,13 +79,16 @@ class ServiceState:
 
     def needs_attention(self) -> bool:
         """Check if service requires intervention."""
-        return (self.status == ServiceStatus.ERROR or
-                self.health in (ServiceHealth.UNHEALTHY, ServiceHealth.DOWN))
+        return self.status == ServiceStatus.ERROR or self.health in (
+            ServiceHealth.UNHEALTHY,
+            ServiceHealth.DOWN,
+        )
 
 
 @dataclass
 class DeploymentConfig:
     """Configuration for the deployment manager."""
+
     ncl_root: str = "~/dev/NCL"
     log_dir: str = "logs"
     python_path: str = "/opt/homebrew/bin/python3"
@@ -89,8 +97,11 @@ class DeploymentConfig:
     def __post_init__(self):
         """Expand home directory paths."""
         import os
+
         self.ncl_root = os.path.expanduser(self.ncl_root)
-        self.log_dir = os.path.expanduser(self.log_dir) if self.log_dir.startswith("~") else self.log_dir
+        self.log_dir = (
+            os.path.expanduser(self.log_dir) if self.log_dir.startswith("~") else self.log_dir
+        )
         if not self.log_dir.startswith("/"):
             # Relative to NCL root
             self.log_dir = os.path.join(self.ncl_root, self.log_dir)

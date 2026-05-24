@@ -3,6 +3,7 @@ Calendar API routes -- lunar phases, market events, energy states, correlation.
 
 All endpoints require Strike authentication via _verify_strike_token().
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -15,26 +16,27 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
-from .lunar import (
-    get_moon_phase,
-    get_calendar_range,
-    get_upcoming_major_phases,
-    get_cycle_context,
-)
 from .events import (
-    get_all_events,
-    add_custom_event,
     EVENT_CATEGORIES,
+    add_custom_event,
+    get_all_events,
 )
 from .local_events import (
-    get_local_events,
-    get_city_payload,
-    get_cities_list,
-    add_local_event,
     CITIES,
     LOCAL_EVENT_CATEGORIES,
+    add_local_event,
+    get_cities_list,
+    get_city_payload,
+    get_local_events,
 )
-from .watchlist import build_watchlist, WATCHLIST_CATEGORIES
+from .lunar import (
+    get_calendar_range,
+    get_cycle_context,
+    get_moon_phase,
+    get_upcoming_major_phases,
+)
+from .watchlist import WATCHLIST_CATEGORIES, build_watchlist
+
 
 log = logging.getLogger("ncl.calendar.routes")
 
@@ -45,6 +47,7 @@ def _get_strike_token() -> str:
     """Lazily resolve the strike token."""
     try:
         from runtime.api.routes import STRIKE_TOKEN
+
         return STRIKE_TOKEN
     except ImportError:
         return os.getenv("STRIKE_AUTH_TOKEN", "")
@@ -61,6 +64,7 @@ def _verify_strike_token(authorization: str):
 
 
 # ── Today ─────────────────────────────────────────────────────────────
+
 
 @calendar_router.get("/today")
 async def calendar_today(authorization: str = Header(default="")):
@@ -87,6 +91,7 @@ async def calendar_today(authorization: str = Header(default="")):
 
 
 # ── Week View (7 days) ───────────────────────────────────────────────
+
 
 @calendar_router.get("/week")
 async def calendar_week(
@@ -118,9 +123,7 @@ async def calendar_week(
     for day in days:
         day["events"] = events_by_date.get(day["date"], [])
         day["event_count"] = len(day["events"])
-        day["has_high_impact"] = any(
-            e.get("impact") in ("high", "critical") for e in day["events"]
-        )
+        day["has_high_impact"] = any(e.get("impact") in ("high", "critical") for e in day["events"])
 
     return {
         "start": start.isoformat(),
@@ -132,6 +135,7 @@ async def calendar_week(
 
 
 # ── Month View (30 days) ─────────────────────────────────────────────
+
 
 @calendar_router.get("/month")
 async def calendar_month(
@@ -174,20 +178,21 @@ async def calendar_month(
     for day in days:
         day["events"] = events_by_date.get(day["date"], [])
         day["event_count"] = len(day["events"])
-        day["has_high_impact"] = any(
-            e.get("impact") in ("high", "critical") for e in day["events"]
-        )
+        day["has_high_impact"] = any(e.get("impact") in ("high", "critical") for e in day["events"])
 
     return {
         "start": start.isoformat(),
         "end": end.isoformat(),
         "days": days,
-        "major_phases": [p for p in major_phases if start.isoformat() <= p["datetime"][:10] <= end.isoformat()],
+        "major_phases": [
+            p for p in major_phases if start.isoformat() <= p["datetime"][:10] <= end.isoformat()
+        ],
         "event_count": len(events),
     }
 
 
 # ── Moon Phase Details ────────────────────────────────────────────────
+
 
 @calendar_router.get("/moon")
 async def moon_current(authorization: str = Header(default="")):
@@ -211,6 +216,7 @@ async def moon_upcoming_phases(
 
 # ── Energy State ──────────────────────────────────────────────────────
 
+
 @calendar_router.get("/energy")
 async def energy_state(authorization: str = Header(default="")):
     """
@@ -225,36 +231,44 @@ async def energy_state(authorization: str = Header(default="")):
     # Build a prioritized to-do list based on energy state
     todos = []
     for i, action in enumerate(phase["suggested_actions"]):
-        todos.append({
-            "priority": i + 1,
-            "action": action,
-            "category": phase["energy_mode"],
-            "phase_context": phase["phase_name"],
-        })
+        todos.append(
+            {
+                "priority": i + 1,
+                "action": action,
+                "category": phase["energy_mode"],
+                "phase_context": phase["phase_name"],
+            }
+        )
 
     # Add phase-specific intel suggestions
     mode = phase["energy_mode"]
     if mode in ("initiate", "build"):
-        todos.append({
-            "priority": len(todos) + 1,
-            "action": "Check scanner for new entry opportunities",
-            "category": "intel",
-            "phase_context": "Waxing energy favors new entries",
-        })
+        todos.append(
+            {
+                "priority": len(todos) + 1,
+                "action": "Check scanner for new entry opportunities",
+                "category": "intel",
+                "phase_context": "Waxing energy favors new entries",
+            }
+        )
     elif mode in ("harvest", "analyze"):
-        todos.append({
-            "priority": len(todos) + 1,
-            "action": "Run prediction accuracy review",
-            "category": "intel",
-            "phase_context": "Peak energy ideal for assessment",
-        })
+        todos.append(
+            {
+                "priority": len(todos) + 1,
+                "action": "Run prediction accuracy review",
+                "category": "intel",
+                "phase_context": "Peak energy ideal for assessment",
+            }
+        )
     elif mode in ("release", "reflect"):
-        todos.append({
-            "priority": len(todos) + 1,
-            "action": "Run memory consolidation and pruning",
-            "category": "system",
-            "phase_context": "Waning energy favors cleanup",
-        })
+        todos.append(
+            {
+                "priority": len(todos) + 1,
+                "action": "Run memory consolidation and pruning",
+                "category": "system",
+                "phase_context": "Waning energy favors cleanup",
+            }
+        )
 
     return {
         "phase": phase,
@@ -265,6 +279,7 @@ async def energy_state(authorization: str = Header(default="")):
 
 
 # ── Events Management ────────────────────────────────────────────────
+
 
 @calendar_router.get("/events")
 async def list_events(
@@ -310,6 +325,7 @@ async def create_event(request: Request, authorization: str = Header(default="")
 
 # ── Categories metadata ──────────────────────────────────────────────
 
+
 @calendar_router.get("/categories")
 async def list_categories(authorization: str = Header(default="")):
     """List all event categories with their metadata."""
@@ -318,6 +334,7 @@ async def list_categories(authorization: str = Header(default="")):
 
 
 # ── Local Events ────────────────────────────────────────────────────
+
 
 @calendar_router.get("/cities")
 async def list_cities(authorization: str = Header(default="")):
@@ -331,7 +348,9 @@ async def city_events(
     city_id: str,
     start: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
     end: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
-    flat: bool = Query(False, description="Legacy flat-events response (no landmarks/notable_dates)"),
+    flat: bool = Query(
+        False, description="Legacy flat-events response (no landmarks/notable_dates)"
+    ),
     authorization: str = Header(default=""),
 ):
     """
@@ -388,6 +407,7 @@ async def local_categories(authorization: str = Header(default="")):
 
 # ── Watchlist / Suggested To-Do ──────────────────────────────────────
 
+
 @calendar_router.get("/watchlist")
 async def get_watchlist(authorization: str = Header(default="")):
     """
@@ -398,7 +418,7 @@ async def get_watchlist(authorization: str = Header(default="")):
     _verify_strike_token(authorization)
 
     now = datetime.now(timezone.utc)
-    from .lunar import get_moon_phase, get_cycle_context
+    from .lunar import get_cycle_context, get_moon_phase
 
     phase = get_moon_phase(now)
     context = get_cycle_context()
@@ -423,6 +443,7 @@ async def get_watchlist(authorization: str = Header(default="")):
 # ─────────────────────────────────────────────────────────────────────
 # v2 endpoints — Calendar Agent + city preferences
 # ─────────────────────────────────────────────────────────────────────
+
 
 def _utc_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -456,6 +477,7 @@ def _get_calendar_agent_or_none():
     """Lazy import calendar_agent so missing module doesn't break route registration."""
     try:
         from .calendar_agent import get_calendar_agent  # type: ignore
+
         return get_calendar_agent()
     except Exception as exc:  # pragma: no cover - import failure path
         log.warning("calendar_agent unavailable: %s", exc)
@@ -466,6 +488,7 @@ def _get_cities_pref_or_none():
     """Lazy import cities_pref so missing module doesn't break route registration."""
     try:
         from . import cities_pref  # type: ignore
+
         return cities_pref
     except Exception as exc:  # pragma: no cover - import failure path
         log.warning("cities_pref unavailable: %s", exc)
@@ -473,6 +496,7 @@ def _get_cities_pref_or_none():
 
 
 # ── Sun / Space Weather ──────────────────────────────────────────────
+
 
 @calendar_router.get("/sun")
 async def calendar_sun(
@@ -499,6 +523,7 @@ async def calendar_sun(
 
 
 # ── Compiled events (deduped + correlated + escalated) ──────────────
+
 
 @calendar_router.get("/events/compiled")
 async def calendar_events_compiled(
@@ -556,6 +581,7 @@ async def calendar_events_compiled(
         # Apply quality filters (exclude_window + dedup + quality + scanner-cap).
         try:
             from .events_compiler import apply_quality_filters
+
             filtered = apply_quality_filters(
                 raw_events,
                 exclude_window=int(exclude_window),
@@ -597,6 +623,7 @@ async def calendar_events_compiled(
 
 # ── Todos (correlated to-do list) ────────────────────────────────────
 
+
 @calendar_router.get("/todos")
 async def calendar_todos(
     city_id: str = Query("edmonton", description="City id"),
@@ -632,6 +659,7 @@ async def calendar_todos(
 
 
 # ── Dashboard (one-shot mega-endpoint) ───────────────────────────────
+
 
 @calendar_router.get("/dashboard")
 async def calendar_dashboard(
@@ -683,11 +711,21 @@ async def calendar_dashboard(
                 log.warning("dashboard sub-call failed: %s", exc)
                 return fallback
 
-        sun_task = _safe(_call_maybe_async(agent.get_sun_state, city_id), {"error": "sun fetch failed"})
-        events7_task = _safe(_call_maybe_async(agent.compile_events, city_id, 7), {"events": [], "count": 0})
-        events30_task = _safe(_call_maybe_async(agent.compile_events, city_id, 30), {"events": [], "count": 0})
-        todos7_task = _safe(_call_maybe_async(agent.get_todos, city_id, 7), {"todos": [], "count": 0})
-        todos30_task = _safe(_call_maybe_async(agent.get_todos, city_id, 30), {"todos": [], "count": 0})
+        sun_task = _safe(
+            _call_maybe_async(agent.get_sun_state, city_id), {"error": "sun fetch failed"}
+        )
+        events7_task = _safe(
+            _call_maybe_async(agent.compile_events, city_id, 7), {"events": [], "count": 0}
+        )
+        events30_task = _safe(
+            _call_maybe_async(agent.compile_events, city_id, 30), {"events": [], "count": 0}
+        )
+        todos7_task = _safe(
+            _call_maybe_async(agent.get_todos, city_id, 7), {"todos": [], "count": 0}
+        )
+        todos30_task = _safe(
+            _call_maybe_async(agent.get_todos, city_id, 30), {"todos": [], "count": 0}
+        )
         status_task = _safe(
             _call_maybe_async(getattr(agent, "get_status", lambda: {"available": True})),
             {"available": True, "warning": "no get_status method"},
@@ -725,7 +763,9 @@ async def calendar_dashboard(
             "events_30d": _shape_events(events30),
             "todos_7d": _shape_todos(todos7),
             "todos_30d": _shape_todos(todos30),
-            "agent_status": agent_status if isinstance(agent_status, dict) else {"value": agent_status},
+            "agent_status": agent_status
+            if isinstance(agent_status, dict)
+            else {"value": agent_status},
             "generated_at": _utc_iso(),
         }
     except HTTPException:
@@ -736,6 +776,7 @@ async def calendar_dashboard(
 
 
 # ── City preference ──────────────────────────────────────────────────
+
 
 @calendar_router.post("/city/select")
 async def calendar_city_select(request: Request, authorization: str = Header(default="")):
@@ -816,6 +857,7 @@ async def calendar_city_current(authorization: str = Header(default="")):
 
 
 # ── Force refresh ────────────────────────────────────────────────────
+
 
 @calendar_router.post("/refresh")
 async def calendar_refresh(request: Request, authorization: str = Header(default="")):

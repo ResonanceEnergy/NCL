@@ -9,16 +9,15 @@ Auth: Reads STRIKE_AUTH_TOKEN from environment variable.
 Backend: Calls NCL Brain API at NCL_BRAIN_URL (default: http://localhost:8800)
 """
 
+import asyncio
+import logging
 import os
 import sys
-import json
-import logging
 from typing import Any, Literal, Optional
-
-import asyncio
 
 import httpx
 from mcp.server.fastmcp import FastMCP
+
 
 # Configure logging
 logging.basicConfig(
@@ -171,7 +170,7 @@ async def ncl_mandate_list() -> dict[str, Any]:
 async def ncl_mandate_create(
     title: str,
     description: str,
-    pillar: Literal["NCC", "BRS", "AAC"],
+    pillar: Literal["NCC"],  # BRS/AAC retired 2026-05-23
     priority: Literal["low", "medium", "high", "critical"] = "medium",
 ) -> dict[str, Any]:
     """
@@ -180,7 +179,7 @@ async def ncl_mandate_create(
     Args:
       title (str): Concise mandate title
       description (str): Full mandate description (rationale + specifics)
-      pillar (str): Target pillar: "NCC", "BRS", or "AAC"
+      pillar (str): Target pillar: "NCC" only (BRS/AAC retired 2026-05-23)
       priority (str): Priority level: "low", "medium" (default), "high", "critical"
 
     Returns:
@@ -222,10 +221,10 @@ async def ncl_feedback_submit(
     category: str = "general",
 ) -> dict[str, Any]:
     """
-    Submit feedback report from a downstream pillar (NCC, BRS, AAC).
+    Submit feedback report from a downstream pillar (NCC; BRS/AAC retired 2026-05-23).
 
     Args:
-      pillar (str): Source pillar: "NCC" (execution), "BRS" (revenue), or "AAC" (capital)
+      pillar (str): Source pillar: "NCC" (execution). BRS/AAC retired 2026-05-23.
       report_content (str): Feedback report content (YAML or JSON accepted)
       category (str): Report category: "general" (default), "error", "opportunity", "risk"
 
@@ -249,9 +248,7 @@ async def ncl_feedback_submit(
 
 
 if __name__ == "__main__":
-    logger.info(
-        f"Starting NCL Brain MCP Server (NCL_BRAIN_URL={NCL_BRAIN_URL})"
-    )
+    logger.info(f"Starting NCL Brain MCP Server (NCL_BRAIN_URL={NCL_BRAIN_URL})")
     try:
         server.run()
     except KeyboardInterrupt:

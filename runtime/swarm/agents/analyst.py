@@ -11,9 +11,10 @@ import logging
 import time
 import traceback
 
-from . import register_agent
 from ..agent_base import SwarmAgent
 from ..models import SubtaskNode, TaskResult, TaskStatus
+from . import register_agent
+
 
 logger = logging.getLogger("ncl.swarm.analyst")
 
@@ -26,7 +27,9 @@ class AnalystAgent(SwarmAgent):
     for broad reasoning and Claude for structured delivery.
     """
 
-    DESCRIPTION = "Analyst — quantitative analysis, market sizing, risk assessment (Gemini + Claude)"
+    DESCRIPTION = (
+        "Analyst — quantitative analysis, market sizing, risk assessment (Gemini + Claude)"
+    )
 
     def __str__(self) -> str:
         return f"AnalystAgent(id={self.agent_id}, state={self.state.value})"
@@ -45,9 +48,7 @@ class AnalystAgent(SwarmAgent):
             assumptions = task.input_data.get("assumptions", [])
 
             metrics_str = f"\nKey Metrics to Analyze: {', '.join(metrics)}" if metrics else ""
-            assumptions_str = (
-                f"\nAssumptions: {', '.join(assumptions)}" if assumptions else ""
-            )
+            assumptions_str = f"\nAssumptions: {', '.join(assumptions)}" if assumptions else ""
             data_block = f"\nData/Context:\n{data_context}" if data_context else ""
 
             _task_data_header = (
@@ -83,10 +84,12 @@ class AnalystAgent(SwarmAgent):
             )
             total_cost += gemini_response.cost_cents
 
-            await self.checkpoint({
-                "phase": "analysis_complete",
-                "analysis_type": analysis_type,
-            })
+            await self.checkpoint(
+                {
+                    "phase": "analysis_complete",
+                    "analysis_type": analysis_type,
+                }
+            )
 
             # --- Phase 2: Claude for structured output ---
             structure_prompt = (

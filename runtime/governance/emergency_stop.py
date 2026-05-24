@@ -7,18 +7,20 @@ All activations/deactivations logged in AuditLedger.
 Global EMERGENCY_STOP_EVENT (threading.Event) is set on activation so that
 all subsystem loops can check `if EMERGENCY_STOP_EVENT.is_set(): break`.
 """
+
 import asyncio
-import os
-import threading
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Optional, Any
 import json
 import logging
+import os
+import threading
 import uuid as _uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Optional
 
 import aiofiles
 from pydantic import BaseModel, Field
+
 
 log = logging.getLogger("ncl.emergency_stop")
 
@@ -31,6 +33,7 @@ EMERGENCY_STOP_EVENT: threading.Event = threading.Event()
 
 class EmergencyStopState(BaseModel):
     """Persistent state of the emergency stop."""
+
     active: bool = False
     activated_at: Optional[datetime] = None
     activated_by: str = ""
@@ -42,6 +45,7 @@ class EmergencyStopState(BaseModel):
 
 class AuditLedgerEntry(BaseModel):
     """Audit ledger entry for emergency stop actions."""
+
     entry_id: str = Field(default_factory=lambda: str(_uuid.uuid4()))
     action: str  # "activated", "deactivated", "blocked_action"
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
@@ -79,7 +83,14 @@ class EmergencyStop:
 
     NOTIFICATIONS_FILE = "emergency_stop_notifications.jsonl"
 
-    def __init__(self, data_dir, policy_kernel=None, scheduler=None, swarm_orchestrator=None, intelligence_engine=None):
+    def __init__(
+        self,
+        data_dir,
+        policy_kernel=None,
+        scheduler=None,
+        swarm_orchestrator=None,
+        intelligence_engine=None,
+    ):
         self.data_dir = Path(data_dir) if not isinstance(data_dir, Path) else data_dir
         self.gov_dir = self.data_dir / "governance"
         self._state = EmergencyStopState()
@@ -125,7 +136,7 @@ class EmergencyStop:
         # Load state from file
         state_path = self.gov_dir / self.STATE_FILE
         if state_path.exists():
-            async with aiofiles.open(state_path, 'r') as f:
+            async with aiofiles.open(state_path, "r") as f:
                 data = json.loads(await f.read())
                 self._state = EmergencyStopState(**data)
 
@@ -155,7 +166,9 @@ class EmergencyStop:
         """Register callback for state changes."""
         self._callbacks.append(callback)
 
-    async def activate(self, actor: str = "NATRIX", reason: str = "Manual emergency stop") -> EmergencyStopState:
+    async def activate(
+        self, actor: str = "NATRIX", reason: str = "Manual emergency stop"
+    ) -> EmergencyStopState:
         """ONE-TAP STOP — immediately halt ALL subsystems.
 
         Actions taken in order:
@@ -202,9 +215,9 @@ class EmergencyStop:
         # ── 4. Cancel swarm orchestrator ───────────────────────────────────
         if self._swarm_orchestrator is not None:
             try:
-                if hasattr(self._swarm_orchestrator, 'stop'):
+                if hasattr(self._swarm_orchestrator, "stop"):
                     await self._swarm_orchestrator.stop()
-                elif hasattr(self._swarm_orchestrator, 'shutdown'):
+                elif hasattr(self._swarm_orchestrator, "shutdown"):
                     await self._swarm_orchestrator.shutdown()
                 log.critical("SwarmOrchestrator: stopped")
             except Exception as e:
@@ -213,9 +226,9 @@ class EmergencyStop:
         # ── 5. Cancel intelligence engine ──────────────────────────────────
         if self._intelligence_engine is not None:
             try:
-                if hasattr(self._intelligence_engine, 'stop'):
+                if hasattr(self._intelligence_engine, "stop"):
                     await self._intelligence_engine.stop()
-                elif hasattr(self._intelligence_engine, 'shutdown'):
+                elif hasattr(self._intelligence_engine, "shutdown"):
                     await self._intelligence_engine.shutdown()
                 log.critical("IntelligenceEngine: stopped")
             except Exception as e:
@@ -225,20 +238,26 @@ class EmergencyStop:
         await self._persist_state()
 
         flag_path = self.gov_dir / self.FLAG_FILE
-        async with aiofiles.open(flag_path, 'w') as f:
-            await f.write(json.dumps({
-                "active": True,
-                "activated_at": self._state.activated_at.isoformat(),
-                "activated_by": actor,
-                "reason": reason,
-            }))
+        async with aiofiles.open(flag_path, "w") as f:
+            await f.write(
+                json.dumps(
+                    {
+                        "active": True,
+                        "activated_at": self._state.activated_at.isoformat(),
+                        "activated_by": actor,
+                        "reason": reason,
+                    }
+                )
+            )
 
-        await self._log_ledger(AuditLedgerEntry(
-            action="activated",
-            actor=actor,
-            reason=reason,
-            metadata={"activation_count": self._state.activation_count},
-        ))
+        await self._log_ledger(
+            AuditLedgerEntry(
+                action="activated",
+                actor=actor,
+                reason=reason,
+                metadata={"activation_count": self._state.activation_count},
+            )
+        )
 
         log.critical(f"EMERGENCY STOP FULLY ACTIVATED by {actor}: {reason}")
 
@@ -254,7 +273,9 @@ class EmergencyStop:
 
         return self._state
 
-    async def deactivate(self, actor: str = "NATRIX", reason: str = "Manual deactivation") -> EmergencyStopState:
+    async def deactivate(
+        self, actor: str = "NATRIX", reason: str = "Manual deactivation"
+    ) -> EmergencyStopState:
         """Deactivate emergency stop — re-enable Execute-tier actions.
 
         Clears the global EMERGENCY_STOP_EVENT so scheduler loops can resume
@@ -289,14 +310,18 @@ class EmergencyStop:
         if flag_path.exists():
             flag_path.unlink()
 
-        await self._log_ledger(AuditLedgerEntry(
-            action="deactivated",
-            actor=actor,
-            reason=reason,
-            metadata={
-                "was_active_since": self._state.activated_at.isoformat() if self._state.activated_at else None,
-            },
-        ))
+        await self._log_ledger(
+            AuditLedgerEntry(
+                action="deactivated",
+                actor=actor,
+                reason=reason,
+                metadata={
+                    "was_active_since": self._state.activated_at.isoformat()
+                    if self._state.activated_at
+                    else None,
+                },
+            )
+        )
 
         log.info(f"Emergency stop DEACTIVATED by {actor}: {reason}. Operations may resume.")
 
@@ -316,13 +341,15 @@ class EmergencyStop:
         if not self._state.active:
             return False  # Not blocked
 
-        await self._log_ledger(AuditLedgerEntry(
-            action="blocked_action",
-            actor="emergency_stop",
-            reason=f"Execute-tier action blocked: {action_name}",
-            blocked_action_name=action_name,
-            blocked_action_id=action_id,
-        ))
+        await self._log_ledger(
+            AuditLedgerEntry(
+                action="blocked_action",
+                actor="emergency_stop",
+                reason=f"Execute-tier action blocked: {action_name}",
+                blocked_action_name=action_name,
+                blocked_action_id=action_id,
+            )
+        )
 
         log.warning(f"BLOCKED by emergency stop: {action_name} (id={action_id})")
         return True  # Blocked
@@ -334,7 +361,7 @@ class EmergencyStop:
             return []
 
         entries = []
-        async with aiofiles.open(ledger_path, 'r') as f:
+        async with aiofiles.open(ledger_path, "r") as f:
             async for line in f:
                 line = line.strip()
                 if line:
@@ -351,12 +378,16 @@ class EmergencyStop:
         return {
             "active": self._state.active,
             "global_event_set": EMERGENCY_STOP_EVENT.is_set(),
-            "activated_at": self._state.activated_at.isoformat() if self._state.activated_at else None,
+            "activated_at": self._state.activated_at.isoformat()
+            if self._state.activated_at
+            else None,
             "activated_by": self._state.activated_by,
             "reason": self._state.reason,
             "activation_count": activation_count,
             "total_blocked_actions": blocked_count,
-            "deactivated_at": self._state.deactivated_at.isoformat() if self._state.deactivated_at else None,
+            "deactivated_at": self._state.deactivated_at.isoformat()
+            if self._state.deactivated_at
+            else None,
         }
 
     async def _persist_state(self):
@@ -364,7 +395,7 @@ class EmergencyStop:
         self.gov_dir.mkdir(parents=True, exist_ok=True)
         state_path = self.gov_dir / self.STATE_FILE
         tmp_path = state_path.with_suffix(".tmp")
-        async with aiofiles.open(tmp_path, 'w') as f:
+        async with aiofiles.open(tmp_path, "w") as f:
             await f.write(self._state.model_dump_json(indent=2))
             await f.flush()
             os.fsync(f.fileno())
@@ -373,7 +404,7 @@ class EmergencyStop:
     async def _log_ledger(self, entry: AuditLedgerEntry):
         self.gov_dir.mkdir(parents=True, exist_ok=True)
         ledger_path = self.gov_dir / self.LEDGER_FILE
-        async with aiofiles.open(ledger_path, 'a') as f:
+        async with aiofiles.open(ledger_path, "a") as f:
             await f.write(entry.model_dump_json() + "\n")
             await f.flush()
             os.fsync(f.fileno())
@@ -389,5 +420,5 @@ class EmergencyStop:
             "reason": reason,
             "active": self._state.active,
         }
-        async with aiofiles.open(notif_path, 'a') as f:
+        async with aiofiles.open(notif_path, "a") as f:
             await f.write(json.dumps(notification) + "\n")

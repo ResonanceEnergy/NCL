@@ -11,6 +11,7 @@ from typing import Type
 
 from ..agent_base import SwarmAgent
 
+
 # Registry mapping agent_type string → agent class
 _AGENT_REGISTRY: dict[str, Type[SwarmAgent]] = {}
 
@@ -28,7 +29,7 @@ def register_agent(agent_type: str):
     def decorator(cls: Type[SwarmAgent]) -> Type[SwarmAgent]:
         if agent_type in _AGENT_REGISTRY:
             raise ValueError(
-                f"Agent type '{agent_type}' already registered by {_AGENT_REGISTRY[agent_type].__name__}"
+                f"Agent type '{agent_type}' already registered by {_AGENT_REGISTRY[agent_type].__name__}"  # noqa: E501
             )
         _AGENT_REGISTRY[agent_type] = cls
         return cls
@@ -51,9 +52,7 @@ def get_agent_class(agent_type: str) -> Type[SwarmAgent]:
     """
     if agent_type not in _AGENT_REGISTRY:
         available = ", ".join(sorted(_AGENT_REGISTRY.keys())) or "(none)"
-        raise KeyError(
-            f"No agent registered for type '{agent_type}'. Available: {available}"
-        )
+        raise KeyError(f"No agent registered for type '{agent_type}'. Available: {available}")
     return _AGENT_REGISTRY[agent_type]
 
 
@@ -68,10 +67,12 @@ def get_registry() -> dict[str, Type[SwarmAgent]]:
 
 
 # Import all agent modules to trigger @register_agent decorators
-from . import scholar  # noqa: E402, F401
-from . import scout  # noqa: E402, F401
-from . import architect  # noqa: E402, F401
-from . import coder  # noqa: E402, F401
-from . import analyst  # noqa: E402, F401
-from . import scribe  # noqa: E402, F401
-from . import sentinel  # noqa: E402, F401
+from . import (  # noqa: E402
+    analyst,  # noqa: E402, F401
+    architect,  # noqa: E402, F401
+    coder,  # noqa: E402, F401
+    scholar,  # noqa: E402, F401
+    scout,  # noqa: E402, F401
+    scribe,  # noqa: E402, F401
+    sentinel,  # noqa: E402, F401
+)

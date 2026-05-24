@@ -31,6 +31,7 @@ False, we fall back to the rule-based builder so the iOS app never blocks.
 DO NOT TOUCH: LaunchAgents, plists, the cost-tracker schema. Use
 /opt/homebrew/bin/python3 on the host.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -43,6 +44,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+
 log = logging.getLogger("ncl.calendar.todo_generator")
 
 # ── Constants ─────────────────────────────────────────────────────────
@@ -52,8 +54,7 @@ TODO_DIR = NCL_BASE / "data" / "calendar"
 TODO_DIR.mkdir(parents=True, exist_ok=True)
 
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
-ANTHROPIC_ENDPOINT = "https://api.anthropic.com/v1/messages"
-ANTHROPIC_VERSION = "2023-06-01"
+# (Wave 5: ANTHROPIC_ENDPOINT/_VERSION removed — runtime.llm.chat owns the wire.)
 
 # Estimated cost ceiling per run (Haiku 4.5: ~$0.80/M input + ~$4.00/M output).
 # A typical run hits ~1K input + ~1K output ≈ $0.005. We gate at $0.02 so a
@@ -64,29 +65,54 @@ COST_OUTPUT_PER_MTOK = 4.00
 
 # Map moon energy_mode → which intent words signal alignment.
 ENERGY_ALIGNMENT: dict[str, set[str]] = {
-    "initiate":  {"start", "open", "enter", "buy", "launch", "begin", "set up",
-                  "plan", "draft", "new"},
-    "build":     {"add", "scale", "grow", "expand", "deepen", "research",
-                  "outreach", "follow up"},
-    "harvest":   {"review", "audit", "decide", "rebalance", "harvest", "lock",
-                  "take profit", "trim", "report"},
-    "analyze":   {"analyze", "review", "audit", "decide", "compare",
-                  "evaluate", "summarize"},
-    "release":   {"exit", "close", "cancel", "kill", "remove", "clean",
-                  "archive", "delete"},
-    "reflect":   {"journal", "reflect", "reread", "summarize", "postmortem",
-                  "retro"},
-    "seed":      {"set", "plan", "intend", "define", "draft"},
+    "initiate": {
+        "start",
+        "open",
+        "enter",
+        "buy",
+        "launch",
+        "begin",
+        "set up",
+        "plan",
+        "draft",
+        "new",
+    },
+    "build": {"add", "scale", "grow", "expand", "deepen", "research", "outreach", "follow up"},
+    "harvest": {
+        "review",
+        "audit",
+        "decide",
+        "rebalance",
+        "harvest",
+        "lock",
+        "take profit",
+        "trim",
+        "report",
+    },
+    "analyze": {"analyze", "review", "audit", "decide", "compare", "evaluate", "summarize"},
+    "release": {"exit", "close", "cancel", "kill", "remove", "clean", "archive", "delete"},
+    "reflect": {"journal", "reflect", "reread", "summarize", "postmortem", "retro"},
+    "seed": {"set", "plan", "intend", "define", "draft"},
 }
 
 VALID_URGENCIES = {"today", "this_week", "this_month"}
 VALID_CATEGORIES = {
-    "prediction", "council", "scanner", "portfolio", "intel",
-    "journal", "market", "local", "moon", "sun", "cross",
+    "prediction",
+    "council",
+    "scanner",
+    "portfolio",
+    "intel",
+    "journal",
+    "market",
+    "local",
+    "moon",
+    "sun",
+    "cross",
 }
 
 
 # ── Caching helpers ───────────────────────────────────────────────────
+
 
 def _cache_path(city_id: str, window: int) -> Path:
     safe = re.sub(r"[^a-z0-9_]", "_", city_id.lower())
@@ -109,8 +135,7 @@ async def get_cached_todos(city_id: str, window: int) -> Optional[list[dict]]:
     return None
 
 
-def _persist_todos(city_id: str, window: int, todos: list[dict],
-                   meta: dict | None = None) -> None:
+def _persist_todos(city_id: str, window: int, todos: list[dict], meta: dict | None = None) -> None:
     path = _cache_path(city_id, window)
     payload = {
         "city_id": city_id,
@@ -128,6 +153,7 @@ def _persist_todos(city_id: str, window: int, todos: list[dict],
 
 # ── Public API ────────────────────────────────────────────────────────
 
+
 async def generate_todos_for_window(
     city_id: str,
     window_days: int,
@@ -144,8 +170,9 @@ async def generate_todos_for_window(
     Returns a list of TodoItems (see module docstring for schema).
     """
     if window_days not in (7, 30):
-        log.warning("Non-standard window_days=%d; treating as %d-day strategic",
-                    window_days, window_days)
+        log.warning(
+            "Non-standard window_days=%d; treating as %d-day strategic", window_days, window_days
+        )
 
     events = events or []
     energy_mode = ""
@@ -182,15 +209,19 @@ async def generate_todos_for_window(
         )
 
     # Post-process: stamp energy_aligned, validate, dedupe by id.
-    todos = _post_process(todos, energy_mode=energy_mode,
-                          window_days=window_days)
+    todos = _post_process(todos, energy_mode=energy_mode, window_days=window_days)
 
-    _persist_todos(city_id, window_days, todos, meta={
-        "fallback_used": fallback_used,
-        "llm_error": llm_error,
-        "events_count": len(events),
-        "energy_mode": energy_mode,
-    })
+    _persist_todos(
+        city_id,
+        window_days,
+        todos,
+        meta={
+            "fallback_used": fallback_used,
+            "llm_error": llm_error,
+            "events_count": len(events),
+            "energy_mode": energy_mode,
+        },
+    )
     return todos
 
 
@@ -219,12 +250,14 @@ async def _generate_for_default_window(city_id: str, window: int) -> list[dict]:
 
 # ── Optional-dependency loaders (safe even if sibling modules are absent)
 
+
 async def _pull_events_safe(city_id: str, window: int) -> list[dict]:
     try:
         from . import events_compiler  # type: ignore
     except Exception:
-        log.info("events_compiler unavailable (Agent 2 build in progress); "
-                 "returning empty event list")
+        log.info(
+            "events_compiler unavailable (Agent 2 build in progress); " "returning empty event list"
+        )
         return []
     try:
         fn = getattr(events_compiler, "compile_unified_events", None)
@@ -262,6 +295,7 @@ async def _pull_solar_safe(city_id: str) -> dict | None:
 def _pull_moon_safe() -> dict | None:
     try:
         from . import lunar  # type: ignore
+
         return lunar.get_moon_phase()
     except Exception as e:
         log.debug("lunar.get_moon_phase failed: %s", e)
@@ -269,6 +303,7 @@ def _pull_moon_safe() -> dict | None:
 
 
 # ── Anthropic budget gate ─────────────────────────────────────────────
+
 
 async def _can_spend_anthropic(est_cost: float) -> bool:
     """
@@ -292,22 +327,22 @@ async def _can_spend_anthropic(est_cost: float) -> bool:
         return True
 
 
-async def _record_anthropic_cost(input_tokens: int, output_tokens: int,
-                                 detail: str) -> None:
+async def _record_anthropic_cost(input_tokens: int, output_tokens: int, detail: str) -> None:
     try:
         from ..cost_tracker import record_cost  # type: ignore
     except Exception:
         return
-    cost_usd = (input_tokens * COST_INPUT_PER_MTOK
-                + output_tokens * COST_OUTPUT_PER_MTOK) / 1_000_000
+    cost_usd = (
+        input_tokens * COST_INPUT_PER_MTOK + output_tokens * COST_OUTPUT_PER_MTOK
+    ) / 1_000_000
     try:
-        await record_cost("anthropic", cost_usd, "calendar_todo_generation",
-                          detail)
+        await record_cost("anthropic", cost_usd, "calendar_todo_generation", detail)
     except Exception as e:
         log.debug("record_cost failed: %s", e)
 
 
 # ── LLM path ──────────────────────────────────────────────────────────
+
 
 def _build_llm_prompt(
     city_id: str,
@@ -410,46 +445,29 @@ async def _llm_generate_todos(
     solar_state: dict | None,
     moon_phase: dict | None,
 ) -> list[dict]:
+    """Generate todos via Claude Haiku (through runtime.llm facade).
+
+    Migrated to ``runtime.llm.chat`` in Wave 5: the facade now owns
+    retry/jitter, circuit breaker, budget gate, and cost recording.
+    The legacy ``_record_anthropic_cost`` helper is kept around for
+    backwards compat but is no longer invoked by the LLM path.
+    """
     api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
         raise RuntimeError("ANTHROPIC_API_KEY not set")
 
-    import httpx  # local import keeps module import-light
+    prompt = _build_llm_prompt(city_id, window_days, events, solar_state, moon_phase)
 
-    prompt = _build_llm_prompt(city_id, window_days, events,
-                               solar_state, moon_phase)
+    from ..llm import chat  # lazy import — keeps module load light
 
-    body = {
-        "model": HAIKU_MODEL,
-        "max_tokens": 2048,
-        "messages": [{"role": "user", "content": prompt}],
-    }
-    headers = {
-        "x-api-key": api_key,
-        "anthropic-version": ANTHROPIC_VERSION,
-        "content-type": "application/json",
-    }
-
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(ANTHROPIC_ENDPOINT, headers=headers, json=body)
-
-    if resp.status_code != 200:
-        raise RuntimeError(f"Anthropic HTTP {resp.status_code}: "
-                           f"{resp.text[:200]}")
-
-    data = resp.json()
-    usage = data.get("usage", {}) or {}
-    in_t = int(usage.get("input_tokens", 0))
-    out_t = int(usage.get("output_tokens", 0))
-    await _record_anthropic_cost(in_t, out_t,
-                                 f"city={city_id} window={window_days}d "
-                                 f"events={len(events)}")
-
-    content = data.get("content", [])
-    text = ""
-    for block in content:
-        if isinstance(block, dict) and block.get("type") == "text":
-            text += block.get("text", "")
+    result = await chat(
+        model=HAIKU_MODEL,
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=2048,
+        budget_key="anthropic",
+        timeout_s=30.0,
+    )
+    text = result.text
     if not text:
         raise RuntimeError("Empty LLM response")
 
@@ -469,10 +487,11 @@ def _parse_json_array(text: str) -> Any:
     end = cleaned.rfind("]")
     if start == -1 or end == -1 or end <= start:
         return json.loads(cleaned)  # let it raise
-    return json.loads(cleaned[start:end + 1])
+    return json.loads(cleaned[start : end + 1])
 
 
 # ── Rule-based fallback ───────────────────────────────────────────────
+
 
 def _rule_based_todos(
     city_id: str,
@@ -496,32 +515,43 @@ def _rule_based_todos(
         phase_name = moon_phase.get("phase_name", "moon")
         action = {
             "initiate": f"Set intentions for the new {phase_name} cycle",
-            "build":    f"Pick one position to scale during {phase_name}",
-            "harvest":  f"Review open positions before {phase_name} peak",
-            "analyze":  f"Audit this week's signals under {phase_name}",
-            "release":  f"Close one stale position during {phase_name}",
-            "reflect":  f"Journal lessons from this cycle ({phase_name})",
-            "seed":     f"Define the thesis for the next {phase_name} cycle",
+            "build": f"Pick one position to scale during {phase_name}",
+            "harvest": f"Review open positions before {phase_name} peak",
+            "analyze": f"Audit this week's signals under {phase_name}",
+            "release": f"Close one stale position during {phase_name}",
+            "reflect": f"Journal lessons from this cycle ({phase_name})",
+            "seed": f"Define the thesis for the next {phase_name} cycle",
         }.get(mode, f"Sit with the {phase_name} energy")
-        out.append({
-            "id": _stable_id(f"moon::{phase_name}::{today.isoformat()}"),
-            "priority": 2,
-            "action": action,
-            "context": (moon_phase.get("energy_description") or
-                        f"Current lunar phase is {phase_name}."),
-            "due_date": today.isoformat(),
-            "urgency": "today",
-            "category": "moon",
-            "related_event_ids": [],
-            "energy_aligned": True,
-            "estimated_minutes": 15,
-        })
+        out.append(
+            {
+                "id": _stable_id(f"moon::{phase_name}::{today.isoformat()}"),
+                "priority": 2,
+                "action": action,
+                "context": (
+                    moon_phase.get("energy_description") or f"Current lunar phase is {phase_name}."
+                ),
+                "due_date": today.isoformat(),
+                "urgency": "today",
+                "category": "moon",
+                "related_event_ids": [],
+                "energy_aligned": True,
+                "estimated_minutes": 15,
+            }
+        )
 
     # 2. One todo per in-window event, ranked by source priority.
     source_priority = {
-        "prediction": 5, "council": 5, "portfolio": 4, "scanner": 4,
-        "market": 4, "intel": 3, "cross": 3, "journal": 2,
-        "local": 2, "sun": 2, "moon": 1,
+        "prediction": 5,
+        "council": 5,
+        "portfolio": 4,
+        "scanner": 4,
+        "market": 4,
+        "intel": 3,
+        "cross": 3,
+        "journal": 2,
+        "local": 2,
+        "sun": 2,
+        "moon": 1,
     }
     ranked = []
     for ev in events:
@@ -538,27 +568,28 @@ def _rule_based_todos(
     cap = 12 if window_days <= 7 else 8
     for sp, ev_date, ev, cat in ranked[:cap]:
         days_out = (ev_date - today).days
-        urgency = ("today" if days_out == 0
-                   else "this_week" if days_out <= 7
-                   else "this_month")
-        title = (ev.get("title") or ev.get("name") or
-                 ev.get("label") or "Event").strip()
+        urgency = "today" if days_out == 0 else "this_week" if days_out <= 7 else "this_month"
+        title = (ev.get("title") or ev.get("name") or ev.get("label") or "Event").strip()
         action_verb = "Review" if window_days <= 7 else "Plan around"
         action = f"{action_verb} {title} ({ev_date.isoformat()})"
-        out.append({
-            "id": _stable_id(f"event::{ev.get('id', title)}::"
-                             f"{ev_date.isoformat()}"),
-            "priority": min(5, max(1, sp)),
-            "action": action[:160],
-            "context": (ev.get("description") or ev.get("summary")
-                        or f"{cat.title()} event in {days_out} days.")[:240],
-            "due_date": ev_date.isoformat(),
-            "urgency": urgency,
-            "category": cat,
-            "related_event_ids": [str(ev.get("id"))] if ev.get("id") else [],
-            "energy_aligned": False,
-            "estimated_minutes": 30 if window_days <= 7 else 60,
-        })
+        out.append(
+            {
+                "id": _stable_id(f"event::{ev.get('id', title)}::" f"{ev_date.isoformat()}"),
+                "priority": min(5, max(1, sp)),
+                "action": action[:160],
+                "context": (
+                    ev.get("description")
+                    or ev.get("summary")
+                    or f"{cat.title()} event in {days_out} days."
+                )[:240],
+                "due_date": ev_date.isoformat(),
+                "urgency": urgency,
+                "category": cat,
+                "related_event_ids": [str(ev.get("id"))] if ev.get("id") else [],
+                "energy_aligned": False,
+                "estimated_minutes": 30 if window_days <= 7 else 60,
+            }
+        )
 
     return out
 
@@ -593,16 +624,32 @@ def _normalize_category(raw: Any) -> str:
         return s
     # Common aliases.
     aliases = {
-        "fomc": "market", "cpi": "market", "nfp": "market", "ppi": "market",
-        "gdp": "market", "earnings": "market", "opex": "market",
-        "vix_expiry": "market", "futures_roll": "market",
-        "fed_speech": "market", "economic": "market",
-        "holiday": "local", "weather": "local", "ticketmaster": "local",
-        "concert": "local", "festival": "local",
-        "lunar": "moon", "solar": "sun", "kp": "sun", "cme": "sun",
-        "trade": "portfolio", "position": "portfolio",
-        "prediction": "prediction", "council": "council",
-        "scanner": "scanner", "alert": "scanner",
+        "fomc": "market",
+        "cpi": "market",
+        "nfp": "market",
+        "ppi": "market",
+        "gdp": "market",
+        "earnings": "market",
+        "opex": "market",
+        "vix_expiry": "market",
+        "futures_roll": "market",
+        "fed_speech": "market",
+        "economic": "market",
+        "holiday": "local",
+        "weather": "local",
+        "ticketmaster": "local",
+        "concert": "local",
+        "festival": "local",
+        "lunar": "moon",
+        "solar": "sun",
+        "kp": "sun",
+        "cme": "sun",
+        "trade": "portfolio",
+        "position": "portfolio",
+        "prediction": "prediction",
+        "council": "council",
+        "scanner": "scanner",
+        "alert": "scanner",
     }
     return aliases.get(s, "intel")
 
@@ -613,8 +660,8 @@ def _stable_id(seed: str) -> str:
 
 # ── Post-processing ──────────────────────────────────────────────────
 
-def _post_process(todos: list[dict], energy_mode: str,
-                  window_days: int) -> list[dict]:
+
+def _post_process(todos: list[dict], energy_mode: str, window_days: int) -> list[dict]:
     today = date.today()
     horizon = today + timedelta(days=window_days)
     seen_ids: set[str] = set()
@@ -669,9 +716,7 @@ def _coerce_item(raw: dict, today: date, horizon: date) -> dict:
     urgency = str(raw.get("urgency") or "").lower().strip()
     if urgency not in VALID_URGENCIES:
         days_out = (due - today).days
-        urgency = ("today" if days_out <= 0
-                   else "this_week" if days_out <= 7
-                   else "this_month")
+        urgency = "today" if days_out <= 0 else "this_week" if days_out <= 7 else "this_month"
 
     category = _normalize_category(raw.get("category"))
 

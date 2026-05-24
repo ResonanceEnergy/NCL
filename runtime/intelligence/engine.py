@@ -27,27 +27,29 @@ from typing import Any, Optional
 import aiofiles
 import httpx
 
-# File rotation limits for append-only intelligence JSONL files
-_MAX_SIGNALS_FILE_BYTES = 100 * 1024 * 1024   # 100 MB
-_MAX_BRIEFS_FILE_BYTES = 50 * 1024 * 1024     # 50 MB
-_ROTATE_BACKUP_COUNT = 3                        # Keep last N rotated backups
 
-from .models import (
+# File rotation limits for append-only intelligence JSONL files
+_MAX_SIGNALS_FILE_BYTES = 100 * 1024 * 1024  # 100 MB
+_MAX_BRIEFS_FILE_BYTES = 50 * 1024 * 1024  # 50 MB
+_ROTATE_BACKUP_COUNT = 3  # Keep last N rotated backups
+
+from .collectors import (  # noqa: E402
+    CryptoMarketCollector,
+    GoogleTrendsCollector,
+    NewsCollector,
+    PolymarketCollector,
+    RedditCollector,
+    UnusualWhalesCollector,
+)
+from .models import (  # noqa: E402
     IntelBrief,
     IntelSignal,
-    SocialSignal,
     SectorSnapshot,
     SignalDirection,
+    SocialSignal,
     SourceType,
 )
-from .collectors import (
-    GoogleTrendsCollector,
-    PolymarketCollector,
-    NewsCollector,
-    CryptoMarketCollector,
-    UnusualWhalesCollector,
-    RedditCollector,
-)
+
 
 log = logging.getLogger("ncl.intelligence.engine")
 
@@ -177,66 +179,182 @@ class SignalCorrelator:
     # Categories from Google Trends that should map to real sectors
     # instead of falling into "other"
     TRENDS_CATEGORY_MAP = {
-        "trending": None,   # Will be keyword-matched against SECTOR_KEYWORDS
-        "interest": None,   # Same — force keyword fallback instead of category match
+        "trending": None,  # Will be keyword-matched against SECTOR_KEYWORDS
+        "interest": None,  # Same — force keyword fallback instead of category match
     }
 
     # Keywords → sector mapping
     SECTOR_KEYWORDS = {
         "crypto": [
-            "bitcoin", "btc", "ethereum", "eth", "crypto", "blockchain",
-            "defi", "solana", "web3", "nft", "token", "stablecoin", "altcoin",
+            "bitcoin",
+            "btc",
+            "ethereum",
+            "eth",
+            "crypto",
+            "blockchain",
+            "defi",
+            "solana",
+            "web3",
+            "nft",
+            "token",
+            "stablecoin",
+            "altcoin",
         ],
         "ai_tech": [
-            "ai", "artificial intelligence", "llm", "openai", "anthropic",
-            "claude", "gpt", "machine learning", "deepmind", "agi",
-            "chatgpt", "gemini ai", "nvidia ai",
+            "ai",
+            "artificial intelligence",
+            "llm",
+            "openai",
+            "anthropic",
+            "claude",
+            "gpt",
+            "machine learning",
+            "deepmind",
+            "agi",
+            "chatgpt",
+            "gemini ai",
+            "nvidia ai",
         ],
         "macro": [
-            "fed", "federal reserve", "inflation", "interest rate", "gdp",
-            "recession", "employment", "treasury", "bond", "cpi",
-            "tariff", "trade war", "debt ceiling", "yield curve",
-            "unemployment", "central bank",
+            "fed",
+            "federal reserve",
+            "inflation",
+            "interest rate",
+            "gdp",
+            "recession",
+            "employment",
+            "treasury",
+            "bond",
+            "cpi",
+            "tariff",
+            "trade war",
+            "debt ceiling",
+            "yield curve",
+            "unemployment",
+            "central bank",
         ],
         "politics": [
-            "election", "president", "congress", "senate", "regulation",
-            "policy", "government", "democrat", "republican", "trump",
-            "biden", "vote", "legislation", "supreme court",
-            "war", "ceasefire", "ukraine", "russia", "china", "israel",
-            "nato", "sanctions", "hezbollah", "hamas", "iran", "military",
+            "election",
+            "president",
+            "congress",
+            "senate",
+            "regulation",
+            "policy",
+            "government",
+            "democrat",
+            "republican",
+            "trump",
+            "biden",
+            "vote",
+            "legislation",
+            "supreme court",
+            "war",
+            "ceasefire",
+            "ukraine",
+            "russia",
+            "china",
+            "israel",
+            "nato",
+            "sanctions",
+            "hezbollah",
+            "hamas",
+            "iran",
+            "military",
             "geopolit",
         ],
         "markets": [
-            "stock", "s&p", "nasdaq", "dow", "equity", "trading",
-            "options", "call flow", "put flow", "unusual whales",
-            "earnings", "ipo", "merger", "acquisition",
+            "stock",
+            "s&p",
+            "nasdaq",
+            "dow",
+            "equity",
+            "trading",
+            "options",
+            "call flow",
+            "put flow",
+            "unusual whales",
+            "earnings",
+            "ipo",
+            "merger",
+            "acquisition",
         ],
         "tech": [
-            "apple", "google", "microsoft", "amazon", "meta", "tesla",
-            "spacex", "semiconductor", "chip", "iphone", "startup",
-            "software", "saas", "cloud computing",
+            "apple",
+            "google",
+            "microsoft",
+            "amazon",
+            "meta",
+            "tesla",
+            "spacex",
+            "semiconductor",
+            "chip",
+            "iphone",
+            "startup",
+            "software",
+            "saas",
+            "cloud computing",
         ],
         "entertainment": [
-            "movie", "film", "oscars", "emmy", "grammy", "album",
-            "eurovision", "gta", "game release", "box office",
-            "streaming", "netflix", "disney", "tv show", "celebrity",
+            "movie",
+            "film",
+            "oscars",
+            "emmy",
+            "grammy",
+            "album",
+            "eurovision",
+            "gta",
+            "game release",
+            "box office",
+            "streaming",
+            "netflix",
+            "disney",
+            "tv show",
+            "celebrity",
             "music award",
         ],
         "sports": [
-            "sport", "nba", "nfl", "mlb", "nhl", "soccer", "football",
-            "world cup", "fifa", "olympics", "f1", "ufc", "boxing",
-            "playoffs", "championship", "super bowl", "premier league",
-            "champions league", "grand slam",
+            "sport",
+            "nba",
+            "nfl",
+            "mlb",
+            "nhl",
+            "soccer",
+            "football",
+            "world cup",
+            "fifa",
+            "olympics",
+            "f1",
+            "ufc",
+            "boxing",
+            "playoffs",
+            "championship",
+            "super bowl",
+            "premier league",
+            "champions league",
+            "grand slam",
         ],
         "energy": [
-            "oil", "gas", "energy", "solar", "nuclear", "opec",
-            "renewable", "petroleum", "lng",
+            "oil",
+            "gas",
+            "energy",
+            "solar",
+            "nuclear",
+            "opec",
+            "renewable",
+            "petroleum",
+            "lng",
         ],
         "gaming": ["game", "gaming", "indie", "steam", "unity", "unreal"],
         "music": ["music", "production", "audio", "streaming", "dubforge"],
         "climate": [
-            "climate", "weather", "hurricane", "earthquake", "wildfire",
-            "temperature", "carbon", "renewable energy",
+            "climate",
+            "weather",
+            "hurricane",
+            "earthquake",
+            "wildfire",
+            "temperature",
+            "carbon",
+            "renewable energy",
         ],
     }
 
@@ -247,7 +365,11 @@ class SignalCorrelator:
         for signal in signals:
             # Use explicit category first — but skip categories that should
             # be keyword-matched instead (e.g. Google Trends "trending"/"interest")
-            if signal.category and signal.category != "general" and signal.category not in self.TRENDS_CATEGORY_MAP:
+            if (
+                signal.category
+                and signal.category != "general"
+                and signal.category not in self.TRENDS_CATEGORY_MAP
+            ):
                 sector_signals[signal.category].append(signal)
                 continue
 
@@ -302,9 +424,11 @@ class SignalCorrelator:
             if cross_source_multiplier > 1.0:
                 boosted = []
                 for sig in sigs:
-                    boosted_sig = sig.model_copy(update={
-                        "confidence": min(1.0, sig.confidence * cross_source_multiplier),
-                    })
+                    boosted_sig = sig.model_copy(
+                        update={
+                            "confidence": min(1.0, sig.confidence * cross_source_multiplier),
+                        }
+                    )
                     boosted.append(boosted_sig)
                 sigs = boosted
 
@@ -316,14 +440,16 @@ class SignalCorrelator:
             summary_parts = [s.title for s in top_3 if s.title]
             summary = " | ".join(summary_parts)
 
-            snapshots.append(SectorSnapshot(
-                sector=sector,
-                direction=dominant,
-                signal_count=len(sigs),
-                avg_confidence=round(avg_confidence, 3),
-                top_signals=ranked[:5],
-                summary=summary[:300],
-            ))
+            snapshots.append(
+                SectorSnapshot(
+                    sector=sector,
+                    direction=dominant,
+                    signal_count=len(sigs),
+                    avg_confidence=round(avg_confidence, 3),
+                    top_signals=ranked[:5],
+                    summary=summary[:300],
+                )
+            )
 
         # Sort sectors by signal count * confidence
         snapshots.sort(key=lambda s: s.signal_count * s.avg_confidence, reverse=True)
@@ -390,12 +516,16 @@ class IntelligenceEngine:
             if self._anomaly_fingerprints_file.exists():
                 _fps = json.loads(self._anomaly_fingerprints_file.read_text() or "[]")
                 if isinstance(_fps, list):
-                    self._anomaly_fingerprints = set(_fps[-self._anomaly_fingerprints_max:])
+                    self._anomaly_fingerprints = set(_fps[-self._anomaly_fingerprints_max :])
         except (OSError, ValueError, json.JSONDecodeError) as _exc:
             log.warning(f"[anomaly] Could not load fingerprints: {_exc}")
 
         # Snapshots directory for sector snapshots (was missing — caused stat fails)
-        _snap_root = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL"))) / "intelligence-scan" / "snapshots"
+        _snap_root = (
+            Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
+            / "intelligence-scan"
+            / "snapshots"
+        )
         try:
             _snap_root.mkdir(parents=True, exist_ok=True)
         except OSError:
@@ -404,13 +534,17 @@ class IntelligenceEngine:
         # LLM client for synthesis
         self._llm_client = httpx.AsyncClient(timeout=60.0)
         self._anthropic_key = getattr(config, "anthropic_api_key", "") if config else ""
-        self._anthropic_base = getattr(config, "anthropic_base_url", "https://api.anthropic.com") if config else "https://api.anthropic.com"
+        self._anthropic_base = (
+            getattr(config, "anthropic_base_url", "https://api.anthropic.com")
+            if config
+            else "https://api.anthropic.com"
+        )
         _ih = getattr(config, "ollama_host", "localhost:11434") if config else "localhost:11434"
         _ih = (_ih or "localhost:11434").strip().rstrip("/")
         if _ih.startswith("http://"):
-            _ih = _ih[len("http://"):]
+            _ih = _ih[len("http://") :]
         elif _ih.startswith("https://"):
-            _ih = _ih[len("https://"):]
+            _ih = _ih[len("https://") :]
         self._ollama_host = _ih or "localhost:11434"
 
         # Watch queries (what NCL cares about)
@@ -448,21 +582,25 @@ class IntelligenceEngine:
             if not self._closed and not self._llm_client.is_closed:
                 try:
                     import asyncio as _aio
+
                     try:
                         loop = _aio.get_event_loop()
                         if not loop.is_closed():
                             loop.run_until_complete(self._llm_client.aclose())
                     except RuntimeError:
                         pass
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.debug("[INTEL] atexit LLM client close swallowed: %s", e)
 
         atexit.register(_atexit_cleanup)
 
     async def initialize(self) -> None:
         """Initialize engine and load watch topics from config."""
         # Load custom watch topics if available
-        topics_file = Path(getattr(self.config, "config_dir", "~/dev/NCL/config")).expanduser() / "watch_topics.json"
+        topics_file = (
+            Path(getattr(self.config, "config_dir", "~/dev/NCL/config")).expanduser()
+            / "watch_topics.json"
+        )
         if topics_file.exists():
             try:
                 async with aiofiles.open(topics_file) as f:
@@ -521,8 +659,10 @@ class IntelligenceEngine:
         self._stats["zero_signal_sources"] = zero_sources
 
         if zero_sources:
-            log.warning(f"Collection complete: {len(all_signals)} total signals — "
-                        f"ZERO from: {', '.join(zero_sources)}")
+            log.warning(
+                f"Collection complete: {len(all_signals)} total signals — "
+                f"ZERO from: {', '.join(zero_sources)}"
+            )
         else:
             log.info(f"Collection complete: {len(all_signals)} total signals (all sources healthy)")
 
@@ -547,31 +687,33 @@ class IntelligenceEngine:
         Dedupes within a single batch AND across batches via persistent fingerprint set.
         """
         # Per-source confidence floor (noisier sources need higher bar)
-        SOURCE_FLOORS = {
+        SOURCE_FLOORS = {  # noqa: N806
             "polymarket": 0.92,
             "reddit": 0.90,
             "x": 0.88,
             "twitter": 0.88,
         }
-        DEFAULT_FLOOR = 0.85
+        DEFAULT_FLOOR = 0.85  # noqa: N806
 
         from .models import SignalDirection as _Dir
 
         directional = {_Dir.BULLISH, _Dir.BEARISH, _Dir.EMERGING}
 
         def _passes_floor(s) -> bool:
-            src_v = getattr(getattr(s, "source", None), "value", str(getattr(s, "source", ""))).lower()
+            src_v = getattr(
+                getattr(s, "source", None), "value", str(getattr(s, "source", ""))
+            ).lower()
             floor = SOURCE_FLOORS.get(src_v, DEFAULT_FLOOR)
             return getattr(s, "confidence", 0) > floor
 
         candidates = [
-            s for s in signals
-            if _passes_floor(s) and getattr(s, "direction", None) in directional
+            s for s in signals if _passes_floor(s) and getattr(s, "direction", None) in directional
         ]
         if not candidates:
             return
         # Dedupe within this batch + across batches via persistent fingerprint set
         import hashlib
+
         seen: set[str] = set()
         unique: list[IntelSignal] = []
         new_fps: list[str] = []
@@ -587,21 +729,28 @@ class IntelligenceEngine:
         if not unique:
             return
 
-        log_path = Path(os.getenv(
-            "NCL_BASE", str(Path.home() / "dev" / "NCL")
-        )) / "shared" / "intelligence" / "anomaly-log.md"
+        log_path = (
+            Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
+            / "shared"
+            / "intelligence"
+            / "anomaly-log.md"
+        )
         log_path.parent.mkdir(parents=True, exist_ok=True)
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
 
         lines: list[str] = []
         if not log_path.exists():
             lines.append("# NCL Anomaly Log\n")
-            lines.append("> Auto-appended by IntelligenceEngine. Threshold: confidence > 0.85, directional.\n\n")
+            lines.append(
+                "> Auto-appended by IntelligenceEngine. Threshold: confidence > 0.85, directional.\n\n"  # noqa: E501
+            )
         lines.append(f"## {ts} — {len(unique)} anomalies\n")
         for s in unique[:25]:  # cap per batch to keep file sane
             cat = getattr(s, "category", "?")
             src = getattr(getattr(s, "source", None), "value", str(getattr(s, "source", "?")))
-            dir_v = getattr(getattr(s, "direction", None), "value", str(getattr(s, "direction", "?")))
+            dir_v = getattr(
+                getattr(s, "direction", None), "value", str(getattr(s, "direction", "?"))
+            )
             conf = getattr(s, "confidence", 0)
             title = getattr(s, "title", "")[:200]
             lines.append(f"- **[{src}/{cat}/{dir_v}]** ({conf:.0%}) {title}\n")
@@ -610,12 +759,16 @@ class IntelligenceEngine:
         try:
             async with aiofiles.open(log_path, "a", encoding="utf-8") as f:
                 await f.write("".join(lines))
-            log.info(f"[anomaly-log] Appended {len(unique)} HIGH-confidence anomalies → {log_path.name}")
+            log.info(
+                f"[anomaly-log] Appended {len(unique)} HIGH-confidence anomalies → {log_path.name}"
+            )
             # Persist new fingerprints (bounded)
             self._anomaly_fingerprints.update(new_fps)
             if len(self._anomaly_fingerprints) > self._anomaly_fingerprints_max:
-                # Trim oldest by re-saving last N (set has no order; just cap to max via list slice of update order)
-                self._anomaly_fingerprints = set(list(self._anomaly_fingerprints)[-self._anomaly_fingerprints_max:])
+                # Trim oldest by re-saving last N (set has no order; just cap to max via list slice of update order)  # noqa: E501
+                self._anomaly_fingerprints = set(
+                    list(self._anomaly_fingerprints)[-self._anomaly_fingerprints_max :]
+                )
             try:
                 fp_data = json.dumps(list(self._anomaly_fingerprints))
                 tmp_fp = self._anomaly_fingerprints_file.with_suffix(".json.tmp")
@@ -644,11 +797,15 @@ class IntelligenceEngine:
         # Surface health status at engine level
         health = self._trends.health_status()
         if health["status"] == "down":
-            log.error(f"[GTRENDS] Collector status: DOWN — "
-                      f"RSS: {health['rss_feed']}, JSON: {health['json_api']}")
+            log.error(
+                f"[GTRENDS] Collector status: DOWN — "
+                f"RSS: {health['rss_feed']}, JSON: {health['json_api']}"
+            )
         elif health["status"] == "degraded":
-            log.warning(f"[GTRENDS] Collector status: DEGRADED — "
-                        f"RSS: {health['rss_feed']}, JSON: {health['json_api']}")
+            log.warning(
+                f"[GTRENDS] Collector status: DEGRADED — "
+                f"RSS: {health['rss_feed']}, JSON: {health['json_api']}"
+            )
 
         return signals
 
@@ -813,20 +970,26 @@ class IntelligenceEngine:
                 sorted_tickers = sorted(merged_tickers.items(), key=lambda x: x[1], reverse=True)
                 top_10 = sorted_tickers[:10]
                 ticker_summary = ", ".join(f"${t}: {c}" for t, c in top_10)
-                signals.append(SocialSignal(
-                    source=SourceType.REDDIT,
-                    category="retail_ticker_heat",
-                    title=f"Reddit Ticker Heatmap: {', '.join(f'${t}' for t, _ in top_10[:5])}",
-                    content=f"Top Reddit ticker mentions across {len(ticker_subs)} subs: {ticker_summary}",
-                    platform="reddit",
-                    engagement=sum(c for _, c in top_10),
-                    sentiment=0.0,
-                    value=float(top_10[0][1]) if top_10 else 0,
-                    direction=SignalDirection.EMERGING,
-                    confidence=0.65,
-                    tags=["reddit", "ticker_heat", "cross_sub"] + [f"ticker:{t.lower()}" for t, _ in top_10[:5]],
-                    metadata={"ticker_counts": dict(sorted_tickers[:20]), "subs_scanned": ticker_subs},
-                ))
+                signals.append(
+                    SocialSignal(
+                        source=SourceType.REDDIT,
+                        category="retail_ticker_heat",
+                        title=f"Reddit Ticker Heatmap: {', '.join(f'${t}' for t, _ in top_10[:5])}",
+                        content=f"Top Reddit ticker mentions across {len(ticker_subs)} subs: {ticker_summary}",  # noqa: E501
+                        platform="reddit",
+                        engagement=sum(c for _, c in top_10),
+                        sentiment=0.0,
+                        value=float(top_10[0][1]) if top_10 else 0,
+                        direction=SignalDirection.EMERGING,
+                        confidence=0.65,
+                        tags=["reddit", "ticker_heat", "cross_sub"]
+                        + [f"ticker:{t.lower()}" for t, _ in top_10[:5]],
+                        metadata={
+                            "ticker_counts": dict(sorted_tickers[:20]),
+                            "subs_scanned": ticker_subs,
+                        },
+                    )
+                )
         except Exception as e:
             log.warning(f"Reddit ticker scan failed: {e}")
 
@@ -859,7 +1022,9 @@ class IntelligenceEngine:
         except Exception as e:
             log.warning(f"File rotation failed for {path}: {e}")
 
-    async def generate_brief(self, brief_type: str = "daily", signals: list | None = None) -> IntelBrief:
+    async def generate_brief(
+        self, brief_type: str = "daily", signals: list | None = None
+    ) -> IntelBrief:
         """
         Full intelligence pipeline:
         1. Collect all signals (or use pre-collected if provided)
@@ -881,7 +1046,7 @@ class IntelligenceEngine:
         # Dedup: if a brief was generated recently, return it instead of
         # running the full pipeline again. The 5-min cache handles
         # concurrent callers; this 30-min guard handles Cowork/Brain overlap.
-        _BRIEF_COOLDOWN_SECONDS = 1800  # 30 minutes
+        _BRIEF_COOLDOWN_SECONDS = 1800  # 30 minutes  # noqa: N806
         if self._stats.get("last_brief"):
             try:
                 last_gen = datetime.fromisoformat(self._stats["last_brief"])
@@ -889,8 +1054,10 @@ class IntelligenceEngine:
                 if elapsed < _BRIEF_COOLDOWN_SECONDS:
                     existing = await self.get_latest_brief()
                     if existing:
-                        log.info(f"Brief cooldown active ({elapsed:.0f}s < {_BRIEF_COOLDOWN_SECONDS}s) "
-                                 f"— returning existing brief {existing.brief_id}")
+                        log.info(
+                            f"Brief cooldown active ({elapsed:.0f}s < {_BRIEF_COOLDOWN_SECONDS}s) "
+                            f"— returning existing brief {existing.brief_id}"
+                        )
                         return existing
             except (ValueError, TypeError):
                 pass
@@ -919,7 +1086,9 @@ class IntelligenceEngine:
             raise
         return brief
 
-    async def _build_brief(self, brief_type: str, cache_key: str, *, signals: list | None = None) -> IntelBrief:
+    async def _build_brief(
+        self, brief_type: str, cache_key: str, *, signals: list | None = None
+    ) -> IntelBrief:
         """Internal: build the brief and populate cache.  Called by generate_brief."""
         # 1. Collect — use pre-collected signals if available (C3 fix: avoids
         #    redundant API calls when scheduler already has fresh signals)
@@ -932,8 +1101,8 @@ class IntelligenceEngine:
         # 3. Extract top signals (ranked by importance)
         # Filter out sports noise from top signals — sports events from Polymarket
         # generate huge volume but aren't actionable intelligence for NCL
-        _SPORTS_NOISE_CATEGORIES = {"sports", "entertainment"}
-        _SPORTS_VOLUME_THRESHOLD = 2_000_000  # Only include sports if volume > $2M
+        _SPORTS_NOISE_CATEGORIES = {"sports", "entertainment"}  # noqa: N806
+        _SPORTS_VOLUME_THRESHOLD = 2_000_000  # Only include sports if volume > $2M  # noqa: N806
         filtered_signals = []
         for sig in signals:
             if sig.category in _SPORTS_NOISE_CATEGORIES:
@@ -955,41 +1124,53 @@ class IntelligenceEngine:
                 if q in seen_questions:
                     continue
                 seen_questions.add(q)
-                predictions.append({
-                    "question": q,
-                    "probability": sig.value or 0.5,
-                    "volume": sig.volume or 0,
-                    "direction": sig.direction.value,
-                })
+                predictions.append(
+                    {
+                        "question": q,
+                        "probability": sig.value or 0.5,
+                        "volume": sig.volume or 0,
+                        "direction": sig.direction.value,
+                    }
+                )
         predictions.sort(key=lambda p: p.get("volume", 0), reverse=True)
 
         # 5. Extract trending items
         trending = []
         for sig in signals:
             if sig.source == SourceType.GOOGLE_TRENDS:
-                trending.append({
-                    "term": sig.title,
-                    "score": sig.value or 0,
-                    "change_pct": sig.change_pct,
-                    "direction": sig.direction.value,
-                })
+                trending.append(
+                    {
+                        "term": sig.title,
+                        "score": sig.value or 0,
+                        "change_pct": sig.change_pct,
+                        "direction": sig.direction.value,
+                    }
+                )
             elif sig.source == SourceType.CRYPTO and sig.direction == SignalDirection.EMERGING:
-                trending.append({
-                    "term": sig.title,
-                    "score": sig.value or 0,
-                    "direction": "emerging",
-                })
+                trending.append(
+                    {
+                        "term": sig.title,
+                        "score": sig.value or 0,
+                        "direction": "emerging",
+                    }
+                )
 
         # 6. Market movements (crypto + options)
         market_movements = []
         for sig in signals:
-            if sig.source == SourceType.CRYPTO and hasattr(sig, "symbol") and sig.change_pct is not None:
-                market_movements.append({
-                    "symbol": getattr(sig, "symbol", sig.title),
-                    "price": getattr(sig, "current_price", sig.value or 0),
-                    "change_pct": sig.change_pct,
-                    "volume": sig.volume or 0,
-                })
+            if (
+                sig.source == SourceType.CRYPTO
+                and hasattr(sig, "symbol")
+                and sig.change_pct is not None
+            ):
+                market_movements.append(
+                    {
+                        "symbol": getattr(sig, "symbol", sig.title),
+                        "price": getattr(sig, "current_price", sig.value or 0),
+                        "change_pct": sig.change_pct,
+                        "volume": sig.volume or 0,
+                    }
+                )
         market_movements.sort(key=lambda m: abs(m.get("change_pct", 0)), reverse=True)
 
         # 7. Risk alerts — filter out noise (low-volume sports matchups, etc.)
@@ -1047,8 +1228,10 @@ class IntelligenceEngine:
         # Store in cache (releases any waiters)
         await _cache_set(cache_key, brief)
 
-        log.info(f"Brief generated: {len(signals)} signals → {len(sectors)} sectors, "
-                 f"{len(predictions)} predictions, {len(risk_alerts)} risk alerts")
+        log.info(
+            f"Brief generated: {len(signals)} signals → {len(sectors)} sectors, "
+            f"{len(predictions)} predictions, {len(risk_alerts)} risk alerts"
+        )
 
         return brief
 
@@ -1073,7 +1256,9 @@ class IntelligenceEngine:
         self._memory_store = store
         log.info("Intelligence Engine: MemoryStore bridge connected (deprecated path)")
 
-    async def _hydrate_memory_store(self, top_signals: list[IntelSignal], sectors: list[SectorSnapshot]) -> None:
+    async def _hydrate_memory_store(
+        self, top_signals: list[IntelSignal], sectors: list[SectorSnapshot]
+    ) -> None:
         """Write top intelligence signals to MemoryStore so predictor can find them.
 
         The predictor queries MemoryStore by tags (e.g. ["crypto"]) to gather
@@ -1135,28 +1320,28 @@ class IntelligenceEngine:
 
         if sectors:
             sector_text = "\n".join(
-                f"- {s.sector}: {s.direction.value}, {s.signal_count} signals, conf={s.avg_confidence:.0%}, summary={getattr(s, 'summary', '')[:120]}"
+                f"- {s.sector}: {s.direction.value}, {s.signal_count} signals, conf={s.avg_confidence:.0%}, summary={getattr(s, 'summary', '')[:120]}"  # noqa: E501
                 for s in sectors[:8]
             )
             context_parts.append(f"SECTORS:\n{sector_text}")
 
         if market_movements:
             moves = "\n".join(
-                f"- {m['symbol']}: ${m.get('price', 0):,.2f} ({m.get('change_pct', 0):+.1f}%) vol={m.get('volume', 'n/a')}"
+                f"- {m['symbol']}: ${m.get('price', 0):,.2f} ({m.get('change_pct', 0):+.1f}%) vol={m.get('volume', 'n/a')}"  # noqa: E501
                 for m in market_movements[:10]
             )
             context_parts.append(f"MARKET MOVEMENTS:\n{moves}")
 
         if predictions:
             preds = "\n".join(
-                f"- {p['question'][:80]}: {p.get('probability', 0):.0%} (vol=${p.get('volume', 0):,.0f})"
+                f"- {p['question'][:80]}: {p.get('probability', 0):.0%} (vol=${p.get('volume', 0):,.0f})"  # noqa: E501
                 for p in predictions[:8]
             )
             context_parts.append(f"PREDICTION MARKETS:\n{preds}")
 
         if top_signals:
             top = "\n".join(
-                f"- [{s.source.value}] {s.title}: {s.content[:200]} (dir={s.direction.value}, conf={s.confidence:.0%})"
+                f"- [{s.source.value}] {s.title}: {s.content[:200]} (dir={s.direction.value}, conf={s.confidence:.0%})"  # noqa: E501
                 for s in top_signals[:10]
             )
             context_parts.append(f"TOP SIGNALS:\n{top}")
@@ -1173,7 +1358,7 @@ class IntelligenceEngine:
                 if len(set(sources)) >= 2
             ]
             if convergences:
-                context_parts.append(f"CROSS-SOURCE CONVERGENCE:\n" + "\n".join(convergences[:5]))
+                context_parts.append("CROSS-SOURCE CONVERGENCE:\n" + "\n".join(convergences[:5]))
 
         context = "\n\n".join(context_parts)
 
@@ -1204,7 +1389,7 @@ TODAY'S INTELLIGENCE:
 {context}
 </user_content>
 
-EXECUTIVE BRIEF:"""
+EXECUTIVE BRIEF:"""  # noqa: E501
 
         # Try Claude first
         if self._anthropic_key:
@@ -1227,12 +1412,17 @@ EXECUTIVE BRIEF:"""
                 # Track cost
                 try:
                     from ..cost_tracker import record_cost
+
                     usage = data.get("usage", {})
                     input_t = usage.get("input_tokens", 0)
                     output_t = usage.get("output_tokens", 0)
                     cost_usd = (input_t * 3.0 + output_t * 15.0) / 1_000_000
-                    await record_cost("anthropic", cost_usd, "intel_summary",
-                                      f"executive summary in={input_t} out={output_t}")
+                    await record_cost(
+                        "anthropic",
+                        cost_usd,
+                        "intel_summary",
+                        f"executive summary in={input_t} out={output_t}",
+                    )
                 except Exception:
                     pass  # Cost tracking should never break the primary flow
 
@@ -1244,7 +1434,11 @@ EXECUTIVE BRIEF:"""
         try:
             resp = await self._llm_client.post(
                 f"http://{self._ollama_host}/api/generate",
-                json={"model": os.getenv("NCL_INTEL_REASONING_MODEL", "qwen3:32b"), "prompt": prompt, "stream": False},
+                json={
+                    "model": os.getenv("NCL_INTEL_REASONING_MODEL", "qwen3:32b"),
+                    "prompt": prompt,
+                    "stream": False,
+                },
             )
             resp.raise_for_status()
             return resp.json().get("response", "")[:500].strip()
@@ -1284,7 +1478,11 @@ EXECUTIVE BRIEF:"""
                 f"at {top_pred.get('probability', 0):.0%} probability."
             )
 
-        return " ".join(parts) if parts else "Intelligence collection complete. No significant signals detected."
+        return (
+            " ".join(parts)
+            if parts
+            else "Intelligence collection complete. No significant signals detected."
+        )
 
     # ─── PERSISTENCE ────────────────────────────────────────────────────
 

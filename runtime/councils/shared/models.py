@@ -7,7 +7,7 @@ All council output flows into NCL intelligence-scan/ as structured data.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -40,6 +40,7 @@ class Severity(str, Enum):
 @dataclass
 class VideoMeta:
     """Metadata for a scraped YouTube video."""
+
     video_id: str
     title: str
     channel: str
@@ -57,6 +58,7 @@ class VideoMeta:
 @dataclass
 class TranscriptSegment:
     """A timestamped segment of a transcript."""
+
     start: float
     end: float
     text: str
@@ -74,6 +76,7 @@ class TranscriptSegment:
 @dataclass
 class Transcript:
     """Full transcript of a video."""
+
     video_id: str
     segments: list[TranscriptSegment] = field(default_factory=list)
     language: str = "en"
@@ -97,6 +100,7 @@ class Transcript:
 @dataclass
 class XPost:
     """A scraped X/Twitter post."""
+
     post_id: str
     author_handle: str
     author_name: str
@@ -123,6 +127,7 @@ class XPost:
 @dataclass
 class Insight:
     """A single extracted insight from council analysis."""
+
     title: str
     description: str
     category: SignalCategory
@@ -136,6 +141,7 @@ class Insight:
 @dataclass
 class CouncilReport:
     """Output from a council session — saved as .md and .json."""
+
     council_type: CouncilSource
     session_id: str
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())

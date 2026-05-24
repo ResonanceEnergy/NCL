@@ -4,6 +4,7 @@ Lunar engine — moon phase calculation, energy state mapping, and cycle trackin
 Uses Skyfield for precise astronomical calculations (JPL DE421 ephemeris).
 Falls back to Meeus algorithm if Skyfield unavailable.
 """
+
 from __future__ import annotations
 
 import logging
@@ -11,6 +12,7 @@ import math
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+
 
 log = logging.getLogger("ncl.calendar.lunar")
 
@@ -20,8 +22,8 @@ _ts = None
 _eph = None
 
 try:
-    from skyfield.api import load as sf_load
     from skyfield import almanac
+    from skyfield.api import load as sf_load
 
     _data_dir = os.path.join(os.path.dirname(__file__), "data")
     os.makedirs(_data_dir, exist_ok=True)
@@ -51,14 +53,14 @@ PHASE_NAMES = [
 ]
 
 PHASE_ICONS = {
-    "New Moon": "\U0001F311",         # 🌑
-    "Waxing Crescent": "\U0001F312", # 🌒
-    "First Quarter": "\U0001F313",   # 🌓
-    "Waxing Gibbous": "\U0001F314",  # 🌔
-    "Full Moon": "\U0001F315",       # 🌕
-    "Waning Gibbous": "\U0001F316",  # 🌖
-    "Last Quarter": "\U0001F317",    # 🌗
-    "Waning Crescent": "\U0001F318", # 🌘
+    "New Moon": "\U0001f311",  # 🌑
+    "Waxing Crescent": "\U0001f312",  # 🌒
+    "First Quarter": "\U0001f313",  # 🌓
+    "Waxing Gibbous": "\U0001f314",  # 🌔
+    "Full Moon": "\U0001f315",  # 🌕
+    "Waning Gibbous": "\U0001f316",  # 🌖
+    "Last Quarter": "\U0001f317",  # 🌗
+    "Waning Crescent": "\U0001f318",  # 🌘
 }
 
 # ── Energy state mapping ──────────────────────────────────────────────
@@ -140,7 +142,7 @@ ENERGY_PHASES = {
         "mode": "release",
         "energy": "waning",
         "color": "#2C3E50",
-        "description": "Release what doesn't serve. Close losers. Prune watchlist. Cut dead weight.",
+        "description": "Release what doesn't serve. Close losers. Prune watchlist. Cut dead weight.",  # noqa: E501
         "actions": [
             "Close underperforming positions",
             "Prune stale watchlist items",
@@ -165,6 +167,7 @@ ENERGY_PHASES = {
 
 # ── Meeus algorithm (fallback) ────────────────────────────────────────
 
+
 def _meeus_phase_angle(dt: datetime) -> float:
     """
     Compute moon phase angle using Jean Meeus' simplified algorithm.
@@ -172,31 +175,38 @@ def _meeus_phase_angle(dt: datetime) -> float:
     Accuracy: ~1 degree (~2 hours for event times).
     """
     # Julian day
-    y = dt.year + (dt.month - 1) / 12.0 + (dt.day - 1) / 365.25
-    jd = 367 * dt.year - int(7 * (dt.year + int((dt.month + 9) / 12)) / 4) + \
-         int(275 * dt.month / 9) + dt.day + 1721013.5 + \
-         (dt.hour + dt.minute / 60.0 + dt.second / 3600.0) / 24.0
+    y = dt.year + (dt.month - 1) / 12.0 + (dt.day - 1) / 365.25  # noqa: F841
+    jd = (
+        367 * dt.year
+        - int(7 * (dt.year + int((dt.month + 9) / 12)) / 4)
+        + int(275 * dt.month / 9)
+        + dt.day
+        + 1721013.5
+        + (dt.hour + dt.minute / 60.0 + dt.second / 3600.0) / 24.0
+    )
 
-    T = (jd - 2451545.0) / 36525.0  # centuries from J2000.0
+    T = (jd - 2451545.0) / 36525.0  # centuries from J2000.0  # noqa: N806
 
     # Sun's mean anomaly (degrees)
-    M = (357.5291 + 35999.0503 * T) % 360
+    M = (357.5291 + 35999.0503 * T) % 360  # noqa: N806
     # Moon's mean anomaly (degrees)
-    Mp = (134.9634 + 477198.8675 * T) % 360
+    Mp = (134.9634 + 477198.8675 * T) % 360  # noqa: N806
     # Moon's mean elongation (degrees)
-    D = (297.8502 + 445267.1115 * T) % 360
+    D = (297.8502 + 445267.1115 * T) % 360  # noqa: N806
 
-    D_rad = math.radians(D)
-    M_rad = math.radians(M)
-    Mp_rad = math.radians(Mp)
+    D_rad = math.radians(D)  # noqa: N806
+    M_rad = math.radians(M)  # noqa: N806
+    Mp_rad = math.radians(Mp)  # noqa: N806
 
     # Phase angle with principal perturbation corrections
-    phase = D \
-        - 6.289 * math.sin(Mp_rad) \
-        + 2.100 * math.sin(M_rad) \
-        - 1.274 * math.sin(2 * D_rad - Mp_rad) \
-        - 0.658 * math.sin(2 * D_rad) \
+    phase = (
+        D
+        - 6.289 * math.sin(Mp_rad)
+        + 2.100 * math.sin(M_rad)
+        - 1.274 * math.sin(2 * D_rad - Mp_rad)
+        - 0.658 * math.sin(2 * D_rad)
         - 0.214 * math.sin(2 * Mp_rad)
+    )
 
     return phase % 360
 
@@ -207,6 +217,7 @@ def _meeus_illumination(phase_angle: float) -> float:
 
 
 # ── Skyfield precise calculations ────────────────────────────────────
+
 
 def _skyfield_phase_angle(dt: datetime) -> float:
     """Compute precise phase angle using Skyfield/JPL ephemeris."""
@@ -245,13 +256,15 @@ def _find_major_phases(start: datetime, end: datetime) -> list[dict]:
     for i, t in enumerate(times):
         pid = int(phase_ids[i])
         dt_utc = t.utc_datetime()
-        results.append({
-            "datetime": dt_utc.isoformat(),
-            "timestamp": dt_utc.timestamp(),
-            "phase_id": pid,
-            "phase_name": phase_id_names.get(pid, f"Phase {pid}"),
-            "icon": PHASE_ICONS.get(phase_id_names.get(pid, ""), ""),
-        })
+        results.append(
+            {
+                "datetime": dt_utc.isoformat(),
+                "timestamp": dt_utc.timestamp(),
+                "phase_id": pid,
+                "phase_name": phase_id_names.get(pid, f"Phase {pid}"),
+                "icon": PHASE_ICONS.get(phase_id_names.get(pid, ""), ""),
+            }
+        )
     return results
 
 
@@ -274,15 +287,18 @@ def _find_major_phases_meeus(start: datetime, end: datetime) -> list[dict]:
 
         for name, target in phase_targets.items():
             # Detect crossing of target angle
-            if prev_angle < target <= curr_angle or \
-               (prev_angle > 300 and curr_angle < 60 and target == 0):
-                results.append({
-                    "datetime": next_dt.isoformat(),
-                    "timestamp": next_dt.timestamp(),
-                    "phase_id": list(phase_targets.keys()).index(name),
-                    "phase_name": name,
-                    "icon": PHASE_ICONS.get(name, ""),
-                })
+            if prev_angle < target <= curr_angle or (
+                prev_angle > 300 and curr_angle < 60 and target == 0
+            ):
+                results.append(
+                    {
+                        "datetime": next_dt.isoformat(),
+                        "timestamp": next_dt.timestamp(),
+                        "phase_id": list(phase_targets.keys()).index(name),
+                        "phase_name": name,
+                        "icon": PHASE_ICONS.get(name, ""),
+                    }
+                )
 
         prev_angle = curr_angle
         current = next_dt
@@ -291,6 +307,7 @@ def _find_major_phases_meeus(start: datetime, end: datetime) -> list[dict]:
 
 
 # ── Public API ────────────────────────────────────────────────────────
+
 
 def get_moon_phase(dt: Optional[datetime] = None) -> dict:
     """
@@ -326,7 +343,7 @@ def get_moon_phase(dt: Optional[datetime] = None) -> dict:
     phase_name = PHASE_NAMES[phase_idx]
 
     # Synodic month = 29.53059 days
-    SYNODIC = 29.53059
+    SYNODIC = 29.53059  # noqa: N806
     cycle_progress = angle / 360.0
     days_since_new = cycle_progress * SYNODIC
     days_to_full = ((0.5 - cycle_progress) % 1.0) * SYNODIC
@@ -397,7 +414,9 @@ def get_cycle_context() -> dict:
     if angle < 180:
         half = "waxing"
         half_label = "Waxing (Building)"
-        half_description = "Energy is building. Focus on growth, accumulation, and forward momentum."
+        half_description = (
+            "Energy is building. Focus on growth, accumulation, and forward momentum."
+        )
     else:
         half = "waning"
         half_label = "Waning (Releasing)"
@@ -423,10 +442,12 @@ def _build_daily_frame(phase: dict) -> str:
     days_full = phase["days_to_full"]
 
     if days_full <= 1:
-        return f"Full Moon tonight. Peak energy. Time to harvest results and review performance."
+        return "Full Moon tonight. Peak energy. Time to harvest results and review performance."
     elif days_new <= 1:
-        return f"New Moon tonight. Fresh cycle begins. Set intentions and plant seeds."
+        return "New Moon tonight. Fresh cycle begins. Set intentions and plant seeds."
     elif phase["phase_angle"] < 180:
-        return f"{name} -- {mode.title()} phase. {days_full:.0f} days to Full Moon. Energy building."
+        return (
+            f"{name} -- {mode.title()} phase. {days_full:.0f} days to Full Moon. Energy building."
+        )
     else:
         return f"{name} -- {mode.title()} phase. {days_new:.0f} days to New Moon. Energy waning."

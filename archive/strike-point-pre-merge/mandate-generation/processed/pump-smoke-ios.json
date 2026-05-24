@@ -1,0 +1,22 @@
+{
+  "id": "smoke-ios",
+  "rawIntent": "watcher iOS-shape smoke",
+  "formattedPrompt": "verify iOS top-level fields parse",
+  "targetPillar": "NCL",
+  "priority": "P3",
+  "timestamp": "2026-05-15T17:30:00Z",
+  "metadata": {
+    "source": "smoke",
+    "session_id": "sess-ios"
+  },
+  "_brain_ack": {
+    "timestamp": "2026-05-15T17:40:47.939171+00:00",
+    "brain_response": {
+      "pump_id": "smoke-ios",
+      "intent": "watcher iOS-shape smoke",
+      "urgency": "low",
+      "mode": "background",
+      "status": "accepted"
+    }
+  }
+}

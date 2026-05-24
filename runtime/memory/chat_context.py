@@ -21,11 +21,45 @@ via `precheck_anthropic_budget()`.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
+from ..config import flags
+
+
 log = logging.getLogger("ncl.memory.chat_context")
+
+
+# ── SQLite units-index fast path (W5-07) ─────────────────────────────────
+#
+# When ``NCL_UNITS_INDEX_SQLITE=true``, try the SQLite ``units_index`` table
+# first (W4-14, store.py:_search_units_via_sqlite_index) so we don't have to
+# full-scan the 200MB units.jsonl on every /chat hit. Falls back to the
+# canonical ``search_units`` path on flag-off or ANY failure — flag-off
+# behavior is bit-identical to before this retrofit.
+async def _maybe_indexed_search(memory_store, **kwargs):
+    """Drop-in replacement for ``memory_store.search_units(**kwargs)``.
+
+    Mirrors the public ``search_units`` contract (returns a list of MemUnits
+    sorted by importance desc). When the SQLite path is available and
+    enabled, it produces the same list via a small id-lookup + batched
+    hydration, skipping the JSONL full-scan.
+    """
+    if flags.units_index_sqlite():
+        try:
+            unit_ids = await memory_store._search_units_via_sqlite_index(**kwargs)
+            if unit_ids:
+                units_by_id = await memory_store._load_units_batch(set(unit_ids))
+                # _search_units_via_sqlite_index returns ids in importance DESC
+                # order — preserve that ordering on hydration.
+                ordered = [units_by_id[uid] for uid in unit_ids if uid in units_by_id]
+                return ordered
+        except Exception as e:
+            log.debug("[CHAT-CTX] sqlite index search failed (%s) — falling back", e)
+    return await memory_store.search_units(**kwargs)
+
 
 # Hard cap — total characters of the assembled block.
 # ~4 chars per token → 16_000 chars ≈ 4_000 tokens.
@@ -61,22 +95,84 @@ PORTFOLIO_RECENT_EVENTS = 3
 # like it might want financial state. Avoids wasting tokens on every
 # "hello" or unrelated question.
 _PORTFOLIO_HINT_TOKENS = {
-    "portfolio", "position", "positions", "trade", "trades", "trading",
-    "p&l", "pl", "pnl", "balance", "money", "cash", "broker", "brokerage",
-    "buying power", "buying-power", "margin", "nlv", "equity",
-    "moomoo", "ibkr", "wealthsimple", "snaptrade", "tfsa", "rrsp",
-    "fhsa", "options", "long", "short", "stocks", "shares",
-    "profit", "loss", "drawdown", "exposure", "allocation",
-    "dollar", "dollars", "$",
+    "portfolio",
+    "position",
+    "positions",
+    "trade",
+    "trades",
+    "trading",
+    "p&l",
+    "pl",
+    "pnl",
+    "balance",
+    "money",
+    "cash",
+    "broker",
+    "brokerage",
+    "buying power",
+    "buying-power",
+    "margin",
+    "nlv",
+    "equity",
+    "moomoo",
+    "ibkr",
+    "wealthsimple",
+    "snaptrade",
+    "tfsa",
+    "rrsp",
+    "fhsa",
+    "options",
+    "long",
+    "short",
+    "stocks",
+    "shares",
+    "profit",
+    "loss",
+    "drawdown",
+    "exposure",
+    "allocation",
+    "dollar",
+    "dollars",
+    "$",
 }
 
 # Detect $TICKER and bare 1-5 char uppercase tickers (TSLA, AAPL, SLV, BTC)
 # but NOT common English words like "I", "A", "THE", "AND" — those are
 # filtered by length and a small stop-list.
 _TICKER_STOPLIST = {
-    "I", "A", "THE", "AND", "OR", "BUT", "OK", "NO", "YES", "ALL", "AM", "PM",
-    "TO", "FOR", "IS", "IT", "ON", "AT", "BE", "BY", "DO", "GO", "IF", "IN",
-    "ME", "MY", "OF", "SO", "UP", "US", "WE", "AS", "AN",
+    "I",
+    "A",
+    "THE",
+    "AND",
+    "OR",
+    "BUT",
+    "OK",
+    "NO",
+    "YES",
+    "ALL",
+    "AM",
+    "PM",
+    "TO",
+    "FOR",
+    "IS",
+    "IT",
+    "ON",
+    "AT",
+    "BE",
+    "BY",
+    "DO",
+    "GO",
+    "IF",
+    "IN",
+    "ME",
+    "MY",
+    "OF",
+    "SO",
+    "UP",
+    "US",
+    "WE",
+    "AS",
+    "AN",
 }
 _DOLLAR_TICKER_RE = re.compile(r"\$[A-Za-z]{1,6}\b")
 _BARE_TICKER_RE = re.compile(r"\b[A-Z]{2,5}\b")
@@ -128,13 +224,14 @@ def _format_chat_unit(unit: Any) -> str:
     speaker = "NATRIX" if src == "first-strike-chat" else "Brain"
     for prefix in ("Chat from FirstStrike:", "Brain response:"):
         if content.startswith(prefix):
-            content = content[len(prefix):].strip()
+            content = content[len(prefix) :].strip()
             break
 
     return f"{speaker} ({age}): {_trim(content, SESSION_ITEM_TRIM)}"
 
 
 # ── Section builders ──────────────────────────────────────────────────────
+
 
 def _build_working_context_section(working_ctx) -> tuple[str, int, list[str]]:
     """
@@ -189,9 +286,7 @@ def _build_working_context_section(working_ctx) -> tuple[str, int, list[str]]:
     return "\n".join(lines), rendered, item_ids
 
 
-async def _build_session_history_section(
-    memory_store, session_id: str
-) -> tuple[str, int]:
+async def _build_session_history_section(memory_store, session_id: str) -> tuple[str, int]:
     """
     Pull the last N chat turns for this session (within lookback window).
 
@@ -204,7 +299,8 @@ async def _build_session_history_section(
 
     tag_filter = [f"session:{session_id}"]
     try:
-        units = await memory_store.search_units(
+        units = await _maybe_indexed_search(
+            memory_store,
             tags=tag_filter,
             importance_threshold=0.0,
             days_back=1,
@@ -315,6 +411,7 @@ async def _build_relevant_memories_section(
 
 # ── Portfolio injector ────────────────────────────────────────────────────
 
+
 def _should_inject_portfolio(message: str) -> bool:
     """Return True if the user's message looks like it could benefit from
     live portfolio state. Heuristic — not perfect, but avoids stuffing
@@ -381,10 +478,7 @@ def _format_portfolio_section(
     # By-broker breakdown (compact)
     by_broker = summary.get("allocation", {}).get("by_account", []) or []
     if by_broker:
-        broker_parts = [
-            f"{a.get('label','?')} ${_f(a.get('value')):,.0f}"
-            for a in by_broker[:5]
-        ]
+        broker_parts = [f"{a.get('label','?')} ${_f(a.get('value')):,.0f}" for a in by_broker[:5]]
         lines.append("By broker: " + ", ".join(broker_parts))
 
     # Top positions
@@ -400,7 +494,7 @@ def _format_portfolio_section(
 
     # Recent significant events (from memory)
     if recent_events:
-        lines.append(f"Recent significant moves:")
+        lines.append("Recent significant moves:")
         for evt in recent_events[:PORTFOLIO_RECENT_EVENTS]:
             content = getattr(evt, "content", "") or ""
             created = getattr(evt, "created_at", None)
@@ -426,9 +520,7 @@ def _format_portfolio_section(
     return block
 
 
-async def _build_portfolio_section(
-    message: str, brain: Any
-) -> tuple[str, int]:
+async def _build_portfolio_section(message: str, brain: Any) -> tuple[str, int]:
     """Pull live portfolio state from the bridge + recent memory events.
 
     Returns (rendered_text, items_count). Empty if heuristic says skip
@@ -440,6 +532,7 @@ async def _build_portfolio_section(
     # Bridge lookup — late import to dodge cycles
     try:
         from runtime.portfolio.memory_bridge import get_bridge
+
         bridge = get_bridge()
     except Exception as exc:
         log.debug(f"[CHAT-CTX] portfolio bridge import failed: {exc}")
@@ -458,7 +551,8 @@ async def _build_portfolio_section(
     memory_store = getattr(brain, "memory_store", None) if brain else None
     if memory_store is not None:
         try:
-            units = await memory_store.search_units(
+            units = await _maybe_indexed_search(
+                memory_store,
                 tags=["portfolio"],
                 importance_threshold=70.0,  # events only, skip baseline snapshots
                 days_back=7,
@@ -480,6 +574,7 @@ async def _build_portfolio_section(
 
 
 # ── Reinforcement (single batched rewrite) ────────────────────────────────
+
 
 async def _reinforce_units(memory_store, units: list[Any]) -> int:
     """
@@ -533,6 +628,7 @@ async def _reinforce_units(memory_store, units: list[Any]) -> int:
 
 # ── Public entry point ────────────────────────────────────────────────────
 
+
 async def build_chat_context(
     message: str,
     session_id: str,
@@ -578,11 +674,8 @@ async def build_chat_context(
         except Exception as exc:
             log.debug(f"[CHAT-CTX] portfolio section failed: {exc}")
 
-        if (
-            wc_count == 0 and sess_count == 0
-            and rel_count == 0 and portfolio_count == 0
-        ):
-            log.info(f"[CHAT-CTX] injected 0 working_ctx + 0 session + 0 relevant + 0 portfolio")
+        if wc_count == 0 and sess_count == 0 and rel_count == 0 and portfolio_count == 0:
+            log.info("[CHAT-CTX] injected 0 working_ctx + 0 session + 0 relevant + 0 portfolio")
             return ""
 
         # Assemble — header + four sections separated by blank lines.

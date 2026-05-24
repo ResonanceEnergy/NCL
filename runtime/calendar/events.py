@@ -4,16 +4,17 @@ Market events calendar — economic releases, options expiry, FOMC, and custom e
 Combines hardcoded deterministic events (options expiry, FOMC) with
 dynamic data from Finnhub economic calendar API.
 """
+
 from __future__ import annotations
 
 import json
 import logging
 import os
 import time
-from datetime import datetime, timedelta, timezone, date
-from typing import Optional
+from datetime import date, datetime, timedelta, timezone
 
 import httpx
+
 
 log = logging.getLogger("ncl.calendar.events")
 
@@ -29,10 +30,30 @@ EVENT_CATEGORIES = {
     "nfp": {"label": "Jobs Report", "color": "#FFA07A", "priority": 4, "icon": "person.3"},
     "gdp": {"label": "GDP", "color": "#FFD700", "priority": 3, "icon": "chart.bar"},
     "ppi": {"label": "PPI", "color": "#FFA500", "priority": 3, "icon": "shippingbox"},
-    "earnings": {"label": "Earnings", "color": "#4ECDC4", "priority": 3, "icon": "dollarsign.circle"},
-    "opex": {"label": "Options Expiry", "color": "#9B59B6", "priority": 4, "icon": "clock.badge.exclamationmark"},
-    "vix_expiry": {"label": "VIX Expiry", "color": "#E74C3C", "priority": 3, "icon": "waveform.path.ecg"},
-    "futures_roll": {"label": "Futures Roll", "color": "#3498DB", "priority": 2, "icon": "arrow.triangle.2.circlepath"},
+    "earnings": {
+        "label": "Earnings",
+        "color": "#4ECDC4",
+        "priority": 3,
+        "icon": "dollarsign.circle",
+    },
+    "opex": {
+        "label": "Options Expiry",
+        "color": "#9B59B6",
+        "priority": 4,
+        "icon": "clock.badge.exclamationmark",
+    },
+    "vix_expiry": {
+        "label": "VIX Expiry",
+        "color": "#E74C3C",
+        "priority": 3,
+        "icon": "waveform.path.ecg",
+    },
+    "futures_roll": {
+        "label": "Futures Roll",
+        "color": "#3498DB",
+        "priority": 2,
+        "icon": "arrow.triangle.2.circlepath",
+    },
     "fed_speech": {"label": "Fed Speech", "color": "#E67E22", "priority": 2, "icon": "mic"},
     "economic": {"label": "Economic", "color": "#95A5A6", "priority": 2, "icon": "newspaper"},
     "custom": {"label": "Custom", "color": "#1ABC9C", "priority": 1, "icon": "star"},
@@ -40,6 +61,7 @@ EVENT_CATEGORIES = {
 
 
 # ── Deterministic events (hardcoded rules) ────────────────────────────
+
 
 def _third_friday(year: int, month: int) -> date:
     """Monthly options expiry — 3rd Friday of the month."""
@@ -82,14 +104,16 @@ def get_deterministic_events(start: date, end: date) -> list[dict]:
         # Monthly options expiry (3rd Friday)
         opex = _third_friday(y, m)
         if start <= opex <= end:
-            events.append({
-                "date": opex.isoformat(),
-                "title": f"Monthly Options Expiry",
-                "category": "opex",
-                "description": "Monthly equity options expire. Expect increased volume and potential pin action.",
-                "impact": "high",
-                "all_day": True,
-            })
+            events.append(
+                {
+                    "date": opex.isoformat(),
+                    "title": "Monthly Options Expiry",
+                    "category": "opex",
+                    "description": "Monthly equity options expire. Expect increased volume and potential pin action.",  # noqa: E501
+                    "impact": "high",
+                    "all_day": True,
+                }
+            )
 
         # Quad witching (Mar, Jun, Sep, Dec 3rd Friday)
         if m in [3, 6, 9, 12] and start <= opex <= end:
@@ -103,41 +127,47 @@ def get_deterministic_events(start: date, end: date) -> list[dict]:
         # FOMC meetings
         for fomc_start, fomc_end, decision in FOMC_DATES_2026:
             fs = date.fromisoformat(fomc_start)
-            fe = date.fromisoformat(fomc_end)
+            fe = date.fromisoformat(fomc_end)  # noqa: F841
             fd = date.fromisoformat(decision)
 
             if start <= fs <= end:
-                events.append({
-                    "date": fs.isoformat(),
-                    "title": "FOMC Meeting Begins",
-                    "category": "fomc",
-                    "description": "Federal Open Market Committee meeting starts.",
-                    "impact": "high" if fs == fd else "medium",
-                    "all_day": True,
-                })
+                events.append(
+                    {
+                        "date": fs.isoformat(),
+                        "title": "FOMC Meeting Begins",
+                        "category": "fomc",
+                        "description": "Federal Open Market Committee meeting starts.",
+                        "impact": "high" if fs == fd else "medium",
+                        "all_day": True,
+                    }
+                )
             if start <= fd <= end and fd != fs:
-                events.append({
-                    "date": fd.isoformat(),
-                    "title": "FOMC Decision Day",
-                    "category": "fomc",
-                    "description": "Rate decision and press conference at 2:00 PM ET.",
-                    "impact": "critical",
-                    "all_day": False,
-                    "time": "14:00 ET",
-                })
+                events.append(
+                    {
+                        "date": fd.isoformat(),
+                        "title": "FOMC Decision Day",
+                        "category": "fomc",
+                        "description": "Rate decision and press conference at 2:00 PM ET.",
+                        "impact": "critical",
+                        "all_day": False,
+                        "time": "14:00 ET",
+                    }
+                )
 
         # Futures roll (2nd Thursday before 3rd Friday of roll months)
         if m in FUTURES_ROLL_MONTHS:
             roll_date = opex - timedelta(days=8)  # ~Thursday before expiry week
             if start <= roll_date <= end:
-                events.append({
-                    "date": roll_date.isoformat(),
-                    "title": "Futures Roll Period Begins",
-                    "category": "futures_roll",
-                    "description": f"Q{(m-1)//3+1} futures contracts begin rolling to next quarter.",
-                    "impact": "medium",
-                    "all_day": True,
-                })
+                events.append(
+                    {
+                        "date": roll_date.isoformat(),
+                        "title": "Futures Roll Period Begins",
+                        "category": "futures_roll",
+                        "description": f"Q{(m-1)//3+1} futures contracts begin rolling to next quarter.",  # noqa: E501
+                        "impact": "medium",
+                        "all_day": True,
+                    }
+                )
 
         # VIX expiry (usually Wednesday 30 days before next month's opex)
         if m < 12:
@@ -149,14 +179,16 @@ def get_deterministic_events(start: date, end: date) -> list[dict]:
         while vix_exp.weekday() != 2:
             vix_exp += timedelta(days=1)
         if start <= vix_exp <= end:
-            events.append({
-                "date": vix_exp.isoformat(),
-                "title": "VIX Expiry",
-                "category": "vix_expiry",
-                "description": "VIX futures and options settlement. Watch for volatility crush or spike.",
-                "impact": "medium",
-                "all_day": True,
-            })
+            events.append(
+                {
+                    "date": vix_exp.isoformat(),
+                    "title": "VIX Expiry",
+                    "category": "vix_expiry",
+                    "description": "VIX futures and options settlement. Watch for volatility crush or spike.",  # noqa: E501
+                    "impact": "medium",
+                    "all_day": True,
+                }
+            )
 
         # Move to next month
         if m == 12:
@@ -177,6 +209,7 @@ def get_deterministic_events(start: date, end: date) -> list[dict]:
 
 
 # ── Finnhub economic calendar ─────────────────────────────────────────
+
 
 async def get_economic_events(start: date, end: date) -> list[dict]:
     """
@@ -217,19 +250,21 @@ async def get_economic_events(start: date, end: date) -> list[dict]:
                 impact_map = {"low": "low", "medium": "medium", "high": "high"}
                 impact = impact_map.get(item.get("impact", ""), "low")
 
-                events.append({
-                    "date": item.get("date", ""),
-                    "title": event_name,
-                    "category": category,
-                    "description": _build_economic_description(item),
-                    "impact": impact,
-                    "all_day": False,
-                    "time": item.get("time", ""),
-                    "country": item.get("country", "US"),
-                    "previous": item.get("prev"),
-                    "estimate": item.get("estimate"),
-                    "actual": item.get("actual"),
-                })
+                events.append(
+                    {
+                        "date": item.get("date", ""),
+                        "title": event_name,
+                        "category": category,
+                        "description": _build_economic_description(item),
+                        "impact": impact,
+                        "all_day": False,
+                        "time": item.get("time", ""),
+                        "country": item.get("country", "US"),
+                        "previous": item.get("prev"),
+                        "estimate": item.get("estimate"),
+                        "actual": item.get("actual"),
+                    }
+                )
 
     except Exception as e:
         log.error("Finnhub economic calendar error: %s", e)
@@ -270,6 +305,7 @@ def _build_economic_description(item: dict) -> str:
 
 
 # ── Combined calendar ─────────────────────────────────────────────────
+
 
 async def get_all_events(
     start: date,

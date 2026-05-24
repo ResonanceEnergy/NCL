@@ -1,17 +1,16 @@
 """Tests for NCL golden task evaluation suite."""
-import asyncio
+
 import tempfile
-from pathlib import Path
 
 import pytest
 
 from runtime.evaluation.golden_tasks import get_golden_tasks
 from runtime.evaluation.models import (
     GoldenTask,
+    SuiteResult,
     TaskCategory,
     TaskDifficulty,
     TaskResult,
-    SuiteResult,
 )
 from runtime.evaluation.runner import GoldenTaskRunner
 
@@ -103,7 +102,7 @@ def test_golden_task_model():
         expected_keys=["result"],
         expected_patterns=[r"test"],
         failure_conditions=["Failed"],
-        tags=["test"]
+        tags=["test"],
     )
 
     assert task.name == "test_task"
@@ -126,7 +125,7 @@ async def test_runner_evaluates_task(temp_data_dir):
         expected_keys=["action"],
         expected_patterns=[r"test"],
         failure_conditions=["error"],
-        tags=["test"]
+        tags=["test"],
     )
 
     result = await runner.run_task(task)
@@ -147,7 +146,7 @@ async def test_suite_result_model():
         total_duration_ms=15000.0,
         results=[],
         regression_detected=False,
-        regression_tasks=[]
+        regression_tasks=[],
     )
 
     assert result.suite_version == "1.0"

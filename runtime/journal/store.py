@@ -16,19 +16,19 @@ import json
 import logging
 import os
 from collections import defaultdict
-from datetime import datetime, date, timezone, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Optional
 
 import aiofiles
 
 from .models import (
-    JournalEntry,
     DailyReflection,
+    EntryType,
+    JournalEntry,
     JournalInsight,
     TipEntry,
-    EntryType,
 )
+
 
 log = logging.getLogger("ncl.journal")
 
@@ -46,6 +46,7 @@ def _local_tz():
     """
     try:
         import pytz
+
         return pytz.timezone(os.environ.get("NCL_TIMEZONE", "America/New_York"))
     except Exception:
         return timezone.utc
@@ -157,8 +158,10 @@ class JournalStore:
         if entry.importance >= 60 and self.working_context:
             await self._inject_to_context(entry)
 
-        log.info(f"Journal entry created: {entry.entry_id} ({entry.entry_type.value}) "
-                 f"— {entry.word_count} words, importance={entry.importance}")
+        log.info(
+            f"Journal entry created: {entry.entry_id} ({entry.entry_type.value}) "
+            f"— {entry.word_count} words, importance={entry.importance}"
+        )
 
         return entry
 
@@ -283,9 +286,7 @@ class JournalStore:
 
     async def save_reflection(self, reflection: DailyReflection) -> None:
         """Persist a daily reflection."""
-        await self._append_jsonl(
-            self.reflections_file, reflection.model_dump(mode="json")
-        )
+        await self._append_jsonl(self.reflections_file, reflection.model_dump(mode="json"))
         self._stats["total_reflections"] += 1
         self._stats["last_reflection"] = datetime.now(timezone.utc).isoformat()
         log.info(f"Daily reflection saved: {reflection.reflection_id} for {reflection.date}")
@@ -314,9 +315,7 @@ class JournalStore:
 
     async def save_insight(self, insight: JournalInsight) -> None:
         """Persist a cross-entry pattern insight."""
-        await self._append_jsonl(
-            self.insights_file, insight.model_dump(mode="json")
-        )
+        await self._append_jsonl(self.insights_file, insight.model_dump(mode="json"))
         self._stats["total_insights"] += 1
         log.info(f"Insight saved: {insight.insight_id} — {insight.pattern[:80]}")
 
@@ -413,11 +412,14 @@ class JournalStore:
             # Use the real DailyContextWindow API: add_item(ContextItem).
             # Fall back to inject_signal for content-only push if add_item missing.
             content_text = entry.title or entry.content[:80]
-            full_content = f"[JOURNAL {entry.entry_type.value.upper()}] {content_text}: {entry.content[:300]}"
+            full_content = (
+                f"[JOURNAL {entry.entry_type.value.upper()}] {content_text}: {entry.content[:300]}"
+            )
             tags = (entry.tags[:5] if entry.tags else []) + ["journal", entry.entry_type.value]
 
             if hasattr(self.working_context, "add_item"):
                 from ..memory.working_context import ContextItem
+
                 ctx_item = ContextItem(
                     item_id=f"journal:{entry.entry_id}",
                     content=full_content[:500],
@@ -459,9 +461,7 @@ class JournalStore:
             )
 
         # Add open questions from latest reflection
-        reflection = await self.get_reflection(
-            datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        )
+        reflection = await self.get_reflection(datetime.now(timezone.utc).strftime("%Y-%m-%d"))
         if reflection and reflection.open_questions:
             parts.append("\nOPEN QUESTIONS:")
             for q in reflection.open_questions[:5]:

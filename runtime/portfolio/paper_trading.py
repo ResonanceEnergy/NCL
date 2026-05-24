@@ -18,11 +18,11 @@ Key principles (from professional trading research):
 
 import json
 import logging
-import os
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
 
 logger = logging.getLogger("ncl.portfolio.paper")
 
@@ -157,8 +157,12 @@ class PaperTrade:
         # R-multiple
         if self.risk_per_share > 0:
             self.r_multiple = round(self.unrealized_pl / (self.risk_per_share * self.quantity), 2)
-            self.mae_r = round(self.mae / (self.risk_per_share * self.quantity), 2) if self.quantity else 0
-            self.mfe_r = round(self.mfe / (self.risk_per_share * self.quantity), 2) if self.quantity else 0
+            self.mae_r = (
+                round(self.mae / (self.risk_per_share * self.quantity), 2) if self.quantity else 0
+            )
+            self.mfe_r = (
+                round(self.mfe / (self.risk_per_share * self.quantity), 2) if self.quantity else 0
+            )
 
         # Days held
         try:
@@ -193,12 +197,14 @@ class PaperTrade:
             trigger = "time_exit"
 
         # Record price point
-        self.price_history.append({
-            "date": datetime.now(timezone.utc).isoformat(),
-            "price": price,
-            "pl": round(self.unrealized_pl, 2),
-            "r": self.r_multiple,
-        })
+        self.price_history.append(
+            {
+                "date": datetime.now(timezone.utc).isoformat(),
+                "price": price,
+                "pl": round(self.unrealized_pl, 2),
+                "r": self.r_multiple,
+            }
+        )
 
         return trigger
 
@@ -408,7 +414,9 @@ class PaperTradingEngine:
         reward = abs(target - entry)
         rr = reward / risk if risk > 0 else 0
         if rr < 1.0:
-            raise ValueError(f"Risk:Reward ratio {rr:.2f} is below minimum 1.0. Adjust stop or target.")
+            raise ValueError(
+                f"Risk:Reward ratio {rr:.2f} is below minimum 1.0. Adjust stop or target."
+            )
 
         # Auto-calculate position size if not provided
         if "quantity" not in data or not data["quantity"]:
@@ -424,15 +432,26 @@ class PaperTradingEngine:
         self._save_trades()
 
         logger.info(
-            "Paper trade created: %s %s %s @ %.2f | Stop: %.2f | Target: %.2f | R:R 1:%.1f | Qty: %.0f",
-            trade.direction.upper(), trade.symbol, trade.asset_type,
-            trade.entry_price, trade.stop_loss, trade.target_1,
-            trade.risk_reward_ratio, trade.quantity,
+            "Paper trade created: %s %s %s @ %.2f | Stop: %.2f | Target: %.2f | R:R 1:%.1f | Qty: %.0f",  # noqa: E501
+            trade.direction.upper(),
+            trade.symbol,
+            trade.asset_type,
+            trade.entry_price,
+            trade.stop_loss,
+            trade.target_1,
+            trade.risk_reward_ratio,
+            trade.quantity,
         )
         return trade
 
-    def close_trade(self, trade_id: str, exit_price: float, reason: str = "manual",
-                    grade: str = "", notes: str = "") -> Optional[PaperTrade]:
+    def close_trade(
+        self,
+        trade_id: str,
+        exit_price: float,
+        reason: str = "manual",
+        grade: str = "",
+        notes: str = "",
+    ) -> Optional[PaperTrade]:
         """Close an open trade."""
         trade = self._trades.get(trade_id)
         if not trade:
@@ -457,9 +476,12 @@ class PaperTradingEngine:
 
         logger.info(
             "Paper trade closed: %s %s | P&L: $%.2f (%.1f%%) | R: %.2fR | Reason: %s",
-            trade.symbol, trade.direction,
-            trade.realized_pl, trade.realized_pl_pct,
-            trade.r_multiple, reason,
+            trade.symbol,
+            trade.direction,
+            trade.realized_pl,
+            trade.realized_pl_pct,
+            trade.r_multiple,
+            reason,
         )
         return trade
 
@@ -480,14 +502,16 @@ class PaperTradingEngine:
 
             trigger = trade.update_price(price)
             if trigger:
-                triggers.append({
-                    "trade_id": trade.id,
-                    "symbol": trade.symbol,
-                    "trigger": trigger,
-                    "price": price,
-                    "r_multiple": trade.r_multiple,
-                    "pl": round(trade.unrealized_pl, 2),
-                })
+                triggers.append(
+                    {
+                        "trade_id": trade.id,
+                        "symbol": trade.symbol,
+                        "trigger": trigger,
+                        "price": price,
+                        "r_multiple": trade.r_multiple,
+                        "pl": round(trade.unrealized_pl, 2),
+                    }
+                )
 
         if triggers or prices:
             self._save_trades()
@@ -520,9 +544,19 @@ class PaperTradingEngine:
         if trade.status != "open":
             return None
 
-        allowed = {"notes", "confidence", "trade_grade", "rules_followed", "tags",
-                    "trailing_stop_pct", "max_hold_days",
-                    "stop_loss", "target_1", "target_2", "target_3"}
+        allowed = {
+            "notes",
+            "confidence",
+            "trade_grade",
+            "rules_followed",
+            "tags",
+            "trailing_stop_pct",
+            "max_hold_days",
+            "stop_loss",
+            "target_1",
+            "target_2",
+            "target_3",
+        }
         for key, value in updates.items():
             if key in allowed:
                 setattr(trade, key, value)
@@ -543,8 +577,9 @@ class PaperTradingEngine:
         trade = self._trades.get(trade_id)
         return trade.to_dict() if trade else None
 
-    def get_trades(self, status: str = "all", strategy: str = "all",
-                   limit: int = 50) -> List[Dict[str, Any]]:
+    def get_trades(
+        self, status: str = "all", strategy: str = "all", limit: int = 50
+    ) -> List[Dict[str, Any]]:
         """List trades with optional filters."""
         trades = list(self._trades.values())
 
@@ -594,12 +629,22 @@ class PaperTradingEngine:
 
         gross_profit = sum(t.realized_pl for t in winners)
         gross_loss = abs(sum(t.realized_pl for t in losers))
-        profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else float("inf") if gross_profit > 0 else 0
+        profit_factor = (
+            (gross_profit / gross_loss)
+            if gross_loss > 0
+            else float("inf")
+            if gross_profit > 0
+            else 0
+        )
 
         # Expectancy (avg $ per trade)
-        expectancy = (sum(t.realized_pl for t in closed_trades) / total_closed) if total_closed else 0
+        expectancy = (
+            (sum(t.realized_pl for t in closed_trades) / total_closed) if total_closed else 0
+        )
         # Expectancy in R
-        expectancy_r = (sum(t.r_multiple for t in closed_trades) / total_closed) if total_closed else 0
+        expectancy_r = (
+            (sum(t.r_multiple for t in closed_trades) / total_closed) if total_closed else 0
+        )
 
         # Current open P&L
         open_pl = sum(t.unrealized_pl for t in open_trades)
@@ -617,9 +662,9 @@ class PaperTradingEngine:
                 "total_trades": strat_count,
                 "win_rate": (len(strat_winners) / strat_count * 100) if strat_count else 0,
                 "total_pl": round(sum(t.realized_pl for t in strat_trades), 2),
-                "avg_r": round(
-                    sum(t.r_multiple for t in strat_trades) / strat_count, 2
-                ) if strat_count else 0,
+                "avg_r": round(sum(t.r_multiple for t in strat_trades) / strat_count, 2)
+                if strat_count
+                else 0,
             }
 
         # Equity curve (cumulative P&L over closed trades by exit date)
@@ -628,13 +673,15 @@ class PaperTradingEngine:
         running_pl = 0
         for t in sorted_closed:
             running_pl += t.realized_pl
-            equity_curve.append({
-                "date": (t.exit_date or t.entry_date)[:10],
-                "cumulative_pl": round(running_pl, 2),
-                "trade_id": t.id,
-                "symbol": t.symbol,
-                "r_multiple": t.r_multiple,
-            })
+            equity_curve.append(
+                {
+                    "date": (t.exit_date or t.entry_date)[:10],
+                    "cumulative_pl": round(running_pl, 2),
+                    "trade_id": t.id,
+                    "symbol": t.symbol,
+                    "r_multiple": t.r_multiple,
+                }
+            )
 
         # Streak tracking
         current_streak = 0
@@ -656,8 +703,10 @@ class PaperTradingEngine:
         # Graduation readiness check
         # Need: 30+ trades, 45%+ win rate, profit factor > 1.5, 90%+ rules followed
         rules_followed_pct = (
-            sum(1 for t in closed_trades if t.rules_followed) / total_closed * 100
-        ) if total_closed else 0
+            (sum(1 for t in closed_trades if t.rules_followed) / total_closed * 100)
+            if total_closed
+            else 0
+        )
 
         graduation = {
             "trades_needed": max(0, 30 - total_closed),
@@ -665,10 +714,10 @@ class PaperTradingEngine:
             "profit_factor_ok": profit_factor >= 1.5,
             "rules_ok": rules_followed_pct >= 90,
             "ready": (
-                total_closed >= 30 and
-                win_rate >= 45 and
-                profit_factor >= 1.5 and
-                rules_followed_pct >= 90
+                total_closed >= 30
+                and win_rate >= 45
+                and profit_factor >= 1.5
+                and rules_followed_pct >= 90
             ),
         }
 

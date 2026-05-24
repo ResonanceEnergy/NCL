@@ -15,8 +15,10 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from .blackboard import Blackboard
-from .llm_router import LLMResponse, LLMRouter
+from .llm_adapter import LLMClientAdapter
+from .llm_adapter import _LLMResponse as LLMResponse
 from .models import AgentState, SubtaskNode, TaskResult
+
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +37,7 @@ class SwarmAgent(ABC):
         agent_id: str,
         agent_type: str,
         config: dict[str, Any],
-        llm_router: LLMRouter,
+        llm_router: LLMClientAdapter,
         blackboard: Blackboard,
     ) -> None:
         self._agent_id = agent_id

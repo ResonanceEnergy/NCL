@@ -19,15 +19,14 @@ import json
 import logging
 import logging.handlers
 import os
-import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+
 if TYPE_CHECKING:
     from .shared.models import CouncilReport
 
-import aiohttp
 
 # Setup logging before imports
 NCL_BASE = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
@@ -55,7 +54,9 @@ BRAIN_API = os.getenv("NCL_BRAIN_URL", "http://127.0.0.1:8800")
 # is preferred so there's one source of truth for Brain auth.
 BRAIN_AUTH_TOKEN = os.getenv("BRAIN_AUTH_TOKEN") or os.getenv("STRIKE_AUTH_TOKEN", "")
 if not BRAIN_AUTH_TOKEN:
-    log.warning("[council-runner] Neither BRAIN_AUTH_TOKEN nor STRIKE_AUTH_TOKEN set — Brain API calls will fail. Set in .env")
+    log.warning(
+        "[council-runner] Neither BRAIN_AUTH_TOKEN nor STRIKE_AUTH_TOKEN set — Brain API calls will fail. Set in .env"  # noqa: E501
+    )
 
 
 async def _auto_ingest_report(report: CouncilReport) -> None:
@@ -108,7 +109,7 @@ async def _auto_ingest_report(report: CouncilReport) -> None:
                     summary=report.summary,
                     insight_count=len(report.insights),
                 )
-                log.info(f"[AUTO-INGEST] Report summary indexed into vector store")
+                log.info("[AUTO-INGEST] Report summary indexed into vector store")
             except Exception as e:
                 log.warning(f"[AUTO-INGEST] Failed to index report summary: {e}")
 
@@ -139,8 +140,7 @@ async def _auto_ingest_report(report: CouncilReport) -> None:
         f"{'YouTube' if source == 'youtube' else 'X (Twitter)'} Council Report — "
         f"Session {session_id}\n\n"
         f"Executive Summary: {(report.summary or 'No summary')[:500]}\n\n"
-        f"Key Insights ({len(report.insights)} total):\n"
-        + "\n".join(insight_summaries)
+        f"Key Insights ({len(report.insights)} total):\n" + "\n".join(insight_summaries)
     )
 
     all_tags = {"council_report", f"council_{source}", "auto_ingested"}
@@ -165,24 +165,26 @@ async def _auto_ingest_report(report: CouncilReport) -> None:
             pass
 
     try:
-        from ..memory.async_writer import get_async_writer, WriteRequest
+        from ..memory.async_writer import WriteRequest, get_async_writer
+
         try:
             writer = get_async_writer()
         except RuntimeError:
             writer = None
 
         if writer is not None:
-            await writer.enqueue(WriteRequest(
-                content=memory_content[:2000],
-                source=rollup_source,
-                memory_type="semantic",  # council output = synthesized analysis
-                importance=85.0,
-                tags=list(all_tags)[:20],
-                metadata=rollup_meta,
-            ))
+            await writer.enqueue(
+                WriteRequest(
+                    content=memory_content[:2000],
+                    source=rollup_source,
+                    memory_type="semantic",  # council output = synthesized analysis
+                    importance=85.0,
+                    tags=list(all_tags)[:20],
+                    metadata=rollup_meta,
+                )
+            )
             log.info(
-                f"[AUTO-INGEST] Report enqueued to async memory writer "
-                f"(source={rollup_source})"
+                f"[AUTO-INGEST] Report enqueued to async memory writer " f"(source={rollup_source})"
             )
         else:
             # Fallback: direct create_unit via the brain's in-process memory_store
@@ -205,7 +207,9 @@ async def _auto_ingest_report(report: CouncilReport) -> None:
                 except Exception as e:
                     log.warning(f"[AUTO-INGEST] Direct create_unit fallback failed: {e}")
             else:
-                log.debug("[AUTO-INGEST] No async writer or in-process brain — JSONL on disk is canonical")
+                log.debug(
+                    "[AUTO-INGEST] No async writer or in-process brain — JSONL on disk is canonical"
+                )
     except Exception as e:
         log.warning(f"[AUTO-INGEST] async memory enqueue failed (non-fatal): {e}")
 
@@ -213,7 +217,8 @@ async def _auto_ingest_report(report: CouncilReport) -> None:
     try:
         high_insights = [i for i in report.insights if i.confidence >= 0.7]
         if high_insights:
-            from ..memory.async_writer import get_async_writer, WriteRequest
+            from ..memory.async_writer import WriteRequest, get_async_writer
+
             try:
                 writer = get_async_writer()
             except RuntimeError:
@@ -222,7 +227,9 @@ async def _auto_ingest_report(report: CouncilReport) -> None:
             stored = 0
             for ins in high_insights[:10]:
                 payload_tags = list(ins.tags[:10]) + [
-                    "council_insight", f"council_{source}", "auto_ingested"
+                    "council_insight",
+                    f"council_{source}",
+                    "auto_ingested",
                 ]
                 ins_source = f"council:{source}:insight"
                 ins_meta = {
@@ -233,14 +240,16 @@ async def _auto_ingest_report(report: CouncilReport) -> None:
                 }
                 if writer is not None:
                     try:
-                        await writer.enqueue(WriteRequest(
-                            content=f"[{ins.category.value}] {ins.title}: {ins.description[:500]}",
-                            source=ins_source,
-                            memory_type="semantic",
-                            importance=ins.confidence * 100,
-                            tags=payload_tags[:20],
-                            metadata=ins_meta,
-                        ))
+                        await writer.enqueue(
+                            WriteRequest(
+                                content=f"[{ins.category.value}] {ins.title}: {ins.description[:500]}",  # noqa: E501
+                                source=ins_source,
+                                memory_type="semantic",
+                                importance=ins.confidence * 100,
+                                tags=payload_tags[:20],
+                                metadata=ins_meta,
+                            )
+                        )
                         stored += 1
                     except Exception as e:
                         log.debug(f"[AUTO-INGEST] insight enqueue failed: {e}")
@@ -266,12 +275,14 @@ def _load_previously_analyzed_video_ids(days: int | None = None) -> set[str]:
     NCL_YTC_DEDUP_DAYS env var.
     """
     import os
+
     if days is None:
         try:
             days = int(os.getenv("NCL_YTC_DEDUP_DAYS", "1"))
         except (TypeError, ValueError):
             days = 1
     from .shared.report_writer import REPORTS_DIR
+
     seen: set[str] = set()
     if not REPORTS_DIR.exists():
         return seen
@@ -297,7 +308,9 @@ def _load_previously_analyzed_video_ids(days: int | None = None) -> set[str]:
                         # Expected: youtube-council-YYYYMMDD-HHMMSS-...
                         if len(name_parts) >= 4:
                             date_str = name_parts[2]
-                            file_dt = datetime.strptime(date_str, "%Y%m%d").replace(tzinfo=timezone.utc)
+                            file_dt = datetime.strptime(date_str, "%Y%m%d").replace(
+                                tzinfo=timezone.utc
+                            )
                             if file_dt < cutoff:
                                 break
                     except (ValueError, IndexError):
@@ -316,6 +329,248 @@ def _load_previously_analyzed_video_ids(days: int | None = None) -> set[str]:
     return seen
 
 
+async def _build_pack_runtime():
+    """Build the runtime objects ``run_council_with_pack`` needs.
+
+    Returns a 5-tuple ``(council_engine, fused_retriever, working_context,
+    learner, async_writer)`` — any element may be ``None`` if the runtime
+    isn't reachable (CLI invocation, brain not yet started, etc.). Callers
+    treat ``council_engine is None`` as "pack path unavailable, fall through
+    to legacy".
+
+    The brain owns ``memory_store``, ``council_engine``, and (via the
+    scheduler) the working-context window and async writer singleton. When
+    this runner is invoked from inside the Brain process (autonomous loop or
+    ``/councils/run`` endpoint) those references are all live. When invoked
+    standalone via ``python3 -m runtime.councils.runner``, none of them are
+    — and the pack path will gracefully fall back to the legacy code.
+    """
+    try:
+        from ..api.routes import brain as _brain  # type: ignore
+    except Exception:
+        _brain = None
+    if _brain is None or getattr(_brain, "council_engine", None) is None:
+        return None, None, None, None, None
+
+    council_engine = _brain.council_engine
+    store = _brain.memory_store
+
+    try:
+        from ..memory.retrieval import BM25Index, FusedRetriever
+
+        if not getattr(store, "_bm25_index", None):
+            store._bm25_index = BM25Index(store)
+        fused = FusedRetriever(
+            store,
+            store._bm25_index,
+            knowledge_graph=getattr(store, "_knowledge_graph", None),
+        )
+    except Exception as e:
+        log.debug("[COUNCILS:PACK] FusedRetriever build failed: %s", e)
+        fused = None
+
+    async_writer = None
+    try:
+        from ..memory.async_writer import get_async_writer
+
+        async_writer = get_async_writer()
+    except Exception:
+        async_writer = None
+
+    learner = None
+    try:
+        from ..feedback.source_authority_learner import get_learner
+
+        learner = get_learner()
+    except Exception:
+        learner = None
+
+    working_context = getattr(_brain, "_working_context_ref", None)
+    return council_engine, fused, working_context, learner, async_writer
+
+
+async def _run_youtube_rollup_with_pack_or_fallback(
+    *,
+    per_video_reports,
+    session_id: str,
+):
+    """Pack-augmented YouTube rollup synthesis with full fallback.
+
+    The legacy ``synthesize_rollup(per_video_reports, session_id)`` is a
+    single-Sonnet call. We wrap it with a council_pack chair pass that
+    runs the full universal pack (MMR diversity, temporal split,
+    contradiction surfacing, calibration, anonymized peer review, 3-tier
+    write-back). The resulting ``CouncilReport`` carries the merged
+    insights / videos / duration from the per-video reports (unchanged),
+    plus a chair-synthesized summary + raw_analysis from the pack debate.
+
+    On ANY pack-path failure (no brain in-process, retriever crash, council
+    engine error, etc.) we fall through to the original ``synthesize_rollup``
+    so the YouTube council pipeline NEVER regresses.
+    """
+    from .shared.models import CouncilReport, CouncilSource
+    from .youtube.analyzer import synthesize_rollup
+
+    if not per_video_reports:
+        # Mirror synthesize_rollup's empty-case behavior.
+        return await synthesize_rollup(per_video_reports, session_id)
+
+    council_engine, fused, working_context, learner, async_writer = await _build_pack_runtime()
+    if council_engine is None or fused is None:
+        log.info("[YTC:PACK] runtime unavailable — falling back to legacy synthesize_rollup")
+        return await synthesize_rollup(per_video_reports, session_id)
+
+    # Build pack prompt from the per-video reports (same content the legacy
+    # synthesize_rollup builds, kept structurally identical so the chair has
+    # equivalent input).
+    try:
+        all_insights = []
+        all_videos = []
+        total_duration = 0.0
+        prompt_parts: list[str] = []
+        for report in per_video_reports:
+            all_insights.extend(report.insights)
+            all_videos.extend(report.videos)
+            total_duration += report.total_duration_hours
+            vid_title = report.videos[0].title if report.videos else "Unknown"
+            vid_channel = report.videos[0].channel if report.videos else "Unknown"
+            insight_titles = [i.title for i in report.insights]
+            prompt_parts.append(
+                f"## {vid_title} ({vid_channel})\n"
+                f"Summary: {report.summary}\n"
+                f"Insights: {'; '.join(insight_titles)}\n"
+            )
+        topic = f"YouTube Council rollup — {len(per_video_reports)} videos, {total_duration:.1f}h"
+        base_prompt = (
+            f"Synthesize cross-video patterns from {len(per_video_reports)} individually-analyzed "
+            f"YouTube videos ({total_duration:.1f} hours total). For each pattern, surface the "
+            f"convergence signal across videos. Surface content opportunities.\n\n"
+            + "\n".join(prompt_parts)
+        )
+
+        from ..council_pack import run_council_with_pack
+
+        pack_result = await run_council_with_pack(
+            council_engine=council_engine,
+            topic=topic,
+            base_prompt=base_prompt,
+            fused_retriever=fused,
+            working_context=working_context,
+            learner=learner,
+            async_writer=async_writer,
+            session_id=f"ytc-rollup-{session_id}",
+            council_type="councils:youtube_rollup",
+            peer_review=True,
+        )
+        session = pack_result["session"]
+        rollup_summary = (session.consensus or "")[:1500]
+        chair_synthesis = session.synthesis or ""
+        # Compose raw_analysis from chair synthesis + surfaced conflicts +
+        # peer-review critiques so the on-disk markdown report carries the
+        # full pack-augmented context.
+        analysis_parts: list[str] = []
+        if chair_synthesis:
+            analysis_parts.append(f"## Chair Synthesis\n\n{chair_synthesis}")
+        conflicts = pack_result["pack"].get("surfaced_conflicts") or []
+        if conflicts:
+            analysis_parts.append(
+                "## Surfaced Conflicts\n\n" + "\n".join(f"- {c}" for c in conflicts[:5])
+            )
+        prs = pack_result.get("peer_review") or []
+        if prs:
+            analysis_parts.append(
+                f"## Peer Review ({len(prs)} critiques)\n\n"
+                + "\n".join(f"- {pr.get('critique', '')[:300]}" for pr in prs[:3])
+            )
+        raw_analysis = "\n\n".join(analysis_parts) if analysis_parts else (rollup_summary or "")
+
+        rollup = CouncilReport(
+            council_type=CouncilSource.YOUTUBE,
+            session_id=session_id,
+            sources_processed=len(per_video_reports),
+            total_duration_hours=total_duration,
+            insights=all_insights,
+            summary=rollup_summary or f"YouTube rollup ({len(per_video_reports)} videos)",
+            raw_analysis=raw_analysis,
+            videos=all_videos,
+        )
+        log.info(
+            "[YTC:PACK] rollup complete pack_session=%s pack_items=%d conflicts=%d peer_reviews=%d writeback_gist=%d",  # noqa: E501
+            session.session_id,
+            pack_result["pack"].get("pack_size_items", 0),
+            len(conflicts),
+            len(prs),
+            len((pack_result.get("writeback") or {}).get("gist") or ""),
+        )
+        return rollup
+    except Exception as pack_err:
+        log.warning(
+            "[YTC:PACK] pack path failed (%s) — falling back to legacy synthesize_rollup",
+            pack_err,
+        )
+        return await synthesize_rollup(per_video_reports, session_id)
+
+
+async def _run_x_pack_augmenter(*, report, session_id: str) -> None:
+    """Best-effort pack augmenter for the X (Twitter) council.
+
+    The X council's canonical insight extractor is
+    ``analyze_posts(sweep_results, session_id)`` and we don't want to
+    duplicate that work. This helper runs a SEPARATE pack-augmented chair
+    pass over the produced report so we get calibration + peer review +
+    3-tier write-back on the synthesized X analysis — strictly additive,
+    runs in-process, no impact on the returned ``CouncilReport``.
+
+    Fails silently (caller wraps in try/except). The X scanner has been
+    402'd for a week; the input may always be empty.
+    """
+    if not report or not report.insights:
+        log.debug("[X-COUNCIL:PACK] no insights to augment, skipping pack pass")
+        return
+
+    council_engine, fused, working_context, learner, async_writer = await _build_pack_runtime()
+    if council_engine is None or fused is None:
+        log.debug("[X-COUNCIL:PACK] runtime unavailable — skipping pack pass")
+        return
+
+    insight_lines = []
+    for i, ins in enumerate(report.insights[:30], 1):
+        insight_lines.append(
+            f"{i}. [{ins.category.value}] {ins.title} (conf {ins.confidence:.0%}): "
+            f"{ins.description[:200]}"
+        )
+    topic = f"X Council pack augmentation — {len(report.insights)} insights"
+    base_prompt = (
+        f"X (Twitter) council produced {len(report.insights)} insights from "
+        f"{report.sources_processed} posts. Summary: {report.summary or '(none)'}\n\n"
+        f"Insights:\n" + "\n".join(insight_lines)
+    )
+
+    try:
+        from ..council_pack import run_council_with_pack
+
+        pack_result = await run_council_with_pack(
+            council_engine=council_engine,
+            topic=topic,
+            base_prompt=base_prompt,
+            fused_retriever=fused,
+            working_context=working_context,
+            learner=learner,
+            async_writer=async_writer,
+            session_id=f"x-pack-{session_id}",
+            council_type="councils:x_augment",
+            peer_review=True,
+        )
+        log.info(
+            "[X-COUNCIL:PACK] augmenter complete pack_session=%s peer_reviews=%d writeback_gist=%d",
+            pack_result["session"].session_id,
+            len(pack_result.get("peer_review") or []),
+            len((pack_result.get("writeback") or {}).get("gist") or ""),
+        )
+    except Exception as pack_err:
+        log.warning("[X-COUNCIL:PACK] pack path failed (%s) — augmentation skipped", pack_err)
+
+
 async def run_youtube_council(
     session_id: str,
     dry_run: bool = False,
@@ -327,10 +582,9 @@ async def run_youtube_council(
         progress_cb: Optional callable(step: str, **kwargs) to report progress.
                      Called with step name and optional videos_found, videos_transcribed, etc.
     """
-    from .youtube.scraper import scrape_recent_videos, download_batch
-    from .youtube.transcriber import transcribe_batch, cleanup_old_audio
     from .shared.report_writer import write_report
-    from .shared.models import CouncilReport
+    from .youtube.scraper import download_batch, scrape_recent_videos
+    from .youtube.transcriber import cleanup_old_audio, transcribe_batch
 
     def _progress(step: str, **kwargs):
         if progress_cb is not None:
@@ -364,7 +618,9 @@ async def run_youtube_council(
         videos = [v for v in videos if v.get("video_id", v.get("id", "")) not in already_seen]
         skipped = before - len(videos)
         if skipped:
-            log.info(f"Dedup: skipped {skipped} previously analyzed videos, {len(videos)} remaining")
+            log.info(
+                f"Dedup: skipped {skipped} previously analyzed videos, {len(videos)} remaining"
+            )
         if not videos:
             log.info("All recent videos already analyzed — nothing new to process")
             return None
@@ -376,7 +632,9 @@ async def run_youtube_council(
         log.info("[DRY RUN] Skipping download, transcription, and analysis")
         for v in videos:
             score = v.get("strike_score", 0)
-            log.info(f"  - {v['title']} ({v.get('duration', 0) // 60}m) [{v['channel']}] score={score}")
+            log.info(
+                f"  - {v['title']} ({v.get('duration', 0) // 60}m) [{v['channel']}] score={score}"
+            )
         return None
 
     # Step 2: Download audio
@@ -399,7 +657,8 @@ async def run_youtube_council(
     _progress("analyzing", videos_found=len(videos), videos_transcribed=len(transcribed))
 
     # Step 4: Per-video AI analysis (one report per video)
-    from .youtube.analyzer import analyze_single_video, synthesize_rollup
+    from .youtube.analyzer import analyze_single_video
+
     log.info(f"Step 4/5: Running per-video AI analysis on {len(transcribed)} videos...")
     per_video_reports: list[CouncilReport] = []
 
@@ -410,9 +669,15 @@ async def run_youtube_council(
         async with sem:
             vid_id = video_info.get("video_id", f"vid{idx}")
             vid_session = f"{session_id}-{vid_id}"
-            log.info(f"  Analyzing [{idx + 1}/{len(transcribed)}]: {video_info.get('title', 'Untitled')}")
-            _progress("analyzing_video", video_index=idx + 1, video_total=len(transcribed),
-                       video_title=video_info.get("title", ""))
+            log.info(
+                f"  Analyzing [{idx + 1}/{len(transcribed)}]: {video_info.get('title', 'Untitled')}"
+            )
+            _progress(
+                "analyzing_video",
+                video_index=idx + 1,
+                video_total=len(transcribed),
+                video_title=video_info.get("title", ""),
+            )
             try:
                 report = await analyze_single_video(video_info, transcript, vid_session)
                 # Save individual report
@@ -422,15 +687,23 @@ async def run_youtube_council(
                 await _auto_ingest_report(report)
                 return report
             except Exception as e:
-                log.error(f"  Analysis failed for '{video_info.get('title', '')}': {e}", exc_info=True)
+                log.error(
+                    f"  Analysis failed for '{video_info.get('title', '')}': {e}", exc_info=True
+                )
                 return None
 
     tasks = [
         _analyze_one(video_info, transcript, i)
         for i, (video_info, transcript) in enumerate(transcribed)
     ]
-    results = await asyncio.gather(*tasks)
-    per_video_reports = [r for r in results if r is not None]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    per_video_reports = []
+    for r in results:
+        if isinstance(r, Exception):
+            log.warning("[GATHER] ytc_per_video_analyze task failed: %s", r)
+            continue
+        if r is not None:
+            per_video_reports.append(r)
 
     if not per_video_reports:
         log.warning("All per-video analyses failed — no reports generated")
@@ -438,14 +711,19 @@ async def run_youtube_council(
 
     log.info(f"Per-video analysis complete: {len(per_video_reports)}/{len(transcribed)} succeeded")
 
-    # Step 5: Cross-video rollup synthesis
+    # Step 5: Cross-video rollup synthesis (Wave 3: routed through council_pack
+    # for calibration + peer review + 3-tier write-back, with full fallback to
+    # the legacy ``synthesize_rollup`` on ANY failure).
     log.info("Step 5/5: Synthesizing cross-video rollup...")
     _progress("synthesizing_rollup")
-    rollup = await synthesize_rollup(per_video_reports, session_id)
+    rollup = await _run_youtube_rollup_with_pack_or_fallback(
+        per_video_reports=per_video_reports,
+        session_id=session_id,
+    )
 
     # Save rollup as the main session report
     md_path, json_path = write_report(rollup)
-    log.info(f"YouTube Council rollup saved:")
+    log.info("YouTube Council rollup saved:")
     log.info(f"  Markdown: {md_path}")
     log.info(f"  JSON: {json_path}")
     log.info(f"  Total insights: {len(rollup.insights)}")
@@ -467,9 +745,9 @@ async def run_x_council(
     dry_run: bool = False,
 ) -> CouncilReport | None:
     """Run the full X (Twitter) Council pipeline. Returns report for War Room."""
-    from .xai.scanner import full_sweep
-    from .xai.analyzer import analyze_posts
     from .shared.report_writer import write_report
+    from .xai.analyzer import analyze_posts
+    from .xai.scanner import full_sweep
 
     log.info("=" * 60)
     log.info("  X (TWITTER) COUNCIL — Starting session")
@@ -499,9 +777,20 @@ async def run_x_council(
     log.info("Step 2/2: Running AI analysis...")
     report = await analyze_posts(sweep_results, session_id)
 
+    # Wave 3: best-effort pack-augmented chair pass on the same posts. This
+    # adds calibration + peer review + 3-tier write-back on the synthesized
+    # X analysis. The existing ``report`` is the canonical insight extractor
+    # and is what we save to disk; pack augmentation is purely additive.
+    try:
+        await _run_x_pack_augmenter(report=report, session_id=session_id)
+    except Exception as pack_err:
+        log.warning(
+            "[X-COUNCIL:PACK] pack augmenter failed (%s) — continuing with legacy report", pack_err
+        )
+
     # Save report
     md_path, json_path = write_report(report)
-    log.info(f"X Council report saved:")
+    log.info("X Council report saved:")
     log.info(f"  Markdown: {md_path}")
     log.info(f"  JSON: {json_path}")
     log.info(f"  Insights: {len(report.insights)}")
@@ -527,7 +816,9 @@ async def _snapshot_intel_state(session_id: str) -> None:
     ]
     src = next((p for p in candidate_paths if p.exists()), None)
     if not src:
-        log.info("[snapshot] No latest_brief.json on disk — councils will spawn without prior brief")
+        log.info(
+            "[snapshot] No latest_brief.json on disk — councils will spawn without prior brief"
+        )
         return
     try:
         data = json.loads(src.read_text(encoding="utf-8"))
@@ -621,7 +912,9 @@ Examples:
         """,
     )
     group = parser.add_mutually_exclusive_group()
-    group.add_argument("--both", action="store_true", default=True, help="Run both councils (default)")
+    group.add_argument(
+        "--both", action="store_true", default=True, help="Run both councils (default)"
+    )
     group.add_argument("--youtube", action="store_true", help="YouTube council only")
     group.add_argument("--x", action="store_true", help="X (Twitter) council only")
     parser.add_argument("--dry", action="store_true", help="Dry run — scrape only, no AI analysis")

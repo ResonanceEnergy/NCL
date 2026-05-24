@@ -12,13 +12,13 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import datetime, timezone
 from typing import Any
 
-from .models import TradingInsight, SandboxEntry, InsightCategory, Urgency
+from .agents import analyze_against_sandbox, extract_insights, update_doctrine
 from .ingestor import ingest_url
-from .agents import extract_insights, analyze_against_sandbox, update_doctrine
+from .models import InsightCategory, SandboxEntry, TradingInsight, Urgency
 from .sandbox import LDESandbox
+
 
 log = logging.getLogger("ncl.lde.engine")
 
@@ -115,19 +115,21 @@ class LivingDoctrineEngine:
             except ValueError:
                 urg = Urgency.MEDIUM
 
-            insights.append(TradingInsight(
-                title=raw.get("title", "Untitled"),
-                signal=raw.get("signal", ""),
-                analysis=raw.get("analysis", ""),
-                category=cat,
-                confidence=float(raw.get("confidence", 5.0)),
-                urgency=urg,
-                tickers=raw.get("tickers", []),
-                sectors=raw.get("sectors", []),
-                tags=raw.get("tags", []),
-                source_url=url,
-                source_type=detected_type,
-            ))
+            insights.append(
+                TradingInsight(
+                    title=raw.get("title", "Untitled"),
+                    signal=raw.get("signal", ""),
+                    analysis=raw.get("analysis", ""),
+                    category=cat,
+                    confidence=float(raw.get("confidence", 5.0)),
+                    urgency=urg,
+                    tickers=raw.get("tickers", []),
+                    sectors=raw.get("sectors", []),
+                    tags=raw.get("tags", []),
+                    source_url=url,
+                    source_type=detected_type,
+                )
+            )
 
         # Persist insights
         await self.sandbox.save_insights(insights)
@@ -140,9 +142,14 @@ class LivingDoctrineEngine:
             "elapsed": round(time.monotonic() - stage_start, 1),
         }
         result["insights"] = [
-            {"title": i.title, "category": i.category.value,
-             "confidence": i.confidence, "urgency": i.urgency.value,
-             "tickers": i.tickers, "signal": i.signal[:200]}
+            {
+                "title": i.title,
+                "category": i.category.value,
+                "confidence": i.confidence,
+                "urgency": i.urgency.value,
+                "tickers": i.tickers,
+                "signal": i.signal[:200],
+            }
             for i in insights
         ]
 

@@ -28,10 +28,11 @@ import logging
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
+
 
 log = logging.getLogger("ncl.stocks.enrichments")
 
@@ -40,16 +41,16 @@ _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="stock-enrich")
 
 # ── Tunables ──────────────────────────────────────────────────────────────
 
-GOAT_MIN_ADV = int(os.getenv("NCL_GOAT_MIN_ADV", "500000"))      # 500K shares
-BRAVO_MIN_ADV = int(os.getenv("NCL_BRAVO_MIN_ADV", "250000"))    # 250K shares
+GOAT_MIN_ADV = int(os.getenv("NCL_GOAT_MIN_ADV", "500000"))  # 500K shares
+BRAVO_MIN_ADV = int(os.getenv("NCL_BRAVO_MIN_ADV", "250000"))  # 250K shares
 MIN_MARKET_CAP_USD = float(os.getenv("NCL_MIN_MARKET_CAP", "1000000000"))  # $1B
-MIN_OPTION_OI = int(os.getenv("NCL_MIN_OPTION_OI", "1000"))      # 1K contracts
+MIN_OPTION_OI = int(os.getenv("NCL_MIN_OPTION_OI", "1000"))  # 1K contracts
 
 EARNINGS_HORIZON_DAYS = int(os.getenv("NCL_EARNINGS_HORIZON_DAYS", "7"))
 EARNINGS_REPORT_HORIZON_DAYS = 30  # only report days_to_earnings if ≤ 30
 
-GOAT_IVR_MAX = float(os.getenv("NCL_GOAT_IVR_MAX", "70.0"))      # reject IVR > 70
-BRAVO_IVR_MIN = float(os.getenv("NCL_BRAVO_IVR_MIN", "20.0"))    # reject IVR < 20
+GOAT_IVR_MAX = float(os.getenv("NCL_GOAT_IVR_MAX", "70.0"))  # reject IVR > 70
+BRAVO_IVR_MIN = float(os.getenv("NCL_BRAVO_IVR_MIN", "20.0"))  # reject IVR < 20
 
 FLOW_LOOKBACK_HOURS = int(os.getenv("NCL_FLOW_LOOKBACK_HOURS", "24"))
 FLOW_MIN_NET_CALL = float(os.getenv("NCL_FLOW_MIN_NET_CALL", "100000"))
@@ -366,6 +367,7 @@ async def compute_ivr(ticker: str) -> Optional[float]:
     if uw_key:
         try:
             import httpx
+
             async with httpx.AsyncClient(timeout=10.0) as client:
                 resp = await client.get(
                     f"https://api.unusualwhales.com/api/stock/{ticker.upper()}/iv-rank",
@@ -624,6 +626,7 @@ async def fetch_dark_pool_support(ticker: str, current_price: float) -> DarkPool
 
     try:
         import httpx
+
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(
                 f"https://api.unusualwhales.com/api/darkpool/{ticker.upper()}",

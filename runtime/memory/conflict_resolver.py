@@ -24,9 +24,9 @@ Design notes
 
 Author: NCL Brain — added 2026-05-21
 """
+
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
@@ -34,11 +34,36 @@ import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any, Optional
 
 import aiofiles
 
+from ..config import flags
+
+
 log = logging.getLogger("ncl.memory.conflict_resolver")
+
+
+# ── SQLite units-index fast path (W6-A) ───────────────────────────────────
+#
+# Conflict arbitration's `run_conflict_arbitration_cycle` fires on a 5/10/15m
+# adaptive cadence and previously full-scanned the 200MB units.jsonl every
+# tick. When ``NCL_UNITS_INDEX_SQLITE=true``, try the SQLite ``units_index``
+# table first (W4-14, store.py:_search_units_via_sqlite_index). Falls back
+# to the canonical ``search_units`` path on flag-off or ANY failure —
+# flag-off behavior is bit-identical to before this retrofit.
+async def _maybe_indexed_search(memory_store, **kwargs):
+    """Drop-in replacement for ``memory_store.search_units(**kwargs)``."""
+    if flags.units_index_sqlite():
+        try:
+            unit_ids = await memory_store._search_units_via_sqlite_index(**kwargs)
+            if unit_ids:
+                units_by_id = await memory_store._load_units_batch(set(unit_ids))
+                return [units_by_id[uid] for uid in unit_ids if uid in units_by_id]
+        except Exception as e:
+            log.debug("[CONFLICT-ARB] sqlite index search failed (%s) — falling back", e)
+    return await memory_store.search_units(**kwargs)
+
 
 # ── Tuning constants ─────────────────────────────────────────────────────────
 # Audit 2026-05-22: prior cap of 5/cycle vs 14,800 backlog = ~58 days to
@@ -46,32 +71,77 @@ log = logging.getLogger("ncl.memory.conflict_resolver")
 # 15min when calm) and a quality filter (only queue conflicts with
 # importance_divergence > 40 AND shared_entities >= 3).
 MAX_COUNCIL_QUEUE_PER_CYCLE = 50
-HIGH_SEVERITY_IMPORTANCE = 60.0      # Both units must be >= this to count "high"
+HIGH_SEVERITY_IMPORTANCE = 60.0  # Both units must be >= this to count "high"
 CRITICAL_SEVERITY_IMPORTANCE = 75.0  # Both >= this AND >=2 entities overlap → critical
+
+# Schema version stamped on every NEW contradicts_index.jsonl record (W4-15,
+# 2026-05-23). Existing rows are NOT back-migrated — readers should treat
+# absence as schema_version=0. Bump whenever the record shape changes.
+_CONTRADICTS_SCHEMA_VERSION = 1
 DEFAULT_WINDOW_HOURS = 24
-OVERLAP_WINDOW_HOURS = 24            # Time gap between two units must be <= this
-COUNCIL_IMPORTANCE_DIVERGENCE = 40.0 # min |imp_a - imp_b| to queue for council
-COUNCIL_MIN_SHARED_ENTITIES = 3      # min overlap to promote to council
+OVERLAP_WINDOW_HOURS = 24  # Time gap between two units must be <= this
+COUNCIL_IMPORTANCE_DIVERGENCE = 40.0  # min |imp_a - imp_b| to queue for council
+COUNCIL_MIN_SHARED_ENTITIES = 3  # min overlap to promote to council
 
 # Adaptive cadence thresholds for the scheduler loop (seconds).
-CADENCE_BURST_S = 300     # backlog > 1000 -> 5min cycles
-CADENCE_BUSY_S = 600      # backlog > 100  -> 10min cycles
-CADENCE_CALM_S = 900      # default        -> 15min cycles
+CADENCE_BURST_S = 300  # backlog > 1000 -> 5min cycles
+CADENCE_BUSY_S = 600  # backlog > 100  -> 10min cycles
+CADENCE_CALM_S = 900  # default        -> 15min cycles
 BACKLOG_BURST = 1000
 BACKLOG_BUSY = 100
 
 # ── Polarity dictionaries ────────────────────────────────────────────────────
 BULLISH_TOKENS = {
-    "buy", "bullish", "long", "accumulate", "rally", "breakout", "moon",
-    "up", "uptrend", "positive", "outperform", "overweight", "strong buy",
-    "calls", "call options", "pump", "ripping", "ripper", "surge", "gain",
-    "rip", "rocket", "uppy", "green",
+    "buy",
+    "bullish",
+    "long",
+    "accumulate",
+    "rally",
+    "breakout",
+    "moon",
+    "up",
+    "uptrend",
+    "positive",
+    "outperform",
+    "overweight",
+    "strong buy",
+    "calls",
+    "call options",
+    "pump",
+    "ripping",
+    "ripper",
+    "surge",
+    "gain",
+    "rip",
+    "rocket",
+    "uppy",
+    "green",
 }
 BEARISH_TOKENS = {
-    "sell", "bearish", "short", "exit", "dump", "breakdown", "crash",
-    "down", "downtrend", "negative", "underperform", "underweight", "strong sell",
-    "puts", "put options", "fade", "tank", "tanking", "drop", "loss",
-    "bagholder", "rug", "red", "bleeding",
+    "sell",
+    "bearish",
+    "short",
+    "exit",
+    "dump",
+    "breakdown",
+    "crash",
+    "down",
+    "downtrend",
+    "negative",
+    "underperform",
+    "underweight",
+    "strong sell",
+    "puts",
+    "put options",
+    "fade",
+    "tank",
+    "tanking",
+    "drop",
+    "loss",
+    "bagholder",
+    "rug",
+    "red",
+    "bleeding",
 }
 # These act as polarity *inverters* preceding any token (e.g. "not bullish").
 NEGATION_TOKENS = {"not", "no", "never", "isn't", "isnt", "won't", "wont", "doesn't", "doesnt"}
@@ -261,10 +331,10 @@ class ConflictResolver:
         """
         days = max(1, int((window_hours + 23) // 24))
         try:
-            units = await self.memory_store.search_units(days_back=days)
+            units = await _maybe_indexed_search(self.memory_store, days_back=days)
         except TypeError:
             # Older signatures
-            units = await self.memory_store.search_units()
+            units = await _maybe_indexed_search(self.memory_store)
         except Exception as e:
             log.error("[CONFLICT-ARB] search_units failed: %s", e)
             return []
@@ -322,22 +392,24 @@ class ConflictResolver:
                         f"{getattr(ub, 'importance', 0):.0f}, "
                         f"gap {gap_h:.1f}h, shared entities={len(shared)}"
                     )
-                    conflicts.append({
-                        "conflict_id": uuid.uuid4().hex[:12],
-                        "entity": entity,
-                        "shared_entities": sorted(shared),
-                        "units": [ida, idb],
-                        "polarities": [pa, pb],
-                        "sources": [getattr(ua, "source", ""), getattr(ub, "source", "")],
-                        "importances": [
-                            float(getattr(ua, "importance", 0.0) or 0.0),
-                            float(getattr(ub, "importance", 0.0) or 0.0),
-                        ],
-                        "reason": reason,
-                        "severity": severity,
-                        "created_at": now.isoformat(),
-                        "gap_hours": round(gap_h, 2),
-                    })
+                    conflicts.append(
+                        {
+                            "conflict_id": uuid.uuid4().hex[:12],
+                            "entity": entity,
+                            "shared_entities": sorted(shared),
+                            "units": [ida, idb],
+                            "polarities": [pa, pb],
+                            "sources": [getattr(ua, "source", ""), getattr(ub, "source", "")],
+                            "importances": [
+                                float(getattr(ua, "importance", 0.0) or 0.0),
+                                float(getattr(ub, "importance", 0.0) or 0.0),
+                            ],
+                            "reason": reason,
+                            "severity": severity,
+                            "created_at": now.isoformat(),
+                            "gap_hours": round(gap_h, 2),
+                        }
+                    )
 
         # Sort: critical > high > medium > low, then highest min-importance first
         order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
@@ -377,14 +449,26 @@ class ConflictResolver:
                         ]
                         entity = c.get("entity")
                         if entity:
-                            rels.extend([
-                                {"subject": entity, "predicate": "DISPUTED_BY", "object": units[0]},
-                                {"subject": entity, "predicate": "DISPUTED_BY", "object": units[1]},
-                            ])
+                            rels.extend(
+                                [
+                                    {
+                                        "subject": entity,
+                                        "predicate": "DISPUTED_BY",
+                                        "object": units[0],
+                                    },
+                                    {
+                                        "subject": entity,
+                                        "predicate": "DISPUTED_BY",
+                                        "object": units[1],
+                                    },
+                                ]
+                            )
                         try:
                             await self.kg.add_relationships(rels, source_unit_id=units[0])
                         except Exception as kge:
-                            log.warning("[CONFLICT-ARB] KG link failed (%s) — sidecar still written", kge)
+                            log.warning(
+                                "[CONFLICT-ARB] KG link failed (%s) — sidecar still written", kge
+                            )
 
                 # Always append to sidecar — single source of truth for the
                 # working_context downweighter.
@@ -398,6 +482,7 @@ class ConflictResolver:
                     "sources": c.get("sources", []),
                     "importances": c.get("importances", []),
                     "reason": c.get("reason"),
+                    "schema_version": _CONTRADICTS_SCHEMA_VERSION,
                 }
                 await _atomic_append_jsonl(self.contradicts_index_path, record)
                 linked += 1
@@ -436,12 +521,17 @@ class ConflictResolver:
             return {"queued": True, "council_topic": topic, "conflict_id": cid}
         except Exception as e:
             log.error("[CONFLICT-ARB] queue_for_council failed: %s", e)
-            return {"queued": False, "council_topic": "", "conflict_id": conflict.get("conflict_id", "")}
+            return {
+                "queued": False,
+                "council_topic": "",
+                "conflict_id": conflict.get("conflict_id", ""),
+            }
 
 
 # ── Standalone loop function for scheduler integration ───────────────────────
 # Wired into scheduler.py as Loop 18 (`ncl-conflict-arbitration`). Cadence
 # 900s (15m). See bottom of this file for the integration spec.
+
 
 async def run_conflict_arbitration_cycle(
     brain: Any,
@@ -471,8 +561,7 @@ async def run_conflict_arbitration_cycle(
 
     # 2. Filter to HIGH severity (both units' importance >= floor)
     high_conflicts = [
-        c for c in all_conflicts
-        if min(c.get("importances", [0.0, 0.0])) >= high_imp_floor
+        c for c in all_conflicts if min(c.get("importances", [0.0, 0.0])) >= high_imp_floor
     ]
 
     # 3. Link contradictions in KG + sidecar
@@ -528,21 +617,19 @@ async def run_conflict_arbitration_cycle(
     # 6. Log
     log.info(
         "[CONFLICT-ARB] %d conflicts found, %d linked, %d queued for council",
-        len(all_conflicts), linked, queued,
+        len(all_conflicts),
+        linked,
+        queued,
     )
 
     # 7. Update stats
     if isinstance(stats, dict):
         stats["last_conflict_arbitration"] = ts
-        stats["conflicts_detected_lifetime"] = (
-            stats.get("conflicts_detected_lifetime", 0) + len(all_conflicts)
+        stats["conflicts_detected_lifetime"] = stats.get("conflicts_detected_lifetime", 0) + len(
+            all_conflicts
         )
-        stats["conflicts_linked_lifetime"] = (
-            stats.get("conflicts_linked_lifetime", 0) + linked
-        )
-        stats["conflicts_queued_lifetime"] = (
-            stats.get("conflicts_queued_lifetime", 0) + queued
-        )
+        stats["conflicts_linked_lifetime"] = stats.get("conflicts_linked_lifetime", 0) + linked
+        stats["conflicts_queued_lifetime"] = stats.get("conflicts_queued_lifetime", 0) + queued
 
     return summary
 

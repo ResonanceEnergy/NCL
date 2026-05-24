@@ -11,19 +11,20 @@ Usage:
   python synthesizer.py --dry-run                   # Show what would be synthesized
 """
 
-import os
-import sys
 import argparse
 import asyncio
-import logging
 import json
-from pathlib import Path
+import logging
+import os
+import sys
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
-import yaml
 import httpx
+import yaml
 from dotenv import load_dotenv
+
 
 # ─────────────────────────────────────────────────────────────────
 # Configuration
@@ -113,9 +114,7 @@ def get_headers() -> dict[str, str]:
     return headers
 
 
-async def call_ncl_council(
-    topic: str, question: str
-) -> Optional[dict]:
+async def call_ncl_council(topic: str, question: str) -> Optional[dict]:
     """
     Call NCL council to synthesize feedback.
 
@@ -202,9 +201,7 @@ def build_synthesis_prompt(reports: dict[str, list[dict]]) -> str:
     return prompt
 
 
-async def run_synthesis(
-    reports: dict[str, list[dict]], dry_run: bool = False
-) -> Optional[dict]:
+async def run_synthesis(reports: dict[str, list[dict]], dry_run: bool = False) -> Optional[dict]:
     """
     Run full synthesis pipeline.
 

@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Pretty-print /autonomous/loops output for the audit verification."""
-import json, sys, os, urllib.request
+
+import json
+import os
+import urllib.request
+
 
 token = ""
 for line in open(os.path.expanduser("~/dev/NCL/.env")):

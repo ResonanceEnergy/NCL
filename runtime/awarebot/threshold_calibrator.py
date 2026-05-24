@@ -57,15 +57,17 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone, timedelta
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 
+
 try:
     from sklearn.isotonic import IsotonicRegression
+
     SKLEARN_AVAILABLE = True
 except ImportError:  # pragma: no cover
     SKLEARN_AVAILABLE = False
@@ -83,8 +85,8 @@ FALLBACK_MICRO = 0.50
 FALLBACK_MACRO = 0.30
 
 # Smoothing parameters
-EMA_ALPHA_NEW = 0.30   # weight of newly-calibrated value
-EMA_ALPHA_OLD = 0.70   # weight of previously-persisted value
+EMA_ALPHA_NEW = 0.30  # weight of newly-calibrated value
+EMA_ALPHA_OLD = 0.70  # weight of previously-persisted value
 MAX_RELATIVE_DIVERGENCE = 0.30  # >30% drift triggers EMA blend
 
 # Recalibration cadence
@@ -269,7 +271,11 @@ class ThresholdCalibrator:
         blended = EMA_ALPHA_OLD * old_value + EMA_ALPHA_NEW * new_value
         log.info(
             "Smoothing %s: old=%.3f new=%.3f rel_diff=%.1f%% → blended=%.3f",
-            key, old_value, new_value, rel * 100, blended,
+            key,
+            old_value,
+            new_value,
+            rel * 100,
+            blended,
         )
         return blended
 
@@ -293,13 +299,13 @@ class ThresholdCalibrator:
                 return self._materialize_fallback()
 
             labeled = [
-                ev for ev in events
-                if ev.get("kind") in LABELED_EVENT_KINDS and ev.get("signal_id")
+                ev for ev in events if ev.get("kind") in LABELED_EVENT_KINDS and ev.get("signal_id")
             ]
             if len(labeled) < self.min_events:
                 log.info(
                     "Insufficient labeled events: %d < %d → fallback",
-                    len(labeled), self.min_events,
+                    len(labeled),
+                    self.min_events,
                 )
                 return self._materialize_fallback()
 
@@ -317,7 +323,8 @@ class ThresholdCalibrator:
             if len(paired) < self.min_events:
                 log.info(
                     "Pairing dropped too many events: %d < %d → fallback",
-                    len(paired), self.min_events,
+                    len(paired),
+                    self.min_events,
                 )
                 return self._materialize_fallback()
 
@@ -376,7 +383,10 @@ class ThresholdCalibrator:
             self._persist(result)
             log.info(
                 "Calibrated thresholds (n=%d): focused=%.3f micro=%.3f macro=%.3f",
-                result.n_events_used, result.focused, result.micro, result.macro,
+                result.n_events_used,
+                result.focused,
+                result.micro,
+                result.macro,
             )
             return result
 
@@ -418,6 +428,7 @@ class ThresholdCalibrator:
 
 
 # ── Scheduler loop ───────────────────────────────────────────────────────
+
 
 async def recalibrate_loop(
     calibrator: ThresholdCalibrator,

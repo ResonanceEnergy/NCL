@@ -4,6 +4,7 @@ The PolicyKernel evaluates actions against rule sets, enforces consent boundarie
 tracks audit logs, and manages pending approvals. All Execute-tier actions require
 explicit NATRIX consent before proceeding.
 """
+
 import asyncio
 import json
 import logging
@@ -14,7 +15,6 @@ from collections import deque
 from datetime import datetime, timedelta, timezone
 from fnmatch import fnmatch
 from pathlib import Path
-from typing import Optional
 
 from .models import (
     Action,
@@ -24,6 +24,7 @@ from .models import (
     PolicyRule,
     PolicyVerdict,
 )
+
 
 logger = logging.getLogger(__name__)
 
@@ -96,9 +97,7 @@ class PolicyKernel:
         rules_file = self.governance_dir / "policy_rules.json"
         if rules_file.exists():
             try:
-                rules_data = json.loads(
-                    await asyncio.to_thread(rules_file.read_bytes)
-                )
+                rules_data = json.loads(await asyncio.to_thread(rules_file.read_bytes))
                 custom_rules = [PolicyRule(**rule) for rule in rules_data]
                 self.rules.extend(custom_rules)
                 # Sort by priority descending
@@ -150,14 +149,20 @@ class PolicyKernel:
         if hasattr(tier_val, "value"):
             tier_val = tier_val.value
         if tier_val not in valid_tiers:
-            return False, f"Invalid tier '{rule_data.get('tier')}'. Must be one of {sorted(valid_tiers)}"
+            return (
+                False,
+                f"Invalid tier '{rule_data.get('tier')}'. Must be one of {sorted(valid_tiers)}",
+            )
 
         valid_verdicts = {v.value for v in PolicyVerdict}
         verdict_val = rule_data.get("verdict")
         if hasattr(verdict_val, "value"):
             verdict_val = verdict_val.value
         if verdict_val not in valid_verdicts:
-            return False, f"Invalid verdict '{rule_data.get('verdict')}'. Must be one of {sorted(valid_verdicts)}"
+            return (
+                False,
+                f"Invalid verdict '{rule_data.get('verdict')}'. Must be one of {sorted(valid_verdicts)}",  # noqa: E501
+            )
 
         priority = rule_data.get("priority", 50)
         if not isinstance(priority, int) or not (0 <= priority <= 100):
@@ -260,7 +265,9 @@ class PolicyKernel:
                 raise ValueError(f"Action {action_id} not found in pending approvals")
             action = self.pending_actions[action_id]
             if action.consent_status != ConsentStatus.GRANTED:
-                raise ValueError(f"Cannot revoke consent for action in {action.consent_status} state")
+                raise ValueError(
+                    f"Cannot revoke consent for action in {action.consent_status} state"
+                )
             action.consent_status = ConsentStatus.REVOKED
             action.consent_expires_at = datetime.now(timezone.utc)
         self._persist_pending_actions()
@@ -299,23 +306,30 @@ class PolicyKernel:
                 if pending is not None:
                     if pending.consent_status == ConsentStatus.GRANTED:
                         # Check if not expired
-                        if pending.consent_expires_at and datetime.now(timezone.utc) < pending.consent_expires_at:
+                        if (
+                            pending.consent_expires_at
+                            and datetime.now(timezone.utc) < pending.consent_expires_at
+                        ):
                             # Re-check emergency stop AFTER consent validation
                             # to close the consent-then-stop race window
                             with self._lock:
                                 if self._emergency_stop:
                                     self._log_audit(
-                                        action, PolicyVerdict.BLOCK,
-                                        "Emergency stop activated after consent"
+                                        action,
+                                        PolicyVerdict.BLOCK,
+                                        "Emergency stop activated after consent",
                                     )
-                                    return False, "Emergency stop active — action blocked despite consent"
+                                    return (
+                                        False,
+                                        "Emergency stop active — action blocked despite consent",
+                                    )
                             action.executed_at = datetime.now(timezone.utc)
-                            self._log_audit(action, PolicyVerdict.ALLOW, "Consent granted, executing")
+                            self._log_audit(
+                                action, PolicyVerdict.ALLOW, "Consent granted, executing"
+                            )
                             return True, "Action executed with consent"
                         else:
-                            self._log_audit(
-                                action, PolicyVerdict.BLOCK, "Consent expired"
-                            )
+                            self._log_audit(action, PolicyVerdict.BLOCK, "Consent expired")
                             return False, "Consent has expired"
 
                 # No consent granted
@@ -504,9 +518,7 @@ class PolicyKernel:
     def _sync_persist_pending_actions(self) -> None:
         """Synchronous helper: persist pending_actions to JSON file (atomic)."""
         try:
-            fd, tmp_path = tempfile.mkstemp(
-                dir=str(self.governance_dir), suffix=".tmp"
-            )
+            fd, tmp_path = tempfile.mkstemp(dir=str(self.governance_dir), suffix=".tmp")
             try:
                 with os.fdopen(fd, "w") as f:
                     json.dump(
@@ -542,14 +554,9 @@ class PolicyKernel:
         """Synchronous helper: persist custom rules to policy_rules.json (atomic)."""
         rules_file = self.governance_dir / "policy_rules.json"
         # Only persist non-default rules
-        custom_rules = [
-            r for r in self.rules
-            if r not in self.DEFAULT_RULES
-        ]
+        custom_rules = [r for r in self.rules if r not in self.DEFAULT_RULES]
         try:
-            fd, tmp_path = tempfile.mkstemp(
-                dir=str(self.governance_dir), suffix=".tmp"
-            )
+            fd, tmp_path = tempfile.mkstemp(dir=str(self.governance_dir), suffix=".tmp")
             try:
                 with os.fdopen(fd, "w") as f:
                     json.dump(

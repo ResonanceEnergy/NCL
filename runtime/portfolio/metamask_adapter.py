@@ -47,8 +47,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+
 try:
     import httpx
+
     _HTTPX_AVAILABLE = True
 except ImportError:
     httpx = None  # type: ignore
@@ -139,7 +141,9 @@ class MetaMaskAdapter:
                     self._rpc_url = url
                     self._connected = True
                     self._last_sync = datetime.now(timezone.utc).isoformat()
-                    logger.info("MetaMask adapter connected — rpc=%s wallet=%s", url, self._truncated())
+                    logger.info(
+                        "MetaMask adapter connected — rpc=%s wallet=%s", url, self._truncated()
+                    )
                     return True
             except Exception as exc:
                 logger.debug("MetaMask RPC %s failed: %s", url, exc)
@@ -211,21 +215,25 @@ class MetaMaskAdapter:
         # Collect non-zero holdings to price
         holdings: List[Dict[str, Any]] = []
         if eth_balance > 0:
-            holdings.append({
-                "symbol": "ETH",
-                "name": "Ethereum",
-                "quantity": eth_balance,
-                "coingecko_id": "ethereum",
-            })
+            holdings.append(
+                {
+                    "symbol": "ETH",
+                    "name": "Ethereum",
+                    "quantity": eth_balance,
+                    "coingecko_id": "ethereum",
+                }
+            )
         for tok, bal in zip(self._tokens, token_balances):
             if isinstance(bal, Exception) or not bal or bal <= 0:
                 continue
-            holdings.append({
-                "symbol": tok["symbol"],
-                "name": tok.get("name", tok["symbol"]),
-                "quantity": bal,
-                "coingecko_id": tok.get("coingecko_id"),
-            })
+            holdings.append(
+                {
+                    "symbol": tok["symbol"],
+                    "name": tok.get("name", tok["symbol"]),
+                    "quantity": bal,
+                    "coingecko_id": tok.get("coingecko_id"),
+                }
+            )
 
         if not holdings:
             return []
@@ -238,27 +246,29 @@ class MetaMaskAdapter:
         for h in holdings:
             price = prices.get(h.get("coingecko_id", ""), 0.0)
             mv = round(h["quantity"] * price, 2)
-            out.append({
-                "broker": "METAMASK",
-                "account_id": self.address,
-                "symbol": h["symbol"],
-                "name": h["name"],
-                "quantity": h["quantity"],
-                "avg_cost": 0.0,
-                "current_price": price,
-                "market_value": mv,
-                "asset_class": "crypto",
-                "currency": "USD",
-                "sector": "Crypto",
-                "unrealized_pl": 0.0,
-                "unrealized_pl_pct": 0.0,
-                "daily_pl": 0.0,
-                "daily_pl_pct": 0.0,
-                "metadata": {
-                    "wallet": self.address,
-                    "chain": "ethereum",
-                },
-            })
+            out.append(
+                {
+                    "broker": "METAMASK",
+                    "account_id": self.address,
+                    "symbol": h["symbol"],
+                    "name": h["name"],
+                    "quantity": h["quantity"],
+                    "avg_cost": 0.0,
+                    "current_price": price,
+                    "market_value": mv,
+                    "asset_class": "crypto",
+                    "currency": "USD",
+                    "sector": "Crypto",
+                    "unrealized_pl": 0.0,
+                    "unrealized_pl_pct": 0.0,
+                    "daily_pl": 0.0,
+                    "daily_pl_pct": 0.0,
+                    "metadata": {
+                        "wallet": self.address,
+                        "chain": "ethereum",
+                    },
+                }
+            )
         return out
 
     async def get_balances(self) -> Dict[str, float]:
@@ -309,7 +319,7 @@ class MetaMaskAdapter:
         try:
             raw = int(result, 16)
             decimals = int(token.get("decimals", 18))
-            return raw / (10 ** decimals)
+            return raw / (10**decimals)
         except (TypeError, ValueError):
             return 0.0
 
@@ -322,7 +332,9 @@ class MetaMaskAdapter:
             return {}
         now = time.time()
         cache_key = ",".join(sorted(cg_ids))
-        if (now - self._price_cache_at) < _PRICE_CACHE_SECONDS and cache_key in self._price_cache_meta:
+        if (
+            now - self._price_cache_at
+        ) < _PRICE_CACHE_SECONDS and cache_key in self._price_cache_meta:
             return self._price_cache_meta[cache_key]
         try:
             async with httpx.AsyncClient(timeout=8.0) as client:

@@ -55,11 +55,11 @@ _STRICT_ONLY = {"account_id_numeric"}
 PII_ALLOWLIST: dict[str, list[str]] = {
     "ipv4": [
         r"^100\.\d{1,3}\.\d{1,3}\.\d{1,3}$",  # Tailscale CGNAT range
-        r"^127\.0\.0\.1$",                     # localhost
-        r"^0\.0\.0\.0$",                       # any-bind
+        r"^127\.0\.0\.1$",  # localhost
+        r"^0\.0\.0\.0$",  # any-bind
     ],
     "account_id_numeric": [
-        r"^[A-Z]+$",        # all-letters tokens are tickers, not IDs
+        r"^[A-Z]+$",  # all-letters tokens are tickers, not IDs
     ],
 }
 
@@ -85,14 +85,14 @@ _COMPILED: list[tuple[str, re.Pattern[str]]] = [
 ]
 
 _COMPILED_ALLOWLIST: dict[str, list[re.Pattern[str]]] = {
-    name: [re.compile(p) for p in patterns]
-    for name, patterns in PII_ALLOWLIST.items()
+    name: [re.compile(p) for p in patterns] for name, patterns in PII_ALLOWLIST.items()
 }
 
 
 # ---------------------------------------------------------------------------
 # Data class
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class RedactionResult:
@@ -116,6 +116,7 @@ class RedactionResult:
 # Stable-token helper
 # ---------------------------------------------------------------------------
 
+
 def _stable_token(pii_type: str, raw_value: str) -> str:
     """Deterministic substitution token.
 
@@ -137,6 +138,7 @@ def _is_allowlisted(pii_type: str, raw_value: str) -> bool:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 class PIIRedactor:
     """Static facade — stateless and thread-safe."""
@@ -202,12 +204,14 @@ class PIIRedactor:
                 out_parts.append(text[cursor:start])
             token = _stable_token(name, raw)
             out_parts.append(token)
-            findings.append({
-                "type": name,
-                "original": raw,
-                "replaced_with": token,
-                "position": start,
-            })
+            findings.append(
+                {
+                    "type": name,
+                    "original": raw,
+                    "replaced_with": token,
+                    "position": start,
+                }
+            )
             cursor = end
         if cursor < len(text):
             out_parts.append(text[cursor:])

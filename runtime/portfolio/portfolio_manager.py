@@ -13,9 +13,8 @@ hours, every 5 minutes outside hours.
 import asyncio
 import json
 import logging
-import os
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -23,12 +22,13 @@ import aiohttp
 from dotenv import load_dotenv
 
 from .ibkr_adapter import IBKRAdapter
-from .moomoo_adapter import MoomooAdapter
-from .snaptrade_adapter import SnapTradeAdapter
-from .ndax_adapter import NDAXAdapter
-from .metamask_adapter import MetaMaskAdapter
-from .polymarket_adapter import PolymarketAdapter
 from .memory_bridge import init_bridge as _init_bridge
+from .metamask_adapter import MetaMaskAdapter
+from .moomoo_adapter import MoomooAdapter
+from .ndax_adapter import NDAXAdapter
+from .polymarket_adapter import PolymarketAdapter
+from .snaptrade_adapter import SnapTradeAdapter
+
 
 # ---------------------------------------------------------------------------
 # Config
@@ -62,6 +62,7 @@ _SYNC_INTERVAL_OFF = 300
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -71,7 +72,9 @@ def _now_et() -> datetime:
     utc_now = _now_utc()
     month = utc_now.month
     # Rough DST: second Sunday of March through first Sunday of November
-    is_dst = 3 < month < 11 or (month == 3 and utc_now.day >= 8) or (month == 11 and utc_now.day <= 7)
+    is_dst = (
+        3 < month < 11 or (month == 3 and utc_now.day >= 8) or (month == 11 and utc_now.day <= 7)
+    )
     offset = _ET_OFFSET_DST if is_dst else _ET_OFFSET_STD
     return utc_now + offset
 
@@ -92,6 +95,7 @@ def _today_str() -> str:
 # ---------------------------------------------------------------------------
 # PortfolioManager
 # ---------------------------------------------------------------------------
+
 
 class PortfolioManager:
     """
@@ -150,18 +154,41 @@ class PortfolioManager:
     # ------------------------------------------------------------------
 
     async def start(self) -> None:
-        """Connect all adapters and begin background sync."""
-        logger.info("PortfolioManager starting — connecting adapters")
-        self._rotate_snapshots()
-        for name, adapter in self._adapters:
-            try:
-                await adapter.connect()
-                logger.info("Adapter %s connected", name)
-            except Exception:
-                logger.exception("Adapter %s failed to connect — continuing", name)
+        """Connect all adapters in parallel and begin background sync.
 
-        # Initial sync
-        await self.sync()
+        Previously this was a sequential ``for`` loop, so a slow IBKR retry
+        storm (15s connect timeout × N attempts) could block Wealthsimple +
+        Moomoo + paper adapters behind it and stall lifespan for 10+ minutes
+        on a degraded TWS/Gateway. Parallel ``asyncio.gather`` lets each
+        adapter fail or succeed independently with bounded wall-clock cost.
+        """
+        logger.info(
+            "PortfolioManager starting — connecting %d adapters in parallel", len(self._adapters)
+        )
+        self._rotate_snapshots()
+
+        names = [name for name, _ in self._adapters]
+        results = await asyncio.gather(
+            *(adapter.connect() for _, adapter in self._adapters),
+            return_exceptions=True,
+        )
+        for name, result in zip(names, results):
+            if isinstance(result, BaseException):
+                # Log per-adapter failure but keep the manager alive — broker
+                # sync runs in a background loop and will retry these later.
+                logger.warning(
+                    "Adapter %s failed to connect: %s — continuing without it",
+                    name,
+                    result,
+                )
+            else:
+                logger.info("Adapter %s connected", name)
+
+        # Initial sync — best-effort; do not let a failing sync abort startup
+        try:
+            await self.sync()
+        except Exception:
+            logger.exception("Initial portfolio sync failed — background loop will retry")
 
         # Start background loop
         self._running = True
@@ -229,9 +256,9 @@ class PortfolioManager:
                     try:
                         await adapter.connect()
                         if adapter.connected:
-                            logger.info('Reconnected adapter %s', name)
+                            logger.info("Reconnected adapter %s", name)
                     except Exception:
-                        logger.debug('Adapter %s still unavailable', name)
+                        logger.debug("Adapter %s still unavailable", name)
                     if not adapter.connected:
                         continue
                 try:
@@ -262,7 +289,9 @@ class PortfolioManager:
             elapsed = time.monotonic() - t0
             logger.info(
                 "Sync complete: %d accounts, %d positions (%.2fs)",
-                len(accounts), len(positions), elapsed,
+                len(accounts),
+                len(positions),
+                elapsed,
             )
 
             # Snapshot persistence
@@ -325,6 +354,7 @@ class PortfolioManager:
 
         try:
             from .ibkr_market_data import IBKRMarketData
+
             provider = IBKRMarketData(self._ibkr if self._ibkr.connected else None)
             symbols = sorted({p["symbol"] for p in needy})
             quotes = await provider.get_quotes(symbols)
@@ -353,8 +383,7 @@ class PortfolioManager:
             filled += 1
 
         if filled:
-            logger.info("Filled %d / %d missing quotes via %s",
-                        filled, len(needy), provider.source)
+            logger.info("Filled %d / %d missing quotes via %s", filled, len(needy), provider.source)
 
     # ------------------------------------------------------------------
     # FX conversion
@@ -479,10 +508,14 @@ class PortfolioManager:
                         f.write(entry + "\n")
                 logger.info(
                     "Snapshot rotation: removed %d entries older than %s, kept %d",
-                    removed, cutoff, len(kept),
+                    removed,
+                    cutoff,
+                    len(kept),
                 )
             else:
-                logger.info("Snapshot rotation: all %d entries within %d-day window", len(kept), keep_days)
+                logger.info(
+                    "Snapshot rotation: all %d entries within %d-day window", len(kept), keep_days
+                )
         except Exception:
             logger.exception("Snapshot rotation failed — file left intact")
 
@@ -567,11 +600,13 @@ class PortfolioManager:
         total = sum(groups.values()) or 1.0
         result = []
         for label, value in sorted(groups.items(), key=lambda x: -x[1]):
-            result.append({
-                "label": label,
-                "value": round(value, 2),
-                "weight_pct": round(value / total * 100, 2),
-            })
+            result.append(
+                {
+                    "label": label,
+                    "value": round(value, 2),
+                    "weight_pct": round(value / total * 100, 2),
+                }
+            )
         return result
 
     # ------------------------------------------------------------------
@@ -606,7 +641,9 @@ class PortfolioManager:
         for acct in self._accounts:
             aid = acct.get("account_id", "")
             broker = (acct.get("broker") or "").upper()
-            net_liq = self._to_base(acct.get("net_liquidation", 0.0), acct.get("currency", "USD"), base)
+            net_liq = self._to_base(
+                acct.get("net_liquidation", 0.0), acct.get("currency", "USD"), base
+            )
             pos_val = _pos_by_acct.get(aid, 0.0)
             if broker == "MOOMOO":
                 # net_liq IS total assets; positions already counted
@@ -614,18 +651,23 @@ class PortfolioManager:
             else:
                 # SnapTrade / IBKR: net_liq is cash-equivalent; add positions
                 acct_value = net_liq + pos_val
-            account_summaries.append({
-                "account_id": acct.get("account_id", ""),
-                "broker": acct.get("broker", ""),
-                "label": acct.get("name", ""),
-                "type": acct.get("account_type", ""),
-                "value": round(acct_value, 2),
-                "positions_count": len([p for p in self._positions if p.get("account_id") == aid]),
-                "currency": acct.get("currency", "USD"),
-            })
+            account_summaries.append(
+                {
+                    "account_id": acct.get("account_id", ""),
+                    "broker": acct.get("broker", ""),
+                    "label": acct.get("name", ""),
+                    "type": acct.get("account_type", ""),
+                    "value": round(acct_value, 2),
+                    "positions_count": len(
+                        [p for p in self._positions if p.get("account_id") == aid]
+                    ),
+                    "currency": acct.get("currency", "USD"),
+                }
+            )
 
         quotes_failed = sum(
-            1 for p in self._positions
+            1
+            for p in self._positions
             if not (p.get("current_price") or p.get("last_price") or 0) > 0
         )
 
@@ -742,17 +784,19 @@ class PortfolioManager:
         result = []
         for acct in self._accounts:
             aid = acct.get("account_id", "")
-            result.append({
-                "account_id": aid,
-                "broker": acct.get("broker", ""),
-                "label": acct.get("name", ""),
-                "type": acct.get("account_type", ""),
-                "total_value": acct.get("net_liquidation", 0.0),
-                "cash": acct.get("cash_balance", 0.0),
-                "buying_power": acct.get("buying_power", 0.0),
-                "currency": acct.get("currency", "USD"),
-                "positions_count": pos_by_acct.get(aid, 0),
-            })
+            result.append(
+                {
+                    "account_id": aid,
+                    "broker": acct.get("broker", ""),
+                    "label": acct.get("name", ""),
+                    "type": acct.get("account_type", ""),
+                    "total_value": acct.get("net_liquidation", 0.0),
+                    "cash": acct.get("cash_balance", 0.0),
+                    "buying_power": acct.get("buying_power", 0.0),
+                    "currency": acct.get("currency", "USD"),
+                    "positions_count": pos_by_acct.get(aid, 0),
+                }
+            )
         return result
 
     def get_performance(self, range: str = "1M") -> dict[str, Any]:
@@ -796,11 +840,13 @@ class PortfolioManager:
                 continue
             if cutoff and snap_date < cutoff:
                 continue
-            filtered.append({
-                "date": snap["date"],
-                "value_usd": snap.get("total_value_usd", 0),
-                "value_cad": snap.get("total_value_cad", 0),
-            })
+            filtered.append(
+                {
+                    "date": snap["date"],
+                    "value_usd": snap.get("total_value_usd", 0),
+                    "value_cad": snap.get("total_value_cad", 0),
+                }
+            )
 
         # Sort by date
         filtered.sort(key=lambda x: x["date"])
@@ -850,8 +896,7 @@ class PortfolioManager:
         return {
             "status": "ok" if self._connected_count() > 0 else "degraded",
             "adapters": {
-                name: {"connected": adapter.connected}
-                for name, adapter in self._adapters
+                name: {"connected": adapter.connected} for name, adapter in self._adapters
             },
             "positions_cached": len(self._positions),
             "accounts_cached": len(self._accounts),

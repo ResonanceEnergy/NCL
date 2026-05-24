@@ -43,6 +43,6 @@ async def retry_async(
                     e,
                 )
             if attempt < max_retries - 1:
-                await asyncio.sleep(backoff * (2 ** attempt))
+                await asyncio.sleep(backoff * (2**attempt))
             else:
                 raise

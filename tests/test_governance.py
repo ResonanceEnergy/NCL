@@ -1,21 +1,19 @@
 """Tests for NCL governance (policy kernel, action router, emergency stop)."""
-import asyncio
+
 import tempfile
-from pathlib import Path
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 
 import pytest
 
+from runtime.governance.action_router import ActionRouter
+from runtime.governance.emergency_stop import EmergencyStop
 from runtime.governance.models import (
     Action,
     ActionTier,
     ConsentStatus,
     PolicyVerdict,
-    PolicyRule,
 )
 from runtime.governance.policy_kernel import PolicyKernel
-from runtime.governance.action_router import ActionRouter
-from runtime.governance.emergency_stop import EmergencyStop, EmergencyStopState
 
 
 @pytest.fixture
@@ -48,7 +46,7 @@ async def test_suggest_always_allowed(policy_kernel):
         name="display_analysis",
         tier=ActionTier.SUGGEST,
         source_agent="brain_cortex",
-        description="Display analysis results"
+        description="Display analysis results",
     )
 
     verdict = policy_kernel.evaluate(action)
@@ -63,7 +61,7 @@ async def test_draft_allowed(policy_kernel):
         name="create_mandate_draft",
         tier=ActionTier.DRAFT,
         source_agent="mandate_agent",
-        description="Create mandate draft"
+        description="Create mandate draft",
     )
 
     verdict = policy_kernel.evaluate(action)
@@ -78,7 +76,7 @@ async def test_execute_requires_consent(policy_kernel):
         name="dispatch_mandate",
         tier=ActionTier.EXECUTE,
         source_agent="mandate_agent",
-        description="Dispatch mandate to system"
+        description="Dispatch mandate to system",
     )
 
     verdict = policy_kernel.evaluate(action)
@@ -89,11 +87,7 @@ async def test_execute_requires_consent(policy_kernel):
 @pytest.mark.asyncio
 async def test_grant_consent(policy_kernel):
     """Test granting consent to an action."""
-    action = Action(
-        name="dispatch_mandate",
-        tier=ActionTier.EXECUTE,
-        source_agent="mandate_agent"
-    )
+    action = Action(name="dispatch_mandate", tier=ActionTier.EXECUTE, source_agent="mandate_agent")
 
     # Mark as pending
     pending_action = policy_kernel.request_consent(action)
@@ -110,21 +104,14 @@ async def test_grant_consent(policy_kernel):
 @pytest.mark.asyncio
 async def test_deny_consent(policy_kernel):
     """Test denying consent to an action."""
-    action = Action(
-        name="dispatch_mandate",
-        tier=ActionTier.EXECUTE,
-        source_agent="mandate_agent"
-    )
+    action = Action(name="dispatch_mandate", tier=ActionTier.EXECUTE, source_agent="mandate_agent")
 
     # Mark as pending
     pending_action = policy_kernel.request_consent(action)
     assert pending_action.consent_status == ConsentStatus.PENDING
 
     # Deny consent
-    denied_action = policy_kernel.deny_consent(
-        action.action_id,
-        reason="Insufficient review"
-    )
+    denied_action = policy_kernel.deny_consent(action.action_id, reason="Insufficient review")
 
     assert denied_action.consent_status == ConsentStatus.DENIED
     assert "Insufficient review" in denied_action.blocked_reason or True  # May vary
@@ -136,9 +123,7 @@ async def test_action_router_suggest(policy_kernel):
     router = ActionRouter(policy_kernel)
 
     action = router.suggest(
-        name="analyze_signal",
-        source_agent="cortex",
-        description="Analyze market signal"
+        name="analyze_signal", source_agent="cortex", description="Analyze market signal"
     )
 
     assert action.tier == ActionTier.SUGGEST
@@ -155,7 +140,7 @@ async def test_action_router_execute(policy_kernel):
         name="dispatch_mandate",
         source_agent="cortex",
         description="Dispatch mandate",
-        pump_id="pump-123"
+        pump_id="pump-123",
     )
 
     assert action.tier == ActionTier.EXECUTE
@@ -211,11 +196,7 @@ async def test_emergency_stop_blocks_action(temp_data_dir):
     kernel._emergency_stop = True
 
     # Try to execute action
-    action = Action(
-        name="dispatch_mandate",
-        tier=ActionTier.EXECUTE,
-        source_agent="cortex"
-    )
+    action = Action(name="dispatch_mandate", tier=ActionTier.EXECUTE, source_agent="cortex")
 
     verdict = kernel.evaluate(action)
 
@@ -244,14 +225,10 @@ async def test_emergency_stop_persists(temp_data_dir):
 @pytest.mark.asyncio
 async def test_consent_expiry(policy_kernel):
     """Test that consent can expire."""
-    action = Action(
-        name="dispatch_mandate",
-        tier=ActionTier.EXECUTE,
-        source_agent="cortex"
-    )
+    action = Action(name="dispatch_mandate", tier=ActionTier.EXECUTE, source_agent="cortex")
 
     # Request and grant consent
-    pending = policy_kernel.request_consent(action)
+    pending = policy_kernel.request_consent(action)  # noqa: F841
     granted = policy_kernel.grant_consent(action.action_id)
 
     # Verify consent was granted
@@ -268,14 +245,10 @@ async def test_consent_expiry(policy_kernel):
 @pytest.mark.asyncio
 async def test_audit_log_created(policy_kernel):
     """Test that audit entries are created."""
-    action = Action(
-        name="analyze_signal",
-        tier=ActionTier.SUGGEST,
-        source_agent="cortex"
-    )
+    action = Action(name="analyze_signal", tier=ActionTier.SUGGEST, source_agent="cortex")
 
     # Evaluate action
-    verdict = policy_kernel.evaluate(action)
+    verdict = policy_kernel.evaluate(action)  # noqa: F841
 
     # Audit log should have entries
     assert len(policy_kernel.audit_log) >= 0  # May have entries from init

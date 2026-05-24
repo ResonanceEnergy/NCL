@@ -3,15 +3,16 @@
 Simple exports for schema, collector, and lint utilities.
 """
 
-from .schema import (
-    TelemetryLevel,
-    TelemetryCategory,
-    TelemetryRecord,
-    TelemetryConfig,
-    WorkflowTelemetry,
-    RedactionRule,
-)
 from .collector import TelemetryCollector
+from .schema import (
+    RedactionRule,
+    TelemetryCategory,
+    TelemetryConfig,
+    TelemetryLevel,
+    TelemetryRecord,
+    WorkflowTelemetry,
+)
+
 
 __all__ = [
     "TelemetryLevel",

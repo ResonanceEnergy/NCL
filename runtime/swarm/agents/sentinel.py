@@ -12,9 +12,10 @@ import logging
 import time
 import traceback
 
-from . import register_agent
 from ..agent_base import SwarmAgent
 from ..models import SubtaskNode, TaskResult, TaskStatus
+from . import register_agent
+
 
 logger = logging.getLogger("ncl.swarm.sentinel")
 
@@ -58,9 +59,7 @@ class SentinelAgent(SwarmAgent):
                 raise ValueError("No content provided for review (input_data.content is empty)")
 
             criteria_str = (
-                f"\nSpecific Criteria to Check:\n- " + "\n- ".join(criteria)
-                if criteria
-                else ""
+                "\nSpecific Criteria to Check:\n- " + "\n- ".join(criteria) if criteria else ""
             )
 
             # --- Phase 1: Claude review with fresh reviewer context ---
@@ -109,8 +108,7 @@ class SentinelAgent(SwarmAgent):
             # --- Phase 2: Parse scores from response ---
             scores = self._parse_scores(review_response.content)
             weighted_score = sum(
-                scores.get(dim, 0.5) * weight
-                for dim, weight in self.DIMENSIONS.items()
+                scores.get(dim, 0.5) * weight for dim, weight in self.DIMENSIONS.items()
             )
 
             # Apply strict mode penalty
@@ -122,8 +120,9 @@ class SentinelAgent(SwarmAgent):
             # Robust PASS detection: look for "VERDICT: PASS" on its own line
             # (case-insensitive, tolerates surrounding whitespace).
             import re as _re
+
             _verdict_match = _re.search(
-                r'^\s*VERDICT\s*:\s*(PASS|FAIL)\s*$',
+                r"^\s*VERDICT\s*:\s*(PASS|FAIL)\s*$",
                 review_response.content,
                 _re.IGNORECASE | _re.MULTILINE,
             )
@@ -151,7 +150,9 @@ class SentinelAgent(SwarmAgent):
 
             for dim, weight in self.DIMENSIONS.items():
                 score = scores.get(dim, 0.5)
-                final_output += f"| {dim.title()} | {score:.2f} | {weight:.0%} | {score * weight:.3f} |\n"
+                final_output += (
+                    f"| {dim.title()} | {score:.2f} | {weight:.0%} | {score * weight:.3f} |\n"
+                )
 
             final_output += f"\n**Total Weighted Score:** {weighted_score:.3f}\n\n"
             final_output += f"## Detailed Review\n\n{review_response.content}"
@@ -207,7 +208,7 @@ class SentinelAgent(SwarmAgent):
                 continue
 
             # Look for "Score:" within the next 200 chars
-            section = review_text[dim_pos:dim_pos + 300]
+            section = review_text[dim_pos : dim_pos + 300]
             score_markers = ["Score:", "score:", "SCORE:"]
 
             for marker in score_markers:
@@ -216,7 +217,7 @@ class SentinelAgent(SwarmAgent):
                     continue
 
                 # Extract the number after the marker
-                after_marker = section[marker_pos + len(marker):marker_pos + len(marker) + 20]
+                after_marker = section[marker_pos + len(marker) : marker_pos + len(marker) + 20]
                 score_val = self._extract_float(after_marker)
                 if score_val is not None:
                     scores[dim] = max(0.0, min(1.0, score_val))

@@ -23,6 +23,7 @@ import httpx
 
 from ..ncl_brain.models import InsightSignal
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -52,8 +53,8 @@ class Scanner:
 
         # Browser-style User-Agents for Reddit (bot UAs get 403'd)
         self._reddit_browser_uas = [
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",  # noqa: E501
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",  # noqa: E501
             "Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0",
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:125.0) Gecko/20100101 Firefox/125.0",
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0",
@@ -80,8 +81,12 @@ class Scanner:
                     resp = await self.http_client.post(url, **kwargs)
 
                 if resp.status_code == 429:
-                    retry_after = int(resp.headers.get("retry-after", self._base_delay * (2 ** attempt)))
-                    logger.warning(f"[{platform}] Rate limited, waiting {retry_after}s (attempt {attempt + 1})")
+                    retry_after = int(
+                        resp.headers.get("retry-after", self._base_delay * (2**attempt))
+                    )
+                    logger.warning(
+                        f"[{platform}] Rate limited, waiting {retry_after}s (attempt {attempt + 1})"
+                    )
                     await asyncio.sleep(retry_after)
                     continue
 
@@ -92,14 +97,18 @@ class Scanner:
                 last_error = e
                 if e.response.status_code in (401, 402, 403):
                     raise  # 402 = Payment Required (don't waste retries on billing issues)
-                delay = self._base_delay * (2 ** attempt)
-                logger.warning(f"[{platform}] HTTP {e.response.status_code}, retrying in {delay:.1f}s (attempt {attempt + 1})")
+                delay = self._base_delay * (2**attempt)
+                logger.warning(
+                    f"[{platform}] HTTP {e.response.status_code}, retrying in {delay:.1f}s (attempt {attempt + 1})"  # noqa: E501
+                )
                 await asyncio.sleep(delay)
 
             except (httpx.ConnectError, httpx.TimeoutException) as e:
                 last_error = e
-                delay = self._base_delay * (2 ** attempt)
-                logger.warning(f"[{platform}] Connection error, retrying in {delay:.1f}s (attempt {attempt + 1})")
+                delay = self._base_delay * (2**attempt)
+                logger.warning(
+                    f"[{platform}] Connection error, retrying in {delay:.1f}s (attempt {attempt + 1})"  # noqa: E501
+                )
                 await asyncio.sleep(delay)
 
         raise last_error or Exception(f"Max retries ({self._max_retries}) exhausted for {platform}")
@@ -172,6 +181,7 @@ class Scanner:
 
         # Budget check before making the API call
         from ..cost_tracker import check_budget, record_cost
+
         est_cost = max_results * 0.01  # ~$0.01 per tweet read
         if not await check_budget("x_twitter", est_cost):
             logger.warning(f"[scanner] X daily budget exceeded — skipping query '{query}'")
@@ -198,9 +208,12 @@ class Scanner:
             tweet_count = len(data.get("data", []))
             actual_cost = tweet_count * 0.01
             await record_cost(
-                "x_twitter", actual_cost, "tweet_search",
+                "x_twitter",
+                actual_cost,
+                "tweet_search",
                 f"query='{query}' results={tweet_count}",
-                query=query, results=tweet_count,
+                query=query,
+                results=tweet_count,
             )
 
             # Build user lookup for verified status and followers
@@ -224,8 +237,8 @@ class Scanner:
                     content=tweet["text"],
                     url=f"https://twitter.com/i/web/status/{tweet['id']}",
                     importance_score=0.0,  # Computed by agent scoring engine
-                    relevance=0.0,         # Computed by agent (BM25)
-                    novelty=0.0,           # Computed by agent (decay + SimHash)
+                    relevance=0.0,  # Computed by agent (BM25)
+                    novelty=0.0,  # Computed by agent (decay + SimHash)
                     actionability=engagement,  # Real engagement data
                     source_authority=engagement,  # Will be refined by agent
                     time_sensitivity=0.0,
@@ -258,7 +271,9 @@ class Scanner:
         try:
             from yt_dlp import YoutubeDL
         except ImportError:
-            logger.error("[scanner] yt-dlp not installed — YouTube scan disabled. Run: pip install yt-dlp")
+            logger.error(
+                "[scanner] yt-dlp not installed — YouTube scan disabled. Run: pip install yt-dlp"
+            )
             return []
 
         ydl_opts = {
@@ -279,23 +294,23 @@ class Scanner:
                 for entry in info["entries"]:
                     if not entry:
                         continue
-                    results.append({
-                        "id": entry.get("id", ""),
-                        "title": entry.get("title", "Untitled"),
-                        "description": (entry.get("description") or "")[:500],
-                        "channel": entry.get("channel", entry.get("uploader", "")),
-                        "view_count": entry.get("view_count") or 0,
-                        "duration": entry.get("duration") or 0,
-                        "upload_date": entry.get("upload_date", ""),
-                    })
+                    results.append(
+                        {
+                            "id": entry.get("id", ""),
+                            "title": entry.get("title", "Untitled"),
+                            "description": (entry.get("description") or "")[:500],
+                            "channel": entry.get("channel", entry.get("uploader", "")),
+                            "view_count": entry.get("view_count") or 0,
+                            "duration": entry.get("duration") or 0,
+                            "upload_date": entry.get("upload_date", ""),
+                        }
+                    )
         except Exception as e:
             logger.warning(f"[scanner] yt-dlp search failed for '{query}': {e}")
 
         return results
 
-    async def scan_youtube(
-        self, query: str, max_results: int = 10
-    ) -> list[InsightSignal]:
+    async def scan_youtube(self, query: str, max_results: int = 10) -> list[InsightSignal]:
         """Scan YouTube via yt-dlp search (no API quota needed).
 
         Runs yt-dlp in a thread pool to avoid blocking the async event loop.
@@ -362,18 +377,22 @@ class Scanner:
         ua = self._next_reddit_ua()
         try:
             response = await self._request_with_retry(
-                "GET", url, platform="reddit",
+                "GET",
+                url,
+                platform="reddit",
                 params=params,
                 headers={"User-Agent": ua},
             )
             return response.json()
-        except Exception as e:
+        except Exception:
             # Fallback to old.reddit.com on 403 or connection errors
             if "www.reddit.com" in url:
                 fallback_url = url.replace("www.reddit.com", "old.reddit.com")
                 logger.info(f"[scanner] Reddit fallback to old.reddit.com for: {fallback_url}")
                 response = await self._request_with_retry(
-                    "GET", fallback_url, platform="reddit",
+                    "GET",
+                    fallback_url,
+                    platform="reddit",
                     params=params,
                     headers={"User-Agent": self._next_reddit_ua()},
                 )

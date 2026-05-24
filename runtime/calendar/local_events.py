@@ -9,6 +9,7 @@ Aggregates events from multiple free APIs:
 
 Cities: Edmonton, Calgary, Panama City, San Salvador, Montevideo, Asuncion, Oaxaca
 """
+
 from __future__ import annotations
 
 import json
@@ -16,9 +17,9 @@ import logging
 import os
 import time
 from datetime import date, datetime, timedelta, timezone
-from typing import Optional
 
 import httpx
+
 
 log = logging.getLogger("ncl.calendar.local_events")
 
@@ -213,22 +214,25 @@ def get_holidays(city_id: str, start: date, end: date) -> list[dict]:
             except ValueError:
                 continue
             if start <= hdate <= end:
-                events.append({
-                    "date": hdate.isoformat(),
-                    "title": h["title"],
-                    "category": "holiday",
-                    "city": city_id,
-                    "city_name": city["name"],
-                    "country": country,
-                    "description": f"Public holiday in {city['country_name']}",
-                    "impact": "medium",
-                    "all_day": True,
-                })
+                events.append(
+                    {
+                        "date": hdate.isoformat(),
+                        "title": h["title"],
+                        "category": "holiday",
+                        "city": city_id,
+                        "city_name": city["name"],
+                        "country": country,
+                        "description": f"Public holiday in {city['country_name']}",
+                        "impact": "medium",
+                        "all_day": True,
+                    }
+                )
 
     return events
 
 
 # ── Weather Alerts (Open-Meteo — free, no key needed) ────────────────
+
 
 async def get_weather_alerts(city_id: str, start: date, end: date) -> list[dict]:
     """Get notable weather conditions from Open-Meteo forecast."""
@@ -255,7 +259,7 @@ async def get_weather_alerts(city_id: str, start: date, end: date) -> list[dict]
                 params={
                     "latitude": city["lat"],
                     "longitude": city["lon"],
-                    "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,weather_code",
+                    "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max,weather_code",  # noqa: E501
                     "start_date": start.isoformat(),
                     "end_date": forecast_end.isoformat(),
                     "timezone": city["timezone"],
@@ -318,16 +322,18 @@ async def get_weather_alerts(city_id: str, start: date, end: date) -> list[dict]
                         desc_parts.append(f"High {t_max:.0f}C / Low {t_min:.0f}C")
                     desc_parts.extend(notable)
 
-                    events.append({
-                        "date": d,
-                        "title": " | ".join(notable[:2]),
-                        "category": "weather",
-                        "city": city_id,
-                        "city_name": city["name"],
-                        "description": " -- ".join(desc_parts),
-                        "impact": impact,
-                        "all_day": True,
-                    })
+                    events.append(
+                        {
+                            "date": d,
+                            "title": " | ".join(notable[:2]),
+                            "category": "weather",
+                            "city": city_id,
+                            "city_name": city["name"],
+                            "description": " -- ".join(desc_parts),
+                            "impact": impact,
+                            "all_day": True,
+                        }
+                    )
 
     except Exception as e:
         log.error("Open-Meteo error for %s: %s", city_id, e)
@@ -337,6 +343,7 @@ async def get_weather_alerts(city_id: str, start: date, end: date) -> list[dict]
 
 
 # ── Ticketmaster Events (concerts, sports, shows) ────────────────────
+
 
 async def get_ticketmaster_events(city_id: str, start: date, end: date) -> list[dict]:
     """Fetch events from Ticketmaster Discovery API."""
@@ -400,18 +407,20 @@ async def get_ticketmaster_events(city_id: str, start: date, end: date) -> list[
                     venue_name = v.get("name", "")
                     break
 
-                events.append({
-                    "date": event_date,
-                    "title": item.get("name", ""),
-                    "category": cat,
-                    "city": city_id,
-                    "city_name": city["name"],
-                    "description": f"{venue_name}" if venue_name else "",
-                    "impact": "low",
-                    "all_day": not bool(event_time),
-                    "time": event_time[:5] if event_time else "",
-                    "url": item.get("url", ""),
-                })
+                events.append(
+                    {
+                        "date": event_date,
+                        "title": item.get("name", ""),
+                        "category": cat,
+                        "city": city_id,
+                        "city_name": city["name"],
+                        "description": f"{venue_name}" if venue_name else "",
+                        "impact": "low",
+                        "all_day": not bool(event_time),
+                        "time": event_time[:5] if event_time else "",
+                        "url": item.get("url", ""),
+                    }
+                )
 
     except Exception as e:
         log.error("Ticketmaster error for %s: %s", city_id, e)
@@ -461,11 +470,17 @@ def add_local_event(event: dict) -> dict:
     with open(_LOCAL_EVENTS_PATH, "a") as f:
         f.write(json.dumps(event) + "\n")
 
-    log.info("Local event added: %s on %s in %s", event.get("title"), event.get("date"), event.get("city"))
+    log.info(
+        "Local event added: %s on %s in %s",
+        event.get("title"),
+        event.get("date"),
+        event.get("city"),
+    )
     return event
 
 
 # ── Combined local events ────────────────────────────────────────────
+
 
 async def get_local_events(
     city_id: str,
@@ -526,6 +541,7 @@ def get_cities_list() -> list[dict]:
 
 # ── Rich per-city payload (events + landmarks + notable + fun_finder) ─
 
+
 async def get_city_payload(
     city_id: str,
     start: date,
@@ -555,7 +571,7 @@ async def get_city_payload(
 
     Augments — does NOT replace — `get_local_events()`. Existing callers that
     expect a flat list continue to use `get_local_events()`.
-    """
+    """  # noqa: E501
     city = CITIES.get(city_id)
     if not city:
         return {"city": city_id, "error": f"unknown city: {city_id}"}
@@ -568,6 +584,7 @@ async def get_city_payload(
     try:
         # Local import to avoid a hard dep if city_scanner is being refactored
         from .city_scanner import get_city_scanner
+
         scanner = get_city_scanner()
         # Compute the lookahead delta the scanner expects (it owns its own window)
         lookahead = max(1, (end - date.today()).days)
@@ -641,5 +658,5 @@ async def get_city_payload(
             "notable_dates_count": len(scanner_payload.get("notable_dates", []) or []),
         },
         "sources_used": ["holidays", "weather", "ticketmaster", "curated"]
-                        + scanner_payload.get("sources_used", []),
+        + scanner_payload.get("sources_used", []),
     }

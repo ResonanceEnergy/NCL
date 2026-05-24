@@ -19,6 +19,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+
 logger = logging.getLogger("ncl.portfolio.ibkr_market_data")
 
 # ── ib_insync types — lazy loaded via ibkr_adapter ────────────────
@@ -28,12 +29,14 @@ logger = logging.getLogger("ncl.portfolio.ibkr_market_data")
 _yfinance_available = False
 try:
     import yfinance as yf
+
     _yfinance_available = True
 except ImportError:
     pass
 
 try:
     import numpy as np
+
     _numpy_available = True
 except ImportError:
     _numpy_available = False
@@ -84,7 +87,9 @@ class IBKRMarketData:
             try:
                 return await self._ibkr_historical(symbol, period, interval)
             except Exception as e:
-                logger.warning("IBKR historical failed for %s, falling back to yfinance: %s", symbol, e)
+                logger.warning(
+                    "IBKR historical failed for %s, falling back to yfinance: %s", symbol, e
+                )
 
         if _yfinance_available:
             return await self._yfinance_historical(symbol, period, interval)
@@ -94,7 +99,8 @@ class IBKRMarketData:
 
     async def _ibkr_historical(self, symbol: str, period: str, interval: str) -> Optional[Dict]:
         """Fetch historical bars via IBKR API."""
-        from .ibkr_adapter import Stock, Contract, IB_INSYNC_AVAILABLE
+        from .ibkr_adapter import IB_INSYNC_AVAILABLE, Stock
+
         if not IB_INSYNC_AVAILABLE:
             return None
 
@@ -102,17 +108,26 @@ class IBKRMarketData:
 
         # Map period strings to IBKR duration format
         duration_map = {
-            "1mo": "1 M", "3mo": "3 M", "6mo": "6 M",
-            "1y": "1 Y", "2y": "2 Y", "5y": "5 Y",
+            "1mo": "1 M",
+            "3mo": "3 M",
+            "6mo": "6 M",
+            "1y": "1 Y",
+            "2y": "2 Y",
+            "5y": "5 Y",
             "ytd": "1 Y",  # approximate
         }
         duration = duration_map.get(period, "6 M")
 
         # Map interval to IBKR bar size
         bar_map = {
-            "1m": "1 min", "5m": "5 mins", "15m": "15 mins",
-            "30m": "30 mins", "1h": "1 hour", "1d": "1 day",
-            "1wk": "1 week", "1mo": "1 month",
+            "1m": "1 min",
+            "5m": "5 mins",
+            "15m": "15 mins",
+            "30m": "30 mins",
+            "1h": "1 hour",
+            "1d": "1 day",
+            "1wk": "1 week",
+            "1mo": "1 month",
         }
         bar_size = bar_map.get(interval, "1 day")
 
@@ -157,7 +172,7 @@ class IBKRMarketData:
                 return None
 
             # Handle MultiIndex columns from yfinance
-            if hasattr(df.columns, 'levels') and len(df.columns.levels) > 1:
+            if hasattr(df.columns, "levels") and len(df.columns.levels) > 1:
                 df = df.droplevel(level=1, axis=1)
 
             if _numpy_available:
@@ -186,6 +201,7 @@ class IBKRMarketData:
         """
         # Check cache
         import time
+
         now = time.time()
         if symbol in self._quote_cache:
             ts, data = self._quote_cache[symbol]
@@ -209,7 +225,8 @@ class IBKRMarketData:
 
     async def _ibkr_quote(self, symbol: str) -> Optional[Dict]:
         """Get real-time quote from IBKR."""
-        from .ibkr_adapter import Stock, IB_INSYNC_AVAILABLE
+        from .ibkr_adapter import IB_INSYNC_AVAILABLE, Stock
+
         if not IB_INSYNC_AVAILABLE:
             return None
 
@@ -217,9 +234,7 @@ class IBKRMarketData:
         contract = Stock(symbol, "SMART", "USD")
 
         # Request snapshot (no streaming subscription needed)
-        ticker = await asyncio.to_thread(
-            ib.reqMktData, contract, "", True, False
-        )
+        ticker = await asyncio.to_thread(ib.reqMktData, contract, "", True, False)
 
         # Wait briefly for data
         await asyncio.sleep(0.5)
@@ -240,7 +255,8 @@ class IBKRMarketData:
             "change": (ticker.last or 0) - (ticker.close or 0),
             "change_pct": (
                 ((ticker.last - ticker.close) / ticker.close * 100)
-                if ticker.close and ticker.last else 0
+                if ticker.close and ticker.last
+                else 0
             ),
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "source": "IBKR",
@@ -320,6 +336,7 @@ class IBKRMarketData:
 
         try:
             from .ibkr_adapter import IB_INSYNC_AVAILABLE
+
             if not IB_INSYNC_AVAILABLE:
                 return []
 
@@ -334,22 +351,22 @@ class IBKRMarketData:
                 numberOfRows=limit,
             )
 
-            scan_results = await asyncio.to_thread(
-                ib.reqScannerData, sub, []
-            )
+            scan_results = await asyncio.to_thread(ib.reqScannerData, sub, [])
 
             results = []
             for item in scan_results:
                 contract = item.contractDetails.contract
-                results.append({
-                    "symbol": contract.symbol,
-                    "sec_type": contract.secType,
-                    "exchange": contract.exchange,
-                    "currency": contract.currency,
-                    "rank": item.rank,
-                    "scan_code": scan_code,
-                    "source": "IBKR_SCANNER",
-                })
+                results.append(
+                    {
+                        "symbol": contract.symbol,
+                        "sec_type": contract.secType,
+                        "exchange": contract.exchange,
+                        "currency": contract.currency,
+                        "rank": item.rank,
+                        "scan_code": scan_code,
+                        "source": "IBKR_SCANNER",
+                    }
+                )
 
             logger.info("IBKR scanner %s returned %d results", scan_code, len(results))
             return results
@@ -365,14 +382,12 @@ class IBKRMarketData:
         if self.ibkr_connected:
             try:
                 from .ibkr_adapter import Contract
+
                 ib = self._adapter._ib
                 vix_contract = Contract(
-                    secType="IND", symbol="VIX",
-                    exchange="CBOE", currency="USD"
+                    secType="IND", symbol="VIX", exchange="CBOE", currency="USD"
                 )
-                ticker = await asyncio.to_thread(
-                    ib.reqMktData, vix_contract, "", True, False
-                )
+                ticker = await asyncio.to_thread(ib.reqMktData, vix_contract, "", True, False)
                 await asyncio.sleep(0.3)
                 if ticker.last and ticker.last == ticker.last:  # not NaN
                     return ticker.last

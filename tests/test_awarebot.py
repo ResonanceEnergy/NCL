@@ -1,10 +1,9 @@
 """End-to-end tests for Awarebot scanner and signal processing."""
 
 import asyncio
-import json
+import uuid
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
-import uuid
 
 import httpx
 import pytest
@@ -252,10 +251,12 @@ async def test_scan_reddit_returns_signals(scanner):
     }
     posts_response.raise_for_status.return_value = None
 
-    with patch.object(scanner.http_client, "post", new_callable=AsyncMock, return_value=auth_response):
+    with patch.object(
+        scanner.http_client, "post", new_callable=AsyncMock, return_value=auth_response
+    ):
         with patch.object(
             scanner.http_client, "get", new_callable=AsyncMock, return_value=posts_response
-        ) as mock_get:
+        ) as mock_get:  # noqa: F841
             signals = await scanner.scan_reddit("MachineLearning", max_results=10)
 
             # Verify signals
@@ -468,9 +469,7 @@ async def test_scanner_multi_source_scan():
 
     # Mock responses for all sources
     x_response = MagicMock()
-    x_response.json.return_value = {
-        "data": [{"id": "123", "text": "X signal"}]
-    }
+    x_response.json.return_value = {"data": [{"id": "123", "text": "X signal"}]}
     x_response.raise_for_status.return_value = None
 
     youtube_response = MagicMock()
@@ -513,7 +512,9 @@ async def test_scanner_multi_source_scan():
         return result
 
     with patch.object(scanner.http_client, "get", new_callable=AsyncMock, side_effect=mock_get):
-        with patch.object(scanner.http_client, "post", new_callable=AsyncMock, return_value=auth_response):
+        with patch.object(
+            scanner.http_client, "post", new_callable=AsyncMock, return_value=auth_response
+        ):
             # Run scans
             x_signals = await scanner.scan_x("query")
             youtube_signals = await scanner.scan_youtube("query")
@@ -534,9 +535,7 @@ async def test_scanner_tags_assignment():
     scanner = Scanner(x_bearer_token="test-token")
 
     mock_response = MagicMock()
-    mock_response.json.return_value = {
-        "data": [{"id": "123", "text": "Breaking news"}]
-    }
+    mock_response.json.return_value = {"data": [{"id": "123", "text": "Breaking news"}]}
     mock_response.raise_for_status.return_value = None
 
     with patch.object(
@@ -563,7 +562,7 @@ async def test_scanner_max_results_limit():
     with patch.object(
         scanner.http_client, "get", new_callable=AsyncMock, return_value=mock_response
     ) as mock_get:
-        signals = await scanner.scan_x("query", max_results=150)
+        signals = await scanner.scan_x("query", max_results=150)  # noqa: F841
 
         # Verify max_results was capped at 100 for X API
         call_args = mock_get.call_args

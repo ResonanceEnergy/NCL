@@ -27,4 +27,5 @@ Usage::
 from .bm25 import BM25Index
 from .fusion import FusedRetriever
 
+
 __all__ = ["BM25Index", "FusedRetriever"]

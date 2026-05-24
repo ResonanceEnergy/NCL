@@ -11,17 +11,18 @@ Usage:
   python ncc_sender.py --list                       # List pending reports
 """
 
-import os
-import sys
 import argparse
 import asyncio
 import logging
+import os
+import sys
 from pathlib import Path
 from typing import Optional
 
-import yaml
 import httpx
+import yaml
 from dotenv import load_dotenv
+
 
 # ─────────────────────────────────────────────────────────────────
 # Configuration
@@ -78,9 +79,7 @@ def validate_report(data: dict) -> tuple[bool, Optional[str]]:
             )
 
     if data.get("execution_status") not in VALID_STATUSES:
-        return False, (
-            f"Invalid execution_status; must be one of {VALID_STATUSES}"
-        )
+        return False, (f"Invalid execution_status; must be one of {VALID_STATUSES}")
 
     if not isinstance(data.get("outcomes"), list) or len(data["outcomes"]) == 0:
         return False, "outcomes must be a non-empty list"
@@ -127,9 +126,7 @@ async def submit_report(report_data: dict, source_file: Path) -> bool:
             response.raise_for_status()
 
             result = response.json()
-            logger.info(
-                f"✓ Submitted {source_file.name} (report_id={result.get('report_id')})"
-            )
+            logger.info(f"✓ Submitted {source_file.name} (report_id={result.get('report_id')})")
             return True
 
     except httpx.HTTPError as e:
@@ -193,7 +190,7 @@ async def send_single_report(file_path: str) -> int:
         logger.error(f"Validation failed: {error}")
         return 1
 
-    logger.info(f"Report validation passed. Submitting...")
+    logger.info("Report validation passed. Submitting...")
     success = await submit_report(report_data, report_path)
 
     return 0 if success else 1

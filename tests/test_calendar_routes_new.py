@@ -19,7 +19,6 @@ Run:
 
 from __future__ import annotations
 
-import sys
 import types
 from unittest.mock import AsyncMock, MagicMock
 
@@ -98,7 +97,9 @@ def mock_agent(monkeypatch):
     agent.scan_cycle = AsyncMock(
         return_value={"status": "ok", "scanned": 42, "ts": "2026-05-21T12:00:00Z"}
     )
-    agent.get_status = MagicMock(return_value={"available": True, "last_scan": "2026-05-21T11:50:00Z"})
+    agent.get_status = MagicMock(
+        return_value={"available": True, "last_scan": "2026-05-21T11:50:00Z"}
+    )
 
     monkeypatch.setattr(cr_module, "_get_calendar_agent_or_none", lambda: agent)
     return agent
@@ -146,8 +147,17 @@ def test_sun_returns_documented_schema(client, mock_agent, auth_header):
     r = client.get("/calendar/sun?city_id=edmonton", headers=auth_header)
     assert r.status_code == 200
     body = r.json()
-    for key in ("sun_times", "space_weather", "sunspot", "aurora", "cme_alerts",
-                "schumann", "seasonal_marker", "solar_energy_mode", "fetched_at"):
+    for key in (
+        "sun_times",
+        "space_weather",
+        "sunspot",
+        "aurora",
+        "cme_alerts",
+        "schumann",
+        "seasonal_marker",
+        "solar_energy_mode",
+        "fetched_at",
+    ):
         assert key in body, f"missing field {key}"
     mock_agent.get_sun_state.assert_awaited_once_with("edmonton")
 
@@ -251,8 +261,17 @@ def test_dashboard_returns_full_payload(client, mock_agent, mock_cities_pref, au
     r = client.get("/calendar/dashboard?city_id=edmonton", headers=auth_header)
     assert r.status_code == 200
     body = r.json()
-    for key in ("city", "moon", "sun", "events_7d", "events_30d",
-                "todos_7d", "todos_30d", "agent_status", "generated_at"):
+    for key in (
+        "city",
+        "moon",
+        "sun",
+        "events_7d",
+        "events_30d",
+        "todos_7d",
+        "todos_30d",
+        "agent_status",
+        "generated_at",
+    ):
         assert key in body, f"missing field {key}"
     assert body["city"]["id"] == "edmonton"
     assert "events" in body["events_7d"] and "count" in body["events_7d"]
@@ -266,7 +285,9 @@ def test_dashboard_requires_auth(client, mock_agent, mock_cities_pref):
     assert r.status_code == 401
 
 
-def test_dashboard_degrades_when_agent_missing(client, mock_agent_missing, mock_cities_pref, auth_header):
+def test_dashboard_degrades_when_agent_missing(
+    client, mock_agent_missing, mock_cities_pref, auth_header
+):
     r = client.get("/calendar/dashboard", headers=auth_header)
     assert r.status_code == 200
     body = r.json()
@@ -275,7 +296,9 @@ def test_dashboard_degrades_when_agent_missing(client, mock_agent_missing, mock_
     assert body["todos_30d"]["count"] == 0
 
 
-def test_dashboard_partial_failure_still_returns(client, monkeypatch, mock_cities_pref, auth_header):
+def test_dashboard_partial_failure_still_returns(
+    client, monkeypatch, mock_cities_pref, auth_header
+):
     """A single sub-call failure should not nuke the whole response."""
     agent = MagicMock()
     agent.get_sun_state = AsyncMock(side_effect=RuntimeError("sun down"))
@@ -401,5 +424,6 @@ def test_all_new_routes_registered():
         ("/calendar/refresh", "POST"),
     ]
     for path, method in expected:
-        assert any(p == path and method in methods for p, methods in paths), \
-            f"Missing route: {method} {path}"
+        assert any(
+            p == path and method in methods for p, methods in paths
+        ), f"Missing route: {method} {path}"

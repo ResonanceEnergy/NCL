@@ -48,7 +48,6 @@ Per-position dict shape (matches portfolio_manager contract)::
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import hmac
 import json
@@ -59,8 +58,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+
 try:
     import httpx
+
     _HTTPX_AVAILABLE = True
 except ImportError:
     httpx = None  # type: ignore
@@ -304,28 +305,32 @@ class NDAXAdapter:
             price_usd = prices_usd.get(cg, 0.0) if cg else 0.0
 
             market_value_cad = round(qty * price_cad, 2) if price_cad else 0.0
-            unrealized_pl = round((price_cad - avg_cost) * qty, 2) if price_cad and avg_cost else 0.0
+            unrealized_pl = (
+                round((price_cad - avg_cost) * qty, 2) if price_cad and avg_cost else 0.0
+            )
             unrealized_pl_pct = round((price_cad / avg_cost - 1) * 100, 2) if avg_cost else 0.0
 
-            out.append({
-                "broker": "NDAX",
-                "account_id": "NDAX",
-                "symbol": sym,
-                "name": h.get("name") or sym,
-                "quantity": qty,
-                "avg_cost": avg_cost,
-                "current_price": price_cad,
-                "current_price_usd": price_usd,
-                "market_value": market_value_cad,
-                "asset_class": "crypto",
-                "currency": "CAD",
-                "sector": "Crypto",
-                "unrealized_pl": unrealized_pl,
-                "unrealized_pl_pct": unrealized_pl_pct,
-                "daily_pl": 0.0,
-                "daily_pl_pct": 0.0,
-                "metadata": {"source": self._mode},
-            })
+            out.append(
+                {
+                    "broker": "NDAX",
+                    "account_id": "NDAX",
+                    "symbol": sym,
+                    "name": h.get("name") or sym,
+                    "quantity": qty,
+                    "avg_cost": avg_cost,
+                    "current_price": price_cad,
+                    "current_price_usd": price_usd,
+                    "market_value": market_value_cad,
+                    "asset_class": "crypto",
+                    "currency": "CAD",
+                    "sector": "Crypto",
+                    "unrealized_pl": unrealized_pl,
+                    "unrealized_pl_pct": unrealized_pl_pct,
+                    "daily_pl": 0.0,
+                    "daily_pl_pct": 0.0,
+                    "metadata": {"source": self._mode},
+                }
+            )
 
         return out
 
@@ -374,7 +379,9 @@ class NDAXAdapter:
         # 5-min cache keyed by id+vs
         cache_key = f"{vs}:{','.join(sorted(cg_ids))}"
         now = time.time()
-        if (now - self._price_cache_at) < _PRICE_CACHE_SECONDS and cache_key in self._price_cache_meta:
+        if (
+            now - self._price_cache_at
+        ) < _PRICE_CACHE_SECONDS and cache_key in self._price_cache_meta:
             return self._price_cache_meta[cache_key]
 
         url = f"{_COINGECKO_API}/simple/price"

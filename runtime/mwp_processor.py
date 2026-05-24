@@ -26,13 +26,11 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import asyncio
 import json
 import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 
 # ── Configuration ─────────────────────────────────────────────────────────
@@ -43,11 +41,41 @@ NCL_BASE = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
 # Workspace definitions
 WORKSPACES = {
     "execution-pipeline": ["01-Input", "02-Planning", "03-Execution", "04-Review", "05-Output"],
-    "mandate-generation": ["01-intake", "02-analysis", "03-synthesis", "04-mandate-draft", "05-review"],
-    "intelligence-scan": ["01-source-ingest", "02-signal-extraction", "03-importance-scoring", "04-insight-synthesis", "05-distribution"],
-    "feedback-synthesis": ["01-report-intake", "02-validation", "03-pattern-detection", "04-recommendation", "05-mandate-update"],
-    "memory-processing": ["01-episodic-intake", "02-semantic-extraction", "03-consolidation", "04-decay-reinforcement", "05-retrieval-indexing"],
-    "research-pipeline": ["01-source-scan", "02-extraction", "03-analysis", "04-convergence", "05-archive"],
+    "mandate-generation": [
+        "01-intake",
+        "02-analysis",
+        "03-synthesis",
+        "04-mandate-draft",
+        "05-review",
+    ],
+    "intelligence-scan": [
+        "01-source-ingest",
+        "02-signal-extraction",
+        "03-importance-scoring",
+        "04-insight-synthesis",
+        "05-distribution",
+    ],
+    "feedback-synthesis": [
+        "01-report-intake",
+        "02-validation",
+        "03-pattern-detection",
+        "04-recommendation",
+        "05-mandate-update",
+    ],
+    "memory-processing": [
+        "01-episodic-intake",
+        "02-semantic-extraction",
+        "03-consolidation",
+        "04-decay-reinforcement",
+        "05-retrieval-indexing",
+    ],
+    "research-pipeline": [
+        "01-source-scan",
+        "02-extraction",
+        "03-analysis",
+        "04-convergence",
+        "05-archive",
+    ],
 }
 
 # Logging
@@ -59,6 +87,7 @@ log = logging.getLogger("ncl.mwp")
 
 
 # ── WorkspaceProcessor Class ───────────────────────────────────────────────
+
 
 class WorkspaceProcessor:
     """Process and track status of a single workspace pipeline."""
@@ -216,6 +245,7 @@ class WorkspaceProcessor:
 
 # ── Global Status Functions ────────────────────────────────────────────────
 
+
 def get_all_workspace_status(ncl_base: Path = NCL_BASE) -> dict:
     """
     Get status across all 6 workspaces.
@@ -244,7 +274,13 @@ def get_all_workspace_status(ncl_base: Path = NCL_BASE) -> dict:
                 healthy_workspaces += 1
 
     # Overall pipeline health
-    pipeline_health = "operational" if healthy_workspaces >= 4 else "degraded" if healthy_workspaces >= 2 else "offline"
+    pipeline_health = (
+        "operational"
+        if healthy_workspaces >= 4
+        else "degraded"
+        if healthy_workspaces >= 2
+        else "offline"
+    )
 
     return {
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -260,6 +296,7 @@ def get_all_workspace_status(ncl_base: Path = NCL_BASE) -> dict:
 
 
 # ── CLI ────────────────────────────────────────────────────────────────────
+
 
 def main() -> None:
     """Command-line interface for MWP processor."""
@@ -298,7 +335,7 @@ def main() -> None:
     if not ncl_base.exists():
         print(f"Error: NCL_BASE not found at {ncl_base}")
         if not args.ncl_base and not os.getenv("NCL_BASE"):
-            print(f"Tip: Set NCL_BASE environment variable or use --ncl-base")
+            print("Tip: Set NCL_BASE environment variable or use --ncl-base")
         return
 
     if args.workspace:
@@ -361,7 +398,9 @@ def _print_all_status(all_status: dict) -> None:
     print("  MWP PIPELINE STATUS")
     print("=" * 70)
     print(f"Pipeline Health: {summary.get('pipeline_health', 'unknown').upper()}")
-    print(f"Operational Workspaces: {summary.get('operational_workspaces', 0)}/{summary.get('total_workspaces', 0)}")
+    print(
+        f"Operational Workspaces: {summary.get('operational_workspaces', 0)}/{summary.get('total_workspaces', 0)}"  # noqa: E501
+    )
     print(f"Total Artifacts: {summary.get('total_artifacts_across_all', 0)}")
     print(f"Updated: {all_status.get('timestamp', 'N/A')}")
     print()
@@ -376,13 +415,15 @@ def _print_all_status(all_status: dict) -> None:
         else:
             health = ws_status.get("health", "unknown")
             status_symbol = "✓" if health == "operational" else "○"
-            health_str = health.upper()
+            health_str = health.upper()  # noqa: F841
 
         artifacts = ws_status.get("total_artifacts", 0)
         active_stages = ws_status.get("active_stages", 0)
         total_stages = len(WORKSPACES.get(ws_name, []))
 
-        print(f"{status_symbol} {ws_name:30} {artifacts:3d} artifacts  {active_stages}/{total_stages} stages")
+        print(
+            f"{status_symbol} {ws_name:30} {artifacts:3d} artifacts  {active_stages}/{total_stages} stages"  # noqa: E501
+        )
 
     print()
 

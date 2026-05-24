@@ -1,10 +1,8 @@
 """Tests for runtime.memory.budget_tracker — the context-token telemetry."""
+
 from __future__ import annotations
 
-import asyncio
 import json
-import os
-from pathlib import Path
 
 import pytest
 
@@ -106,15 +104,20 @@ async def test_history_aggregates_by_date(fresh_tracker):
     # Inject an older-day row directly into the ledger so we exercise the
     # cross-day rollup path without freezing time.
     with open(t.ledger_path, "a") as f:
-        f.write(json.dumps({
-            "timestamp": "2020-01-01T00:00:00+00:00",
-            "date": "2020-01-01",
-            "category": "chat_injection",
-            "tokens_in": 999,
-            "tokens_out": 0,
-            "source": "old",
-            "metadata": {},
-        }) + "\n")
+        f.write(
+            json.dumps(
+                {
+                    "timestamp": "2020-01-01T00:00:00+00:00",
+                    "date": "2020-01-01",
+                    "category": "chat_injection",
+                    "tokens_in": 999,
+                    "tokens_out": 0,
+                    "source": "old",
+                    "metadata": {},
+                }
+            )
+            + "\n"
+        )
 
     # 7-day window excludes 2020-01-01.
     recent = await t.get_history(days=7)

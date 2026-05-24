@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import json
 import tempfile
-from datetime import datetime, timezone
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
-from runtime.memory.eval.runner import MemoryEvalRunner, _MiniBM25, _tokenize
 from runtime.memory.eval.loop import _seconds_until_sunday_3am_et
+from runtime.memory.eval.runner import MemoryEvalRunner, _MiniBM25, _tokenize
 
 
 # ─── Stub memory store ──────────────────────────────────────────────────
@@ -42,10 +40,19 @@ def _write_questions(path: Path, items: list[dict]) -> None:
 @pytest.mark.asyncio
 async def test_load_questions_parses_jsonl(tmp_path):
     qp = tmp_path / "questions.jsonl"
-    _write_questions(qp, [
-        {"id": "T001", "question": "what is X?", "expected_keywords": ["x"], "min_units": 1, "category": "system"},
-        {"id": "T002", "question": "Y?", "expected_keywords": ["y", "Z"], "category": "system"},
-    ])
+    _write_questions(
+        qp,
+        [
+            {
+                "id": "T001",
+                "question": "what is X?",
+                "expected_keywords": ["x"],
+                "min_units": 1,
+                "category": "system",
+            },
+            {"id": "T002", "question": "Y?", "expected_keywords": ["y", "Z"], "category": "system"},
+        ],
+    )
     # Junk lines and a malformed line should be skipped
     with qp.open("a") as f:
         f.write("\n# comment\n")
@@ -75,10 +82,13 @@ async def test_hit5_and_mrr_math(tmp_path):
     ]
     runner = MemoryEvalRunner(memory_store=_StubStore(units, tmp_path), results_dir=tmp_path)
     retrieved = await runner._retrieve("Awarebot Reddit YouTube", limit=5)
-    metrics = runner.score_question(retrieved, {
-        "expected_keywords": ["reddit", "youtube"],
-        "min_units": 1,
-    })
+    metrics = runner.score_question(
+        retrieved,
+        {
+            "expected_keywords": ["reddit", "youtube"],
+            "min_units": 1,
+        },
+    )
     assert metrics["hit5"] is True
     assert metrics["hit10"] is True
     assert metrics["mrr"] == pytest.approx(1.0)
@@ -99,13 +109,17 @@ async def test_mrr_with_lower_rank(tmp_path):
     # Force the BM25 ranker by querying for the keywords
     retrieved = await runner._retrieve("FOMC VIX Wednesday", limit=10)
     rank = runner._first_hit_rank(retrieved, ["fomc", "vix"])
-    metrics = runner.score_question(retrieved, {"expected_keywords": ["fomc", "vix"], "min_units": 1})
+    metrics = runner.score_question(
+        retrieved, {"expected_keywords": ["fomc", "vix"], "min_units": 1}
+    )
     assert rank == 1  # BM25 should push the matching doc up to rank 1
     assert metrics["mrr"] == pytest.approx(1.0 / rank)
 
     # And explicit test: manually arranged list with the match at index 2
     manual = [_StubUnit("a"), _StubUnit("b"), _StubUnit("contains fomc and vix"), _StubUnit("d")]
-    metrics_manual = runner.score_question(manual, {"expected_keywords": ["fomc", "vix"], "min_units": 1})
+    metrics_manual = runner.score_question(
+        manual, {"expected_keywords": ["fomc", "vix"], "min_units": 1}
+    )
     assert metrics_manual["hit5"] is True
     assert metrics_manual["mrr"] == pytest.approx(1.0 / 3)
 
@@ -118,10 +132,13 @@ async def test_recall_at_10_partial_coverage(tmp_path):
         _StubUnit("Ethereum gas fees"),
     ]
     runner = MemoryEvalRunner(memory_store=_StubStore(units, tmp_path), results_dir=tmp_path)
-    metrics = runner.score_question(units, {
-        "expected_keywords": ["bitcoin", "ethereum", "solana", "cardano"],
-        "min_units": 1,
-    })
+    metrics = runner.score_question(
+        units,
+        {
+            "expected_keywords": ["bitcoin", "ethereum", "solana", "cardano"],
+            "min_units": 1,
+        },
+    )
     # 2 of 4 keywords present
     assert metrics["recall10"] == pytest.approx(0.5)
     # No single unit contains ALL keywords → hit5 False
@@ -133,10 +150,25 @@ async def test_recall_at_10_partial_coverage(tmp_path):
 @pytest.mark.asyncio
 async def test_run_eval_writes_results_and_aggregates(tmp_path):
     qp = tmp_path / "q.jsonl"
-    _write_questions(qp, [
-        {"id": "A", "question": "polymarket trading", "expected_keywords": ["polymarket"], "category": "x", "min_units": 1},
-        {"id": "B", "question": "edmonton sun", "expected_keywords": ["edmonton"], "category": "y", "min_units": 1},
-    ])
+    _write_questions(
+        qp,
+        [
+            {
+                "id": "A",
+                "question": "polymarket trading",
+                "expected_keywords": ["polymarket"],
+                "category": "x",
+                "min_units": 1,
+            },
+            {
+                "id": "B",
+                "question": "edmonton sun",
+                "expected_keywords": ["edmonton"],
+                "category": "y",
+                "min_units": 1,
+            },
+        ],
+    )
     units = [
         _StubUnit("decided to fund my polymarket account"),
         _StubUnit("edmonton sunrise data for the calendar"),
@@ -161,9 +193,18 @@ async def test_run_eval_writes_results_and_aggregates(tmp_path):
 @pytest.mark.asyncio
 async def test_baseline_regression_detected(tmp_path):
     qp = tmp_path / "q.jsonl"
-    _write_questions(qp, [
-        {"id": "A", "question": "polymarket", "expected_keywords": ["polymarket"], "category": "x", "min_units": 1},
-    ])
+    _write_questions(
+        qp,
+        [
+            {
+                "id": "A",
+                "question": "polymarket",
+                "expected_keywords": ["polymarket"],
+                "category": "x",
+                "min_units": 1,
+            },
+        ],
+    )
 
     out_dir = tmp_path / "results"
     out_dir.mkdir()
@@ -196,7 +237,10 @@ async def test_baseline_regression_detected(tmp_path):
 @pytest.mark.asyncio
 async def test_baseline_no_prior_run(tmp_path):
     qp = tmp_path / "q.jsonl"
-    _write_questions(qp, [{"id": "A", "question": "x", "expected_keywords": ["x"], "category": "z", "min_units": 1}])
+    _write_questions(
+        qp,
+        [{"id": "A", "question": "x", "expected_keywords": ["x"], "category": "z", "min_units": 1}],
+    )
     runner = MemoryEvalRunner(
         memory_store=_StubStore([_StubUnit("x match")], tmp_path),
         questions_path=qp,

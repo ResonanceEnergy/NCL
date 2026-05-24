@@ -13,13 +13,12 @@ Pulls from:
 
 Produces a prioritized daily action list framed by lunar energy.
 """
+
 from __future__ import annotations
 
 import logging
-import os
-import json
-from datetime import date, datetime, timedelta, timezone
-from typing import Any
+from datetime import date, timedelta
+
 
 log = logging.getLogger("ncl.calendar.watchlist")
 
@@ -29,11 +28,26 @@ log = logging.getLogger("ncl.calendar.watchlist")
 WATCHLIST_CATEGORIES = {
     "moon": {"label": "Lunar", "color": "#9C88FF", "icon": "moon.stars.fill", "priority": 1},
     "prediction": {"label": "Prediction", "color": "#00BFFF", "icon": "eye", "priority": 5},
-    "scanner": {"label": "Scanner", "color": "#2ECC71", "icon": "antenna.radiowaves.left.and.right", "priority": 4},
+    "scanner": {
+        "label": "Scanner",
+        "color": "#2ECC71",
+        "icon": "antenna.radiowaves.left.and.right",
+        "priority": 4,
+    },
     "council": {"label": "Council", "color": "#E67E22", "icon": "person.3.fill", "priority": 4},
     "journal": {"label": "Journal", "color": "#1ABC9C", "icon": "book.fill", "priority": 2},
-    "trading": {"label": "Trading", "color": "#F39C12", "icon": "chart.line.uptrend.xyaxis", "priority": 5},
-    "portfolio": {"label": "Portfolio", "color": "#3498DB", "icon": "briefcase.fill", "priority": 3},
+    "trading": {
+        "label": "Trading",
+        "color": "#F39C12",
+        "icon": "chart.line.uptrend.xyaxis",
+        "priority": 5,
+    },
+    "portfolio": {
+        "label": "Portfolio",
+        "color": "#3498DB",
+        "icon": "briefcase.fill",
+        "priority": 3,
+    },
     "calendar": {"label": "Calendar", "color": "#E94560", "icon": "calendar", "priority": 4},
     "intel": {"label": "Intel", "color": "#9B59B6", "icon": "brain", "priority": 3},
     "system": {"label": "System", "color": "#95A5A6", "icon": "gearshape", "priority": 1},
@@ -41,6 +55,7 @@ WATCHLIST_CATEGORIES = {
 
 
 # ── Core watchlist builder ───────────────────────────────────────────
+
 
 async def build_watchlist(
     brain_client=None,
@@ -86,7 +101,9 @@ async def build_watchlist(
 
     # Assign IDs, sort by priority (highest first), then urgency
     urgency_order = {"now": 0, "today": 1, "this_week": 2}
-    todos.sort(key=lambda t: (-t.get("priority", 0), urgency_order.get(t.get("urgency", "today"), 1)))
+    todos.sort(
+        key=lambda t: (-t.get("priority", 0), urgency_order.get(t.get("urgency", "today"), 1))
+    )
 
     for i, todo in enumerate(todos):
         todo["id"] = i
@@ -101,6 +118,7 @@ async def build_watchlist(
 
 # ── Moon energy todos ────────────────────────────────────────────────
 
+
 def _moon_energy_todos(phase: dict, context: dict | None) -> list[dict]:
     """Generate todos from moon phase energy state."""
     todos = []
@@ -108,15 +126,17 @@ def _moon_energy_todos(phase: dict, context: dict | None) -> list[dict]:
     actions = phase.get("suggested_actions", [])
 
     for action in actions:
-        todos.append({
-            "priority": 2,
-            "action": action,
-            "category": "moon",
-            "source": "lunar_engine",
-            "context": f"{phase.get('phase_name', '')} -- {mode} phase energy",
-            "urgency": "today",
-            "energy_aligned": True,
-        })
+        todos.append(
+            {
+                "priority": 2,
+                "action": action,
+                "category": "moon",
+                "source": "lunar_engine",
+                "context": f"{phase.get('phase_name', '')} -- {mode} phase energy",
+                "urgency": "today",
+                "energy_aligned": True,
+            }
+        )
 
     # Add phase-transition awareness
     if context:
@@ -124,36 +144,41 @@ def _moon_energy_todos(phase: dict, context: dict | None) -> list[dict]:
         days_to_new = context.get("days_to_new_moon", 99)
 
         if days_to_full and days_to_full <= 2:
-            todos.append({
-                "priority": 4,
-                "action": "Full moon approaching -- prepare to harvest positions and assess all open trades",
-                "category": "moon",
-                "source": "lunar_engine",
-                "context": f"Full moon in {int(days_to_full)} day(s). Peak energy for assessment.",
-                "urgency": "now",
-                "energy_aligned": True,
-            })
+            todos.append(
+                {
+                    "priority": 4,
+                    "action": "Full moon approaching -- prepare to harvest positions and assess all open trades",  # noqa: E501
+                    "category": "moon",
+                    "source": "lunar_engine",
+                    "context": f"Full moon in {int(days_to_full)} day(s). Peak energy for assessment.",  # noqa: E501
+                    "urgency": "now",
+                    "energy_aligned": True,
+                }
+            )
         elif days_to_new and days_to_new <= 2:
-            todos.append({
-                "priority": 4,
-                "action": "New moon approaching -- set intentions, plan new entries, review strategy",
-                "category": "moon",
-                "source": "lunar_engine",
-                "context": f"New moon in {int(days_to_new)} day(s). Reset energy for fresh cycle.",
-                "urgency": "now",
-                "energy_aligned": True,
-            })
+            todos.append(
+                {
+                    "priority": 4,
+                    "action": "New moon approaching -- set intentions, plan new entries, review strategy",  # noqa: E501
+                    "category": "moon",
+                    "source": "lunar_engine",
+                    "context": f"New moon in {int(days_to_new)} day(s). Reset energy for fresh cycle.",  # noqa: E501
+                    "urgency": "now",
+                    "energy_aligned": True,
+                }
+            )
 
     return todos
 
 
 # ── Prediction-based todos ───────────────────────────────────────────
 
+
 async def _prediction_todos(client, energy_mode: str) -> list[dict]:
     """Pull high-confidence predictions that need attention."""
     todos = []
     try:
-        result = _sync_brain_call(client, "/predictions", "GET")
+        result = await _sync_brain_call(client, "/predictions", "GET")
         predictions = result.get("predictions", [])
 
         high_conf = [p for p in predictions if (p.get("confidence", 0) or 0) >= 70]
@@ -165,30 +190,34 @@ async def _prediction_todos(client, energy_mode: str) -> list[dict]:
             aligned = energy_mode in ("push", "build", "initiate") and direction == "bullish"
             aligned = aligned or (energy_mode in ("release", "reflect") and direction == "bearish")
 
-            todos.append({
-                "priority": 5,
-                "action": f"High-confidence prediction ({conf}%): {topic}",
-                "category": "prediction",
-                "source": "predictions",
-                "context": f"Direction: {direction}. {'Aligned with ' + energy_mode + ' energy.' if aligned else 'Counter-trend to current energy.'}",
-                "urgency": "today",
-                "energy_aligned": aligned,
-            })
+            todos.append(
+                {
+                    "priority": 5,
+                    "action": f"High-confidence prediction ({conf}%): {topic}",
+                    "category": "prediction",
+                    "source": "predictions",
+                    "context": f"Direction: {direction}. {'Aligned with ' + energy_mode + ' energy.' if aligned else 'Counter-trend to current energy.'}",  # noqa: E501
+                    "urgency": "today",
+                    "energy_aligned": aligned,
+                }
+            )
 
         # Check for convergence signals
-        conv_result = _sync_brain_call(client, "/prediction/convergence", "GET")
+        conv_result = await _sync_brain_call(client, "/prediction/convergence", "GET")
         convergences = conv_result.get("convergences", [])
         if convergences:
             topics = [c.get("topic", "") for c in convergences[:2]]
-            todos.append({
-                "priority": 5,
-                "action": f"Convergence detected across {len(convergences)} predictions -- review alignment",
-                "category": "prediction",
-                "source": "convergence",
-                "context": f"Topics: {', '.join(topics)}",
-                "urgency": "now",
-                "energy_aligned": True,
-            })
+            todos.append(
+                {
+                    "priority": 5,
+                    "action": f"Convergence detected across {len(convergences)} predictions -- review alignment",  # noqa: E501
+                    "category": "prediction",
+                    "source": "convergence",
+                    "context": f"Topics: {', '.join(topics)}",
+                    "urgency": "now",
+                    "energy_aligned": True,
+                }
+            )
 
     except Exception as e:
         log.debug("Prediction todos skipped: %s", e)
@@ -198,40 +227,45 @@ async def _prediction_todos(client, energy_mode: str) -> list[dict]:
 
 # ── Scanner-based todos ──────────────────────────────────────────────
 
+
 async def _scanner_todos(client, energy_mode: str) -> list[dict]:
     """Pull scanner hits that need review."""
     todos = []
     try:
         # GOAT scanner
-        goat = _sync_brain_call(client, "/stocks/scanner/goat", "GET")
+        goat = await _sync_brain_call(client, "/stocks/scanner/goat", "GET")
         goat_hits = goat.get("results", goat.get("hits", []))
         if goat_hits:
             symbols = [h.get("symbol", "") for h in goat_hits[:5]]
             aligned = energy_mode in ("initiate", "build", "push")
-            todos.append({
-                "priority": 4,
-                "action": f"GOAT scanner: {len(goat_hits)} hits -- {', '.join(symbols)}",
-                "category": "scanner",
-                "source": "goat_scanner",
-                "context": f"{'Waxing energy favors new entries' if aligned else 'Waning energy -- be selective'}",
-                "urgency": "today",
-                "energy_aligned": aligned,
-            })
+            todos.append(
+                {
+                    "priority": 4,
+                    "action": f"GOAT scanner: {len(goat_hits)} hits -- {', '.join(symbols)}",
+                    "category": "scanner",
+                    "source": "goat_scanner",
+                    "context": f"{'Waxing energy favors new entries' if aligned else 'Waning energy -- be selective'}",  # noqa: E501
+                    "urgency": "today",
+                    "energy_aligned": aligned,
+                }
+            )
 
         # Bravo scanner
-        bravo = _sync_brain_call(client, "/stocks/scanner/bravo", "GET")
+        bravo = await _sync_brain_call(client, "/stocks/scanner/bravo", "GET")
         bravo_hits = bravo.get("results", bravo.get("hits", []))
         if bravo_hits:
             symbols = [h.get("symbol", "") for h in bravo_hits[:5]]
-            todos.append({
-                "priority": 4,
-                "action": f"Bravo swing: {len(bravo_hits)} setups -- {', '.join(symbols)}",
-                "category": "scanner",
-                "source": "bravo_scanner",
-                "context": "Swing setups identified. Review entry criteria.",
-                "urgency": "today",
-                "energy_aligned": energy_mode in ("initiate", "build", "push"),
-            })
+            todos.append(
+                {
+                    "priority": 4,
+                    "action": f"Bravo swing: {len(bravo_hits)} setups -- {', '.join(symbols)}",
+                    "category": "scanner",
+                    "source": "bravo_scanner",
+                    "context": "Swing setups identified. Review entry criteria.",
+                    "urgency": "today",
+                    "energy_aligned": energy_mode in ("initiate", "build", "push"),
+                }
+            )
 
     except Exception as e:
         log.debug("Scanner todos skipped: %s", e)
@@ -241,11 +275,12 @@ async def _scanner_todos(client, energy_mode: str) -> list[dict]:
 
 # ── Council-based todos ──────────────────────────────────────────────
 
+
 async def _council_todos(client, energy_mode: str) -> list[dict]:
     """Pull recent council recommendations needing action."""
     todos = []
     try:
-        result = _sync_brain_call(client, "/councils/reports?limit=3", "GET")
+        result = await _sync_brain_call(client, "/councils/reports?limit=3", "GET")
         reports = result.get("reports", [])
 
         for report in reports[:2]:
@@ -254,15 +289,17 @@ async def _council_todos(client, energy_mode: str) -> list[dict]:
             if summary:
                 summary = summary[:80] + "..." if len(summary) > 80 else summary
 
-            todos.append({
-                "priority": 3,
-                "action": f"Review council: {title}",
-                "category": "council",
-                "source": "council_reports",
-                "context": summary or "Recent council session needs your review",
-                "urgency": "this_week",
-                "energy_aligned": energy_mode in ("analyze", "harvest", "refine"),
-            })
+            todos.append(
+                {
+                    "priority": 3,
+                    "action": f"Review council: {title}",
+                    "category": "council",
+                    "source": "council_reports",
+                    "context": summary or "Recent council session needs your review",
+                    "urgency": "this_week",
+                    "energy_aligned": energy_mode in ("analyze", "harvest", "refine"),
+                }
+            )
 
     except Exception as e:
         log.debug("Council todos skipped: %s", e)
@@ -272,13 +309,14 @@ async def _council_todos(client, energy_mode: str) -> list[dict]:
 
 # ── Journal todos ────────────────────────────────────────────────────
 
+
 async def _journal_todos(client, energy_mode: str) -> list[dict]:
     """Journal prompts based on moon phase and trading activity."""
     todos = []
 
     # Phase-specific journal prompts
     prompts = {
-        "initiate": "Set intentions for this lunar cycle. What new positions or strategies are you considering?",
+        "initiate": "Set intentions for this lunar cycle. What new positions or strategies are you considering?",  # noqa: E501
         "build": "Document momentum. What's building in your portfolio and mind?",
         "push": "Record your push decisions. Where are you pressing advantage?",
         "refine": "Fine-tune your approach. What adjustments are needed before peak?",
@@ -289,19 +327,21 @@ async def _journal_todos(client, energy_mode: str) -> list[dict]:
     }
 
     prompt = prompts.get(energy_mode, "Write today's journal entry.")
-    todos.append({
-        "priority": 2,
-        "action": f"Journal: {prompt}",
-        "category": "journal",
-        "source": "journal_prompts",
-        "context": f"{energy_mode.capitalize()} phase -- {prompt[:60]}",
-        "urgency": "today",
-        "energy_aligned": True,
-    })
+    todos.append(
+        {
+            "priority": 2,
+            "action": f"Journal: {prompt}",
+            "category": "journal",
+            "source": "journal_prompts",
+            "context": f"{energy_mode.capitalize()} phase -- {prompt[:60]}",
+            "urgency": "today",
+            "energy_aligned": True,
+        }
+    )
 
     # Check if journal entry exists today
     try:
-        result = _sync_brain_call(client, "/journal/today", "GET")
+        result = await _sync_brain_call(client, "/journal/today", "GET")
         if not result.get("entry") and not result.get("entries"):
             todos[-1]["priority"] = 3  # Bump priority if no entry yet
             todos[-1]["urgency"] = "now"
@@ -313,52 +353,59 @@ async def _journal_todos(client, energy_mode: str) -> list[dict]:
 
 # ── Paper trade todos ────────────────────────────────────────────────
 
+
 async def _paper_trade_todos(client, energy_mode: str) -> list[dict]:
     """Review open paper trades, check graduation progress."""
     todos = []
     try:
         # Open trades
-        result = _sync_brain_call(client, "/paper/trades?status=open", "GET")
+        result = await _sync_brain_call(client, "/paper/trades?status=open", "GET")
         trades = result.get("trades", [])
 
         if trades:
             symbols = [t.get("symbol", "") for t in trades[:5]]
-            todos.append({
-                "priority": 4,
-                "action": f"Review {len(trades)} open paper trades: {', '.join(symbols)}",
-                "category": "trading",
-                "source": "paper_trading",
-                "context": "Check stop levels, update targets, record journal notes.",
-                "urgency": "today",
-                "energy_aligned": energy_mode in ("analyze", "refine", "harvest"),
-            })
+            todos.append(
+                {
+                    "priority": 4,
+                    "action": f"Review {len(trades)} open paper trades: {', '.join(symbols)}",
+                    "category": "trading",
+                    "source": "paper_trading",
+                    "context": "Check stop levels, update targets, record journal notes.",
+                    "urgency": "today",
+                    "energy_aligned": energy_mode in ("analyze", "refine", "harvest"),
+                }
+            )
 
         # Graduation stats
-        stats = _sync_brain_call(client, "/paper/stats", "GET")
+        stats = await _sync_brain_call(client, "/paper/stats", "GET")
         grad = stats.get("graduation", {})
         if grad:
             ready = grad.get("ready", False)
             progress = grad.get("progress_pct", 0)
             if ready:
-                todos.append({
-                    "priority": 5,
-                    "action": "Paper trading graduation READY -- consider moving to live trades",
-                    "category": "trading",
-                    "source": "paper_graduation",
-                    "context": "All graduation criteria met. Review stats before going live.",
-                    "urgency": "now",
-                    "energy_aligned": energy_mode in ("initiate", "push", "harvest"),
-                })
+                todos.append(
+                    {
+                        "priority": 5,
+                        "action": "Paper trading graduation READY -- consider moving to live trades",  # noqa: E501
+                        "category": "trading",
+                        "source": "paper_graduation",
+                        "context": "All graduation criteria met. Review stats before going live.",
+                        "urgency": "now",
+                        "energy_aligned": energy_mode in ("initiate", "push", "harvest"),
+                    }
+                )
             elif progress > 50:
-                todos.append({
-                    "priority": 2,
-                    "action": f"Paper trading graduation: {progress:.0f}% complete",
-                    "category": "trading",
-                    "source": "paper_graduation",
-                    "context": "Keep building your track record.",
-                    "urgency": "this_week",
-                    "energy_aligned": True,
-                })
+                todos.append(
+                    {
+                        "priority": 2,
+                        "action": f"Paper trading graduation: {progress:.0f}% complete",
+                        "category": "trading",
+                        "source": "paper_graduation",
+                        "context": "Keep building your track record.",
+                        "urgency": "this_week",
+                        "energy_aligned": True,
+                    }
+                )
 
     except Exception as e:
         log.debug("Paper trade todos skipped: %s", e)
@@ -368,11 +415,12 @@ async def _paper_trade_todos(client, energy_mode: str) -> list[dict]:
 
 # ── Portfolio todos ──────────────────────────────────────────────────
 
+
 async def _portfolio_todos(client, energy_mode: str) -> list[dict]:
     """Portfolio rebalancing and review signals."""
     todos = []
     try:
-        result = _sync_brain_call(client, "/portfolio/summary", "GET")
+        result = await _sync_brain_call(client, "/portfolio/summary", "GET")
         summary = result
 
         # Check for concentration risk
@@ -381,29 +429,33 @@ async def _portfolio_todos(client, energy_mode: str) -> list[dict]:
             weight = alloc.get("weight", 0)
             name = alloc.get("name", alloc.get("symbol", ""))
             if weight > 15:
-                todos.append({
-                    "priority": 3,
-                    "action": f"Concentration alert: {name} at {weight:.1f}% of portfolio",
-                    "category": "portfolio",
-                    "source": "portfolio_manager",
-                    "context": "Consider rebalancing. Single position exceeds 15% threshold.",
-                    "urgency": "this_week",
-                    "energy_aligned": energy_mode in ("analyze", "release", "refine"),
-                })
+                todos.append(
+                    {
+                        "priority": 3,
+                        "action": f"Concentration alert: {name} at {weight:.1f}% of portfolio",
+                        "category": "portfolio",
+                        "source": "portfolio_manager",
+                        "context": "Consider rebalancing. Single position exceeds 15% threshold.",
+                        "urgency": "this_week",
+                        "energy_aligned": energy_mode in ("analyze", "release", "refine"),
+                    }
+                )
 
         # Daily P&L check
         daily_pnl = summary.get("daily_pnl", 0)
         if abs(daily_pnl) > 500:
             direction = "up" if daily_pnl > 0 else "down"
-            todos.append({
-                "priority": 4,
-                "action": f"Notable P&L move: ${daily_pnl:+,.0f} today",
-                "category": "portfolio",
-                "source": "portfolio_manager",
-                "context": f"Portfolio {direction} significantly. Review positions.",
-                "urgency": "now",
-                "energy_aligned": True,
-            })
+            todos.append(
+                {
+                    "priority": 4,
+                    "action": f"Notable P&L move: ${daily_pnl:+,.0f} today",
+                    "category": "portfolio",
+                    "source": "portfolio_manager",
+                    "context": f"Portfolio {direction} significantly. Review positions.",
+                    "urgency": "now",
+                    "energy_aligned": True,
+                }
+            )
 
     except Exception as e:
         log.debug("Portfolio todos skipped: %s", e)
@@ -413,13 +465,14 @@ async def _portfolio_todos(client, energy_mode: str) -> list[dict]:
 
 # ── Calendar event todos ─────────────────────────────────────────────
 
+
 async def _calendar_event_todos(client, energy_mode: str) -> list[dict]:
     """High-impact calendar events that need preparation."""
     todos = []
     try:
         today = date.today()
         end = today + timedelta(days=3)
-        result = _sync_brain_call(
+        result = await _sync_brain_call(
             client,
             f"/calendar/events?start={today.isoformat()}&end={end.isoformat()}",
             "GET",
@@ -428,15 +481,19 @@ async def _calendar_event_todos(client, energy_mode: str) -> list[dict]:
 
         high_impact = [e for e in events if e.get("impact") in ("high", "critical")]
         for event in high_impact[:3]:
-            todos.append({
-                "priority": 5 if event.get("impact") == "critical" else 4,
-                "action": f"Upcoming: {event.get('title', 'Event')} ({event.get('date', '')})",
-                "category": "calendar",
-                "source": "calendar_events",
-                "context": event.get("description", "High-impact event approaching. Prepare accordingly."),
-                "urgency": "now" if event.get("date") == today.isoformat() else "today",
-                "energy_aligned": True,
-            })
+            todos.append(
+                {
+                    "priority": 5 if event.get("impact") == "critical" else 4,
+                    "action": f"Upcoming: {event.get('title', 'Event')} ({event.get('date', '')})",
+                    "category": "calendar",
+                    "source": "calendar_events",
+                    "context": event.get(
+                        "description", "High-impact event approaching. Prepare accordingly."
+                    ),
+                    "urgency": "now" if event.get("date") == today.isoformat() else "today",
+                    "energy_aligned": True,
+                }
+            )
 
     except Exception as e:
         log.debug("Calendar event todos skipped: %s", e)
@@ -446,22 +503,36 @@ async def _calendar_event_todos(client, energy_mode: str) -> list[dict]:
 
 # ── Helper ───────────────────────────────────────────────────────────
 
-def _sync_brain_call(client, endpoint: str, method: str) -> dict:
-    """Synchronous wrapper for NCL Brain API calls within the Brain process itself."""
-    # When running inside the Brain, we can call route handlers directly
-    # or use the internal HTTP client
+
+async def _sync_brain_call(client, endpoint: str, method: str) -> dict:
+    """Async Brain API call from inside the Brain process itself.
+
+    W8-A2 Q4 (2026-05-24): The previous implementation used `httpx.Client`
+    (sync) which BLOCKED the uvicorn event loop while it waited for the
+    inbound self-request to be served. With a single worker, the loop was
+    busy holding the outbound socket — so the inbound /predictions etc.
+    never got picked up and the watchlist call hung until timeout. After
+    ~13 minutes of sustained scheduler activity the loop was effectively
+    locked up (issue #91).
+
+    The fix: use `httpx.AsyncClient` and `await`. The event loop is free
+    to serve both directions of the self-request concurrently. Function
+    name is kept (despite "_sync_" prefix) to minimise churn on callers
+    — every caller already awaits it after this commit.
+    """
     try:
         import httpx as _httpx
+
         from runtime.api.routes import STRIKE_TOKEN
 
         url = f"http://127.0.0.1:8800{endpoint}"
         headers = {"Authorization": f"Bearer {STRIKE_TOKEN}"}
 
-        with _httpx.Client(timeout=_httpx.Timeout(10.0)) as c:
+        async with _httpx.AsyncClient(timeout=_httpx.Timeout(10.0)) as c:
             if method == "GET":
-                resp = c.get(url, headers=headers)
+                resp = await c.get(url, headers=headers)
             else:
-                resp = c.post(url, headers=headers)
+                resp = await c.post(url, headers=headers)
 
             if resp.status_code == 200:
                 return resp.json()

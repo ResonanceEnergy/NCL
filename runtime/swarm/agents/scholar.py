@@ -11,9 +11,10 @@ import logging
 import time
 import traceback
 
-from . import register_agent
 from ..agent_base import SwarmAgent
 from ..models import SubtaskNode, TaskResult, TaskStatus
+from . import register_agent
+
 
 logger = logging.getLogger("ncl.swarm.scholar")
 
@@ -26,7 +27,9 @@ class ScholarAgent(SwarmAgent):
     competitive analysis, and technical deep-dives.
     """
 
-    DESCRIPTION = "Scholar — deep research, citation-backed briefs, literature review (Perplexity + Claude)"
+    DESCRIPTION = (
+        "Scholar — deep research, citation-backed briefs, literature review (Perplexity + Claude)"
+    )
 
     def __str__(self) -> str:
         return f"ScholarAgent(id={self.agent_id}, state={self.state.value})"
@@ -43,11 +46,7 @@ class ScholarAgent(SwarmAgent):
             max_sources = task.input_data.get("max_sources", 10)
             focus_areas = task.input_data.get("focus_areas", [])
 
-            focus_str = (
-                f"\nFocus specifically on: {', '.join(focus_areas)}"
-                if focus_areas
-                else ""
-            )
+            focus_str = f"\nFocus specifically on: {', '.join(focus_areas)}" if focus_areas else ""
 
             # --- Phase 1: Perplexity for web-grounded research ---
             # Wrap task-supplied data in <task_data> tags to prevent prompt injection.
@@ -77,10 +76,12 @@ class ScholarAgent(SwarmAgent):
             )
             total_cost += research_response.cost_cents
 
-            await self.checkpoint({
-                "phase": "research_complete",
-                "sources_gathered": True,
-            })
+            await self.checkpoint(
+                {
+                    "phase": "research_complete",
+                    "sources_gathered": True,
+                }
+            )
 
             # --- Phase 2: Claude for synthesis ---
             synthesis_prompt = (

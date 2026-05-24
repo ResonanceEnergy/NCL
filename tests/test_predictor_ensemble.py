@@ -1,10 +1,9 @@
 """End-to-end tests for FuturePredictor ensemble prediction logic."""
 
 import asyncio
-import json
+import uuid
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
-import uuid
 
 import httpx
 import pytest
@@ -176,44 +175,55 @@ def test_prediction_output_structure():
 
 @pytest.mark.asyncio
 async def test_claude_prediction_call(predictor, sample_signals):
-    """Test Claude prediction API call with mocked response."""
-    mock_response = MagicMock()
-    mock_response.json.return_value = {
-        "content": [
-            {
-                "text": '{"prediction": "AI market will grow significantly", "confidence": 0.85, "reasoning": "Strong signals"}'
-            }
-        ]
-    }
-    mock_response.raise_for_status.return_value = None
+    """Test Claude prediction through the runtime.llm facade with mocked response."""
+    import runtime.llm as llm_pkg
+    from runtime.llm.client import ChatResult
 
-    with patch.object(
-        predictor.http_client, "post", new_callable=AsyncMock, return_value=mock_response
-    ) as mock_post:
+    captured: dict = {}
+
+    async def _fake_chat(**kwargs):
+        captured.update(kwargs)
+        return ChatResult(
+            text=(
+                '{"prediction": "AI market will grow significantly", '
+                '"confidence": 0.85, "reasoning": "Strong signals"}'
+            ),
+            citations=[],
+            usage_input_tokens=100,
+            usage_output_tokens=50,
+            cost_usd=0.0,
+            model=kwargs.get("model", "claude-sonnet-4-20250514"),
+            latency_ms=1,
+            raw={},
+        )
+
+    with patch.object(llm_pkg, "chat", new=_fake_chat):
         result = await predictor._predict_claude(sample_signals, "AI market growth")
 
-        # Verify API call
-        mock_post.assert_called_once()
-        call_args = mock_post.call_args
-        assert "api.anthropic.com/v1/messages" in str(call_args)
-        assert call_args.kwargs["json"]["model"] == "claude-sonnet-4-20250514"
-        assert call_args.kwargs["json"]["max_tokens"] == 512
+        # Verify facade call wiring
+        assert captured.get("model") == "claude-sonnet-4-20250514"
+        assert captured.get("max_tokens") == 512
+        assert captured.get("budget_key") == "anthropic"
 
-        # Verify result
+        # Verify result — confidence was parsed from the structured JSON
         assert result["model"] == "claude"
         assert "prediction" in result
-        assert result["confidence"] == 0.75  # Default in implementation
+        assert result["confidence"] == 0.85
 
 
 @pytest.mark.asyncio
 async def test_claude_prediction_failure(predictor, sample_signals):
-    """Test Claude prediction handles API failures gracefully."""
-    with patch.object(
-        predictor.http_client,
-        "post",
-        new_callable=AsyncMock,
-        side_effect=httpx.HTTPStatusError("401", request=MagicMock(), response=MagicMock()),
-    ):
+    """Test Claude prediction handles facade failures gracefully."""
+    import runtime.llm as llm_pkg
+
+    async def _failing_chat(**kwargs):
+        raise httpx.HTTPStatusError(
+            "401",
+            request=MagicMock(),
+            response=MagicMock(),
+        )
+
+    with patch.object(llm_pkg, "chat", new=_failing_chat):
         result = await predictor._predict_claude(sample_signals, "test topic")
 
         assert result["model"] == "claude"
@@ -239,9 +249,7 @@ async def test_ollama_prediction_call(predictor, sample_signals):
     with patch.object(
         predictor.http_client, "post", new_callable=AsyncMock, return_value=mock_response
     ) as mock_post:
-        result = await predictor._predict_ollama(
-            sample_signals, "AI market", "qwen3:32b"
-        )
+        result = await predictor._predict_ollama(sample_signals, "AI market", "qwen3:32b")
 
         # Verify API call
         mock_post.assert_called_once()
@@ -282,9 +290,7 @@ async def test_ollama_prediction_failure(predictor, sample_signals):
         new_callable=AsyncMock,
         side_effect=asyncio.TimeoutError(),
     ):
-        result = await predictor._predict_ollama(
-            sample_signals, "topic", "qwen3:32b"
-        )
+        result = await predictor._predict_ollama(sample_signals, "topic", "qwen3:32b")
 
         assert result["prediction"] == "Unable to generate prediction"
         assert result["confidence"] == 0.0
@@ -336,7 +342,10 @@ async def test_ensemble_one_model_failure(predictor, sample_signals):
         return mock_resp
 
     with patch.object(
-        predictor.http_client, "post", new_callable=AsyncMock, side_effect=mock_api_call_with_failure
+        predictor.http_client,
+        "post",
+        new_callable=AsyncMock,
+        side_effect=mock_api_call_with_failure,
     ):
         output = await predictor.predict(sample_signals, "test topic")
 
@@ -491,11 +500,7 @@ def test_synthesis_fallback_on_missing_claude():
     # Without Claude, synthesizer now builds a multi-model consensus from
     # remaining providers (qwen + deepseek here). Either an "Inconclusive"
     # fallback or a "[Consensus: ...]" line is acceptable.
-    assert (
-        "Inconclusive" in consensus
-        or "Consensus:" in consensus
-        or "qwen" in consensus.lower()
-    )
+    assert "Inconclusive" in consensus or "Consensus:" in consensus or "qwen" in consensus.lower()
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -513,9 +518,7 @@ async def test_prediction_with_geopolitical_signals(predictor, geopolitical_sign
 
     # Mock War Room response
     war_room_response = MagicMock()
-    war_room_response.json.return_value = {
-        "summary": "Escalation risk: 75%"
-    }
+    war_room_response.json.return_value = {"summary": "Escalation risk: 75%"}
     war_room_response.raise_for_status.return_value = None
 
     with patch.object(
@@ -565,10 +568,8 @@ async def test_prediction_skips_war_room_without_geopolitical():
     with patch.object(
         predictor.http_client, "post", new_callable=AsyncMock, return_value=model_response
     ):
-        with patch.object(
-            predictor.http_client, "get", new_callable=AsyncMock
-        ) as mock_get:
-            output = await predictor.predict(signals, "technology trend")
+        with patch.object(predictor.http_client, "get", new_callable=AsyncMock) as mock_get:
+            output = await predictor.predict(signals, "technology trend")  # noqa: F841
 
             # War Room should NOT be called
             mock_get.assert_not_called()

@@ -1,0 +1,15 @@
+{
+  "pump_id": "smoke-strprompt2",
+  "prompt": "second legacy string-prompt test",
+  "priority": "low",
+  "_brain_ack": {
+    "timestamp": "2026-05-15T17:47:30.893659+00:00",
+    "brain_response": {
+      "pump_id": "smoke-strprompt2",
+      "intent": "second legacy string-prompt test",
+      "urgency": "normal",
+      "mode": "background",
+      "status": "accepted"
+    }
+  }
+}

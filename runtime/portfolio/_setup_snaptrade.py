@@ -25,6 +25,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+
 # Load .env from NCL root
 _ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
 load_dotenv(_ENV_PATH)
@@ -57,11 +58,11 @@ def register_user():
         response = snap.authentication.register_snap_trade_user(
             user_id=user_id,
         )
-        print(f"\n✓ User registered successfully!")
+        print("\n✓ User registered successfully!")
         print(f"\nAdd these to your .env file ({_ENV_PATH}):")
         print(f"  SNAPTRADE_USER_ID={response.body['userId']}")
         print(f"  SNAPTRADE_USER_SECRET={response.body['userSecret']}")
-        print(f"\nNext step: run with --connect to link your Wealthsimple account")
+        print("\nNext step: run with --connect to link your Wealthsimple account")
         return response.body
     except Exception as e:
         print(f"ERROR registering user: {e}")
@@ -88,9 +89,9 @@ def connect_brokerage():
             user_secret=user_secret,
         )
         redirect_url = response.body.get("redirectURI") or response.body.get("loginLink")
-        print(f"\n✓ Open this URL in your browser to connect your brokerage:")
+        print("\n✓ Open this URL in your browser to connect your brokerage:")
         print(f"\n  {redirect_url}\n")
-        print(f"After connecting, run --verify to confirm.")
+        print("After connecting, run --verify to confirm.")
         return redirect_url
     except Exception as e:
         print(f"ERROR generating connection link: {e}")
@@ -143,7 +144,9 @@ def delete_user():
 
     try:
         snap.authentication.delete_snap_trade_user(user_id=user_id)
-        print(f"✓ User {user_id} deleted. Remove SNAPTRADE_USER_ID and SNAPTRADE_USER_SECRET from .env.")
+        print(
+            f"✓ User {user_id} deleted. Remove SNAPTRADE_USER_ID and SNAPTRADE_USER_SECRET from .env."  # noqa: E501
+        )
     except Exception as e:
         print(f"ERROR deleting user: {e}")
         sys.exit(1)

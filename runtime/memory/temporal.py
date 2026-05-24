@@ -34,10 +34,11 @@ import json
 import logging
 import os
 import uuid
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone, timedelta
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional, Any, Iterable
+from typing import Any, Optional
+
 
 log = logging.getLogger("ncl.memory.temporal")
 
@@ -94,12 +95,13 @@ class TemporalEdge:
     src/dst/relation/valid_at are distinct records — that supports rebuilds
     that touch the same fact at the same wall-clock time without colliding.
     """
+
     src: str
     dst: str
     relation: str
-    valid_at: str                              # ISO-8601
-    invalidated_at: Optional[str] = None       # ISO-8601 or None
-    superseded_by: Optional[str] = None        # edge_id of replacement
+    valid_at: str  # ISO-8601
+    invalidated_at: Optional[str] = None  # ISO-8601 or None
+    superseded_by: Optional[str] = None  # edge_id of replacement
     source_unit_ids: list[str] = field(default_factory=list)
     confidence: float = 1.0
     metadata: dict = field(default_factory=dict)
@@ -160,7 +162,7 @@ class TemporalGraph:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.edges_file = self.data_dir / "temporal_edges.jsonl"
 
-        self._graph = None       # NetworkX MultiDiGraph (lazy)
+        self._graph = None  # NetworkX MultiDiGraph (lazy)
         self._nx = None
         self._edges: dict[str, TemporalEdge] = {}  # edge_id → TemporalEdge
         self._lock = asyncio.Lock()
@@ -172,6 +174,7 @@ class TemporalGraph:
             return True
         try:
             import networkx as nx
+
             self._nx = nx
             self._graph = nx.MultiDiGraph()
             self._load_from_disk()
@@ -185,7 +188,7 @@ class TemporalGraph:
         except ImportError:
             log.info("networkx not installed — TemporalGraph disabled")
             return False
-        except Exception as e:                  # pragma: no cover (defensive)
+        except Exception as e:  # pragma: no cover (defensive)
             log.warning("TemporalGraph init failed: %s", e)
             return False
 
@@ -205,12 +208,14 @@ class TemporalGraph:
                         continue
                     self._edges[edge.edge_id] = edge
                     self._graph.add_edge(
-                        edge.src, edge.dst, key=edge.edge_id,
+                        edge.src,
+                        edge.dst,
+                        key=edge.edge_id,
                         relation=edge.relation,
                         valid_at=edge.valid_at,
                         invalidated_at=edge.invalidated_at,
                     )
-        except Exception as e:                  # pragma: no cover
+        except Exception as e:  # pragma: no cover
             log.warning("Failed to load temporal edges: %s", e)
 
     async def _persist_to_disk(self) -> None:
@@ -221,7 +226,7 @@ class TemporalGraph:
                 for edge in self._edges.values():
                     f.write(json.dumps(edge.to_dict(), default=str) + "\n")
             os.replace(tmp, str(self.edges_file))
-        except Exception as e:                  # pragma: no cover
+        except Exception as e:  # pragma: no cover
             log.error("Failed to persist temporal edges: %s", e)
             try:
                 os.unlink(tmp)
@@ -245,7 +250,9 @@ class TemporalGraph:
 
         self._edges[edge.edge_id] = edge
         self._graph.add_edge(
-            edge.src, edge.dst, key=edge.edge_id,
+            edge.src,
+            edge.dst,
+            key=edge.edge_id,
             relation=edge.relation,
             valid_at=edge.valid_at,
             invalidated_at=edge.invalidated_at,
@@ -276,7 +283,7 @@ class TemporalGraph:
         # Reflect mutation on the multigraph as well.
         try:
             self._graph[old.src][old.dst][old.edge_id]["invalidated_at"] = old.invalidated_at
-        except KeyError:                        # pragma: no cover
+        except KeyError:  # pragma: no cover
             pass
 
     def query_at_time(
@@ -314,38 +321,35 @@ class TemporalGraph:
         if not self._ensure_graph():
             return []
         rows = [
-            e for e in self._edges.values()
+            e
+            for e in self._edges.values()
             if e.src == src and e.dst == dst and e.relation == relation
         ]
         rows.sort(key=lambda e: _parse_iso(e.valid_at))
         return rows
 
-    def find_active(
-        self, src: str, dst: str, relation: str
-    ) -> Optional[TemporalEdge]:
+    def find_active(self, src: str, dst: str, relation: str) -> Optional[TemporalEdge]:
         """Convenience: most recent active edge (None if all superseded)."""
         if not self._ensure_graph():
             return None
         active = [
-            e for e in self._edges.values()
-            if e.src == src and e.dst == dst and e.relation == relation
-            and e.invalidated_at is None
+            e
+            for e in self._edges.values()
+            if e.src == src and e.dst == dst and e.relation == relation and e.invalidated_at is None
         ]
         if not active:
             return None
         active.sort(key=lambda e: _parse_iso(e.valid_at), reverse=True)
         return active[0]
 
-    def find_active_for_subject(
-        self, src: str, relation: str
-    ) -> list[TemporalEdge]:
+    def find_active_for_subject(self, src: str, relation: str) -> list[TemporalEdge]:
         """All currently-active edges where (src, relation, *) holds."""
         if not self._ensure_graph():
             return []
         return [
-            e for e in self._edges.values()
-            if e.src == src and e.relation == relation
-            and e.invalidated_at is None
+            e
+            for e in self._edges.values()
+            if e.src == src and e.relation == relation and e.invalidated_at is None
         ]
 
     def mark_inferred_stale(self, edge_id: str) -> None:
@@ -357,16 +361,14 @@ class TemporalGraph:
         edge = self._edges.get(edge_id)
         if edge is None:
             return
-        edge.metadata = {**edge.metadata, "inferred_stale": True,
-                         "stale_marked_at": _utcnow_iso()}
+        edge.metadata = {**edge.metadata, "inferred_stale": True, "stale_marked_at": _utcnow_iso()}
 
     def stats(self) -> dict:
         if not self._ensure_graph():
             return {"status": "disabled", "edges": 0, "active": 0}
         total = len(self._edges)
         active = sum(1 for e in self._edges.values() if e.invalidated_at is None)
-        stale = sum(1 for e in self._edges.values()
-                    if e.metadata.get("inferred_stale"))
+        stale = sum(1 for e in self._edges.values() if e.metadata.get("inferred_stale"))
         return {
             "status": "active",
             "nodes": self._graph.number_of_nodes(),
@@ -385,6 +387,7 @@ class TemporalGraph:
 # ─────────────────────────────────────────────────────────────────────────
 # Nightly rebuild loop — called from Night Watch Phase 2.
 # ─────────────────────────────────────────────────────────────────────────
+
 
 def _normalize_relation(predicate: str) -> str:
     """Uppercase + strip — predicates can come in inconsistently."""
@@ -472,10 +475,7 @@ async def run_temporal_rebuild(
         result["skipped_no_kg"] = True
         return result
 
-    kg = (
-        getattr(memory_store, "_knowledge_graph", None)
-        or getattr(brain, "knowledge_graph", None)
-    )
+    kg = getattr(memory_store, "_knowledge_graph", None) or getattr(brain, "knowledge_graph", None)
     # We can run with no v1 KG — TemporalGraph will fall back to a default
     # data dir — but log it so it's visible during ops.
     if kg is None:
@@ -516,28 +516,26 @@ async def run_temporal_rebuild(
                         active_exact.source_unit_ids.append(uid)
                         active_exact.source_unit_ids = active_exact.source_unit_ids[-25:]
                     active_exact.metadata["last_seen"] = u_ts
-                    active_exact.metadata["seen_count"] = int(
-                        active_exact.metadata.get("seen_count", 1)
-                    ) + 1
+                    active_exact.metadata["seen_count"] = (
+                        int(active_exact.metadata.get("seen_count", 1)) + 1
+                    )
                     result["reinforced"] += 1
                     continue
 
                 # Contradiction check — single-valued relations only.
                 if _is_single_valued(pred):
-                    competing = [
-                        e for e in tg.find_active_for_subject(subj, pred)
-                        if e.dst != obj
-                    ]
+                    competing = [e for e in tg.find_active_for_subject(subj, pred) if e.dst != obj]
                 else:
                     competing = []
 
                 new_edge = TemporalEdge(
-                    src=subj, dst=obj, relation=pred,
+                    src=subj,
+                    dst=obj,
+                    relation=pred,
                     valid_at=u_ts,
                     source_unit_ids=[uid] if uid else [],
                     confidence=1.0,
-                    metadata={"last_seen": u_ts, "seen_count": 1,
-                              "ingested_at": _utcnow_iso()},
+                    metadata={"last_seen": u_ts, "seen_count": 1, "ingested_at": _utcnow_iso()},
                 )
 
                 if competing:

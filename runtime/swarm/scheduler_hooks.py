@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Any, Optional
+
 
 log = logging.getLogger("ncl.swarm.scheduler_hooks")
 
@@ -44,7 +44,7 @@ class SwarmSchedulerHooks:
             "title": "Weekly Strategy Review",
             "objective": (
                 "Perform a comprehensive strategy review: evaluate mandate completion rates, "
-                "assess pillar health (NCC/BRS/AAC), identify stalled initiatives, "
+                "assess pillar health (NCC; BRS/AAC retired 2026-05-23), identify stalled initiatives, "  # noqa: E501
                 "and propose priority adjustments for the coming week."
             ),
             "interval_seconds": 604800,  # 7 days
@@ -165,8 +165,7 @@ class SwarmSchedulerHooks:
         stats = self.swarm.get_stats()
         active = stats.get("active_tasks", 0)
         log.debug(
-            "[swarm-maintenance] active_tasks=%d completed=%d failed=%d "
-            "cost=%.2f¢ agents=%d",
+            "[swarm-maintenance] active_tasks=%d completed=%d failed=%d " "cost=%.2f¢ agents=%d",
             active,
             stats.get("completed_tasks", 0),
             stats.get("failed_tasks", 0),
@@ -219,6 +218,7 @@ class SwarmSchedulerHooks:
 
         # Initial delay — stagger starts to avoid thundering herd
         import random
+
         initial_delay = random.uniform(10, min(60, interval / 10))
         await asyncio.sleep(initial_delay)
 
@@ -231,7 +231,10 @@ class SwarmSchedulerHooks:
                     priority=task_def.get("priority", 5),
                     budget_cents=task_def.get("budget_cents", 3000),
                     tags=task_def.get("tags", ["recurring"]),
-                    metadata={"recurring": True, "scheduled_at": datetime.now(timezone.utc).isoformat()},
+                    metadata={
+                        "recurring": True,
+                        "scheduled_at": datetime.now(timezone.utc).isoformat(),
+                    },
                 )
             except Exception as e:
                 log.error(f"[swarm-recurring] Failed to submit '{title}': {e}")
@@ -259,9 +262,7 @@ class SwarmSchedulerHooks:
             return {"error": "Council session has no consensus — cannot spawn task"}
 
         # Build objective from council output
-        recommendations_text = "\n".join(
-            f"- {r}" for r in (session.recommendations or [])
-        )
+        recommendations_text = "\n".join(f"- {r}" for r in (session.recommendations or []))
         objective = (
             f"Execute council directive.\n\n"
             f"Council Consensus:\n{session.consensus}\n\n"

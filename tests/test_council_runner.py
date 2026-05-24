@@ -1,21 +1,25 @@
 """Tests for NCL council runner."""
-import asyncio
-import json
+
 import tempfile
-from pathlib import Path
 
 import pytest
 
-from runtime.council_runner.models import (
-    AgentRole,
+from runtime.council_pack.legacy import _synthesize_consensus, get_agent_configs
+
+# W5-06 (2026-05-23): relocated from runtime.council_runner.* — that
+# directory is now archived. The pack owns council session storage +
+# replay; ``run_parallel_council`` / ``get_agent_configs`` /
+# ``_synthesize_consensus`` survive as a deprecated back-compat shim
+# in ``runtime.council_pack.legacy``.
+from runtime.council_pack.models import (
     AgentConfig,
     AgentOutput,
+    AgentRole,
     ConsensusResult,
     CouncilRunRecord,
     ReplayConfig,
 )
-from runtime.council_runner.agents import get_agent_configs, _synthesize_consensus
-from runtime.council_runner.store import CouncilRunStore
+from runtime.council_pack.store import CouncilRunStore
 
 
 @pytest.fixture
@@ -65,7 +69,9 @@ def test_agent_config_properties():
     assert "plan" in planner.system_prompt.lower() or "strategy" in planner.system_prompt.lower()
 
     # Skeptic should focus on challenges
-    assert "challenge" in skeptic.system_prompt.lower() or "skeptic" in skeptic.system_prompt.lower()
+    assert (
+        "challenge" in skeptic.system_prompt.lower() or "skeptic" in skeptic.system_prompt.lower()
+    )
 
     # Risk should focus on risks
     assert "risk" in risk.system_prompt.lower()
@@ -80,7 +86,7 @@ def test_agent_output_creation():
         key_points=["Point 1", "Point 2"],
         dissent_notes=[],
         risks_identified=[],
-        model_used="claude-3-opus"
+        model_used="claude-3-opus",
     )
 
     assert output.role == AgentRole.PLANNER
@@ -99,7 +105,7 @@ def test_consensus_result_creation():
         agreement_areas=["Market risk assessment", "Timeline"],
         dissent_areas=["Resource allocation"],
         risk_flags=["Execution risk", "Market volatility"],
-        recommendations=["Hedge position", "Monitor closely"]
+        recommendations=["Hedge position", "Monitor closely"],
     )
 
     assert consensus.consensus_score == 75
@@ -115,7 +121,7 @@ def test_consensus_synthesis_agreement():
         role=AgentRole.PLANNER,
         response_text="Execute the plan",
         confidence=0.9,
-        key_points=["Execute plan", "Monitor results"]
+        key_points=["Execute plan", "Monitor results"],
     )
 
     skeptic_output = AgentOutput(
@@ -123,7 +129,7 @@ def test_consensus_synthesis_agreement():
         response_text="Plan seems sound",
         confidence=0.85,
         dissent_notes=[],
-        key_points=["Execute plan"]
+        key_points=["Execute plan"],
     )
 
     risk_output = AgentOutput(
@@ -131,7 +137,7 @@ def test_consensus_synthesis_agreement():
         response_text="Risks are manageable",
         confidence=0.8,
         risks_identified=["Market risk (low)"],
-        key_points=["Monitor results"]
+        key_points=["Monitor results"],
     )
 
     outputs = [planner_output, skeptic_output, risk_output]
@@ -147,23 +153,21 @@ def test_consensus_synthesis_agreement():
 def test_consensus_synthesis_dissent():
     """Test consensus synthesis when agents disagree."""
     planner_output = AgentOutput(
-        role=AgentRole.PLANNER,
-        response_text="Execute immediately",
-        confidence=0.9
+        role=AgentRole.PLANNER, response_text="Execute immediately", confidence=0.9
     )
 
     skeptic_output = AgentOutput(
         role=AgentRole.SKEPTIC,
         response_text="Hold on, there are risks",
         confidence=0.8,
-        dissent_notes=["Insufficient due diligence"]
+        dissent_notes=["Insufficient due diligence"],
     )
 
     risk_output = AgentOutput(
         role=AgentRole.RISK,
         response_text="High execution risk",
         confidence=0.85,
-        risks_identified=["Market volatility", "Execution risk"]
+        risks_identified=["Market volatility", "Execution risk"],
     )
 
     outputs = [planner_output, skeptic_output, risk_output]
@@ -181,7 +185,7 @@ def test_consensus_risk_flags():
         AgentOutput(
             role=AgentRole.RISK,
             response_text="Multiple risks identified",
-            risks_identified=["Market risk", "Execution risk", "Regulatory risk"]
+            risks_identified=["Market risk", "Execution risk", "Regulatory risk"],
         )
     ]
 
@@ -197,11 +201,8 @@ def test_council_run_record_creation():
         topic="Market analysis",
         prompt="Analyze recent volatility",
         agent_outputs=[],
-        consensus=ConsensusResult(
-            consensus_text="Consensus text",
-            consensus_score=80
-        ),
-        replay_config=None
+        consensus=ConsensusResult(consensus_text="Consensus text", consensus_score=80),
+        replay_config=None,
     )
 
     assert record.run_id == "run-001"
@@ -221,10 +222,7 @@ async def test_store_save_load(temp_data_dir):
         topic="Test topic",
         prompt="Test prompt",
         agent_outputs=[],
-        consensus=ConsensusResult(
-            consensus_text="Test consensus",
-            consensus_score=75
-        )
+        consensus=ConsensusResult(consensus_text="Test consensus", consensus_score=75),
     )
 
     # Save
@@ -250,10 +248,7 @@ async def test_store_list(temp_data_dir):
             topic=f"Topic {i}",
             prompt=f"Prompt {i}",
             agent_outputs=[],
-            consensus=ConsensusResult(
-                consensus_text=f"Consensus {i}",
-                consensus_score=50 + i * 10
-            )
+            consensus=ConsensusResult(consensus_text=f"Consensus {i}", consensus_score=50 + i * 10),
         )
         await store.save_run(record)
 
@@ -275,10 +270,7 @@ async def test_store_search(temp_data_dir):
             topic=topic,
             prompt=f"Analyze {topic}",
             agent_outputs=[],
-            consensus=ConsensusResult(
-                consensus_text=f"Analysis of {topic}",
-                consensus_score=80
-            )
+            consensus=ConsensusResult(consensus_text=f"Analysis of {topic}", consensus_score=80),
         )
         await store.save_run(record)
 
@@ -298,13 +290,10 @@ async def test_store_provenance(temp_data_dir):
         role=AgentRole.PLANNER,
         response_text="Plan text",
         confidence=0.9,
-        model_used="claude-3-opus"
+        model_used="claude-3-opus",
     )
 
-    consensus = ConsensusResult(
-        consensus_text="Consensus",
-        consensus_score=80
-    )
+    consensus = ConsensusResult(consensus_text="Consensus", consensus_score=80)
 
     record = CouncilRunRecord(
         run_id="run-prov-001",
@@ -312,10 +301,7 @@ async def test_store_provenance(temp_data_dir):
         prompt="Test prompt",
         agent_outputs=[planner_output],
         consensus=consensus,
-        provenance={
-            "pump_id": "pump-123",
-            "mandate_id": "mandate-456"
-        }
+        provenance={"pump_id": "pump-123", "mandate_id": "mandate-456"},
     )
 
     await store.save_run(record)
@@ -334,11 +320,8 @@ def test_council_run_record_model():
         topic="Test topic",
         prompt="Test prompt",
         agent_outputs=[],
-        consensus=ConsensusResult(
-            consensus_text="Text",
-            consensus_score=50
-        ),
-        total_duration_ms=1234
+        consensus=ConsensusResult(consensus_text="Text", consensus_score=50),
+        total_duration_ms=1234,
     )
 
     assert record.run_id == "run-001"
@@ -350,11 +333,8 @@ def test_replay_config():
     replay = ReplayConfig(
         run_id="run-001",
         replay_seed="seed-123",
-        force_models={
-            AgentRole.PLANNER: "claude-3-opus",
-            AgentRole.SKEPTIC: "claude-3-sonnet"
-        },
-        temperature_override=0.3
+        force_models={AgentRole.PLANNER: "claude-3-opus", AgentRole.SKEPTIC: "claude-3-sonnet"},
+        temperature_override=0.3,
     )
 
     assert replay.run_id == "run-001"

@@ -36,25 +36,26 @@ import time
 import uuid
 from collections import deque
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
 
 from .models import (
-    CouncilSession,
-    CouncilStatus,
+    ConsensusScore,
     CouncilMember,
     CouncilRole,
-    CouncilOutput,
+    CouncilSession,
+    CouncilStatus,
     DebateRound,
-    ConsensusScore,
 )
+
 
 log = logging.getLogger("ncl.council")
 
 # ---------------------------------------------------------------------------
 # Cost configuration — overrideable via environment variables (cents per call)
 # ---------------------------------------------------------------------------
+
 
 def _cost_cfg() -> dict[str, int]:
     """
@@ -125,7 +126,7 @@ ROLE_SYSTEM_PROMPTS: dict[str, str] = {
         "feasibility, implementation cost, and architectural soundness. You evaluate whether "
         "proposals can actually be built, how long they'll take, and what technical debt they'll "
         "create. You ask: 'Can we actually ship this?' and 'What's the simplest architecture "
-        "that works?' You flag technically impossible proposals and suggest pragmatic alternatives. "
+        "that works?' You flag technically impossible proposals and suggest pragmatic alternatives. "  # noqa: E501
         "You think about Mac Mini M4 Pro constraints, Apple Silicon optimization, and local-first "
         "architecture."
     ),
@@ -145,6 +146,7 @@ DEFAULT_ROLE_MAP: dict[CouncilMember, CouncilRole] = {
 # ---------------------------------------------------------------------------
 # Round-Specific Prompting
 # ---------------------------------------------------------------------------
+
 
 def _build_round_prompt(
     round_type: str,
@@ -189,7 +191,7 @@ def _build_round_prompt(
             f"{system}\n\n"
             f"COUNCIL DEBATE — Round {round_number}: REBUTTAL\n"
             f"Topic: {topic}\n\n"
-            f"Your initial position was:\n{previous_responses.get(member_name, '(no response)')[:400]}\n\n"
+            f"Your initial position was:\n{previous_responses.get(member_name, '(no response)')[:400]}\n\n"  # noqa: E501
             f"Other council members' positions:{others_text}\n\n"
             f"As the {role.value.upper()}, respond to the other members' positions.\n"
             f"You MUST:\n"
@@ -219,12 +221,12 @@ def _build_round_prompt(
             f"Topic: {topic}\n\n"
             f"ROUND 1 POSITIONS (summary):{r1_text}\n\n"
             f"ROUND 2 REBUTTALS (summary):{r2_text}\n\n"
-            f"This is the FINAL round. As the {role.value.upper()}, provide your definitive position.\n"
+            f"This is the FINAL round. As the {role.value.upper()}, provide your definitive position.\n"  # noqa: E501
             f"Structure your response as:\n"
             f"FINAL_POSITION: Your definitive stance after hearing all arguments\n"
             f"AGREE_WITH: Which members/arguments you agree with and why\n"
             f"DISSENT: Any remaining disagreements (or 'None')\n"
-            f"MANDATE: Your recommended mandate(s) with PILLAR, TITLE, OBJECTIVE, PRIORITY, SUCCESS_CRITERIA\n"
+            f"MANDATE: Your recommended mandate(s) with PILLAR, TITLE, OBJECTIVE, PRIORITY, SUCCESS_CRITERIA\n"  # noqa: E501
             f"CONFIDENCE: Your final confidence (0-100)\n"
         )
 
@@ -357,11 +359,7 @@ class CouncilEngine:
 
     @property
     def copilot_api_key(self) -> Optional[str]:
-        return (
-            os.environ.get("GITHUB_COPILOT_API_KEY")
-            or self._copilot_api_key
-            or None
-        )
+        return os.environ.get("GITHUB_COPILOT_API_KEY") or self._copilot_api_key or None
 
     # ------------------------------------------------------------------
     # Rate limiter helpers
@@ -393,7 +391,10 @@ class CouncilEngine:
             self._rate_limit_timestamps.append(now)
 
     async def spawn_session(
-        self, topic: str, prompt: str, members: Optional[list[CouncilMember]] = None,
+        self,
+        topic: str,
+        prompt: str,
+        members: Optional[list[CouncilMember]] = None,
         session_id: Optional[str] = None,
     ) -> CouncilSession:
         """Spawn a new council debate session with role assignments."""
@@ -481,7 +482,9 @@ class CouncilEngine:
         for member, response in zip(session.members, results):
             r1.responses[member.value] = response
             r1.scores[member.value] = self._extract_confidence(response)
-            log.info(f"[council:{session.session_id}] R1 {member.value}: {len(response)} chars, confidence={r1.scores.get(member.value, 0)}")
+            log.info(
+                f"[council:{session.session_id}] R1 {member.value}: {len(response)} chars, confidence={r1.scores.get(member.value, 0)}"  # noqa: E501
+            )
 
         session.rounds.append(r1)
 
@@ -489,7 +492,8 @@ class CouncilEngine:
         # QUORUM CHECK — After Round 1, verify minimum functioning members
         # ===================================================================
         unavailable_count = sum(
-            1 for resp in r1.responses.values()
+            1
+            for resp in r1.responses.values()
             if resp.startswith("[") and "unavailable" in resp.lower().split("]", 1)[0]
         )
         functioning_count = len(session.members) - unavailable_count
@@ -505,20 +509,22 @@ class CouncilEngine:
             session.synthesis = (
                 f"Council debate HALTED due to insufficient quorum. "
                 f"Unavailable members: {unavailable_count} / {len(session.members)}. "
-                f"Minimum 4 functioning members required. Round 1 responses preserved for manual review."
+                f"Minimum 4 functioning members required. Round 1 responses preserved for manual review."  # noqa: E501
             )
             session.consensus_score = ConsensusScore(
                 agreement_pct=0.0,
                 confidence_weighted=0.0,
                 threshold_met=False,
-                reason="Quorum not met"
+                reason="Quorum not met",
             )
             await self._paperclip_report_quorum_failure(session, _pc_issue_id, unavailable_count)
             return session
 
         # PAPERCLIP — Report Round 1 costs
         await self._paperclip_report_round_costs(
-            session.session_id, _pc_issue_id, 1,
+            session.session_id,
+            _pc_issue_id,
+            1,
             [m.value for m in session.members],
         )
 
@@ -549,7 +555,9 @@ class CouncilEngine:
         for member, response in zip(debaters, results):
             r2.responses[member.value] = response
             r2.scores[member.value] = self._extract_confidence(response)
-            log.info(f"[council:{session.session_id}] R2 {member.value}: {len(response)} chars, confidence={r2.scores.get(member.value, 0)}")
+            log.info(
+                f"[council:{session.session_id}] R2 {member.value}: {len(response)} chars, confidence={r2.scores.get(member.value, 0)}"  # noqa: E501
+            )
 
         session.rounds.append(r2)
 
@@ -557,7 +565,8 @@ class CouncilEngine:
         # QUORUM CHECK — After Round 2, verify minimum functioning members
         # ===================================================================
         unavailable_count = sum(
-            1 for resp in r2.responses.values()
+            1
+            for resp in r2.responses.values()
             if resp.startswith("[") and "unavailable" in resp.lower().split("]", 1)[0]
         )
         functioning_count = len(debaters) - unavailable_count
@@ -573,20 +582,22 @@ class CouncilEngine:
             session.synthesis = (
                 f"Council debate HALTED due to insufficient quorum at Round 2. "
                 f"Unavailable debaters: {unavailable_count} / {len(debaters)}. "
-                f"Minimum 4 functioning members required. Rounds 1-2 responses preserved for manual review."
+                f"Minimum 4 functioning members required. Rounds 1-2 responses preserved for manual review."  # noqa: E501
             )
             session.consensus_score = ConsensusScore(
                 agreement_pct=0.0,
                 confidence_weighted=0.0,
                 threshold_met=False,
-                reason="Quorum not met at Round 2"
+                reason="Quorum not met at Round 2",
             )
             await self._paperclip_report_quorum_failure(session, _pc_issue_id, unavailable_count)
             return session
 
         # PAPERCLIP — Report Round 2 costs
         await self._paperclip_report_round_costs(
-            session.session_id, _pc_issue_id, 2,
+            session.session_id,
+            _pc_issue_id,
+            2,
             [m.value for m in debaters],
         )
 
@@ -618,13 +629,17 @@ class CouncilEngine:
             r3.responses[member.value] = response
             r3.scores[member.value] = self._extract_confidence(response)
             session.responses[member.value] = response  # Final positions
-            log.info(f"[council:{session.session_id}] R3 {member.value}: {len(response)} chars, confidence={r3.scores.get(member.value, 0)}")
+            log.info(
+                f"[council:{session.session_id}] R3 {member.value}: {len(response)} chars, confidence={r3.scores.get(member.value, 0)}"  # noqa: E501
+            )
 
         session.rounds.append(r3)
 
         # PAPERCLIP — Report Round 3 costs
         await self._paperclip_report_round_costs(
-            session.session_id, _pc_issue_id, 3,
+            session.session_id,
+            _pc_issue_id,
+            3,
             [m.value for m in debaters],
         )
 
@@ -648,8 +663,8 @@ class CouncilEngine:
         # CONSENSUS SCORING — Quantify agreement
         # ===================================================================
         session.consensus_score = self._score_consensus(session)
-        session.consensus, session.recommendations, session.dissents = (
-            self._extract_insights(session)
+        session.consensus, session.recommendations, session.dissents = self._extract_insights(
+            session
         )
 
         # ===================================================================
@@ -657,7 +672,9 @@ class CouncilEngine:
         # ===================================================================
         # Report synthesis cost (one more Claude call)
         await self._paperclip_report_round_costs(
-            session.session_id, _pc_issue_id, 4,  # Round 4 = synthesis
+            session.session_id,
+            _pc_issue_id,
+            4,  # Round 4 = synthesis
             ["claude"],
         )
 
@@ -693,11 +710,15 @@ class CouncilEngine:
         try:
             return await self._get_member_response(member, prompt)
         except Exception as e:
-            log.warning(f"[council:{session_id}] {member.value} API failed: {type(e).__name__}: {e!r}, trying Ollama")
+            log.warning(
+                f"[council:{session_id}] {member.value} API failed: {type(e).__name__}: {e!r}, trying Ollama"  # noqa: E501
+            )
             try:
                 return await self._get_ollama_response(member, prompt)
             except Exception as e2:
-                log.error(f"[council:{session_id}] {member.value} Ollama also failed: {type(e2).__name__}: {e2!r}")
+                log.error(
+                    f"[council:{session_id}] {member.value} Ollama also failed: {type(e2).__name__}: {e2!r}"  # noqa: E501
+                )
                 return f"[{member.value} unavailable — both API and Ollama failed]"
 
     async def _get_member_response(self, member: CouncilMember, prompt: str) -> str:
@@ -720,213 +741,243 @@ class CouncilEngine:
     # API Implementations
     # -----------------------------------------------------------------------
 
-    async def _call_claude(self, prompt: str) -> str:
+    async def _call_claude(
+        self,
+        prompt: str,
+        documents: Optional[list[dict]] = None,
+        return_response: bool = False,
+    ):
+        """Call Anthropic messages API via the runtime.llm facade.
+
+        Return-shape contract (W4-06 tuple-semantics, preserved by W6-D):
+        -----------------------------------------------------------------
+        - When ``documents`` is non-empty: ALWAYS returns
+          ``(text, response_json)`` — the tuple is implied by the
+          Citations-API shape and is needed by ``parse_citations``.
+          The legacy ``return_response`` flag is IGNORED in this branch
+          (kept in the signature only for back-compat with any kwarg
+          callers).
+        - When ``documents`` is None/empty: returns ``text`` (str) —
+          this is the back-compat hot path used by every member-response
+          dispatch site (4 rounds x 5 members).
+
+        W6-D migration note
+        -------------------
+        Transport was inline httpx → ``runtime.llm.chat``. The facade
+        owns:
+            * budget gate (anthropic key)
+            * per-provider circuit breaker
+            * retry-with-jitter (3 attempts; fatal HTTP 401/403/404 short-circuit)
+            * Citations API passthrough (documents → first user message)
+            * defensive response validation
+            * cost recording
+
+        The pre-call ``check_budget("anthropic", 0.25)`` was retained as a
+        belt-and-suspenders guard because the chair-synthesis call is the
+        most expensive single Anthropic call we make and we still want the
+        explicit ``RuntimeError`` on a known-exhausted day rather than
+        the facade's ``BudgetExhausted``. The facade does its own gate too
+        with a more accurate ``estimate_cost`` so the second check is the
+        binding one.
+
+        Parameters
+        ----------
+        prompt : str
+            Free-text directive / question. Always required.
+        documents : list[dict], optional
+            Anthropic Citations API document blocks
+            (see runtime/council_pack/citations.py:build_citation_documents).
+            When non-empty, the facade is given a single user message whose
+            ``content`` is a list with the documents PREPENDED to the
+            user-text block, enabling per-claim citation annotations.
+            When None/empty, falls through to the legacy bare-string
+            ``content`` path and returns just ``text``.
+        return_response : bool, default False
+            DEPRECATED. Retained only so existing keyword callers
+            (``return_response=True``) don't raise TypeError. Tuple-vs-str
+            return shape is now decided strictly by whether ``documents``
+            is non-empty.
+        """
         api_key = self.claude_api_key
         if not api_key:
             raise ValueError("Anthropic API key not configured")
 
-        from ..cost_tracker import check_budget, record_cost
+        from ..cost_tracker import check_budget
+
         if not await check_budget("anthropic", 0.25):
             raise RuntimeError("Anthropic daily budget exceeded — council call blocked")
 
+        # Build messages payload exactly as the facade expects.
+        # When documents are present we hand the facade a single user
+        # message whose `content` is already the full block list
+        # ([doc1, doc2, ..., {"type":"text","text":prompt}]). The facade
+        # will pass this through to Anthropic verbatim (see
+        # _build_anthropic_user_content: list content on the first user
+        # turn is extended, not re-wrapped).
+        if documents:
+            user_content: Any = [*documents, {"type": "text", "text": prompt}]
+        else:
+            user_content = prompt
+
+        from ..llm import chat as _llm_chat
+        from ..llm.errors import BudgetExhausted, FatalAPIError, RateLimited
+
         try:
-            resp = await self.http_client.post(
-                f"{self.anthropic_base_url}/v1/messages",
-                headers={
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": "claude-sonnet-4-20250514",
-                    "max_tokens": 2048,
-                    "messages": [{"role": "user", "content": prompt}],
-                },
-                timeout=self._api_timeout,
+            result = await _llm_chat(
+                model="claude-sonnet-4-20250514",
+                messages=[{"role": "user", "content": user_content}],
+                max_tokens=2048,
+                temperature=0.7,
+                documents=documents,
+                budget_key="anthropic",
+                timeout_s=self._api_timeout,
             )
-            resp.raise_for_status()
+        except BudgetExhausted as exc:
+            # Surface as RuntimeError so the legacy "Anthropic budget
+            # exceeded" callers stay on the same except branch.
+            raise RuntimeError(
+                f"Anthropic daily budget exceeded — council call blocked ({exc})"
+            ) from exc
+        except asyncio.TimeoutError as exc:
+            raise TimeoutError(f"Claude API timed out after {self._api_timeout}s") from exc
+        except FatalAPIError as exc:
+            raise RuntimeError(f"Claude API HTTP {exc.status}") from exc
+        except RateLimited as exc:
+            raise RuntimeError(f"Claude API rate-limited: {exc}") from exc
         except httpx.TimeoutException as exc:
+            # Defensive — facade should translate to asyncio.TimeoutError
+            # but we keep this so the legacy except branch still catches.
             raise TimeoutError(f"Claude API timed out after {self._api_timeout}s") from exc
         except httpx.HTTPStatusError as exc:
             raise RuntimeError(f"Claude API HTTP {exc.response.status_code}") from exc
-        data = resp.json()
-        content = data.get("content", [])
-        if not content or not isinstance(content, list):
-            raise ValueError(f"Unexpected Claude response: {list(data.keys())}")
 
-        # Record cost
-        usage = data.get("usage", {})
-        input_t = usage.get("input_tokens", 0)
-        output_t = usage.get("output_tokens", 0)
-        cost = (input_t / 1000 * 0.003) + (output_t / 1000 * 0.015)
-        await record_cost("anthropic", cost, "council_run",
-                          f"claude-sonnet in={input_t} out={output_t}",
-                          model="claude-sonnet-4-20250514", input_tokens=input_t, output_tokens=output_t)
+        text = result.text
+        if not text:
+            # The facade's validator already guards against missing
+            # `content` keys; reaching this branch means the model
+            # returned a non-text reply (tool_use / thinking only).
+            raise ValueError("Claude returned no text content")
 
-        return content[0].get("text", "")
+        # Return-shape is driven by `documents`, not `return_response`
+        # (see docstring). `return_response` is kept only as an accepted
+        # kwarg for back-compat; it has no effect on the chosen branch.
+        if documents:
+            return text, result.raw
+        return text
 
     async def _call_grok(self, prompt: str) -> str:
-        api_key = self.xai_api_key
-        if not api_key:
+        """Thin wrapper over the LLM facade. Provider gates (budget, breaker,
+        retry, cost record) live in ``runtime.llm.chat``.
+        """
+        if not self.xai_api_key:
             raise ValueError("xAI API key not configured")
-
-        from ..cost_tracker import check_budget, record_cost
-        if not await check_budget("xai", 0.10):
-            raise RuntimeError("xAI daily budget exceeded — council call blocked")
-
-        try:
-            resp = await self.http_client.post(
-                "https://api.x.ai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}"},
-                json={
-                    "model": "grok-3",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.8,
-                    "max_tokens": 2048,
-                },
-                timeout=self._api_timeout,
-            )
-            resp.raise_for_status()
-        except httpx.TimeoutException as exc:
-            raise TimeoutError(f"Grok API timed out after {self._api_timeout}s") from exc
-        except httpx.HTTPStatusError as exc:
-            raise RuntimeError(f"Grok API HTTP {exc.response.status_code}") from exc
-        data = resp.json()
-        choices = data.get("choices", [])
-        if not choices:
-            raise ValueError(f"Grok returned no choices: {list(data.keys())}")
-
-        usage = data.get("usage", {})
-        input_t = usage.get("prompt_tokens", 0)
-        output_t = usage.get("completion_tokens", 0)
-        cost = (input_t / 1000 * 0.005) + (output_t / 1000 * 0.015)
-        await record_cost("xai", cost, "council_run",
-                          f"grok-3 in={input_t} out={output_t}",
-                          model="grok-3", input_tokens=input_t, output_tokens=output_t)
-
-        return choices[0].get("message", {}).get("content", "")
+        return await self._llm_facade_call(
+            model="grok-3",
+            prompt=prompt,
+            budget_key="xai",
+            temperature=0.8,
+            provider_label="Grok",
+        )
 
     async def _call_gemini(self, prompt: str) -> str:
-        api_key = self.google_api_key
-        if not api_key:
+        """Thin wrapper over the LLM facade. See ``_call_grok`` docstring."""
+        if not self.google_api_key:
             raise ValueError("Google API key not configured")
-
-        from ..cost_tracker import check_budget, record_cost
-        if not await check_budget("google", 0.10):
-            raise RuntimeError("Google daily budget exceeded — council call blocked")
-
-        try:
-            resp = await self.http_client.post(
-                "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
-                params={"key": api_key},
-                json={"contents": [{"parts": [{"text": prompt}]}]},
-                timeout=self._api_timeout,
-            )
-            resp.raise_for_status()
-        except httpx.TimeoutException as exc:
-            raise TimeoutError(f"Gemini API timed out after {self._api_timeout}s") from exc
-        except httpx.HTTPStatusError as exc:
-            raise RuntimeError(f"Gemini API HTTP {exc.response.status_code}") from exc
-        data = resp.json()
-        candidates = data.get("candidates", [])
-        if not candidates:
-            raise ValueError(f"Gemini returned no candidates: {list(data.keys())}")
-        parts = candidates[0].get("content", {}).get("parts", [])
-        if not parts:
-            raise ValueError("Gemini candidate has no content parts")
-
-        # Gemini usage metadata
-        usage_meta = data.get("usageMetadata", {})
-        input_t = usage_meta.get("promptTokenCount", 0)
-        output_t = usage_meta.get("candidatesTokenCount", 0)
-        cost = (input_t / 1000 * 0.001) + (output_t / 1000 * 0.004)  # Gemini Flash pricing
-        await record_cost("google", cost, "council_run",
-                          f"gemini-2.5-flash in={input_t} out={output_t}",
-                          model="gemini-2.5-flash", input_tokens=input_t, output_tokens=output_t)
-
-        return parts[0].get("text", "")
+        return await self._llm_facade_call(
+            model="gemini-2.5-flash",
+            prompt=prompt,
+            budget_key="google",
+            temperature=0.7,
+            provider_label="Gemini",
+        )
 
     async def _call_perplexity(self, prompt: str) -> str:
-        api_key = self.perplexity_api_key
-        if not api_key:
+        """Thin wrapper over the LLM facade. See ``_call_grok`` docstring."""
+        if not self.perplexity_api_key:
             raise ValueError("Perplexity API key not configured")
-        try:
-            resp = await self.http_client.post(
-                "https://api.perplexity.ai/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}"},
-                json={
-                    "model": "sonar-pro",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.5,  # Lower for fact-checking accuracy
-                    "max_tokens": 2048,
-                },
-                timeout=self._api_timeout,
-            )
-            resp.raise_for_status()
-        except httpx.TimeoutException as exc:
-            raise TimeoutError(f"Perplexity API timed out after {self._api_timeout}s") from exc
-        except httpx.HTTPStatusError as exc:
-            raise RuntimeError(f"Perplexity API HTTP {exc.response.status_code}") from exc
-        data = resp.json()
-        choices = data.get("choices", [])
-        if not choices:
-            raise ValueError(f"Perplexity returned no choices: {list(data.keys())}")
-
-        # Track cost
-        try:
-            from ..cost_tracker import record_cost
-            usage = data.get("usage", {})
-            input_t = usage.get("prompt_tokens", 0)
-            output_t = usage.get("completion_tokens", 0)
-            cost = (input_t * 3.0 + output_t * 15.0) / 1_000_000  # sonar-pro pricing
-            await record_cost("perplexity", cost, "council_run",
-                              f"sonar-pro in={input_t} out={output_t}",
-                              model="sonar-pro", input_tokens=input_t, output_tokens=output_t)
-        except Exception:
-            pass
-
-        return choices[0].get("message", {}).get("content", "")
+        return await self._llm_facade_call(
+            model="sonar-pro",
+            prompt=prompt,
+            budget_key="perplexity",
+            temperature=0.5,
+            provider_label="Perplexity",
+        )
 
     async def _call_gpt(self, prompt: str) -> str:
-        api_key = self.openai_api_key
-        if not api_key:
+        """Thin wrapper over the LLM facade. See ``_call_grok`` docstring."""
+        if not self.openai_api_key:
             raise ValueError("OpenAI API key not configured")
+        return await self._llm_facade_call(
+            model="gpt-4o",
+            prompt=prompt,
+            budget_key="openai",
+            temperature=0.9,
+            provider_label="GPT",
+        )
+
+    async def _llm_facade_call(
+        self,
+        *,
+        model: str,
+        prompt: str,
+        budget_key: str,
+        temperature: float,
+        provider_label: str,
+        system: Optional[str] = None,
+        max_tokens: int = 2048,
+    ) -> str:
+        """Shared façade-call helper for non-Anthropic council members.
+
+        Translates the facade's structured errors into the legacy
+        ``TimeoutError`` / ``RuntimeError`` / ``ValueError`` shapes that
+        ``_get_member_response`` and the Ollama fallback path expect.
+        """
+        from ..llm import chat as _llm_chat
+        from ..llm.errors import (
+            BudgetExhausted,
+            CircuitOpen,
+            FatalAPIError,
+            LLMError,
+            RateLimited,
+        )
+
         try:
-            resp = await self.http_client.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}"},
-                json={
-                    "model": "gpt-4o",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.9,  # Higher for creative divergence
-                    "max_tokens": 2048,
-                },
-                timeout=self._api_timeout,
+            result = await _llm_chat(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                system=system,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                budget_key=budget_key,
+                timeout_s=self._api_timeout,
             )
-            resp.raise_for_status()
+        except BudgetExhausted as exc:
+            raise RuntimeError(
+                f"{provider_label} daily budget exceeded — council call blocked ({exc})"
+            ) from exc
+        except CircuitOpen as exc:
+            raise RuntimeError(f"{provider_label} circuit open: {exc}") from exc
+        except asyncio.TimeoutError as exc:
+            raise TimeoutError(
+                f"{provider_label} API timed out after {self._api_timeout}s"
+            ) from exc
+        except FatalAPIError as exc:
+            raise RuntimeError(f"{provider_label} API HTTP {exc.status}") from exc
+        except RateLimited as exc:
+            raise RuntimeError(f"{provider_label} API rate-limited: {exc}") from exc
         except httpx.TimeoutException as exc:
-            raise TimeoutError(f"GPT API timed out after {self._api_timeout}s") from exc
+            raise TimeoutError(
+                f"{provider_label} API timed out after {self._api_timeout}s"
+            ) from exc
         except httpx.HTTPStatusError as exc:
-            raise RuntimeError(f"GPT API HTTP {exc.response.status_code}") from exc
-        data = resp.json()
-        choices = data.get("choices", [])
-        if not choices:
-            raise ValueError(f"GPT returned no choices: {list(data.keys())}")
+            raise RuntimeError(f"{provider_label} API HTTP {exc.response.status_code}") from exc
+        except LLMError as exc:
+            raise RuntimeError(f"{provider_label} API error: {exc}") from exc
 
-        # Track cost
-        try:
-            from ..cost_tracker import record_cost
-            usage = data.get("usage", {})
-            input_t = usage.get("prompt_tokens", 0)
-            output_t = usage.get("completion_tokens", 0)
-            cost = (input_t * 2.5 + output_t * 10.0) / 1_000_000  # GPT-4o pricing
-            await record_cost("openai", cost, "council_run",
-                              f"gpt-4o in={input_t} out={output_t}",
-                              model="gpt-4o", input_tokens=input_t, output_tokens=output_t)
-        except Exception:
-            pass
-
-        return choices[0].get("message", {}).get("content", "")
+        text = result.text or ""
+        if not text:
+            raise ValueError(f"{provider_label} returned no text content")
+        return text
 
     async def _call_copilot(self, prompt: str) -> str:
         """
@@ -958,7 +1009,10 @@ class CouncilEngine:
                     },
                     json={
                         "messages": [
-                            {"role": "system", "content": ROLE_SYSTEM_PROMPTS[CouncilRole.ENGINEER]},
+                            {
+                                "role": "system",
+                                "content": ROLE_SYSTEM_PROMPTS[CouncilRole.ENGINEER],
+                            },
                             {"role": "user", "content": prompt},
                         ],
                         "temperature": 0.5,
@@ -977,61 +1031,42 @@ class CouncilEngine:
                 # Track Azure cost
                 try:
                     from ..cost_tracker import record_cost
+
                     usage = data.get("usage", {})
                     input_t = usage.get("prompt_tokens", 0)
                     output_t = usage.get("completion_tokens", 0)
                     cost = (input_t * 2.5 + output_t * 10.0) / 1_000_000
-                    await record_cost("openai", cost, "council_run",
-                                      f"azure-{azure_deployment} in={input_t} out={output_t}",
-                                      model=azure_deployment, input_tokens=input_t, output_tokens=output_t)
+                    await record_cost(
+                        "openai",
+                        cost,
+                        "council_run",
+                        f"azure-{azure_deployment} in={input_t} out={output_t}",
+                        model=azure_deployment,
+                        input_tokens=input_t,
+                        output_tokens=output_t,
+                    )
                 except Exception:
                     pass
                 return choices[0].get("message", {}).get("content", "")
 
-        # Fallback: OpenAI direct
-        api_key = self.copilot_api_key or self.openai_api_key
-        if not api_key:
+        # Fallback: OpenAI direct via the LLM facade.
+        #
+        # Azure OpenAI (above) stays on the raw httpx path because the
+        # facade has no Azure endpoint shape (custom URL per deployment,
+        # ``api-key`` header instead of ``Authorization: Bearer``). When
+        # AZURE_OPENAI_* is unset we drop to the OpenAI shape, which the
+        # facade owns end-to-end (budget + breaker + retry + cost record).
+        if not (self.copilot_api_key or self.openai_api_key):
             raise ValueError("No Azure, Copilot, or OpenAI API key configured for ENGINEER role")
-
-        try:
-            resp = await self.http_client.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}"},
-                json={
-                    "model": "gpt-4o",
-                    "messages": [
-                        {"role": "system", "content": ROLE_SYSTEM_PROMPTS[CouncilRole.ENGINEER]},
-                        {"role": "user", "content": prompt},
-                    ],
-                    "temperature": 0.5,
-                    "max_tokens": 2048,
-                },
-                timeout=self._api_timeout,
-            )
-            resp.raise_for_status()
-        except httpx.TimeoutException as exc:
-            raise TimeoutError(f"Copilot/OpenAI timed out after {self._api_timeout}s") from exc
-        except httpx.HTTPStatusError as exc:
-            raise RuntimeError(f"Copilot/OpenAI HTTP {exc.response.status_code}") from exc
-        data = resp.json()
-        choices = data.get("choices", [])
-        if not choices:
-            raise ValueError(f"Copilot/OpenAI returned no choices: {list(data.keys())}")
-
-        # Track cost
-        try:
-            from ..cost_tracker import record_cost
-            usage = data.get("usage", {})
-            input_t = usage.get("prompt_tokens", 0)
-            output_t = usage.get("completion_tokens", 0)
-            cost = (input_t * 2.5 + output_t * 10.0) / 1_000_000
-            await record_cost("openai", cost, "council_run",
-                              f"copilot-gpt-4o in={input_t} out={output_t}",
-                              model="gpt-4o", input_tokens=input_t, output_tokens=output_t)
-        except Exception:
-            pass
-
-        return choices[0].get("message", {}).get("content", "")
+        return await self._llm_facade_call(
+            model="gpt-4o",
+            prompt=prompt,
+            budget_key="openai",
+            temperature=0.5,
+            provider_label="Copilot/OpenAI",
+            system=ROLE_SYSTEM_PROMPTS[CouncilRole.ENGINEER],
+            max_tokens=2048,
+        )
 
     async def _get_ollama_response(self, member: CouncilMember, prompt: str) -> str:
         """Fallback to local Ollama model.
@@ -1088,20 +1123,57 @@ class CouncilEngine:
             f' "key_insights": ["insight 1", "insight 2", "insight 3"],'
             f' "dissents": ["dissent 1"],'
             f' "mandate_recommendations": ['
-            f'{{"pillar": "NCC", "title": "mandate title", "objective": "objective", "priority": 5, "success_criteria": ["criteria 1"]}}],'
+            f'{{"pillar": "NCC", "title": "mandate title", "objective": "objective", "priority": 5, "success_criteria": ["criteria 1"]}}],'  # noqa: E501
             f' "risk_flags": ["risk 1"],'
             f' "confidence": 80}}\n\n'
             f"Respond with ONLY the JSON object, no markdown fences. "
             f"Be decisive. NATRIX needs clear direction, not hedge-everything caution."
         )
 
+        # If session has Anthropic Citations document blocks attached (set by
+        # council_pack.runners.run_council_with_pack), use the dual-shape call
+        # that returns (text, response_json) so we can parse citation
+        # annotations downstream. Otherwise stay on the legacy string-only
+        # path (back-compat with every non-pack caller).
+        session_documents = getattr(session, "documents", None) or []
         try:
-            raw = await self._call_claude(synthesis_prompt)
+            if session_documents:
+                raw, response_json = await self._call_claude(
+                    synthesis_prompt,
+                    documents=session_documents,
+                )
+                # Stash for parse_citations() in the runner. Success path.
+                try:
+                    session.synthesis_response_json = response_json
+                except Exception:
+                    pass
+            else:
+                raw = await self._call_claude(synthesis_prompt)
+                # No documents attached -> there can never be Citations to
+                # parse downstream. Make this explicit so the runner can
+                # distinguish "no documents" from "API call failed".
+                try:
+                    session.synthesis_response_json = None
+                except Exception:
+                    pass
         except Exception as e:
             log.warning(
                 f"[council:{session.session_id}] chair synthesis API failed: "
                 f"{type(e).__name__}: {e!r}, falling back to Ollama"
             )
+            # Fallback path -> Ollama doesn't speak Citations. Explicitly
+            # stamp None so the runner reports `citations_status =
+            # "fallback_no_citations"` rather than silently dropping the
+            # Citations grounding the caller asked for.
+            try:
+                session.synthesis_response_json = None
+            except Exception:
+                pass
+            if session_documents:
+                log.info(
+                    f"[council:{session.session_id}] [chair] synthesis used "
+                    f"fallback; citations dropped"
+                )
             raw = await self._get_ollama_response(CouncilMember.CLAUDE, synthesis_prompt)
 
         # Try to parse JSON response; fall back to raw text if parsing fails
@@ -1190,14 +1262,17 @@ class CouncilEngine:
         for member_name, response in (r3.responses if r3 else {}).items():
             lower = response.lower()
             # Count agreement signals
-            agree_signals = len(re.findall(
-                r'\bagree\b|\bconsensus\b|\balign\b|\bsupport\b|\bconcur\b|\bendorse\b',
-                lower
-            ))
-            disagree_signals = len(re.findall(
-                r'\bdisagree\b|\bdissent\b|\boppose\b|\breject\b|\bchallenge\b|\bcontra\b',
-                lower
-            ))
+            agree_signals = len(
+                re.findall(
+                    r"\bagree\b|\bconsensus\b|\balign\b|\bsupport\b|\bconcur\b|\bendorse\b", lower
+                )
+            )
+            disagree_signals = len(
+                re.findall(
+                    r"\bdisagree\b|\bdissent\b|\boppose\b|\breject\b|\bchallenge\b|\bcontra\b",
+                    lower,
+                )
+            )
 
             if agree_signals > disagree_signals:
                 agree_count += 1
@@ -1253,14 +1328,26 @@ class CouncilEngine:
             lower = stripped.lower()
 
             # Detect section headers
-            if any(kw in lower for kw in ["consensus:", "consensus position", "agreement", "common ground"]):
+            if any(
+                kw in lower
+                for kw in ["consensus:", "consensus position", "agreement", "common ground"]
+            ):
                 current_section = "consensus"
                 # Check if the content is on the same line after ':'
                 after_colon = stripped.split(":", 1)[1].strip() if ":" in stripped else ""
                 if after_colon and len(after_colon) > 10:
                     consensus = after_colon
                 continue
-            elif any(kw in lower for kw in ["mandate_recommendation", "recommendation", "action item", "next step", "mandate"]):
+            elif any(
+                kw in lower
+                for kw in [
+                    "mandate_recommendation",
+                    "recommendation",
+                    "action item",
+                    "next step",
+                    "mandate",
+                ]
+            ):
                 current_section = "recommendations"
                 continue
             elif any(kw in lower for kw in ["dissent", "disagreement", "minority", "unresolved"]):
@@ -1293,12 +1380,19 @@ class CouncilEngine:
         # Fallback parsing
         if not consensus:
             paragraphs = [p.strip() for p in synthesis.split("\n\n") if p.strip()]
-            consensus = paragraphs[0] if paragraphs else "Synthesis produced but no clear consensus extracted."
+            consensus = (
+                paragraphs[0]
+                if paragraphs
+                else "Synthesis produced but no clear consensus extracted."
+            )
 
         if not recommendations:
             for line in lines:
                 stripped = line.strip()
-                if any(kw in stripped.lower() for kw in ["should", "recommend", "suggest", "prioritize", "pillar:"]):
+                if any(
+                    kw in stripped.lower()
+                    for kw in ["should", "recommend", "suggest", "prioritize", "pillar:"]
+                ):
                     clean = re.sub(r"^[\d\.\-\*\+]+\s*", "", stripped)
                     if clean and len(clean) > 10:
                         recommendations.append(clean)
@@ -1308,13 +1402,19 @@ class CouncilEngine:
     @staticmethod
     def _extract_confidence(response: str) -> float:
         """Extract confidence score from a member's response."""
-        match = re.search(r'(?:CONFIDENCE|confidence)\s*[:=]\s*(\d+)', response)
+        match = re.search(r"(?:CONFIDENCE|confidence)\s*[:=]\s*(\d+)", response)
         if match:
             return min(100.0, max(0.0, float(match.group(1))))
         # Heuristic: count certainty language
         lower = response.lower()
-        certainty_words = len(re.findall(r'\bcertain\b|\bconfident\b|\bclearly\b|\bdefinitely\b|\bstrongly\b', lower))
-        uncertainty_words = len(re.findall(r'\buncertain\b|\bperhaps\b|\bmaybe\b|\bpossibly\b|\bmight\b|\bunsure\b', lower))
+        certainty_words = len(
+            re.findall(r"\bcertain\b|\bconfident\b|\bclearly\b|\bdefinitely\b|\bstrongly\b", lower)
+        )
+        uncertainty_words = len(
+            re.findall(
+                r"\buncertain\b|\bperhaps\b|\bmaybe\b|\bpossibly\b|\bmight\b|\bunsure\b", lower
+            )
+        )
         base = 50.0
         base += certainty_words * 8
         base -= uncertainty_words * 8
@@ -1332,7 +1432,9 @@ class CouncilEngine:
             paperclip_url = os.getenv("PAPERCLIP_URL", "http://localhost:3100")
             company_id = os.getenv("PAPERCLIP_COMPANY_ID", "")
             if not company_id:
-                log.warning("[council:paperclip] No PAPERCLIP_COMPANY_ID set, skipping issue creation")
+                log.warning(
+                    "[council:paperclip] No PAPERCLIP_COMPANY_ID set, skipping issue creation"
+                )
                 return None
 
             # Actual Paperclip createIssueSchema: title, description, status, priority
@@ -1354,7 +1456,9 @@ class CouncilEngine:
             )
             resp.raise_for_status()
             issue_id = resp.json().get("id", resp.json().get("issue_id"))
-            log.info(f"[council:paperclip] Created issue {issue_id} for session {session.session_id}")
+            log.info(
+                f"[council:paperclip] Created issue {issue_id} for session {session.session_id}"
+            )
             return issue_id
         except Exception as e:
             log.warning(f"[council:paperclip] Failed to create session issue: {e}")
@@ -1391,7 +1495,9 @@ class CouncilEngine:
                 )
 
             # Update running total
-            self._session_costs[session_id] = self._session_costs.get(session_id, 0) + total_round_cost
+            self._session_costs[session_id] = (
+                self._session_costs.get(session_id, 0) + total_round_cost
+            )
             log.info(
                 f"[council:paperclip] Round {round_num} costs reported: "
                 f"{total_round_cost}¢ ({len(members)} members), "
@@ -1493,7 +1599,7 @@ class CouncilEngine:
             )
 
             log.warning(
-                f"[council:paperclip] Low consensus ({session.consensus_score.agreement_pct:.0f}%) — "
+                f"[council:paperclip] Low consensus ({session.consensus_score.agreement_pct:.0f}%) — "  # noqa: E501
                 f"approval request sent to NATRIX for session {session.session_id}"
             )
         except Exception as e:

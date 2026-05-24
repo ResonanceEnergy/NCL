@@ -1,9 +1,9 @@
 """Pydantic models for NCL brain service."""
 
-from datetime import datetime, timezone
-from typing import Any, Optional, Literal
-from enum import Enum
 import uuid as _uuid
+from datetime import datetime, timezone
+from enum import Enum
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -66,16 +66,16 @@ class ProvenanceEnvelope(BaseModel):
     """
 
     source_agent: str = Field(
-        ..., description="Agent/service that emitted the event (e.g., 'ncl-brain', 'awarebot-fpc', 'strike-point')"
+        ...,
+        description="Agent/service that emitted the event (e.g., 'ncl-brain', 'awarebot-fpc', 'strike-point')",  # noqa: E501
     )
-    source_pillar: str = Field(
-        default="ncl", description="Originating pillar"
-    )
+    source_pillar: str = Field(default="ncl", description="Originating pillar")
     parent_event_id: Optional[str] = Field(
         default=None, description="Event that directly caused this one"
     )
     correlation_id: Optional[str] = Field(
-        default=None, description="Shared ID linking all events in a single pump→mandate→execution chain"
+        default=None,
+        description="Shared ID linking all events in a single pump→mandate→execution chain",
     )
     causality_chain: list[str] = Field(
         default_factory=list,
@@ -87,9 +87,7 @@ class ProvenanceEnvelope(BaseModel):
     pump_id: Optional[str] = Field(
         default=None, description="Originating pump prompt ID (if traceable)"
     )
-    mandate_id: Optional[str] = Field(
-        default=None, description="Related mandate ID (if traceable)"
-    )
+    mandate_id: Optional[str] = Field(default=None, description="Related mandate ID (if traceable)")
     model_used: Optional[str] = Field(
         default=None, description="AI model invoked (e.g., 'claude-sonnet-4-20250514', 'grok-3')"
     )
@@ -117,9 +115,7 @@ class NCLEvent(BaseModel):
         default_factory=lambda: datetime.now(timezone.utc),
         description="UTC timestamp of event creation",
     )
-    provenance: ProvenanceEnvelope = Field(
-        ..., description="Origin and causality tracking"
-    )
+    provenance: ProvenanceEnvelope = Field(..., description="Origin and causality tracking")
     payload: dict[str, Any] = Field(
         default_factory=dict,
         description="Event-type-specific structured data",
@@ -129,7 +125,9 @@ class NCLEvent(BaseModel):
         description="Searchable tags for memory indexing",
     )
     importance: float = Field(
-        default=50.0, ge=0.0, le=100.0,
+        default=50.0,
+        ge=0.0,
+        le=100.0,
         description="Importance score 0-100 for memory consolidation",
     )
     schema_version: str = Field(
@@ -199,12 +197,25 @@ class NCLEvent(BaseModel):
 
 
 class PillarType(str, Enum):
-    """Pillar types in RESONANCE ENERGY ecosystem."""
+    """Pillar types in the (retired) RESONANCE ENERGY ecosystem.
+
+    NCC retained for legacy mandate compatibility; dispatcher is no-op.
+    The NCC repo was removed from this machine on 2026-05-23 and
+    ``brain._dispatch_to_ncc()`` is a vestigial no-op. The enum value is
+    kept ONLY so the 70 historical NCC-tagged mandates in
+    ``data/mandates.json`` continue to validate against the Pydantic
+    model on ``load_state()`` — see W8-A5 / CLAUDE.md rule #7.
+
+    BRS and AAC were retired on 2026-05-23 per NATRIX directive
+    ("no orphan them we dont use them"). Constructing
+    ``PillarType("brs")`` / ``PillarType("aac")`` now raises ValueError,
+    which is the intended hard-reject for any new mandate.
+    Already-stamped memory units with legacy ``BRS``/``AAC`` tags are
+    preserved as-is for back-compat (no migration).
+    """
 
     NCL = "ncl"
     NCC = "ncc"
-    BRS = "brs"
-    AAC = "aac"
 
 
 class MandateStatus(str, Enum):
@@ -227,8 +238,12 @@ class MandateStatus(str, Enum):
         DRAFT → PENDING_APPROVAL → ACTIVE → IN_PROGRESS → COMPLETED
                                  ↘ CANCELLED
                                    ACTIVE → SUPERSEDED
+
+        FAILED is terminal. The earlier `FAILED → DRAFT` requeue path was
+        archived 2026-05-23 with the rest of the strike-point pipeline —
+        in-process mandates don't need the file-queue escape valve.
         """
-        S = MandateStatus
+        S = MandateStatus  # noqa: N806
         return {
             S.DRAFT: [S.PENDING_APPROVAL, S.CANCELLED],
             S.PENDING_APPROVAL: [S.ACTIVE, S.CANCELLED],
@@ -237,7 +252,7 @@ class MandateStatus(str, Enum):
             S.COMPLETED: [],  # Terminal
             S.SUPERSEDED: [],  # Terminal
             S.CANCELLED: [],  # Terminal
-            S.FAILED: [],  # Terminal
+            S.FAILED: [],  # Terminal (requeue path archived 2026-05-23)
         }
 
     def can_transition_to(self, target: "MandateStatus") -> bool:
@@ -259,12 +274,16 @@ class CouncilStatus(str, Enum):
 class PumpPrompt(BaseModel):
     """Pump prompt received from iPhone via Grok."""
 
-    prompt_id: str = Field(..., min_length=1, description="Unique pump prompt ID")
+    prompt_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=64,
+        pattern=r"^[A-Za-z0-9_-]{1,64}$",
+        description="Unique pump prompt ID (alphanumeric + _ - only, max 64 chars). Pattern closes path-traversal in pump-{prompt_id}.json filenames.",  # noqa: E501
+    )
     source: str = Field(..., min_length=1, description="Source (e.g., 'grok-iphone')")
     intent: str = Field(..., min_length=1, description="Primary intent of the prompt")
-    context: dict[str, Any] = Field(
-        default_factory=dict, description="Rich context data from Grok"
-    )
+    context: dict[str, Any] = Field(default_factory=dict, description="Rich context data from Grok")
     urgency: Literal["low", "normal", "high", "critical"] = Field(
         default="normal", description="Urgency level (low, normal, high, critical)"
     )
@@ -275,24 +294,20 @@ class Mandate(BaseModel):
     """Directive mandate for a pillar. Enforces MWP status progression."""
 
     mandate_id: str = Field(..., description="Unique mandate ID")
-    pillar: PillarType = Field(..., description="Target pillar (NCC, BRS, AAC)")
+    pillar: PillarType = Field(..., description="Target pillar (NCC). BRS/AAC retired 2026-05-23.")
     priority: int = Field(..., ge=1, le=10, description="Priority 1-10")
     title: str = Field(..., min_length=1, description="Mandate title")
     objective: str = Field(..., min_length=1, description="Strategic objective")
-    success_criteria: list[str] = Field(
-        default_factory=list, description="Criteria for completion"
-    )
+    success_criteria: list[str] = Field(default_factory=list, description="Criteria for completion")
     deadline: Optional[datetime] = Field(default=None, description="Target deadline")
-    resources: dict[str, Any] = Field(
-        default_factory=dict, description="Allocated resources"
-    )
+    resources: dict[str, Any] = Field(default_factory=dict, description="Allocated resources")
     status: MandateStatus = Field(default=MandateStatus.DRAFT)
-    version: int = Field(default=0, description="Optimistic lock version; incremented on every transition")
+    version: int = Field(
+        default=0, description="Optimistic lock version; incremented on every transition"
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    source_pump_id: Optional[str] = Field(
-        default=None, description="Originating pump prompt ID"
-    )
+    source_pump_id: Optional[str] = Field(default=None, description="Originating pump prompt ID")
     status_history: list[dict[str, Any]] = Field(
         default_factory=list, description="Audit trail of status transitions"
     )
@@ -332,13 +347,15 @@ class Mandate(BaseModel):
                 f"Invalid mandate transition: {self.status.value} → {new_status.value}. "
                 f"Allowed: {allowed}"
             )
-        self.status_history.append({
-            "from": self.status.value,
-            "to": new_status.value,
-            "reason": reason,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "version": self.version,
-        })
+        self.status_history.append(
+            {
+                "from": self.status.value,
+                "to": new_status.value,
+                "reason": reason,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "version": self.version,
+            }
+        )
         # Cap status_history to last 50 entries to prevent unbounded growth
         if len(self.status_history) > 50:
             self.status_history = self.status_history[-50:]
@@ -361,12 +378,12 @@ class CouncilMember(str, Enum):
 class CouncilRole(str, Enum):
     """Debate role assigned to each member per session."""
 
-    CHAIR = "chair"          # Claude — moderates, synthesizes, judges
+    CHAIR = "chair"  # Claude — moderates, synthesizes, judges
     STRATEGIST = "strategist"  # Grok — first-strike intuition, bold moves
-    ANALYST = "analyst"        # Gemini — data-driven, structured analysis
+    ANALYST = "analyst"  # Gemini — data-driven, structured analysis
     RESEARCHER = "researcher"  # Perplexity — fact-checking, source-backed
-    CREATIVE = "creative"      # GPT — lateral thinking, alternatives
-    ENGINEER = "engineer"      # Copilot — technical feasibility, implementation
+    CREATIVE = "creative"  # GPT — lateral thinking, alternatives
+    ENGINEER = "engineer"  # Copilot — technical feasibility, implementation
 
 
 class DebateRound(BaseModel):
@@ -417,9 +434,7 @@ class CouncilSession(BaseModel):
     responses: dict[str, str] = Field(
         default_factory=dict, description="Final member positions (last round)"
     )
-    synthesis: Optional[str] = Field(
-        default=None, description="Chair's final synthesis"
-    )
+    synthesis: Optional[str] = Field(default=None, description="Chair's final synthesis")
     consensus: Optional[str] = Field(default=None, description="Consensus reached")
     consensus_score: Optional[ConsensusScore] = Field(default=None)
     dissents: list[str] = Field(default_factory=list, description="Minority views")
@@ -427,6 +442,12 @@ class CouncilSession(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: Optional[datetime] = Field(default=None)
     protocol: str = Field(default="delphi-mad", description="Debate protocol used")
+    # Anthropic Citations API document blocks — see runtime/council_pack/citations.py:build_citation_documents  # noqa: E501
+    documents: list[dict] = Field(default_factory=list)
+    # Raw Anthropic response JSON from chair synthesis when documents are
+    # attached — runners.py:run_council_with_pack runs parse_citations() on
+    # this to extract per-claim citation spans for write-back.
+    synthesis_response_json: Optional[dict] = Field(default=None)
 
 
 class FeedbackReport(BaseModel):
@@ -434,17 +455,13 @@ class FeedbackReport(BaseModel):
 
     report_id: str = Field(..., description="Unique report ID")
     origin: PillarType = Field(
-        ..., description="Originating pillar (NCC, BRS, AAC, UNI)"
+        ..., description="Originating pillar (NCC). BRS/AAC retired 2026-05-23."
     )
     report_date: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     content: str = Field(..., description="Feedback narrative")
-    signals: dict[str, Any] = Field(
-        default_factory=dict, description="Structured signal data"
-    )
+    signals: dict[str, Any] = Field(default_factory=dict, description="Structured signal data")
     lessons: list[str] = Field(default_factory=list, description="Key lessons")
-    recommendations: list[str] = Field(
-        default_factory=list, description="Recommendations for NCL"
-    )
+    recommendations: list[str] = Field(default_factory=list, description="Recommendations for NCL")
     related_mandates: list[str] = Field(
         default_factory=list, description="Mandate IDs this feedback relates to"
     )
@@ -456,21 +473,13 @@ class MemUnit(BaseModel):
     unit_id: str = Field(..., description="Unique memory unit ID")
     content: str = Field(..., description="Memory content")
     source: str = Field(..., description="Source of memory (e.g., council output)")
-    importance: float = Field(
-        ge=0.0, le=100.0, default=50.0, description="Importance score 0-100"
-    )
-    decay_rate: float = Field(
-        ge=0.0, le=1.0, default=0.95, description="Daily decay multiplier"
-    )
+    importance: float = Field(ge=0.0, le=100.0, default=50.0, description="Importance score 0-100")
+    decay_rate: float = Field(ge=0.0, le=1.0, default=0.95, description="Daily decay multiplier")
     last_accessed: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    reinforcement_count: int = Field(
-        ge=0, default=0, description="Times accessed/reinforced"
-    )
+    reinforcement_count: int = Field(ge=0, default=0, description="Times accessed/reinforced")
     tags: list[str] = Field(default_factory=list, description="Search tags")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    related_units: list[str] = Field(
-        default_factory=list, description="Related memory unit IDs"
-    )
+    related_units: list[str] = Field(default_factory=list, description="Related memory unit IDs")
     memory_type: str = Field(
         default="episodic",
         description="Memory type: episodic, semantic, procedural, signal, decision, preference",
@@ -519,9 +528,7 @@ class InsightSignal(BaseModel):
     source_platform: str = Field(..., description="Source (x, youtube, reddit)")
     content: str = Field(..., description="Signal content/summary")
     url: Optional[str] = Field(default=None, description="Source URL")
-    importance_score: float = Field(
-        ge=0.0, le=100.0, description="Computed importance 0-100"
-    )
+    importance_score: float = Field(ge=0.0, le=100.0, description="Computed importance 0-100")
     relevance: float = Field(ge=0.0, le=1.0, description="Relevance component")
     novelty: float = Field(ge=0.0, le=1.0, description="Novelty component")
     actionability: float = Field(ge=0.0, le=1.0, description="Actionability component")
@@ -534,7 +541,7 @@ class InsightSignal(BaseModel):
     tags: list[str] = Field(default_factory=list, description="Signal tags")
     metadata: dict[str, Any] = Field(
         default_factory=dict,
-        description="Platform-specific engagement metrics (retweets, upvotes, etc.)"
+        description="Platform-specific engagement metrics (retweets, upvotes, etc.)",
     )
 
 

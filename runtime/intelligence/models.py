@@ -4,15 +4,17 @@ Structured signal and brief types that carry quantitative data,
 not just text blobs with static importance scores.
 """
 
+import uuid
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
+
 from pydantic import BaseModel, Field
-import uuid
 
 
 class SourceType(str, Enum):
     """Intelligence data source types."""
+
     GOOGLE_TRENDS = "google_trends"
     POLYMARKET = "polymarket"
     NEWS = "news"
@@ -27,12 +29,13 @@ class SourceType(str, Enum):
 
 class SignalDirection(str, Enum):
     """Directional signal."""
+
     BULLISH = "bullish"
     BEARISH = "bearish"
     NEUTRAL = "neutral"
-    EXPANDING = "expanding"    # Market/sector growing
+    EXPANDING = "expanding"  # Market/sector growing
     CONTRACTING = "contracting"  # Market/sector shrinking
-    EMERGING = "emerging"      # New trend detected
+    EMERGING = "emerging"  # New trend detected
 
 
 class IntelSignal(BaseModel):
@@ -42,6 +45,7 @@ class IntelSignal(BaseModel):
     Unlike the old InsightSignal which had hardcoded relevance scores,
     this carries actual quantitative data from the source.
     """
+
     signal_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     source: SourceType
     category: str = ""  # e.g. "crypto", "ai", "politics", "macro"
@@ -50,10 +54,10 @@ class IntelSignal(BaseModel):
     direction: SignalDirection = SignalDirection.NEUTRAL
 
     # Quantitative data (source-specific)
-    value: Optional[float] = None          # e.g. trend score, probability, price
-    change_pct: Optional[float] = None     # % change over period
-    volume: Optional[float] = None         # trading volume, search volume, etc.
-    confidence: float = 0.0                # 0-1, how reliable is this signal
+    value: Optional[float] = None  # e.g. trend score, probability, price
+    change_pct: Optional[float] = None  # % change over period
+    volume: Optional[float] = None  # trading volume, search volume, etc.
+    confidence: float = 0.0  # 0-1, how reliable is this signal
 
     # Context
     url: Optional[str] = None
@@ -101,6 +105,7 @@ class IntelSignal(BaseModel):
 
 class TrendSignal(IntelSignal):
     """Google Trends specific signal."""
+
     search_term: str = ""
     trend_direction: str = ""  # "rising", "breakout", "stable", "declining"
     related_queries: list[str] = Field(default_factory=list)
@@ -109,6 +114,7 @@ class TrendSignal(IntelSignal):
 
 class PredictionMarketSignal(IntelSignal):
     """Polymarket / prediction market signal."""
+
     market_question: str = ""
     yes_price: float = 0.5
     no_price: float = 0.5
@@ -119,6 +125,7 @@ class PredictionMarketSignal(IntelSignal):
 
 class MarketSignal(IntelSignal):
     """Market/crypto price signal."""
+
     symbol: str = ""
     current_price: float = 0.0
     high_period: float = 0.0
@@ -130,6 +137,7 @@ class MarketSignal(IntelSignal):
 
 class NewsSignal(IntelSignal):
     """News article signal."""
+
     headline: str = ""
     source_name: str = ""
     published_at: Optional[datetime] = None
@@ -138,6 +146,7 @@ class NewsSignal(IntelSignal):
 
 class SocialSignal(IntelSignal):
     """Social media signal (X, Reddit, YouTube)."""
+
     platform: str = ""
     engagement: int = 0  # likes + shares + comments
     author_followers: int = 0
@@ -146,6 +155,7 @@ class SocialSignal(IntelSignal):
 
 class SectorSnapshot(BaseModel):
     """Snapshot of a sector/theme across all data sources."""
+
     sector: str
     direction: SignalDirection
     signal_count: int = 0
@@ -162,6 +172,7 @@ class IntelBrief(BaseModel):
     This is what NATRIX actually reads. Not raw signals,
     but synthesized, ranked, actionable intelligence.
     """
+
     brief_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     brief_type: str = "daily"  # "daily", "alert", "strategic_review"
@@ -196,7 +207,9 @@ class IntelBrief(BaseModel):
         lines = []
         lines.append("=" * 64)
         lines.append(f"  NCL INTELLIGENCE BRIEF — {self.timestamp.strftime('%Y-%m-%d %H:%M UTC')}")
-        lines.append(f"  Type: {self.brief_type.upper()} | Signals processed: {self.total_signals_processed}")
+        lines.append(
+            f"  Type: {self.brief_type.upper()} | Signals processed: {self.total_signals_processed}"
+        )
         lines.append("=" * 64)
         lines.append("")
 
@@ -239,8 +252,10 @@ class IntelBrief(BaseModel):
         if self.sectors:
             lines.append("── SECTOR ANALYSIS ────────────────────────────────────")
             for s in self.sectors[:6]:
-                lines.append(f"  {s.sector:20s}  {s.direction.value:12s}  "
-                             f"signals={s.signal_count}  conf={s.avg_confidence:.0%}")
+                lines.append(
+                    f"  {s.sector:20s}  {s.direction.value:12s}  "
+                    f"signals={s.signal_count}  conf={s.avg_confidence:.0%}"
+                )
                 if s.summary:
                     lines.append(f"    {s.summary}")
             lines.append("")

@@ -30,18 +30,42 @@ import logging
 import os
 import re
 from collections import defaultdict
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone, timedelta
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from ..config import flags
 from .authority import (
     AuthorityTier,
     authority_weight,
     tier_for_source,
 )
 
+
 log = logging.getLogger("ncl.memory.working_context")
+
+
+# ── SQLite units-index fast path (W5-07) ─────────────────────────────────
+#
+# Working-Context assembly fires 3x daily (6am / noon / 11pm) plus the
+# 5-minute cache-warmer pre-touch, both of which currently full-scan the
+# 200MB units.jsonl twice per cycle. When ``NCL_UNITS_INDEX_SQLITE=true``,
+# try the SQLite ``units_index`` table (W4-14, store._search_units_via_sqlite_index)
+# first; fall back to ``search_units`` on flag-off or ANY failure so the
+# flag-off path is bit-identical to before this retrofit.
+async def _maybe_indexed_search(memory_store, **kwargs):
+    """Drop-in replacement for ``memory_store.search_units(**kwargs)``."""
+    if flags.units_index_sqlite():
+        try:
+            unit_ids = await memory_store._search_units_via_sqlite_index(**kwargs)
+            if unit_ids:
+                units_by_id = await memory_store._load_units_batch(set(unit_ids))
+                return [units_by_id[uid] for uid in unit_ids if uid in units_by_id]
+        except Exception as e:
+            log.debug("[WORKING-CTX] sqlite index search failed (%s) — falling back", e)
+    return await memory_store.search_units(**kwargs)
+
 
 # ── Configuration ────────────────────────────────────────────────────
 
@@ -62,14 +86,14 @@ GAMMA_RELEVANCE = 0.25
 AUTHORITY_FLOOR_WEIGHT = 0.15
 
 # Assembly thresholds
-MIN_DECAYED_IMPORTANCE = 30.0   # Minimum importance after decay to consider
-MAX_CONTEXT_ITEMS = 50          # Maximum items in daily context
-MIN_SALIENCE_SCORE = 0.25       # Floor for inclusion
+MIN_DECAYED_IMPORTANCE = 30.0  # Minimum importance after decay to consider
+MAX_CONTEXT_ITEMS = 50  # Maximum items in daily context
+MIN_SALIENCE_SCORE = 0.25  # Floor for inclusion
 
 # Carry-forward
 CARRY_FORWARD_THRESHOLD = 0.40  # Items above this salience carry to next day
-REINFORCE_BOOST = 1.15          # Importance multiplier for items accessed during the day
-DEMOTE_PENALTY = 0.85           # Importance multiplier for items that went untouched
+REINFORCE_BOOST = 1.15  # Importance multiplier for items accessed during the day
+DEMOTE_PENALTY = 0.85  # Importance multiplier for items that went untouched
 
 # File paths
 NCL_BASE = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
@@ -77,23 +101,25 @@ NCL_BASE = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
 
 # ── Data Models ──────────────────────────────────────────────────────
 
+
 @dataclass
 class ContextItem:
     """A single item in the daily working context window."""
+
     item_id: str
     content: str
-    source: str                         # e.g. "memory:unit_id", "council:youtube:session", "mandate:M-001"
-    category: str                       # "memory", "council_report", "council_insight", "mandate", "signal", "pinned"
-    salience_score: float               # Composite salience (0.0 - 1.0)
-    importance: float                   # Raw importance from source
-    recency_score: float                # Normalized recency (0.0 - 1.0)
-    relevance_score: float              # Semantic relevance to today's themes (0.0 - 1.0)
+    source: str  # e.g. "memory:unit_id", "council:youtube:session", "mandate:M-001"
+    category: str  # "memory", "council_report", "council_insight", "mandate", "signal", "pinned"
+    salience_score: float  # Composite salience (0.0 - 1.0)
+    importance: float  # Raw importance from source
+    recency_score: float  # Normalized recency (0.0 - 1.0)
+    relevance_score: float  # Semantic relevance to today's themes (0.0 - 1.0)
     tags: list[str] = field(default_factory=list)
-    pinned: bool = False                # Manually pinned by NATRIX
-    accessed_today: bool = False        # Was this item accessed/referenced today?
-    access_count: int = 0               # How many times accessed today
-    created_at: str = ""                # ISO timestamp
-    assembled_at: str = ""              # When this item entered today's context
+    pinned: bool = False  # Manually pinned by NATRIX
+    accessed_today: bool = False  # Was this item accessed/referenced today?
+    access_count: int = 0  # How many times accessed today
+    created_at: str = ""  # ISO timestamp
+    assembled_at: str = ""  # When this item entered today's context
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -107,13 +133,14 @@ class ContextItem:
 @dataclass
 class DailyContext:
     """The full daily working context snapshot."""
-    date: str                                       # ISO date (YYYY-MM-DD)
-    assembled_at: str                               # ISO timestamp
+
+    date: str  # ISO date (YYYY-MM-DD)
+    assembled_at: str  # ISO timestamp
     items: list[ContextItem] = field(default_factory=list)
-    themes: list[str] = field(default_factory=list) # Today's extracted themes
+    themes: list[str] = field(default_factory=list)  # Today's extracted themes
     pinned_ids: list[str] = field(default_factory=list)
     stats: dict[str, Any] = field(default_factory=dict)
-    carry_forward_from: str = ""                    # Previous day's date if any items carried
+    carry_forward_from: str = ""  # Previous day's date if any items carried
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -135,6 +162,7 @@ class DailyContext:
 
 
 # ── Core Engine ──────────────────────────────────────────────────────
+
 
 class DailyContextWindow:
     """
@@ -161,6 +189,18 @@ class DailyContextWindow:
         self.memory_store = memory_store  # MemoryStore instance
         self._current: Optional[DailyContext] = None
         self._lock = asyncio.Lock()
+
+        # Source-authority learner — lazy singleton. Wrapped in try/except
+        # so a missing import path (e.g. trimmed-down test environments)
+        # degrades gracefully to "no learner adjustment", which is the
+        # same behaviour as a fresh learner with zero observations.
+        self._learner = None
+        try:
+            from ..feedback.source_authority_learner import get_learner
+
+            self._learner = get_learner()
+        except Exception as _exc:
+            log.debug(f"[WORKING-CTX] learner unavailable: {_exc}")
 
         # Load today's context if it exists
         self._load_today()
@@ -189,25 +229,44 @@ class DailyContextWindow:
             log.warning(f"[WORKING-CTX] Failed to load today.json: {e}")
 
     def _persist(self) -> None:
-        """Save current context to disk atomically."""
+        """Save current context to disk atomically (tmp + fsync + rename)."""
         if not self._current:
             return
+        target = self._today_file()
+        tmp = target.with_suffix(".json.tmp")
         try:
             data = self._current.to_dict()
-            tmp = self._today_file().with_suffix(".json.tmp")
             tmp.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
-            os.replace(str(tmp), str(self._today_file()))
-        except Exception as e:
-            log.error(f"[WORKING-CTX] Failed to persist: {e}")
+            with open(tmp, "rb+") as f:
+                os.fsync(f.fileno())
+            os.replace(str(tmp), str(target))
+        except Exception as exc:
+            log.warning("[WORKING-CTX] persist failed: %s", exc)
+            try:
+                tmp.unlink()  # cleanup partial tmp file
+            except FileNotFoundError:
+                pass
+            except Exception:
+                pass
 
     def _archive_to_history(self, ctx: DailyContext) -> None:
-        """Archive a day's context to history."""
+        """Archive a day's context to history atomically (tmp + fsync + rename)."""
+        target = self._history_file(ctx.date)
+        tmp = target.with_suffix(".json.tmp")
         try:
-            path = self._history_file(ctx.date)
-            path.write_text(json.dumps(ctx.to_dict(), indent=2, default=str), encoding="utf-8")
+            tmp.write_text(json.dumps(ctx.to_dict(), indent=2, default=str), encoding="utf-8")
+            with open(tmp, "rb+") as f:
+                os.fsync(f.fileno())
+            os.replace(str(tmp), str(target))
             log.info(f"[WORKING-CTX] Archived context for {ctx.date}")
         except Exception as e:
             log.warning(f"[WORKING-CTX] Failed to archive: {e}")
+            try:
+                tmp.unlink()
+            except FileNotFoundError:
+                pass
+            except Exception:
+                pass
 
     # ── Salience Scoring ─────────────────────────────────────────────
 
@@ -218,7 +277,7 @@ class DailyContextWindow:
         Uses exponential decay: score = decay_rate ^ days_since_access.
         """
         days_since = max(0.0, (datetime.now(timezone.utc) - last_accessed).total_seconds() / 86400)
-        return max(0.0, decay_rate ** days_since)
+        return max(0.0, decay_rate**days_since)
 
     @staticmethod
     def compute_importance_normalized(importance: float) -> float:
@@ -234,13 +293,13 @@ class DailyContextWindow:
         if not themes:
             return 0.5
 
-        content_tokens = set(re.findall(r'[a-z0-9_-]{3,}', content.lower()))
+        content_tokens = set(re.findall(r"[a-z0-9_-]{3,}", content.lower()))
         if not content_tokens:
             return 0.0
 
         theme_tokens: set[str] = set()
         for theme in themes:
-            theme_tokens.update(re.findall(r'[a-z0-9_-]{3,}', theme.lower()))
+            theme_tokens.update(re.findall(r"[a-z0-9_-]{3,}", theme.lower()))
 
         if not theme_tokens:
             return 0.5
@@ -263,10 +322,9 @@ class DailyContextWindow:
 
         # Try vector similarity via ChromaDB
         vector_score = None
-        if self.memory_store and hasattr(self.memory_store, '_init_vector_db'):
+        if self.memory_store and hasattr(self.memory_store, "_init_vector_db"):
             try:
                 if self.memory_store._init_vector_db():
-                    import asyncio
                     # Build a theme query string for vector search
                     theme_query = " ".join(themes[:10])
                     if theme_query:
@@ -288,13 +346,15 @@ class DailyContextWindow:
                                     documents = results["documents"][0]
                                     for doc, dist in zip(documents, distances):
                                         if doc and content_prefix[:80] in doc.lower()[:200]:
-                                            # Cosine distance → similarity: 0 = identical, 2 = opposite
+                                            # Cosine distance → similarity: 0 = identical, 2 = opposite  # noqa: E501
                                             vector_score = max(0.0, 1.0 - dist)
                                             break
-                            except Exception:
-                                pass  # Fall through to keyword-only
-            except Exception:
-                pass
+                            except Exception as e:
+                                log.debug(
+                                    "[WORKING-CTX] chroma similarity query swallowed: %s", e
+                                )  # Fall through to keyword-only
+            except Exception as e:
+                log.debug("[WORKING-CTX] vector relevance scoring swallowed: %s", e)
 
         if vector_score is not None:
             # Blend: 60% vector + 40% keyword
@@ -325,43 +385,74 @@ class DailyContextWindow:
         via ``runtime.memory.authority.authority_weight(tier)``. Defaults
         to 1.0 so callers that haven't been migrated keep their old scoring.
         """
-        base = (
-            ALPHA_RECENCY * recency +
-            BETA_IMPORTANCE * importance +
-            GAMMA_RELEVANCE * relevance
-        )
+        base = ALPHA_RECENCY * recency + BETA_IMPORTANCE * importance + GAMMA_RELEVANCE * relevance
         # Clamp to [0.1, 1.0] defensively in case a caller passes an int tier
         # or an out-of-range value.
         aw = max(0.1, min(1.0, float(authority_weight)))
         return base * aw + AUTHORITY_FLOOR_WEIGHT * aw
 
     @staticmethod
-    def _authority_weight_for(item_or_unit) -> float:
+    def _authority_weight_for(item_or_unit, learner=None) -> float:
         """Resolve the authority weight for either a MemUnit-like object or
         a ContextItem.
 
-        Lookup order:
+        Lookup order for the *static* tier weight:
         1. ``metadata.authority_tier`` int -> authority_weight
         2. ``source`` -> tier_for_source -> authority_weight
         3. RAW (0.1) fallback
+
+        Composition with the learner (when one is supplied):
+
+            effective = clamp(static * learner.adjustment_for(source), 0.05, 1.5)
+
+        The static tier weight is the prior — encoded in
+        ``SOURCE_TIER_MAP``. The learner adjustment is the empirical
+        posterior — a Beta-Bernoulli factor in ``[0.6, 1.4]`` driven by
+        ``record_prediction_outcome`` calls (50% accuracy → 1.0, no
+        adjustment). The product is clamped to the learner's
+        ``[EFFECTIVE_FLOOR, EFFECTIVE_CEIL] = [0.05, 1.5]`` so a perfect
+        scanner cannot crowd out a NATRIX directive and a wrong council
+        cannot drop below ~RAW.
+
+        Pass ``learner=None`` (the default) to recover the pre-learner
+        behaviour — used during construction before the singleton is
+        wired, or in tests that don't want to touch the feedback system.
         """
         # 1) Pull from metadata bag if present
+        static_w: Optional[float] = None
         meta = getattr(item_or_unit, "metadata", None)
         if isinstance(meta, dict):
             tv = meta.get("authority_tier")
             if tv is not None:
                 try:
-                    return authority_weight(int(tv))
+                    static_w = authority_weight(int(tv))
                 except (TypeError, ValueError):
                     pass
 
         # 2) Fall back to the source string
-        src = getattr(item_or_unit, "source", None)
-        if src:
-            return authority_weight(tier_for_source(src))
+        src = getattr(item_or_unit, "source", None) or ""
+        if static_w is None:
+            if src:
+                static_w = authority_weight(tier_for_source(src))
+            else:
+                # 3) Worst case
+                static_w = authority_weight(AuthorityTier.RAW)
 
-        # 3) Worst case
-        return authority_weight(AuthorityTier.RAW)
+        # 4) Layer the empirical learner adjustment (if available)
+        if learner is None or not src:
+            return static_w
+        try:
+            adj = float(learner.adjustment_for(src))
+        except Exception:
+            return static_w
+        effective = static_w * adj
+        # Clamp to the learner's effective bounds. Mirror the constants
+        # in source_authority_learner.py so the two stay in sync.
+        if effective < 0.05:
+            return 0.05
+        if effective > 1.5:
+            return 1.5
+        return effective
 
     # ── Assembly ─────────────────────────────────────────────────────
 
@@ -429,13 +520,37 @@ class DailyContextWindow:
                 themes = self._extract_themes(candidates)
 
             # Re-score with themes for relevance
+            learner_adjusted = 0
+            max_boost = 1.0
+            max_penalty = 1.0
             for item in candidates:
                 item.relevance_score = self.compute_relevance(item.content, themes)
+                aw = self._authority_weight_for(item, learner=self._learner)
                 item.salience_score = self.compute_salience(
                     item.recency_score,
                     self.compute_importance_normalized(item.importance),
                     item.relevance_score,
-                    self._authority_weight_for(item),
+                    aw,
+                )
+                # Telemetry — count items whose learner adjustment moved
+                # them off the prior (1.0). Cheap and unconditional.
+                if self._learner is not None and item.source:
+                    try:
+                        adj = float(self._learner.adjustment_for(item.source))
+                    except Exception:
+                        adj = 1.0
+                    if abs(adj - 1.0) > 1e-6:
+                        learner_adjusted += 1
+                        if adj > max_boost:
+                            max_boost = adj
+                        if adj < max_penalty:
+                            max_penalty = adj
+            if self._learner is not None and learner_adjusted:
+                log.debug(
+                    "[WORKING-CTX] learner adjusted %d items, " "max boost=%.2f, max penalty=%.2f",
+                    learner_adjusted,
+                    max_boost,
+                    max_penalty,
                 )
 
             # Sort by salience, pinned items always on top
@@ -493,6 +608,7 @@ class DailyContextWindow:
             # assembled today. Failure must never break the assembly.
             try:
                 from .budget_tracker import record as _bt_record
+
                 total_chars = sum(len(i.content or "") for i in deduped)
                 await _bt_record(
                     "working_context_assembly",
@@ -513,7 +629,8 @@ class DailyContextWindow:
 
         try:
             # Get recent high-importance units (last 7 days, importance >= threshold)
-            units = await self.memory_store.search_units(
+            units = await _maybe_indexed_search(
+                self.memory_store,
                 importance_threshold=MIN_DECAYED_IMPORTANCE,
                 days_back=7,
             )
@@ -522,7 +639,7 @@ class DailyContextWindow:
                 recency = self.compute_recency(unit.last_accessed, unit.decay_rate)
                 importance_norm = self.compute_importance_normalized(unit.importance)
                 relevance = self.compute_relevance(unit.content, themes)
-                aw = self._authority_weight_for(unit)
+                aw = self._authority_weight_for(unit, learner=self._learner)
                 salience = self.compute_salience(recency, importance_norm, relevance, aw)
 
                 # Forward the unit's authority_tier into the context item's
@@ -533,24 +650,26 @@ class DailyContextWindow:
                 if _at is None:
                     _at = int(tier_for_source(unit.source))
 
-                items.append(ContextItem(
-                    item_id=f"mem:{unit.unit_id}",
-                    content=unit.content[:500],
-                    source=unit.source,
-                    category="memory",
-                    salience_score=salience,
-                    importance=unit.importance,
-                    recency_score=recency,
-                    relevance_score=relevance,
-                    tags=unit.tags,
-                    created_at=unit.created_at.isoformat(),
-                    metadata={
-                        "unit_id": unit.unit_id,
-                        "reinforcement_count": unit.reinforcement_count,
-                        "decay_rate": unit.decay_rate,
-                        "authority_tier": int(_at),
-                    },
-                ))
+                items.append(
+                    ContextItem(
+                        item_id=f"mem:{unit.unit_id}",
+                        content=unit.content[:500],
+                        source=unit.source,
+                        category="memory",
+                        salience_score=salience,
+                        importance=unit.importance,
+                        recency_score=recency,
+                        relevance_score=relevance,
+                        tags=unit.tags,
+                        created_at=unit.created_at.isoformat(),
+                        metadata={
+                            "unit_id": unit.unit_id,
+                            "reinforcement_count": unit.reinforcement_count,
+                            "decay_rate": unit.decay_rate,
+                            "authority_tier": int(_at),
+                        },
+                    )
+                )
         except Exception as e:
             log.warning(f"[WORKING-CTX] Memory pull failed: {e}")
 
@@ -589,19 +708,21 @@ class DailyContextWindow:
                         recency = self.compute_recency(
                             datetime.fromisoformat(ts_str.replace("Z", "+00:00")) if ts_str else now
                         )
-                        items.append(ContextItem(
-                            item_id=f"council:{council_type}:{session_id}",
-                            content=summary[:500],
-                            source=f"council:{council_type}",
-                            category="council_report",
-                            salience_score=0.0,  # Will be rescored
-                            importance=80.0,
-                            recency_score=recency,
-                            relevance_score=0.0,
-                            tags=[council_type, "council_report"],
-                            created_at=ts_str,
-                            metadata={"file": json_file.name, "session_id": session_id},
-                        ))
+                        items.append(
+                            ContextItem(
+                                item_id=f"council:{council_type}:{session_id}",
+                                content=summary[:500],
+                                source=f"council:{council_type}",
+                                category="council_report",
+                                salience_score=0.0,  # Will be rescored
+                                importance=80.0,
+                                recency_score=recency,
+                                relevance_score=0.0,
+                                tags=[council_type, "council_report"],
+                                created_at=ts_str,
+                                metadata={"file": json_file.name, "session_id": session_id},
+                            )
+                        )
 
                     # Add individual insights
                     for insight in data.get("insights", [])[:5]:
@@ -610,23 +731,25 @@ class DailyContextWindow:
                         confidence = insight.get("confidence", 0.5)
                         if not title:
                             continue
-                        items.append(ContextItem(
-                            item_id=f"insight:{council_type}:{session_id}:{title[:30]}",
-                            content=f"[{insight.get('category', '')}] {title}: {desc[:300]}",
-                            source=f"council:{council_type}:insight",
-                            category="council_insight",
-                            salience_score=0.0,
-                            importance=confidence * 100,
-                            recency_score=recency if ts_str else 0.5,
-                            relevance_score=0.0,
-                            tags=insight.get("tags", []) + [council_type],
-                            created_at=ts_str,
-                            metadata={
-                                "confidence": confidence,
-                                "actionable": insight.get("actionable", False),
-                                "action_suggestion": insight.get("action_suggestion", ""),
-                            },
-                        ))
+                        items.append(
+                            ContextItem(
+                                item_id=f"insight:{council_type}:{session_id}:{title[:30]}",
+                                content=f"[{insight.get('category', '')}] {title}: {desc[:300]}",
+                                source=f"council:{council_type}:insight",
+                                category="council_insight",
+                                salience_score=0.0,
+                                importance=confidence * 100,
+                                recency_score=recency if ts_str else 0.5,
+                                relevance_score=0.0,
+                                tags=insight.get("tags", []) + [council_type],
+                                created_at=ts_str,
+                                metadata={
+                                    "confidence": confidence,
+                                    "actionable": insight.get("actionable", False),
+                                    "action_suggestion": insight.get("action_suggestion", ""),
+                                },
+                            )
+                        )
 
                 except (json.JSONDecodeError, KeyError) as e:
                     log.debug(f"[WORKING-CTX] Skipped council file {json_file.name}: {e}")
@@ -665,23 +788,25 @@ class DailyContextWindow:
                         severity = data.get("severity", "MEDIUM")
                         importance = 90.0 if severity == "HIGH" else 70.0
 
-                        items.append(ContextItem(
-                            item_id=f"alert:{data.get('alert_id', alert_file.stem)}",
-                            content=f"[{severity}] {data.get('title', '')}: {data.get('summary', '')[:300]}",
-                            source=f"alert:{data.get('source', 'unknown')}",
-                            category="signal",
-                            salience_score=0.0,
-                            importance=importance,
-                            recency_score=0.9,
-                            relevance_score=0.0,
-                            tags=[severity.lower(), data.get("category", "")],
-                            created_at=created_str,
-                            metadata={
-                                "severity": severity,
-                                "recommended_action": data.get("recommended_action", ""),
-                                "acknowledged": data.get("acknowledged", False),
-                            },
-                        ))
+                        items.append(
+                            ContextItem(
+                                item_id=f"alert:{data.get('alert_id', alert_file.stem)}",
+                                content=f"[{severity}] {data.get('title', '')}: {data.get('summary', '')[:300]}",  # noqa: E501
+                                source=f"alert:{data.get('source', 'unknown')}",
+                                category="signal",
+                                salience_score=0.0,
+                                importance=importance,
+                                recency_score=0.9,
+                                relevance_score=0.0,
+                                tags=[severity.lower(), data.get("category", "")],
+                                created_at=created_str,
+                                metadata={
+                                    "severity": severity,
+                                    "recommended_action": data.get("recommended_action", ""),
+                                    "acknowledged": data.get("acknowledged", False),
+                                },
+                            )
+                        )
                     except (json.JSONDecodeError, KeyError):
                         continue
             except Exception as e:
@@ -709,19 +834,25 @@ class DailyContextWindow:
                         # Executive summary as context item
                         exec_summary = latest_brief.get("executive_summary", "")
                         if exec_summary:
-                            items.append(ContextItem(
-                                item_id=f"brief:{latest_brief.get('brief_id', 'latest')}",
-                                content=f"[INTEL BRIEF] {exec_summary[:500]}",
-                                source="intelligence:brief",
-                                category="intelligence_brief",
-                                salience_score=0.0,
-                                importance=85.0,
-                                recency_score=0.95,
-                                relevance_score=0.0,
-                                tags=["intelligence", "brief", latest_brief.get("brief_type", "daily")],
-                                created_at=brief_ts,
-                                metadata={"brief_id": latest_brief.get("brief_id", "")},
-                            ))
+                            items.append(
+                                ContextItem(
+                                    item_id=f"brief:{latest_brief.get('brief_id', 'latest')}",
+                                    content=f"[INTEL BRIEF] {exec_summary[:500]}",
+                                    source="intelligence:brief",
+                                    category="intelligence_brief",
+                                    salience_score=0.0,
+                                    importance=85.0,
+                                    recency_score=0.95,
+                                    relevance_score=0.0,
+                                    tags=[
+                                        "intelligence",
+                                        "brief",
+                                        latest_brief.get("brief_type", "daily"),
+                                    ],
+                                    created_at=brief_ts,
+                                    metadata={"brief_id": latest_brief.get("brief_id", "")},
+                                )
+                            )
 
                         # Top signals from the brief
                         for sig in latest_brief.get("top_signals", [])[:8]:
@@ -731,23 +862,25 @@ class DailyContextWindow:
                                 continue
                             sig_source = sig.get("source", "unknown")
                             sig_importance = sig.get("confidence", 0.7) * 100
-                            items.append(ContextItem(
-                                item_id=f"signal:{sig.get('signal_id', sig_title[:30])}",
-                                content=f"[{sig_source.upper()}] {sig_title}: {sig_content[:200]}",
-                                source=f"intelligence:{sig_source}",
-                                category="intelligence_signal",
-                                salience_score=0.0,
-                                importance=sig_importance,
-                                recency_score=0.85,
-                                relevance_score=0.0,
-                                tags=sig.get("tags", []) + ["intelligence_signal"],
-                                created_at=brief_ts,
-                                metadata={
-                                    "direction": sig.get("direction", ""),
-                                    "change_pct": sig.get("change_pct"),
-                                    "signal_id": sig.get("signal_id", ""),
-                                },
-                            ))
+                            items.append(
+                                ContextItem(
+                                    item_id=f"signal:{sig.get('signal_id', sig_title[:30])}",
+                                    content=f"[{sig_source.upper()}] {sig_title}: {sig_content[:200]}",  # noqa: E501
+                                    source=f"intelligence:{sig_source}",
+                                    category="intelligence_signal",
+                                    salience_score=0.0,
+                                    importance=sig_importance,
+                                    recency_score=0.85,
+                                    relevance_score=0.0,
+                                    tags=sig.get("tags", []) + ["intelligence_signal"],
+                                    created_at=brief_ts,
+                                    metadata={
+                                        "direction": sig.get("direction", ""),
+                                        "change_pct": sig.get("change_pct"),
+                                        "signal_id": sig.get("signal_id", ""),
+                                    },
+                                )
+                            )
             except Exception as e:
                 log.warning(f"[WORKING-CTX] Intelligence brief pull failed: {e}")
 
@@ -761,19 +894,21 @@ class DailyContextWindow:
                 topics = mb.get("topics", [])
                 for i, topic in enumerate(topics[:5]):
                     topic_text = topic if isinstance(topic, str) else topic.get("title", str(topic))
-                    items.append(ContextItem(
-                        item_id=f"morning_topic:{today_str}:{i}",
-                        content=f"[MORNING BRIEF] Research topic: {topic_text[:300]}",
-                        source="intelligence:morning_brief",
-                        category="morning_brief",
-                        salience_score=0.0,
-                        importance=75.0,
-                        recency_score=0.9,
-                        relevance_score=0.0,
-                        tags=["morning_brief", "research_topic"],
-                        created_at=mb.get("generated_at", today_str),
-                        metadata={"status": mb.get("status", "pending")},
-                    ))
+                    items.append(
+                        ContextItem(
+                            item_id=f"morning_topic:{today_str}:{i}",
+                            content=f"[MORNING BRIEF] Research topic: {topic_text[:300]}",
+                            source="intelligence:morning_brief",
+                            category="morning_brief",
+                            salience_score=0.0,
+                            importance=75.0,
+                            recency_score=0.9,
+                            relevance_score=0.0,
+                            tags=["morning_brief", "research_topic"],
+                            created_at=mb.get("generated_at", today_str),
+                            metadata={"status": mb.get("status", "pending")},
+                        )
+                    )
             except Exception as e:
                 log.warning(f"[WORKING-CTX] Morning brief pull failed: {e}")
 
@@ -795,23 +930,25 @@ class DailyContextWindow:
                 if status not in ("in_progress", "pending", "approved"):
                     continue
 
-                items.append(ContextItem(
-                    item_id=f"mandate:{m.get('mandate_id', 'unknown')}",
-                    content=f"[Mandate {m.get('mandate_id', '')}] {m.get('title', '')}: {m.get('description', '')[:300]}",
-                    source="mandate",
-                    category="mandate",
-                    salience_score=0.0,
-                    importance=75.0 if status == "in_progress" else 60.0,
-                    recency_score=0.7,
-                    relevance_score=0.0,
-                    tags=m.get("tags", []) + [status],
-                    created_at=m.get("created_at", ""),
-                    metadata={
-                        "status": status,
-                        "pillar": m.get("pillar", ""),
-                        "priority": m.get("priority", ""),
-                    },
-                ))
+                items.append(
+                    ContextItem(
+                        item_id=f"mandate:{m.get('mandate_id', 'unknown')}",
+                        content=f"[Mandate {m.get('mandate_id', '')}] {m.get('title', '')}: {m.get('description', '')[:300]}",  # noqa: E501
+                        source="mandate",
+                        category="mandate",
+                        salience_score=0.0,
+                        importance=75.0 if status == "in_progress" else 60.0,
+                        recency_score=0.7,
+                        relevance_score=0.0,
+                        tags=m.get("tags", []) + [status],
+                        created_at=m.get("created_at", ""),
+                        metadata={
+                            "status": status,
+                            "pillar": m.get("pillar", ""),
+                            "priority": m.get("priority", ""),
+                        },
+                    )
+                )
         except Exception as e:
             log.warning(f"[WORKING-CTX] Mandate pull failed: {e}")
 
@@ -837,7 +974,8 @@ class DailyContextWindow:
             return items
 
         try:
-            units = await self.memory_store.search_units(
+            units = await _maybe_indexed_search(
+                self.memory_store,
                 tags=["portfolio"],
                 importance_threshold=0.0,
                 days_back=14,
@@ -851,9 +989,12 @@ class DailyContextWindow:
 
         # Sort by created_at desc so the latest snapshot wins
         try:
-            units.sort(key=lambda u: getattr(u, "created_at", datetime.min.replace(tzinfo=timezone.utc)), reverse=True)
-        except Exception:
-            pass
+            units.sort(
+                key=lambda u: getattr(u, "created_at", datetime.min.replace(tzinfo=timezone.utc)),
+                reverse=True,
+            )
+        except Exception as e:
+            log.warning("[WORKING-CTX] portfolio units sort swallowed: %s", e)
 
         # Always include the freshest snapshot
         snapshot_unit = next((u for u in units if u.source == "portfolio:snapshot"), None)
@@ -886,25 +1027,29 @@ class DailyContextWindow:
                 if _at is None:
                     _at = int(tier_for_source(unit.source))
 
-                items.append(ContextItem(
-                    item_id=f"mem:{unit.unit_id}",
-                    content=unit.content[:500],
-                    source=unit.source,
-                    category="portfolio",
-                    salience_score=salience,
-                    importance=unit.importance,
-                    recency_score=recency,
-                    relevance_score=0.5,
-                    tags=unit.tags,
-                    created_at=unit.created_at.isoformat() if hasattr(unit, "created_at") else "",
-                    metadata={
-                        "unit_id": unit.unit_id,
-                        "reinforcement_count": unit.reinforcement_count,
-                        "decay_rate": unit.decay_rate,
-                        "authority_tier": int(_at),
-                        **{k: v for k, v in unit_meta.items() if k != "authority_tier"},
-                    },
-                ))
+                items.append(
+                    ContextItem(
+                        item_id=f"mem:{unit.unit_id}",
+                        content=unit.content[:500],
+                        source=unit.source,
+                        category="portfolio",
+                        salience_score=salience,
+                        importance=unit.importance,
+                        recency_score=recency,
+                        relevance_score=0.5,
+                        tags=unit.tags,
+                        created_at=unit.created_at.isoformat()
+                        if hasattr(unit, "created_at")
+                        else "",
+                        metadata={
+                            "unit_id": unit.unit_id,
+                            "reinforcement_count": unit.reinforcement_count,
+                            "decay_rate": unit.decay_rate,
+                            "authority_tier": int(_at),
+                            **{k: v for k, v in unit_meta.items() if k != "authority_tier"},
+                        },
+                    )
+                )
             except Exception as exc:
                 log.debug(f"[WORKING-CTX] portfolio item build failed: {exc}")
                 continue
@@ -934,9 +1079,19 @@ class DailyContextWindow:
         for item in candidates:
             weight = item.importance / 100.0
             for tag in item.tags:
-                if tag and len(tag) > 2 and tag not in (
-                    "auto_ingested", "autonomous", "intelligence_signal",
-                    "council_report", "council_insight", "high", "medium",
+                if (
+                    tag
+                    and len(tag) > 2
+                    and tag
+                    not in (
+                        "auto_ingested",
+                        "autonomous",
+                        "intelligence_signal",
+                        "council_report",
+                        "council_insight",
+                        "high",
+                        "medium",
+                    )
                 ):
                     tag_scores[tag] += weight
 
@@ -1022,15 +1177,22 @@ class DailyContextWindow:
                         if item_id not in self._current.pinned_ids:
                             self._current.pinned_ids.append(item_id)
                     else:
-                        self._current.pinned_ids = [pid for pid in self._current.pinned_ids if pid != item_id]
+                        self._current.pinned_ids = [
+                            pid for pid in self._current.pinned_ids if pid != item_id
+                        ]
                     self._persist()
-                    log.info(f"[WORKING-CTX] Toggle pin {item_id} → {'pinned' if item.pinned else 'unpinned'}")
+                    log.info(
+                        f"[WORKING-CTX] Toggle pin {item_id} → {'pinned' if item.pinned else 'unpinned'}"  # noqa: E501
+                    )
                     return item.pinned
             return None
 
-    async def promote_item(self, content: str, source: str, tags: list[str] = None, item_id: str = None) -> ContextItem:
+    async def promote_item(
+        self, content: str, source: str, tags: list[str] = None, item_id: str = None
+    ) -> ContextItem:
         """Promote an item into the context window with high importance."""
         import uuid
+
         async with self._lock:
             if not self._current:
                 await self.assemble()
@@ -1067,15 +1229,20 @@ class DailyContextWindow:
             before = len(self._current.items)
             self._current.items = [i for i in self._current.items if i.item_id != item_id]
             if len(self._current.items) < before:
-                self._current.pinned_ids = [pid for pid in self._current.pinned_ids if pid != item_id]
+                self._current.pinned_ids = [
+                    pid for pid in self._current.pinned_ids if pid != item_id
+                ]
                 self._persist()
                 log.info(f"[WORKING-CTX] Dismissed item: {item_id}")
                 return True
             return False
 
-    async def inject_signal(self, content: str, source: str, importance: float = 50.0, tags: list[str] = None) -> None:
+    async def inject_signal(
+        self, content: str, source: str, importance: float = 50.0, tags: list[str] = None
+    ) -> None:
         """Inject an intelligence signal into the working context (called by Awarebot)."""
         import uuid
+
         # Stamp authority tier into the item's metadata so re-scoring and
         # any downstream consumer can recover the provenance class.
         _tier = tier_for_source(source)
@@ -1093,6 +1260,19 @@ class DailyContextWindow:
             metadata={"authority_tier": int(_tier)},
         )
         aw = authority_weight(_tier)
+        # Layer learner adjustment on top of the static prior so a
+        # historically-correct scanner inject lands with extra salience
+        # and a historically-wrong one is throttled.
+        if self._learner is not None and source:
+            try:
+                adj = float(self._learner.adjustment_for(source))
+                aw = max(0.05, min(1.5, aw * adj))
+            except Exception as e:
+                log.debug(
+                    "[WORKING-CTX] source-authority learner adjustment swallowed for %s: %s",
+                    source,
+                    e,
+                )
         # Compute relevance against current themes
         if self._current and self._current.themes:
             item.relevance_score = self.compute_relevance(content, self._current.themes)
@@ -1174,10 +1354,14 @@ class DailyContextWindow:
                 self._current.items = self._current.items[:MAX_CONTEXT_ITEMS]
                 evicted_ids = {e.item_id for e in evicted}
                 # Drop any pinned_ids that got evicted (shouldn't, but be safe)
-                self._current.pinned_ids = [pid for pid in self._current.pinned_ids if pid not in evicted_ids]
+                self._current.pinned_ids = [
+                    pid for pid in self._current.pinned_ids if pid not in evicted_ids
+                ]
 
             self._persist()
-            log.debug(f"[WORKING-CTX] Added item: {item.item_id} (total={len(self._current.items)})")
+            log.debug(
+                f"[WORKING-CTX] Added item: {item.item_id} (total={len(self._current.items)})"
+            )
 
     async def refresh(self, themes: Optional[list[str]] = None) -> DailyContext:
         """
@@ -1218,7 +1402,9 @@ class DailyContextWindow:
                             restored += 1
                     if restored > 0:
                         self._persist()
-                        log.info(f"[WORKING-CTX] Refresh: restored access state for {restored} items")
+                        log.info(
+                            f"[WORKING-CTX] Refresh: restored access state for {restored} items"
+                        )
 
         return self._current
 
@@ -1295,12 +1481,14 @@ class DailyContextWindow:
                 break
             try:
                 data = json.loads(hist_file.read_text(encoding="utf-8"))
-                history.append({
-                    "date": data.get("date", ""),
-                    "item_count": len(data.get("items", [])),
-                    "themes": data.get("themes", []),
-                    "stats": data.get("stats", {}),
-                })
+                history.append(
+                    {
+                        "date": data.get("date", ""),
+                        "item_count": len(data.get("items", [])),
+                        "themes": data.get("themes", []),
+                        "stats": data.get("stats", {}),
+                    }
+                )
             except Exception:
                 continue
         return history
@@ -1326,7 +1514,9 @@ class DailyContextWindow:
             "themes": self._current.themes,
             "categories": dict(categories),
             "avg_salience": round(
-                sum(i.salience_score for i in self._current.items) / max(len(self._current.items), 1), 3
+                sum(i.salience_score for i in self._current.items)
+                / max(len(self._current.items), 1),
+                3,
             ),
             "accessed_today": sum(1 for i in self._current.items if i.accessed_today),
             "assembly_stats": self._current.stats,

@@ -1,0 +1,24 @@
+{
+  "pump_id": "smoke-nested",
+  "prompt": {
+    "id": "smoke-nested",
+    "rawIntent": "nested watcher smoke",
+    "formattedPrompt": "nested OK",
+    "targetPillar": "NCL",
+    "priority": "P3",
+    "metadata": {
+      "source": "smoke",
+      "session_id": "sess-nested"
+    }
+  },
+  "_brain_ack": {
+    "timestamp": "2026-05-15T17:40:46.175569+00:00",
+    "brain_response": {
+      "pump_id": "smoke-nested",
+      "intent": "nested watcher smoke",
+      "urgency": "low",
+      "mode": "background",
+      "status": "accepted"
+    }
+  }
+}

@@ -11,17 +11,24 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import pytest_asyncio
 
+from runtime.swarm.agent_base import SwarmAgent
+from runtime.swarm.blackboard import Blackboard
+from runtime.swarm.cost_gate import CostGate
+from runtime.swarm.llm_adapter import LLMClientAdapter
+from runtime.swarm.llm_adapter import _LLMResponse as LLMResponse
+
+# W10C-15: every swarm test now mocks the LLMClientAdapter facade.
+# The legacy ``runtime.swarm.llm_router.LLMRouter`` is no longer
+# imported from this file; W10C-1 will delete the module next wave.
 # ---------------------------------------------------------------------------
 # Imports under test
 # ---------------------------------------------------------------------------
-
 from runtime.swarm.models import (
     AgentSpec,
     AgentState,
@@ -32,12 +39,8 @@ from runtime.swarm.models import (
     TaskResult,
     TaskStatus,
 )
-from runtime.swarm.blackboard import Blackboard
-from runtime.swarm.cost_gate import CostGate
-from runtime.swarm.llm_router import LLMResponse, LLMRouter, _estimate_cost
-from runtime.swarm.agent_base import SwarmAgent
-from runtime.swarm.task_graph import TaskGraphBuilder, TaskGraphEngine
 from runtime.swarm.orchestrator import SwarmOrchestrator
+from runtime.swarm.task_graph import TaskGraphBuilder, TaskGraphEngine
 
 
 # ===================================================================
@@ -63,8 +66,11 @@ def _make_llm_response(
     )
 
 
-def _make_router(config: dict[str, Any] | None = None) -> LLMRouter:
-    return LLMRouter(config or {"anthropic_api_key": "test-key"})
+def _make_router(config: dict[str, Any] | None = None) -> LLMClientAdapter:
+    """Build a default adapter for tests that just need a shape-compatible
+    LLM client. Use ``MagicMock(spec=LLMClientAdapter)`` directly when a
+    test needs to assert on call args."""
+    return LLMClientAdapter(config or {"anthropic_api_key": "test-key"})
 
 
 def _make_blackboard() -> Blackboard:
@@ -150,13 +156,17 @@ class TestModels:
 
     def test_swarm_message_types(self):
         valid_types = [
-            "assign", "status_update", "result", "checkpoint",
-            "error", "query", "response", "cancel",
+            "assign",
+            "status_update",
+            "result",
+            "checkpoint",
+            "error",
+            "query",
+            "response",
+            "cancel",
         ]
         for mt in valid_types:
-            msg = SwarmMessage(
-                task_id="t", from_agent="a", to_agent="b", message_type=mt
-            )
+            msg = SwarmMessage(task_id="t", from_agent="a", to_agent="b", message_type=mt)
             assert msg.message_type == mt
 
     def test_agent_spec_defaults(self):
@@ -229,13 +239,19 @@ class TestModels:
     def test_task_result_confidence_bounds(self):
         with pytest.raises(Exception):
             TaskResult(
-                task_id="t", subtask_id="s", agent_id="a",
-                output="x", confidence=1.5,
+                task_id="t",
+                subtask_id="s",
+                agent_id="a",
+                output="x",
+                confidence=1.5,
             )
         with pytest.raises(Exception):
             TaskResult(
-                task_id="t", subtask_id="s", agent_id="a",
-                output="x", confidence=-0.1,
+                task_id="t",
+                subtask_id="s",
+                agent_id="a",
+                output="x",
+                confidence=-0.1,
             )
 
     def test_task_status_enum_values(self):
@@ -559,25 +575,27 @@ class TestTaskGraphBuilder:
 
     @pytest.mark.asyncio
     async def test_build_parses_valid_response(self):
-        mock_router = AsyncMock(spec=LLMRouter)
-        llm_response_content = json.dumps({
-            "subtasks": [
-                {
-                    "id": "st_1",
-                    "title": "Research topic",
-                    "agent_type": "scholar",
-                    "description": "Deep research",
-                    "depends_on": [],
-                },
-                {
-                    "id": "st_2",
-                    "title": "Write report",
-                    "agent_type": "scribe",
-                    "description": "Write findings",
-                    "depends_on": ["st_1"],
-                },
-            ]
-        })
+        mock_router = AsyncMock(spec=LLMClientAdapter)
+        llm_response_content = json.dumps(
+            {
+                "subtasks": [
+                    {
+                        "id": "st_1",
+                        "title": "Research topic",
+                        "agent_type": "scholar",
+                        "description": "Deep research",
+                        "depends_on": [],
+                    },
+                    {
+                        "id": "st_2",
+                        "title": "Write report",
+                        "agent_type": "scribe",
+                        "description": "Write findings",
+                        "depends_on": ["st_1"],
+                    },
+                ]
+            }
+        )
         mock_router.call.return_value = _make_llm_response(content=llm_response_content)
 
         builder = TaskGraphBuilder(llm_router=mock_router)
@@ -591,14 +609,23 @@ class TestTaskGraphBuilder:
 
     @pytest.mark.asyncio
     async def test_build_retries_on_bad_json(self):
-        mock_router = AsyncMock(spec=LLMRouter)
+        mock_router = AsyncMock(spec=LLMClientAdapter)
         bad_response = _make_llm_response(content="not json at all")
-        good_response = _make_llm_response(content=json.dumps({
-            "subtasks": [{
-                "id": "st_1", "title": "T", "agent_type": "scholar",
-                "description": "D", "depends_on": [],
-            }]
-        }))
+        good_response = _make_llm_response(
+            content=json.dumps(
+                {
+                    "subtasks": [
+                        {
+                            "id": "st_1",
+                            "title": "T",
+                            "agent_type": "scholar",
+                            "description": "D",
+                            "depends_on": [],
+                        }
+                    ]
+                }
+            )
+        )
         mock_router.call.side_effect = [bad_response, good_response]
 
         builder = TaskGraphBuilder(llm_router=mock_router)
@@ -608,7 +635,7 @@ class TestTaskGraphBuilder:
 
     @pytest.mark.asyncio
     async def test_build_raises_after_max_retries(self):
-        mock_router = AsyncMock(spec=LLMRouter)
+        mock_router = AsyncMock(spec=LLMClientAdapter)
         mock_router.call.return_value = _make_llm_response(content="bad json")
 
         builder = TaskGraphBuilder(llm_router=mock_router)
@@ -617,15 +644,27 @@ class TestTaskGraphBuilder:
 
     @pytest.mark.asyncio
     async def test_build_detects_cycle(self):
-        mock_router = AsyncMock(spec=LLMRouter)
-        cyclic_response = json.dumps({
-            "subtasks": [
-                {"id": "a", "title": "A", "agent_type": "scholar",
-                 "description": "D", "depends_on": ["b"]},
-                {"id": "b", "title": "B", "agent_type": "coder",
-                 "description": "D", "depends_on": ["a"]},
-            ]
-        })
+        mock_router = AsyncMock(spec=LLMClientAdapter)
+        cyclic_response = json.dumps(
+            {
+                "subtasks": [
+                    {
+                        "id": "a",
+                        "title": "A",
+                        "agent_type": "scholar",
+                        "description": "D",
+                        "depends_on": ["b"],
+                    },
+                    {
+                        "id": "b",
+                        "title": "B",
+                        "agent_type": "coder",
+                        "description": "D",
+                        "depends_on": ["a"],
+                    },
+                ]
+            }
+        )
         mock_router.call.return_value = _make_llm_response(content=cyclic_response)
 
         builder = TaskGraphBuilder(llm_router=mock_router)
@@ -634,13 +673,24 @@ class TestTaskGraphBuilder:
 
     @pytest.mark.asyncio
     async def test_build_strips_markdown_fences(self):
-        mock_router = AsyncMock(spec=LLMRouter)
-        fenced = '```json\n' + json.dumps({
-            "subtasks": [{
-                "id": "st_1", "title": "T", "agent_type": "scout",
-                "description": "D", "depends_on": [],
-            }]
-        }) + '\n```'
+        mock_router = AsyncMock(spec=LLMClientAdapter)
+        fenced = (
+            "```json\n"
+            + json.dumps(
+                {
+                    "subtasks": [
+                        {
+                            "id": "st_1",
+                            "title": "T",
+                            "agent_type": "scout",
+                            "description": "D",
+                            "depends_on": [],
+                        }
+                    ]
+                }
+            )
+            + "\n```"
+        )
         mock_router.call.return_value = _make_llm_response(content=fenced)
 
         builder = TaskGraphBuilder(llm_router=mock_router)
@@ -771,106 +821,118 @@ class TestCostGate:
 # ===================================================================
 
 
-class TestLLMRouter:
-    """Tests for the LLMRouter."""
+class TestLLMClientAdapter:
+    """Tests for the W10C-15 LLMClientAdapter.
 
-    def test_cost_estimation(self):
-        cost = _estimate_cost("claude-sonnet-4-20250514", 1_000_000, 1_000_000)
-        # input: 300 cents/1M, output: 1500 cents/1M -> 1800 cents
-        assert cost == 1800.0
+    Replaces the old TestLLMRouter class — those tests exercised the
+    deprecated ``runtime.swarm.llm_router`` module which W10C-1 will
+    delete next wave. The adapter has a much smaller surface area
+    (call / call_count / total_cost_cents / close), so only the
+    contract-level invariants are tested here. Provider dispatch,
+    retry, breaker, budget gate, and Anthropic Citations are covered
+    by the unit tests in ``tests/test_llm_client.py``.
+    """
 
-    def test_cost_estimation_unknown_model(self):
-        cost = _estimate_cost("unknown-model", 1000, 1000)
-        assert cost == 0.0
-
-    def test_router_init(self):
+    def test_adapter_init(self):
         router = _make_router()
         assert router.total_cost_cents == 0.0
         assert router.call_count == 0
 
     @pytest.mark.asyncio
-    async def test_call_dispatches_to_anthropic(self):
+    async def test_call_delegates_to_facade(self):
         router = _make_router({"anthropic_api_key": "test"})
-        mock_response = _make_llm_response()
 
-        with patch.object(router, "_call_anthropic", new_callable=AsyncMock) as mock_call:
-            mock_call.return_value = mock_response
+        # Build a ChatResult shaped like what runtime.llm.chat returns.
+        from runtime.llm.client import ChatResult
+
+        fake_result = ChatResult(
+            text="mock response",
+            citations=[],
+            usage_input_tokens=100,
+            usage_output_tokens=200,
+            cost_usd=0.0033,  # → 0.33¢ after *100
+            model="claude-sonnet-4-20250514",
+            latency_ms=500,
+            raw={},
+        )
+
+        with patch(
+            "runtime.swarm.llm_adapter._chat",
+            new_callable=AsyncMock,
+        ) as mock_chat:
+            mock_chat.return_value = fake_result
             result = await router.call(backend="claude", prompt="Hello")
 
             assert result.content == "mock response"
-            assert router.total_cost_cents == mock_response.cost_cents
+            assert result.model == "claude-sonnet-4-20250514"
+            assert result.tokens_in == 100
+            assert result.tokens_out == 200
+            assert result.cost_cents == 0.33
             assert router.call_count == 1
+            assert router.total_cost_cents == 0.33
+
+            # Verify the facade was called with the correct kwargs.
+            _, kwargs = mock_chat.call_args
+            assert kwargs["model"] == "claude-sonnet-4-20250514"
+            assert kwargs["messages"] == [{"role": "user", "content": "Hello"}]
+            assert kwargs["budget_key"] == "anthropic"
 
     @pytest.mark.asyncio
-    async def test_call_fallback_chain(self):
-        router = _make_router({"anthropic_api_key": "test"})
-
-        with patch.object(router, "_dispatch", new_callable=AsyncMock) as mock_dispatch:
-            mock_dispatch.side_effect = [
-                RuntimeError("first fails"),
-                _make_llm_response(model="ollama:qwen3:32b"),
-            ]
-            result = await router.call(backend="claude", prompt="test")
-            assert result.model == "ollama:qwen3:32b"
-            assert mock_dispatch.call_count == 2
-
-    @pytest.mark.asyncio
-    async def test_call_all_fail_raises(self):
-        router = _make_router({"anthropic_api_key": "test"})
-
-        with patch.object(router, "_dispatch", new_callable=AsyncMock) as mock_dispatch:
-            mock_dispatch.side_effect = RuntimeError("all fail")
-            with pytest.raises(RuntimeError, match="All backends in chain"):
-                await router.call(backend="claude", prompt="test")
-
-    @pytest.mark.asyncio
-    async def test_dispatch_routing(self):
+    async def test_unknown_backend_falls_back_to_claude(self):
         router = _make_router()
-        mock_resp = _make_llm_response()
+        from runtime.llm.client import ChatResult
 
-        for prefix, method_name in [
-            ("claude-sonnet-4-20250514", "_call_anthropic"),
-            ("grok-3", "_call_xai"),
-            ("gemini-2.5-pro", "_call_google"),
-            ("gpt-4o", "_call_openai"),
-            ("sonar-pro", "_call_perplexity"),
-        ]:
-            with patch.object(router, method_name, new_callable=AsyncMock) as mock_method:
-                mock_method.return_value = mock_resp
-                result = await router._dispatch(
-                    model_id=prefix, prompt="test",
-                    max_tokens=100, temperature=0.7, system_prompt=None,
-                )
-                mock_method.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_dispatch_ollama(self):
-        router = _make_router({"ollama_host": "http://localhost:11434"})
-        mock_resp = _make_llm_response()
-
-        with patch.object(router, "_call_ollama", new_callable=AsyncMock) as mock_method:
-            mock_method.return_value = mock_resp
-            await router._dispatch(
-                model_id="ollama:qwen3:32b", prompt="test",
-                max_tokens=100, temperature=0.7, system_prompt=None,
-            )
-            mock_method.assert_called_once_with(
-                "qwen3:32b", "test", 100, 0.7, None
-            )
+        fake_result = ChatResult(
+            text="ok", citations=[], usage_input_tokens=0,
+            usage_output_tokens=0, cost_usd=0.0,
+            model="claude-sonnet-4-20250514", latency_ms=10, raw={},
+        )
+        with patch(
+            "runtime.swarm.llm_adapter._chat",
+            new_callable=AsyncMock,
+        ) as mock_chat:
+            mock_chat.return_value = fake_result
+            await router.call(backend="bogus-backend", prompt="test")
+            _, kwargs = mock_chat.call_args
+            assert kwargs["model"] == "claude-sonnet-4-20250514"
+            assert kwargs["budget_key"] == "anthropic"
 
     @pytest.mark.asyncio
-    async def test_dispatch_unknown_model_raises(self):
+    async def test_backend_routing(self):
+        """Each backend name maps to the expected model + budget key."""
         router = _make_router()
-        with pytest.raises(ValueError, match="Unknown model_id"):
-            await router._dispatch(
-                model_id="totally_unknown_model", prompt="test",
-                max_tokens=100, temperature=0.7, system_prompt=None,
-            )
+        from runtime.llm.client import ChatResult
+
+        fake = ChatResult(
+            text="", citations=[], usage_input_tokens=0,
+            usage_output_tokens=0, cost_usd=0.0,
+            model="x", latency_ms=0, raw={},
+        )
+
+        expected = [
+            ("claude", "claude-sonnet-4-20250514", "anthropic"),
+            ("grok", "grok-3", "xai"),
+            ("gemini", "gemini-2.5-pro", "google"),
+            ("gpt", "gpt-4o", "openai"),
+            ("perplexity", "sonar-pro", "perplexity"),
+            ("ollama", "qwen3:32b", "ollama"),
+        ]
+        for backend, expected_model, expected_budget in expected:
+            with patch(
+                "runtime.swarm.llm_adapter._chat",
+                new_callable=AsyncMock,
+            ) as mock_chat:
+                mock_chat.return_value = fake
+                await router.call(backend=backend, prompt="x")
+                _, kwargs = mock_chat.call_args
+                assert kwargs["model"] == expected_model
+                assert kwargs["budget_key"] == expected_budget
 
     @pytest.mark.asyncio
-    async def test_close(self):
+    async def test_close_is_noop(self):
         router = _make_router()
-        await router.close()  # Should not raise even without a client
+        await router.close()  # Should not raise
+        # Adapter does NOT touch the facade's shared httpx client.
 
 
 # ===================================================================
@@ -900,7 +962,7 @@ class TestAgentBase:
     """Tests for the SwarmAgent abstract base class."""
 
     def _make_agent(self) -> ConcreteAgent:
-        router = MagicMock(spec=LLMRouter)
+        router = MagicMock(spec=LLMClientAdapter)
         bb = MagicMock(spec=Blackboard)
         return ConcreteAgent(
             agent_id="test_agent_1",
@@ -931,12 +993,14 @@ class TestAgentBase:
 
     @pytest.mark.asyncio
     async def test_execute(self):
-        router = AsyncMock(spec=LLMRouter)
+        router = AsyncMock(spec=LLMClientAdapter)
         bb = AsyncMock(spec=Blackboard)
         agent = ConcreteAgent(
-            agent_id="agent1", agent_type="tester",
+            agent_id="agent1",
+            agent_type="tester",
             config={"default_llm": "claude"},
-            llm_router=router, blackboard=bb,
+            llm_router=router,
+            blackboard=bb,
         )
         router.call.return_value = _make_llm_response(content="test output")
 
@@ -949,12 +1013,14 @@ class TestAgentBase:
 
     @pytest.mark.asyncio
     async def test_call_llm_tracks_cost(self):
-        router = AsyncMock(spec=LLMRouter)
+        router = AsyncMock(spec=LLMClientAdapter)
         bb = AsyncMock(spec=Blackboard)
         agent = ConcreteAgent(
-            agent_id="agent1", agent_type="tester",
+            agent_id="agent1",
+            agent_type="tester",
             config={"default_llm": "claude"},
-            llm_router=router, blackboard=bb,
+            llm_router=router,
+            blackboard=bb,
         )
         router.call.return_value = _make_llm_response(cost_cents=5.0)
 
@@ -967,11 +1033,14 @@ class TestAgentBase:
 
     @pytest.mark.asyncio
     async def test_checkpoint(self):
-        router = AsyncMock(spec=LLMRouter)
+        router = AsyncMock(spec=LLMClientAdapter)
         bb = AsyncMock(spec=Blackboard)
         agent = ConcreteAgent(
-            agent_id="agent1", agent_type="tester",
-            config={}, llm_router=router, blackboard=bb,
+            agent_id="agent1",
+            agent_type="tester",
+            config={},
+            llm_router=router,
+            blackboard=bb,
         )
 
         node = _make_subtask_node(subtask_id="st_42")
@@ -1000,11 +1069,11 @@ class TestOrchestrator:
     def _make_orchestrator(
         self,
         config: dict[str, Any] | None = None,
-        router: LLMRouter | None = None,
+        router: LLMClientAdapter | None = None,
         blackboard: Blackboard | None = None,
     ) -> SwarmOrchestrator:
         cfg = config or {"anthropic_api_key": "test"}
-        r = router or MagicMock(spec=LLMRouter)
+        r = router or MagicMock(spec=LLMClientAdapter)
         r.call_count = 0
         r.total_cost_cents = 0.0
         bb = blackboard or AsyncMock(spec=Blackboard)
@@ -1037,7 +1106,7 @@ class TestOrchestrator:
         orch = self._make_orchestrator()
 
         # Patch the background execution to avoid actually running
-        with patch.object(orch, "_execute_task", new_callable=AsyncMock) as mock_exec:
+        with patch.object(orch, "_execute_task", new_callable=AsyncMock) as mock_exec:  # noqa: F841
             with patch.object(orch, "_ensure_maintenance_running", new_callable=AsyncMock):
                 task = await orch.submit_task(
                     title="Test Task",
@@ -1116,7 +1185,7 @@ class TestSpecialistAgents:
         from runtime.swarm.agents import get_agent_class
 
         cls = get_agent_class(agent_type)
-        router = MagicMock(spec=LLMRouter)
+        router = MagicMock(spec=LLMClientAdapter)
         bb = MagicMock(spec=Blackboard)
         return cls(
             agent_id=f"{agent_type}_test",
@@ -1174,7 +1243,7 @@ class TestSpecialistAgents:
         from runtime.swarm.agents import get_agent_class
 
         cls = get_agent_class("scholar")
-        router = AsyncMock(spec=LLMRouter)
+        router = AsyncMock(spec=LLMClientAdapter)
         bb = AsyncMock(spec=Blackboard)
         agent = cls(
             agent_id="scholar_test",

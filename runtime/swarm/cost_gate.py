@@ -15,6 +15,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -304,9 +305,7 @@ class CostGate:
         cutoff = time.time() - max_age_seconds
         async with self._lock:
             stale = [
-                task_id
-                for task_id, budget in self._budgets.items()
-                if budget.created_at < cutoff
+                task_id for task_id, budget in self._budgets.items() if budget.created_at < cutoff
             ]
             for task_id in stale:
                 removed = self._budgets.pop(task_id)

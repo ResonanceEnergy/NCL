@@ -12,12 +12,11 @@ Extracted triples are stored on MemUnit.entities and MemUnit.relationships
 and periodically synced to the knowledge graph store.
 """
 
-import asyncio
 import json
 import logging
-import os
 import re
 from typing import Optional
+
 
 log = logging.getLogger("ncl.memory.entity_extractor")
 
@@ -26,10 +25,12 @@ log = logging.getLogger("ncl.memory.entity_extractor")
 # Named entity patterns (company names, tickers, people, products)
 # Ticker priority (2026-05-22 audit fix): $TICKER is the strongest signal.
 # Bare tickers require trailing stock-context for low false-positive rate.
-_TICKER_RE = re.compile(r'(?:\$([A-Z]{1,5})\b|\b([A-Z]{1,5})\b(?=\s+(?:stock|shares|price|earnings|revenue|market|cap|rally|drop|surge|crash|dividend|valuation|PE|p/e)))')
-_PERSON_RE = re.compile(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b')
-_URL_DOMAIN_RE = re.compile(r'https?://(?:www\.)?([a-zA-Z0-9.-]+)')
-_HASHTAG_RE = re.compile(r'#([a-zA-Z0-9_]+)')
+_TICKER_RE = re.compile(
+    r"(?:\$([A-Z]{1,5})\b|\b([A-Z]{1,5})\b(?=\s+(?:stock|shares|price|earnings|revenue|market|cap|rally|drop|surge|crash|dividend|valuation|PE|p/e)))"
+)
+_PERSON_RE = re.compile(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b")
+_URL_DOMAIN_RE = re.compile(r"https?://(?:www\.)?([a-zA-Z0-9.-]+)")
+_HASHTAG_RE = re.compile(r"#([a-zA-Z0-9_]+)")
 
 # 2026-05-22 entity-quality audit: KG top entities were polluted with URL
 # stems (reddit.com=8495, trends.google.com, polymarket.com, preview.redd.it,
@@ -42,39 +43,94 @@ _HASHTAG_RE = re.compile(r'#([a-zA-Z0-9_]+)')
 # `.it` was added explicitly because preview.redd.it (Reddit image CDN) was
 # leaking 600+ noise mentions per the 2026-05-22 audit.
 _DOMAIN_TLD_RE = re.compile(
-    r'^[A-Za-z0-9][A-Za-z0-9\-\.]*\.(com|org|net|io|ly|app|co|gov|edu|ai|tv|me|us|uk|ca|it|de|fr|jp|cn|ru|au|nz|in|br|be|se|no|fi|nl|es|pl)$',
+    r"^[A-Za-z0-9][A-Za-z0-9\-\.]*\.(com|org|net|io|ly|app|co|gov|edu|ai|tv|me|us|uk|ca|it|de|fr|jp|cn|ru|au|nz|in|br|be|se|no|fi|nl|es|pl)$",
     re.IGNORECASE,
 )
 
 # yfinance sector strings — these are categories, not entities. Lowercased
 # membership check.
-_YFINANCE_SECTORS = frozenset(s.lower() for s in [
-    "Communication Services",
-    "Consumer Cyclical",
-    "Consumer Defensive",
-    "Energy",
-    "Financial Services",
-    "Healthcare",
-    "Industrials",
-    "Real Estate",
-    "Technology",
-    "Utilities",
-    "Basic Materials",
-])
+_YFINANCE_SECTORS = frozenset(
+    s.lower()
+    for s in [
+        "Communication Services",
+        "Consumer Cyclical",
+        "Consumer Defensive",
+        "Energy",
+        "Financial Services",
+        "Healthcare",
+        "Industrials",
+        "Real Estate",
+        "Technology",
+        "Utilities",
+        "Basic Materials",
+    ]
+)
 
 # Common tickers that should ALWAYS classify as ticker even when the regex
 # missed the trailing-context heuristic (e.g. "TSLA disabled" with no
 # stock/shares trigger word). Bumped in the 2026-05-22 audit because TSLA
 # never made it into the KG despite being mentioned constantly.
-_KNOWN_TICKERS = frozenset([
-    "TSLA", "AAPL", "MSFT", "NVDA", "GOOG", "GOOGL", "META", "AMZN",
-    "SPY", "QQQ", "VIX", "BTC", "ETH", "AMD", "TSM", "AVGO", "ASML",
-    "BABA", "JPM", "BAC", "WFC", "GS", "MS", "V", "MA", "PYPL", "SQ",
-    "F", "GM", "BA", "GE", "IBM", "ORCL", "CRM", "ADBE", "INTC",
-    "DIS", "NFLX", "SHOP", "UBER", "LYFT", "ABNB", "COIN", "HOOD",
-    "PLTR", "SNOW", "AI", "PATH", "RBLX", "DASH", "DKNG", "MARA",
-    "RIOT", "MSTR", "GME", "AMC", "BBBY",
-])
+_KNOWN_TICKERS = frozenset(
+    [
+        "TSLA",
+        "AAPL",
+        "MSFT",
+        "NVDA",
+        "GOOG",
+        "GOOGL",
+        "META",
+        "AMZN",
+        "SPY",
+        "QQQ",
+        "VIX",
+        "BTC",
+        "ETH",
+        "AMD",
+        "TSM",
+        "AVGO",
+        "ASML",
+        "BABA",
+        "JPM",
+        "BAC",
+        "WFC",
+        "GS",
+        "MS",
+        "V",
+        "MA",
+        "PYPL",
+        "SQ",
+        "F",
+        "GM",
+        "BA",
+        "GE",
+        "IBM",
+        "ORCL",
+        "CRM",
+        "ADBE",
+        "INTC",
+        "DIS",
+        "NFLX",
+        "SHOP",
+        "UBER",
+        "LYFT",
+        "ABNB",
+        "COIN",
+        "HOOD",
+        "PLTR",
+        "SNOW",
+        "AI",
+        "PATH",
+        "RBLX",
+        "DASH",
+        "DKNG",
+        "MARA",
+        "RIOT",
+        "MSTR",
+        "GME",
+        "AMC",
+        "BBBY",
+    ]
+)
 
 
 def _is_blacklisted_entity(text: str) -> bool:
@@ -94,7 +150,10 @@ def _is_blacklisted_entity(text: str) -> bool:
     if low in _YFINANCE_SECTORS:
         return True
     # Trailing TLD anywhere in the string (catches "Visit reddit.com today")
-    if re.search(r'\b\w+\.(com|org|net|io|ly|app|co|gov|edu|ai|tv|me|us|uk|ca|it|de|fr|jp|cn|ru|au|nz|in|br|be|se|no|fi|nl|es|pl)\b', low):
+    if re.search(
+        r"\b\w+\.(com|org|net|io|ly|app|co|gov|edu|ai|tv|me|us|uk|ca|it|de|fr|jp|cn|ru|au|nz|in|br|be|se|no|fi|nl|es|pl)\b",
+        low,
+    ):
         return True
     return False
 
@@ -111,7 +170,7 @@ def _classify_entity(text: str) -> str:
         return "ticker"
     if t.upper() in _KNOWN_TICKERS:
         return "ticker"
-    if re.fullmatch(r'[A-Z]{1,5}', t) and t in _KNOWN_TICKERS:
+    if re.fullmatch(r"[A-Z]{1,5}", t) and t in _KNOWN_TICKERS:
         return "ticker"
     if t.startswith("#"):
         return "hashtag"
@@ -119,42 +178,98 @@ def _classify_entity(text: str) -> str:
         return "person_or_org"
     return "concept"
 
+
 # Relationship patterns
 _RELATION_PATTERNS = [
     # "X decided to Y"
-    (re.compile(r'(\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+decided\s+to\s+(.+?)(?:\.|$)', re.I),
-     "DECIDED"),
+    (
+        re.compile(r"(\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+decided\s+to\s+(.+?)(?:\.|$)", re.I),
+        "DECIDED",
+    ),
     # "X approved Y"
-    (re.compile(r'(\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+approved\s+(.+?)(?:\.|$)', re.I),
-     "APPROVED"),
+    (
+        re.compile(r"(\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+approved\s+(.+?)(?:\.|$)", re.I),
+        "APPROVED",
+    ),
     # "X uses Y"
-    (re.compile(r'(\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+(?:uses?|using)\s+(.+?)(?:\.|,|$)', re.I),
-     "USES"),
+    (
+        re.compile(r"(\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+(?:uses?|using)\s+(.+?)(?:\.|,|$)", re.I),
+        "USES",
+    ),
     # "X depends on Y"
-    (re.compile(r'(\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+depends?\s+on\s+(.+?)(?:\.|,|$)', re.I),
-     "DEPENDS_ON"),
+    (
+        re.compile(r"(\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+depends?\s+on\s+(.+?)(?:\.|,|$)", re.I),
+        "DEPENDS_ON",
+    ),
     # "X reported Y"
-    (re.compile(r'(\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+reported\s+(.+?)(?:\.|$)', re.I),
-     "REPORTED"),
+    (
+        re.compile(r"(\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+reported\s+(.+?)(?:\.|$)", re.I),
+        "REPORTED",
+    ),
     # "X acquired Y"
-    (re.compile(r'(\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+acquired\s+(.+?)(?:\.|$)', re.I),
-     "ACQUIRED"),
+    (
+        re.compile(r"(\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+acquired\s+(.+?)(?:\.|$)", re.I),
+        "ACQUIRED",
+    ),
     # "X partnered with Y"
-    (re.compile(r'(\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+partnered\s+with\s+(.+?)(?:\.|,|$)', re.I),
-     "PARTNERED_WITH"),
+    (
+        re.compile(
+            r"(\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+partnered\s+with\s+(.+?)(?:\.|,|$)", re.I
+        ),
+        "PARTNERED_WITH",
+    ),
     # "X launched Y"
-    (re.compile(r'(\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+launched\s+(.+?)(?:\.|,|$)', re.I),
-     "LAUNCHED"),
+    (
+        re.compile(r"(\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+launched\s+(.+?)(?:\.|,|$)", re.I),
+        "LAUNCHED",
+    ),
 ]
 
 # Stop words to filter from entity names
 _STOP_ENTITIES = {
-    "the", "a", "an", "this", "that", "it", "they", "we", "he", "she",
-    "url", "http", "https", "www", "com", "org", "net",
-    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
-    "january", "february", "march", "april", "may", "june", "july",
-    "august", "september", "october", "november", "december",
-    "today", "yesterday", "tomorrow", "last", "next", "new", "old",
+    "the",
+    "a",
+    "an",
+    "this",
+    "that",
+    "it",
+    "they",
+    "we",
+    "he",
+    "she",
+    "url",
+    "http",
+    "https",
+    "www",
+    "com",
+    "org",
+    "net",
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
+    "today",
+    "yesterday",
+    "tomorrow",
+    "last",
+    "next",
+    "new",
+    "old",
 }
 
 
@@ -179,7 +294,7 @@ def fast_extract_entities(content: str) -> list[str]:
 
     # Known-ticker fast path (catches "TSLA disabled", "MSTR is dumping",
     # i.e. bare tickers WITHOUT a trailing stock-context trigger word).
-    for tok in re.findall(r'\b([A-Z]{2,5})\b', content):
+    for tok in re.findall(r"\b([A-Z]{2,5})\b", content):
         if tok in _KNOWN_TICKERS:
             entities.add(f"${tok}")
 
@@ -222,13 +337,18 @@ def fast_extract_relationships(content: str) -> list[dict]:
             subject = match.group(1).strip()[:100]
             obj = match.group(2).strip()[:100]
 
-            if (subject.lower().split()[0] not in _STOP_ENTITIES
-                and len(subject) > 2 and len(obj) > 2):
-                relationships.append({
-                    "subject": subject,
-                    "predicate": predicate,
-                    "object": obj,
-                })
+            if (
+                subject.lower().split()[0] not in _STOP_ENTITIES
+                and len(subject) > 2
+                and len(obj) > 2
+            ):
+                relationships.append(
+                    {
+                        "subject": subject,
+                        "predicate": predicate,
+                        "object": obj,
+                    }
+                )
 
     return relationships[:10]  # Cap at 10 relationships per unit
 
@@ -236,19 +356,19 @@ def fast_extract_relationships(content: str) -> list[dict]:
 async def llm_extract_entities(
     content: str,
     source: str = "",
-    timeout: float = 5.0,
+    timeout: float = 30.0,
     model: str = "claude-sonnet-4-20250514",
 ) -> Optional[dict]:
     """
-    Use Claude Haiku to extract entities and relationships from content.
+    Use Claude Sonnet to extract entities and relationships from content.
 
     Returns dict with 'entities' (list[str]) and 'relationships' (list[dict])
     or None if LLM call fails.
-    """
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        return None
 
+    Routed through ``runtime.llm.chat`` — the facade owns retry+jitter,
+    circuit-breaker, budget gating, and cost recording. This function
+    just builds the prompt and parses the JSON reply.
+    """
     prompt = f"""Extract named entities and relationships from this text.
 
 Text:
@@ -267,50 +387,27 @@ Rules:
 - Entities: people, companies, products, tickers, technologies, concepts
 - Predicates: USES, DECIDED, APPROVED, REPORTED, ACQUIRED, LAUNCHED, DEPENDS_ON, PARTNERED_WITH, AFFECTS, PREDICTS
 - Max 10 entities, 5 relationships
-- Only include clear, confident extractions"""
+- Only include clear, confident extractions"""  # noqa: E501
 
     try:
-        import httpx
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": model,
-                    "max_tokens": 300,
-                    "messages": [{"role": "user", "content": prompt}],
-                },
-            )
-            if resp.status_code != 200:
-                return None
+        from runtime.llm import chat
 
-            data = resp.json()
+        result = await chat(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=300,
+            budget_key="anthropic",
+            timeout_s=timeout,
+        )
+        text = result.text
+        text = re.sub(r"```json\s*", "", text)
+        text = re.sub(r"```\s*", "", text)
 
-            # Track cost
-            try:
-                from ..cost_tracker import record_cost
-                usage = data.get("usage", {})
-                input_t = usage.get("input_tokens", 0)
-                output_t = usage.get("output_tokens", 0)
-                cost_usd = (input_t * 3.00 + output_t * 15.00) / 1_000_000  # Sonnet pricing
-                await record_cost("anthropic", cost_usd, "entity_extraction",
-                                  f"entity extraction in={input_t} out={output_t}")
-            except Exception:
-                pass  # Cost tracking should never break the primary flow
-
-            text = data.get("content", [{}])[0].get("text", "")
-            text = re.sub(r"```json\s*", "", text)
-            text = re.sub(r"```\s*", "", text)
-
-            parsed = json.loads(text.strip())
-            return {
-                "entities": parsed.get("entities", [])[:10],
-                "relationships": parsed.get("relationships", [])[:5],
-            }
+        parsed = json.loads(text.strip())
+        return {
+            "entities": parsed.get("entities", [])[:10],
+            "relationships": parsed.get("relationships", [])[:5],
+        }
     except Exception as e:
         log.debug(f"LLM entity extraction failed: {e}")
         return None

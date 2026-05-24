@@ -101,17 +101,18 @@ import math
 import threading
 from collections import OrderedDict, deque
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional
+
 
 logger = logging.getLogger(__name__)
 
 
 class BurstState(Enum):
     """2-state Kleinberg automaton state."""
-    BASE = 0      # Normal arrival rate (λ0)
-    BURST = 1     # Elevated arrival rate (λ1 = multiplier × λ0)
+
+    BASE = 0  # Normal arrival rate (λ0)
+    BURST = 1  # Elevated arrival rate (λ1 = multiplier × λ0)
 
 
 @dataclass
@@ -123,20 +124,20 @@ class BurstEvent:
     [0,1] by `1 - exp(-(rate_ratio - 1) / multiplier)`. Useful for
     sorting which burst gets the council slot when several are open.
     """
+
     topic: str
     start_ts: float
     end_ts: float | None
     n_signals: int
-    burst_intensity: float           # 0-1
+    burst_intensity: float  # 0-1
     sources_in_burst: set[str] = field(default_factory=set)
-    triggered_at: datetime = field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    triggered_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 @dataclass
 class _TopicState:
     """Per-topic rolling state — kept tiny so the LRU cap is honored."""
+
     state: BurstState = BurstState.BASE
     # Arrival timestamps as unix-epoch floats, oldest first.
     arrivals: deque = field(default_factory=lambda: deque(maxlen=512))
@@ -213,7 +214,11 @@ class BurstDetector:
             while len(self._topics) > self.max_topics:
                 evicted_topic, evicted_state = self._topics.popitem(last=False)
                 if evicted_state.open_burst is not None:
-                    evicted_state.open_burst.end_ts = evicted_state.arrivals[-1] if evicted_state.arrivals else evicted_state.open_burst.start_ts
+                    evicted_state.open_burst.end_ts = (
+                        evicted_state.arrivals[-1]
+                        if evicted_state.arrivals
+                        else evicted_state.open_burst.start_ts
+                    )
                     self._closed_bursts.append(evicted_state.open_burst)
         else:
             self._topics.move_to_end(topic)
@@ -333,9 +338,7 @@ class BurstDetector:
                 # Burst onset — open a new event.
                 tstate.sources_in_burst = {source}
                 rate_ratio = lambda1 / lambda0 if lambda0 > 0 else 1.0
-                intensity = 1.0 - math.exp(
-                    -(rate_ratio - 1.0) / self.burst_rate_multiplier
-                )
+                intensity = 1.0 - math.exp(-(rate_ratio - 1.0) / self.burst_rate_multiplier)
                 tstate.open_burst = BurstEvent(
                     topic=topic,
                     start_ts=ts,
@@ -396,10 +399,7 @@ class BurstDetector:
                     active_total += 1
                     if tstate.open_burst.n_signals >= self.min_burst_signals:
                         active_gated += 1
-            completed_24h = sum(
-                1 for b in self._closed_bursts
-                if (b.end_ts or 0.0) >= cutoff
-            )
+            completed_24h = sum(1 for b in self._closed_bursts if (b.end_ts or 0.0) >= cutoff)
             return {
                 "topics_tracked": len(self._topics),
                 "bursts_active": active_gated,

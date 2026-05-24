@@ -13,18 +13,17 @@ Run:
     pytest tests/test_council_fallback.py -v --asyncio-mode=auto
 """
 
-import pytest
 import asyncio
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
+
+import pytest
 
 from runtime.ncl_brain.council import CouncilEngine
 from runtime.ncl_brain.models import (
-    CouncilSession,
-    CouncilStatus,
     CouncilMember,
     CouncilRole,
-    ConsensusScore,
+    CouncilSession,
+    CouncilStatus,
 )
 
 
@@ -65,6 +64,7 @@ async def test_council_quorum_met(council_engine):
 
     # Mock the API calls
     with patch.object(council_engine, "_call_member_api") as mock_api:
+
         async def call_api_side_effect(member, prompt, role, round_type):
             await asyncio.sleep(0.01)  # Simulate API latency
             return mock_responses.get(member, "Response")
@@ -89,7 +89,9 @@ async def test_council_quorum_met(council_engine):
                     member=member,
                     prompt=session.prompt,
                     role=CouncilRole.CHAIR,
-                    round_type="position" if round_num == 1 else ("rebuttal" if round_num == 2 else "convergence"),
+                    round_type="position"
+                    if round_num == 1
+                    else ("rebuttal" if round_num == 2 else "convergence"),
                 )
                 round_responses[member.value] = response
 
@@ -124,6 +126,7 @@ async def test_council_quorum_not_met(council_engine):
     - Quorum fails (need 4+ responding members)
     - Session status set to FAILED with quorum error
     """
+
     # Mock responses: 4 unavailable, 2 available
     async def call_api_side_effect_quorum_fail(member, prompt, role, round_type):
         await asyncio.sleep(0.01)

@@ -1,8 +1,29 @@
 """
+DEPRECATED — use runtime.llm.client instead. Will be deleted after 30 days clean.
+
 Unified LLM Router for the NCL Agent Swarm.
 
 Routes requests to multiple LLM backends (Claude, Grok, Gemini, GPT,
 Perplexity, Ollama) with fallback chains, concurrency limits, and cost tracking.
+
+Migration (W8-A6, 2026-05-24)
+-----------------------------
+Every council / scorer / agent code path now uses ``runtime.llm.chat`` which
+owns the budget gate, per-provider circuit breaker, retry-with-jitter,
+Anthropic Citations passthrough, cost record, and fatal-skip + ntfy.
+
+Migrate any remaining callers with:
+
+    from runtime.llm import chat
+    result = await chat(
+        model="claude-sonnet-4-20250514",
+        messages=[{"role": "user", "content": prompt}],
+        budget_key="anthropic",
+    )
+    text = result.text
+
+This file is kept intact for the 30-day clean-deletion window. Importing
+it emits a ``DeprecationWarning``.
 """
 
 from __future__ import annotations
@@ -10,10 +31,19 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from dataclasses import dataclass, field
+import warnings
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
+
+
+warnings.warn(
+    "runtime.swarm.llm_router is deprecated; use runtime.llm.chat instead. "
+    "Scheduled for deletion 2026-06-23 (30 days after W8-A6 ship date).",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -154,7 +184,7 @@ class LLMRouter:
                 if exc.response.status_code not in self._RETRYABLE_STATUS_CODES:
                     raise
                 if attempt < _MAX_RETRIES - 1:
-                    delay = _RETRY_BASE_DELAY * (2 ** attempt)
+                    delay = _RETRY_BASE_DELAY * (2**attempt)
                     logger.warning(
                         "Backend %s attempt %d/%d failed (HTTP %d): %s — retrying in %.1fs",
                         model_id,
@@ -175,7 +205,7 @@ class LLMRouter:
             except Exception as exc:
                 last_error = exc
                 if attempt < _MAX_RETRIES - 1:
-                    delay = _RETRY_BASE_DELAY * (2 ** attempt)
+                    delay = _RETRY_BASE_DELAY * (2**attempt)
                     logger.warning(
                         "Backend %s attempt %d/%d failed: %s — retrying in %.1fs",
                         model_id,
@@ -251,8 +281,7 @@ class LLMRouter:
                 )
 
         raise RuntimeError(
-            f"All backends in chain {chain} failed for '{backend}'. "
-            f"Last error: {last_error}"
+            f"All backends in chain {chain} failed for '{backend}'. " f"Last error: {last_error}"
         )
 
     async def _dispatch(
@@ -269,7 +298,9 @@ class LLMRouter:
                 model_id.removeprefix("ollama:"), prompt, max_tokens, temperature, system_prompt
             )
         elif model_id.startswith("claude"):
-            return await self._call_anthropic(model_id, prompt, max_tokens, temperature, system_prompt)
+            return await self._call_anthropic(
+                model_id, prompt, max_tokens, temperature, system_prompt
+            )
         elif model_id.startswith("grok"):
             return await self._call_xai(model_id, prompt, max_tokens, temperature, system_prompt)
         elif model_id.startswith("gemini"):
@@ -277,7 +308,9 @@ class LLMRouter:
         elif model_id.startswith("gpt"):
             return await self._call_openai(model_id, prompt, max_tokens, temperature, system_prompt)
         elif model_id.startswith("sonar"):
-            return await self._call_perplexity(model_id, prompt, max_tokens, temperature, system_prompt)
+            return await self._call_perplexity(
+                model_id, prompt, max_tokens, temperature, system_prompt
+            )
         else:
             raise ValueError(f"Unknown model_id: {model_id}")
 
@@ -427,10 +460,7 @@ class LLMRouter:
 
         # API key goes in a request header — never in URL params (avoids
         # logging / server-log leakage of credentials).
-        url = (
-            f"https://generativelanguage.googleapis.com/v1beta/models/{model}"
-            f":generateContent"
-        )
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}" f":generateContent"
 
         async with self._cloud_semaphore:
             client = await self._get_client()

@@ -19,9 +19,10 @@ from typing import Any
 from .agents import get_agent_class, list_agent_types
 from .blackboard import Blackboard
 from .cost_gate import CostGate
-from .llm_router import LLMRouter
+from .llm_adapter import LLMClientAdapter
 from .models import AgentState, SwarmTask, TaskResult, TaskStatus
 from .task_graph import TaskGraphBuilder, TaskGraphEngine
+
 
 logger = logging.getLogger(__name__)
 
@@ -86,17 +87,17 @@ class SwarmOrchestrator:
     """
 
     MAX_CONCURRENT_AGENTS = 4
-    STALL_TIMEOUT_SECONDS = 300        # 5 minutes — deadlock / no-progress detection
-    AGENT_TIMEOUT_SECONDS = 300        # 5 minutes — max wall-clock for a single agent run
-    APPROVAL_TIMEOUT_SECONDS = 3600    # 1 hour   — max wait in AWAITING_APPROVAL
-    COMPLETED_TASK_TTL_SECONDS = 86400 # 24 hours — cleanup_completed_tasks() threshold
+    STALL_TIMEOUT_SECONDS = 300  # 5 minutes — deadlock / no-progress detection
+    AGENT_TIMEOUT_SECONDS = 300  # 5 minutes — max wall-clock for a single agent run
+    APPROVAL_TIMEOUT_SECONDS = 3600  # 1 hour   — max wait in AWAITING_APPROVAL
+    COMPLETED_TASK_TTL_SECONDS = 86400  # 24 hours — cleanup_completed_tasks() threshold
     MAX_TASKS = 5000  # Hard cap on _tasks dict size
     TASK_TTL_HOURS = 24  # Completed/failed tasks older than this are evicted
 
     def __init__(
         self,
         config: dict[str, Any],
-        llm_router: LLMRouter,
+        llm_router: LLMClientAdapter,
         blackboard: Blackboard,
         policy_kernel: Any | None = None,
         emergency_stop: asyncio.Event | None = None,
@@ -104,7 +105,12 @@ class SwarmOrchestrator:
         """
         Args:
             config: Swarm configuration dict.
-            llm_router: Shared LLM router for all calls.
+            llm_router: Shared LLM client adapter (W10C-15: wraps
+                ``runtime.llm.chat``; the legacy ``LLMRouter`` was
+                retired). Type is annotated as ``LLMClientAdapter`` but
+                any object exposing ``async call(backend, prompt, ...)``
+                + ``call_count`` + ``total_cost_cents`` is acceptable
+                (tests pass ``MagicMock(spec=LLMClientAdapter)``).
             blackboard: Shared state store.
             policy_kernel: Optional policy gate; must expose
                            ``async approve(action_desc: str) -> bool``.
@@ -125,7 +131,9 @@ class SwarmOrchestrator:
         self._tasks: dict[str, SwarmTask] = {}
         self._task_graphs: dict[str, TaskGraphEngine] = {}
         self._task_locks: dict[str, asyncio.Lock] = {}
-        self._tasks_guard = asyncio.Lock()  # Serialises insertions and deletions across all three dicts
+        self._tasks_guard = (
+            asyncio.Lock()
+        )  # Serialises insertions and deletions across all three dicts
         self._background_workers: dict[str, asyncio.Task[None]] = {}
 
         # Agent pool
@@ -528,7 +536,7 @@ class SwarmOrchestrator:
                     await asyncio.sleep(0.5)
                     continue
 
-                last_progress_time = time.time()
+                last_progress_time = time.time()  # noqa: F841
 
                 # Dispatch ready nodes concurrently — hold the pool lock while
                 # checking + setting status so two coroutines cannot both see
@@ -541,9 +549,7 @@ class SwarmOrchestrator:
                         if node.status != TaskStatus.PENDING:
                             continue
                         node.status = TaskStatus.ASSIGNED
-                        dispatch_tasks.append(
-                            self._dispatch_subtask(task, engine, node)
-                        )
+                        dispatch_tasks.append(self._dispatch_subtask(task, engine, node))
 
                 # Run dispatches concurrently (semaphore limits parallelism)
                 await asyncio.gather(*dispatch_tasks, return_exceptions=True)
@@ -572,9 +578,7 @@ class SwarmOrchestrator:
                 async with self._stats_lock:
                     self._total_failed += 1
 
-                logger.warning(
-                    "Task %s FAILED (progress: %s)", task.task_id, progress
-                )
+                logger.warning("Task %s FAILED (progress: %s)", task.task_id, progress)
 
         except asyncio.CancelledError:
             logger.info("Task %s execution cancelled", task.task_id)
@@ -605,9 +609,7 @@ class SwarmOrchestrator:
         try:
             # Policy gate for execute-tier actions
             if self._policy_kernel and node.agent_type in ("coder", "architect"):
-                description = (
-                    f"Execute subtask '{node.title}' via {node.agent_type} agent"
-                )
+                description = f"Execute subtask '{node.title}' via {node.agent_type} agent"
                 approved = await self._policy_kernel.approve(description)
                 if not approved:
                     logger.info(
@@ -656,9 +658,14 @@ class SwarmOrchestrator:
                 # Bridge swarm spending to persistent JSONL cost ledger
                 try:
                     from ..cost_tracker import record_cost
+
                     cost_usd = result.cost_cents / 100.0
-                    await record_cost("anthropic", cost_usd, "swarm_subtask",
-                                      f"swarm subtask {subtask_id}: {node.title[:80]}")
+                    await record_cost(
+                        "anthropic",
+                        cost_usd,
+                        "swarm_subtask",
+                        f"swarm subtask {subtask_id}: {node.title[:80]}",
+                    )
                 except Exception:
                     pass
                 async with self._stats_lock:
@@ -694,9 +701,7 @@ class SwarmOrchestrator:
                 await engine.mark_failed(subtask_id, "Agent returned no result")
 
         except Exception as exc:
-            logger.exception(
-                "Error dispatching subtask %s: %s", subtask_id, exc
-            )
+            logger.exception("Error dispatching subtask %s: %s", subtask_id, exc)
             await engine.mark_failed(subtask_id, str(exc))
 
     async def _spawn_agent(
@@ -784,10 +789,7 @@ class SwarmOrchestrator:
         # Try to reuse from pool
         async with self._pool_lock:
             for i, pooled in enumerate(self._agent_pool):
-                if (
-                    pooled.agent_type == agent_type
-                    and pooled.agent.state == AgentState.IDLE
-                ):
+                if pooled.agent_type == agent_type and pooled.agent.state == AgentState.IDLE:
                     self._agent_pool.pop(i)
                     logger.debug(
                         "Reusing pooled agent %s (type=%s)",
@@ -862,9 +864,7 @@ class SwarmOrchestrator:
             node = engine.graph.nodes[subtask_id]
             output = node.output_data.get("output", "")
             if output:
-                results_parts.append(
-                    f"[{node.title} ({node.agent_type})]\n{output}"
-                )
+                results_parts.append(f"[{node.title} ({node.agent_type})]\n{output}")
 
         results_text = "\n\n---\n\n".join(results_parts)
 
@@ -890,9 +890,14 @@ class SwarmOrchestrator:
         # Bridge to persistent JSONL cost ledger
         try:
             from ..cost_tracker import record_cost
+
             cost_usd = response.cost_cents / 100.0
-            await record_cost("anthropic", cost_usd, "swarm_synthesis",
-                              f"swarm result synthesis for task {task.task_id}")
+            await record_cost(
+                "anthropic",
+                cost_usd,
+                "swarm_synthesis",
+                f"swarm result synthesis for task {task.task_id}",
+            )
         except Exception:
             pass
         async with self._stats_lock:
@@ -946,7 +951,9 @@ class SwarmOrchestrator:
             to_remove = [
                 task_id
                 for task_id, task in self._tasks.items()
-                if task.status in terminal and task.completed_at is not None and task.completed_at < cutoff
+                if task.status in terminal
+                and task.completed_at is not None
+                and task.completed_at < cutoff
             ]
 
             for task_id in to_remove:
@@ -1005,9 +1012,7 @@ class SwarmOrchestrator:
                 ready = await engine.get_ready_nodes()
                 if not ready and not engine.is_complete():
                     # Deadlocked — no ready nodes but not complete
-                    elapsed = now - (
-                        task.started_at.timestamp() if task.started_at else now
-                    )
+                    elapsed = now - (task.started_at.timestamp() if task.started_at else now)
                     if elapsed > self.STALL_TIMEOUT_SECONDS:
                         logger.warning(
                             "Task %s appears stalled (no progress for %.0fs), marking failed",

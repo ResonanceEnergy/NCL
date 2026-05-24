@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+
 log = logging.getLogger("ncl.memory.retrieval.bm25")
 
 if TYPE_CHECKING:
@@ -259,7 +260,10 @@ class BM25Index:
         self._persist_atomic()
         log.info(
             "[BM25] built index — %d docs, vocab=%d, avg_len=%.1f tokens, took %.2fs",
-            len(unit_ids), len(vocab), avg_len, elapsed,
+            len(unit_ids),
+            len(vocab),
+            avg_len,
+            elapsed,
         )
         return len(unit_ids)
 
@@ -356,7 +360,9 @@ class BM25Index:
             self._meta["avg_doc_length"] = round(total / len(self._unit_ids), 2)
             self._meta["last_built"] = datetime.now(timezone.utc).isoformat()
             self._persist_atomic()
-            log.info("[BM25] incremental update — added %d docs (total=%d)", added, len(self._unit_ids))
+            log.info(
+                "[BM25] incremental update — added %d docs (total=%d)", added, len(self._unit_ids)
+            )
             return added
         except Exception as e:
             log.warning("[BM25] incremental update failed (%s) — falling back to full rebuild", e)

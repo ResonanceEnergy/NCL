@@ -14,7 +14,9 @@ async def run_weekly_eval(brain: Any) -> dict:
     Safe to call directly from notebooks or one-off scripts.
     """
     memory_store = getattr(brain, "memory_store", None)
-    working_context = getattr(brain, "working_context", None) or getattr(brain, "context_window", None)
+    working_context = getattr(brain, "working_context", None) or getattr(
+        brain, "context_window", None
+    )
     if memory_store is None:
         raise RuntimeError("brain has no memory_store attribute")
 

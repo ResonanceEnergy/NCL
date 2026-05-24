@@ -4,17 +4,20 @@
 Hits the Brain's internal trigger endpoint OR (if no endpoint) imports the
 scheduler directly. Uses Brain's autonomous scheduler via the running app.
 """
+
 import asyncio
 import os
 import sys
 
+
 # Add NCL to path
 sys.path.insert(0, os.path.expanduser("~/dev/NCL"))
+
 
 async def main():
     # We can't reach the in-process scheduler from a side-script, but we can
     # call a manual-trigger endpoint if one exists. Try a few common ones.
-    import urllib.request, json
+    import urllib.request
 
     token = ""
     for line in open(os.path.expanduser("~/dev/NCL/.env")):
@@ -45,7 +48,10 @@ async def main():
             print(f"  {path}: {e}")
 
     print("No manual trigger endpoint found. Will need to wait for next 2am ET cycle OR")
-    print("the boot-time catch-up should have fired automatically — check stderr for [NIGHT-WATCH].")
+    print(
+        "the boot-time catch-up should have fired automatically — check stderr for [NIGHT-WATCH]."
+    )
+
 
 if __name__ == "__main__":
     asyncio.run(main())

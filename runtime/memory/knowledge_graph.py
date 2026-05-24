@@ -20,10 +20,10 @@ import asyncio
 import json
 import logging
 import os
-from collections import defaultdict
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional, Any
+from typing import Optional
+
 
 log = logging.getLogger("ncl.memory.knowledge_graph")
 
@@ -47,13 +47,18 @@ class KnowledgeGraph:
             return True
         try:
             import networkx as nx
+
             self._nx = nx
             self._graph = nx.DiGraph()
             self._load_from_disk()
-            log.info(f"Knowledge graph initialized: {self._graph.number_of_nodes()} nodes, {self._graph.number_of_edges()} edges")
+            log.info(
+                f"Knowledge graph initialized: {self._graph.number_of_nodes()} nodes, {self._graph.number_of_edges()} edges"  # noqa: E501
+            )
             return True
         except ImportError:
-            log.info("networkx not installed — knowledge graph disabled. Install with: pip install networkx")
+            log.info(
+                "networkx not installed — knowledge graph disabled. Install with: pip install networkx"  # noqa: E501
+            )
             return False
         except Exception as e:
             log.warning(f"Knowledge graph init failed: {e}")
@@ -152,7 +157,9 @@ class KnowledgeGraph:
 
                 if self._graph.has_node(entity):
                     # Update existing node
-                    self._graph.nodes[entity]["mention_count"] = self._graph.nodes[entity].get("mention_count", 0) + 1
+                    self._graph.nodes[entity]["mention_count"] = (
+                        self._graph.nodes[entity].get("mention_count", 0) + 1
+                    )
                     self._graph.nodes[entity]["last_seen"] = now
                     if source_unit_id:
                         sources = self._graph.nodes[entity].get("source_units", [])
@@ -161,7 +168,8 @@ class KnowledgeGraph:
                             self._graph.nodes[entity]["source_units"] = sources[-20:]  # Cap at 20
                 else:
                     # Add new node
-                    self._graph.add_node(entity,
+                    self._graph.add_node(
+                        entity,
                         entity_type=self._infer_entity_type(entity),
                         first_seen=now,
                         last_seen=now,
@@ -209,7 +217,8 @@ class KnowledgeGraph:
                 # Ensure nodes exist
                 for entity in [subject, obj]:
                     if not self._graph.has_node(entity):
-                        self._graph.add_node(entity,
+                        self._graph.add_node(
+                            entity,
                             entity_type=self._infer_entity_type(entity),
                             first_seen=now,
                             last_seen=now,
@@ -230,7 +239,9 @@ class KnowledgeGraph:
                             sources.append(source_unit_id)
                             edge["source_units"] = sources[-10:]
                 else:
-                    self._graph.add_edge(subject, obj,
+                    self._graph.add_edge(
+                        subject,
+                        obj,
                         predicate=predicate,
                         weight=1,
                         first_seen=now,
@@ -258,19 +269,23 @@ class KnowledgeGraph:
         # Get edges
         outgoing = []
         for _, target, data in self._graph.out_edges(entity, data=True):
-            outgoing.append({
-                "target": target,
-                "predicate": data.get("predicate", "RELATED_TO"),
-                "weight": data.get("weight", 1),
-            })
+            outgoing.append(
+                {
+                    "target": target,
+                    "predicate": data.get("predicate", "RELATED_TO"),
+                    "weight": data.get("weight", 1),
+                }
+            )
 
         incoming = []
         for source, _, data in self._graph.in_edges(entity, data=True):
-            incoming.append({
-                "source": source,
-                "predicate": data.get("predicate", "RELATED_TO"),
-                "weight": data.get("weight", 1),
-            })
+            incoming.append(
+                {
+                    "source": source,
+                    "predicate": data.get("predicate", "RELATED_TO"),
+                    "weight": data.get("weight", 1),
+                }
+            )
 
         # Get N-hop neighbors if depth > 1
         neighbors = set()
@@ -307,13 +322,15 @@ class KnowledgeGraph:
 
         entities = []
         for node_id, data in self._graph.nodes(data=True):
-            entities.append({
-                "entity": node_id,
-                "mention_count": data.get("mention_count", 0),
-                "entity_type": data.get("entity_type", "unknown"),
-                "last_seen": data.get("last_seen", ""),
-                "connections": self._graph.degree(node_id),
-            })
+            entities.append(
+                {
+                    "entity": node_id,
+                    "mention_count": data.get("mention_count", 0),
+                    "entity_type": data.get("entity_type", "unknown"),
+                    "last_seen": data.get("last_seen", ""),
+                    "connections": self._graph.degree(node_id),
+                }
+            )
 
         entities.sort(key=lambda x: x["mention_count"], reverse=True)
         return entities[:n]
@@ -327,8 +344,12 @@ class KnowledgeGraph:
             "status": "active",
             "nodes": self._graph.number_of_nodes(),
             "edges": self._graph.number_of_edges(),
-            "density": round(self._nx.density(self._graph), 4) if self._graph.number_of_nodes() > 1 else 0,
-            "components": self._nx.number_weakly_connected_components(self._graph) if self._graph.number_of_nodes() > 0 else 0,
+            "density": round(self._nx.density(self._graph), 4)
+            if self._graph.number_of_nodes() > 1
+            else 0,
+            "components": self._nx.number_weakly_connected_components(self._graph)
+            if self._graph.number_of_nodes() > 0
+            else 0,
         }
 
     async def prune_stale(self, days: int = 90) -> dict:
@@ -345,7 +366,11 @@ class KnowledgeGraph:
             edges_to_remove = []
             for src, tgt, data in self._graph.edges(data=True):
                 if data.get("weight", 1) <= 1:
-                    last_ts = data.get("timestamps", [""])[- 1] if data.get("timestamps") else data.get("first_seen", "")
+                    last_ts = (
+                        data.get("timestamps", [""])[-1]
+                        if data.get("timestamps")
+                        else data.get("first_seen", "")
+                    )
                     if last_ts and last_ts < cutoff:
                         edges_to_remove.append((src, tgt))
 
@@ -380,6 +405,7 @@ class KnowledgeGraph:
         """
         try:
             from .entity_extractor import _classify_entity
+
             return _classify_entity(entity)
         except Exception:
             # Defensive fallback — original heuristic
@@ -416,17 +442,14 @@ class KnowledgeGraph:
                 "reclassified_nodes": 0,
             }
 
-        from .entity_extractor import _is_blacklisted_entity, _classify_entity
+        from .entity_extractor import _classify_entity, _is_blacklisted_entity
 
         async with self._lock:
             scanned_nodes = self._graph.number_of_nodes()
             scanned_edges = self._graph.number_of_edges()
 
             # Pass 1 — collect blacklisted node IDs
-            bad_nodes = [
-                n for n in self._graph.nodes()
-                if _is_blacklisted_entity(str(n))
-            ]
+            bad_nodes = [n for n in self._graph.nodes() if _is_blacklisted_entity(str(n))]
 
             # Pass 2 — remove incident edges (sum of in+out degree to bad
             # nodes is the edge-removal count, but networkx will handle dedup)
@@ -454,8 +477,10 @@ class KnowledgeGraph:
 
         log.info(
             "[KG-CLEANUP] removed %d/%d nodes, %d/%d edges; reclassified %d nodes",
-            len(bad_nodes), scanned_nodes,
-            removed_edges, scanned_edges,
+            len(bad_nodes),
+            scanned_nodes,
+            removed_edges,
+            scanned_edges,
             reclassified,
         )
 

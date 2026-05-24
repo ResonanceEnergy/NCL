@@ -178,6 +178,11 @@ accounts.db
 .env
 .env.*
 !.env.example
+.strike_token
+
+# PII-adjacent runtime state — never commit
+data/feedback/source_authority.json
+data/costs/
 
 # Runtime-generated intelligence data
 intelligence-scan/alerts/
@@ -190,3 +195,6 @@ feedback-synthesis/ncc-reports/.quarantine/
 
 # Nohup output
 nohup.out
+
+# W10C-11: large archived JSONLs preserved on disk but excluded from git
+archive/wave10c-deletes/*.jsonl*

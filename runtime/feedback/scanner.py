@@ -1,13 +1,16 @@
 """Feedback scanner — consumes {pillar}-reports/*.json on an interval.
 
+(BRS/AAC pillars were retired 2026-05-23; only ncc-reports/ is scanned.)
+
 On each tick:
-  1. Walk feedback-synthesis/{ncc,brs,aac}-reports/ for new *.json
+  1. Walk feedback-synthesis/ncc-reports/ for new *.json
   2. Validate against FeedbackReport schema
   3. Move processed → feedback-synthesis/{pillar}-reports/.consumed/
   4. Move invalid → feedback-synthesis/{pillar}-reports/.quarantine/
   5. Write SynthesisNote to feedback-synthesis/synthesis/synth-<ts>.json
   6. Append summary line to feedback-synthesis/LOG.md
 """
+
 from __future__ import annotations
 
 import json
@@ -21,12 +24,12 @@ from typing import Iterable
 
 from .models import FeedbackReport, SynthesisNote
 
+
 log = logging.getLogger("ncl.feedback")
 
 PILLAR_DIRS: dict[str, str] = {
     "NCC": "ncc-reports",
-    "BRS": "brs-reports",
-    "AAC": "aac-reports",
+    # BRS / AAC pillars retired 2026-05-23 — no longer scanned.
 }
 
 # Rate limiting: max reports to process per scan pass (prevents runaway I/O
@@ -46,7 +49,7 @@ class FeedbackScanner:
         self.synthesis_dir = self.base / "synthesis"
         self.synthesis_dir.mkdir(parents=True, exist_ok=True)
         self.log_path = self.base / "LOG.md"
-        self._last_scan_ts: float = 0.0   # monotonic time of last scan (for external callers)
+        self._last_scan_ts: float = 0.0  # monotonic time of last scan (for external callers)
 
     def _iter_inbox(self) -> Iterable[tuple[str, Path]]:
         for pillar, sub in PILLAR_DIRS.items():
@@ -100,7 +103,9 @@ class FeedbackScanner:
                 if file_size > MAX_REPORT_FILE_BYTES:
                     log.warning(
                         "Feedback report %s is too large (%d bytes > %d limit) — quarantining",
-                        path.name, file_size, MAX_REPORT_FILE_BYTES,
+                        path.name,
+                        file_size,
+                        MAX_REPORT_FILE_BYTES,
                     )
                     self._move_to(path, path.parent / ".quarantine")
                     continue
@@ -133,9 +138,7 @@ class FeedbackScanner:
             for r in consumed
             for b in r.blockers
         ]
-        suggested = [
-            r.next_action_request for r in consumed if r.next_action_request
-        ]
+        suggested = [r.next_action_request for r in consumed if r.next_action_request]
 
         ts = window_end.strftime("%Y%m%d-%H%M%S")
         note = SynthesisNote(
@@ -170,7 +173,5 @@ class FeedbackScanner:
         except Exception as e:
             log.warning(f"failed to append feedback LOG.md: {e}")
 
-        log.info(
-            f"feedback synthesis: {len(consumed)} reports consumed → {out.name}"
-        )
+        log.info(f"feedback synthesis: {len(consumed)} reports consumed → {out.name}")
         return note

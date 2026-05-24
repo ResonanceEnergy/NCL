@@ -8,7 +8,6 @@ Run:
 from __future__ import annotations
 
 import asyncio
-import json
 import shutil
 import sys
 import tempfile
@@ -16,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -207,20 +207,27 @@ def test_run_temporal_rebuild_creates_and_supersedes(kg):
     t_new = datetime.now(timezone.utc) - timedelta(hours=2)
 
     units = [
-        _FakeUnit("u-1", t_old, [
-            {"subject": "acme", "predicate": "CEO_OF", "object": "alice"},
-        ]),
-        _FakeUnit("u-2", t_new, [
-            # Same single-valued (src, relation), new object → should supersede u-1's edge.
-            {"subject": "acme", "predicate": "CEO_OF", "object": "bob"},
-            # Brand-new fact.
-            {"subject": "$AAPL", "predicate": "MENTIONS", "object": "earnings"},
-        ]),
+        _FakeUnit(
+            "u-1",
+            t_old,
+            [
+                {"subject": "acme", "predicate": "CEO_OF", "object": "alice"},
+            ],
+        ),
+        _FakeUnit(
+            "u-2",
+            t_new,
+            [
+                # Same single-valued (src, relation), new object → should supersede u-1's edge.
+                {"subject": "acme", "predicate": "CEO_OF", "object": "bob"},
+                # Brand-new fact.
+                {"subject": "$AAPL", "predicate": "MENTIONS", "object": "earnings"},
+            ],
+        ),
     ]
     brain = _FakeBrain(_FakeMemoryStore(units, kg))
 
-    counts = asyncio.run(run_temporal_rebuild(brain, lookback_days=7,
-                                              stale_threshold_days=30))
+    counts = asyncio.run(run_temporal_rebuild(brain, lookback_days=7, stale_threshold_days=30))
 
     assert counts["units_scanned"] == 2
     assert counts["edges_processed"] == 3

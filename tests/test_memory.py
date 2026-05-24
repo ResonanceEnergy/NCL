@@ -1,13 +1,11 @@
 """Tests for NCL memory store."""
-import asyncio
+
 import tempfile
-from pathlib import Path
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from runtime.memory.store import MemoryStore
-from runtime.ncl_brain.models import MemUnit
 
 
 @pytest.fixture
@@ -26,7 +24,7 @@ async def test_create_unit(temp_data_dir):
         content="Test memory content",
         source="test_source",
         importance=75.0,
-        tags=["test", "memory"]
+        tags=["test", "memory"],
     )
 
     assert unit.unit_id is not None
@@ -43,11 +41,7 @@ async def test_get_unit_reinforcement(temp_data_dir):
     """Test retrieving a unit reinforces it."""
     store = MemoryStore(temp_data_dir)
 
-    unit = await store.create_unit(
-        content="Reinforceable memory",
-        source="test",
-        importance=50.0
-    )
+    unit = await store.create_unit(content="Reinforceable memory", source="test", importance=50.0)
     unit_id = unit.unit_id
     original_importance = unit.importance
 
@@ -69,19 +63,13 @@ async def test_search_by_tags(temp_data_dir):
 
     # Create units with different tags
     unit1 = await store.create_unit(
-        content="Market analysis",
-        source="market_feed",
-        tags=["market", "analysis"]
+        content="Market analysis", source="market_feed", tags=["market", "analysis"]
     )
     unit2 = await store.create_unit(
-        content="Risk report",
-        source="risk_team",
-        tags=["risk", "analysis"]
+        content="Risk report", source="risk_team", tags=["risk", "analysis"]
     )
     unit3 = await store.create_unit(
-        content="Portfolio snapshot",
-        source="portfolio",
-        tags=["portfolio"]
+        content="Portfolio snapshot", source="portfolio", tags=["portfolio"]
     )
 
     # Search for units with "analysis" tag
@@ -100,21 +88,9 @@ async def test_search_by_importance(temp_data_dir):
     store = MemoryStore(temp_data_dir)
 
     # Create units with different importance levels
-    unit1 = await store.create_unit(
-        content="Critical finding",
-        source="source1",
-        importance=95.0
-    )
-    unit2 = await store.create_unit(
-        content="Medium finding",
-        source="source2",
-        importance=50.0
-    )
-    unit3 = await store.create_unit(
-        content="Low priority",
-        source="source3",
-        importance=10.0
-    )
+    unit1 = await store.create_unit(content="Critical finding", source="source1", importance=95.0)  # noqa: F841
+    unit2 = await store.create_unit(content="Medium finding", source="source2", importance=50.0)  # noqa: F841
+    unit3 = await store.create_unit(content="Low priority", source="source3", importance=10.0)  # noqa: F841
 
     # Search for units with importance >= 50
     results = await store.search_units(importance_threshold=50.0)
@@ -141,7 +117,7 @@ async def test_search_by_date(temp_data_dir):
     assert unit.unit_id in {r.unit_id for r in results}
 
     # Search for units from past 0 days (should be empty or just created)
-    results_zero_days = await store.search_units(days_back=0)
+    results_zero_days = await store.search_units(days_back=0)  # noqa: F841
     # This might be empty or have the unit depending on exact timing
 
 
@@ -151,11 +127,7 @@ async def test_decay_reduces_importance(temp_data_dir):
     store = MemoryStore(temp_data_dir)
 
     # Create a unit
-    unit = await store.create_unit(
-        content="Decayable memory",
-        source="source",
-        importance=100.0
-    )
+    unit = await store.create_unit(content="Decayable memory", source="source", importance=100.0)
 
     # Manually set last_accessed to old date to simulate age
     unit.last_accessed = datetime.now(timezone.utc) - timedelta(days=10)
@@ -173,11 +145,7 @@ async def test_empty_search(temp_data_dir):
     store = MemoryStore(temp_data_dir)
 
     # Create a unit
-    await store.create_unit(
-        content="Memory with tags",
-        source="source",
-        tags=["specific"]
-    )
+    await store.create_unit(content="Memory with tags", source="source", tags=["specific"])
 
     # Search for non-existent tag
     results = await store.search_units(tags=["nonexistent"])
@@ -193,9 +161,7 @@ async def test_stats(temp_data_dir):
     # Create multiple units
     for i in range(5):
         await store.create_unit(
-            content=f"Memory {i}",
-            source=f"source_{i}",
-            importance=20.0 + i * 10
+            content=f"Memory {i}", source=f"source_{i}", importance=20.0 + i * 10
         )
 
     # Load all units to verify they exist

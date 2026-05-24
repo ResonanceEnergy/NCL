@@ -852,7 +852,11 @@ body {
 <div class="toast" id="toast"></div>
 
 <script>
-const AUTH = 'QKpHcK8lnL9s4P4mFkwzN4ugLP9sokvBWrmqNcs2ItU';
+// W6-E (2026-05-24): token injected server-side by /app handler in
+// runtime/api/routes.py. The literal __AUTH_TOKEN__ below is replaced
+// with the requester's verified Bearer token before the HTML is served.
+// Do NOT hardcode the real token here — that leaks it to disk + VCS.
+const AUTH = '__AUTH_TOKEN__';
 const HEADERS = { 'Authorization': `Bearer ${AUTH}`, 'Content-Type': 'application/json' };
 const HEADERS_NO_AUTH = { 'Content-Type': 'application/json' };
 

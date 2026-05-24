@@ -11,11 +11,10 @@ Runs as part of the autonomous scheduler at 10pm ET.
 
 import json
 import logging
-from datetime import datetime, timezone, timedelta
-from typing import Any, Optional
 
-from .models import DailyReflection, JournalInsight, TipEntry
+from .models import DailyReflection, JournalInsight
 from .store import local_today_str
+
 
 log = logging.getLogger("ncl.journal.reflection")
 
@@ -58,7 +57,7 @@ class ReflectionEngine:
         entries = await self.journal.get_today_entries()
 
         # Gather recent tips for context
-        tips = await self.journal.get_tips(limit=10)
+        tips = await self.journal.get_tips(limit=10)  # noqa: F841
 
         # Build reflection
         if self.llm and entries:
@@ -96,10 +95,12 @@ class ReflectionEngine:
             except Exception as e:
                 log.warning(f"Failed to bridge reflection to memory: {e}")
 
-        log.info(f"Daily reflection generated for {today}: "
-                 f"{reflection.entries_count} entries, "
-                 f"{len(reflection.patterns_noticed)} patterns, "
-                 f"{len(reflection.research_queue)} research topics")
+        log.info(
+            f"Daily reflection generated for {today}: "
+            f"{reflection.entries_count} entries, "
+            f"{len(reflection.patterns_noticed)} patterns, "
+            f"{len(reflection.research_queue)} research topics"
+        )
 
         return reflection
 
@@ -129,8 +130,7 @@ class ReflectionEngine:
         if working_context:
             items = working_context.get("items", [])[:5]
             wc_text = "\nWORKING CONTEXT:\n" + "\n".join(
-                f"- {item.get('title', 'N/A')}: {item.get('content', '')[:150]}"
-                for item in items
+                f"- {item.get('title', 'N/A')}: {item.get('content', '')[:150]}" for item in items
             )
 
         prompt = f"""Synthesize today's journal entries into a daily reflection.
@@ -156,7 +156,7 @@ Be concise and actionable. Focus on what matters for decision-making."""
         try:
             response = await self.llm.generate(
                 prompt=prompt,
-                system="You are NATRIX's journal reflection engine. Synthesize daily entries into actionable insights. Return valid JSON only.",
+                system="You are NATRIX's journal reflection engine. Synthesize daily entries into actionable insights. Return valid JSON only.",  # noqa: E501
             )
 
             # Parse LLM response
@@ -217,7 +217,7 @@ Be concise and actionable. Focus on what matters for decision-making."""
             questions_raised=[q.title or q.content[:120] for q in questions[:5]],
             research_queue=[e.content[:120] for e in entries if e.research_topics][:5],
             decisions_made=[d.title or d.content[:120] for d in decisions[:5]],
-            lessons_learned=[l.title or l.content[:120] for l in lessons[:5]],
+            lessons_learned=[l.title or l.content[:120] for l in lessons[:5]],  # noqa: E741
             open_questions=[q.title or q.content[:120] for q in questions[:5]],
             tomorrow_focus=top_tags[:3],
             entries_count=len(entries),
@@ -232,7 +232,7 @@ Be concise and actionable. Focus on what matters for decision-making."""
         for e in entries:
             tags = sorted(set(e.tags))
             for i, t1 in enumerate(tags):
-                for t2 in tags[i + 1:]:
+                for t2 in tags[i + 1 :]:
                     pair = (t1, t2)
                     tag_pairs[pair] = tag_pairs.get(pair, 0) + 1
 
@@ -241,11 +241,13 @@ Be concise and actionable. Focus on what matters for decision-making."""
             if count >= 3:
                 insight = JournalInsight(
                     pattern=f"Recurring co-occurrence: {pair[0]} + {pair[1]} ({count} entries)",
-                    evidence=[e.entry_id for e in entries if pair[0] in e.tags and pair[1] in e.tags],
+                    evidence=[
+                        e.entry_id for e in entries if pair[0] in e.tags and pair[1] in e.tags
+                    ],
                     frequency=count,
                     confidence=min(0.9, 0.3 + count * 0.1),
                     actionable=count >= 5,
-                    recommendation=f"Consider dedicated research into the intersection of {pair[0]} and {pair[1]}.",
+                    recommendation=f"Consider dedicated research into the intersection of {pair[0]} and {pair[1]}.",  # noqa: E501
                 )
                 await self.journal.save_insight(insight)
 
@@ -255,7 +257,7 @@ Be concise and actionable. Focus on what matters for decision-making."""
         if text.startswith("```"):
             # Remove markdown code fences
             lines = text.split("\n")
-            lines = [l for l in lines if not l.strip().startswith("```")]
+            lines = [l for l in lines if not l.strip().startswith("```")]  # noqa: E741
             text = "\n".join(lines)
         try:
             return json.loads(text)
@@ -279,34 +281,34 @@ class ContextAwareTips:
         "research": [
             {
                 "title": "Triangle Validation",
-                "content": "Always validate signals from at least 3 independent sources before acting. "
-                           "Cross-reference Polymarket probabilities with news sentiment and on-chain data.",
+                "content": "Always validate signals from at least 3 independent sources before acting. "  # noqa: E501
+                "Cross-reference Polymarket probabilities with news sentiment and on-chain data.",
                 "tags": ["research", "validation"],
             },
             {
                 "title": "Contrarian Signal Detection",
-                "content": "When all sources agree strongly (>90% consensus), look for contrarian signals. "
-                           "Unanimous agreement often precedes reversals. Check prediction market odds vs actual outcomes.",
+                "content": "When all sources agree strongly (>90% consensus), look for contrarian signals. "  # noqa: E501
+                "Unanimous agreement often precedes reversals. Check prediction market odds vs actual outcomes.",  # noqa: E501
                 "tags": ["research", "contrarian"],
             },
             {
                 "title": "Time-Decay Your Sources",
                 "content": "Weight recent signals higher but don't ignore 48-72h old data. "
-                           "Many patterns only become visible with a 2-3 day lookback window.",
+                "Many patterns only become visible with a 2-3 day lookback window.",
                 "tags": ["research", "time-management"],
             },
         ],
         "trading": [
             {
                 "title": "Options Flow as Leading Indicator",
-                "content": "Unusual Whales dark pool prints >$1M and concentrated OI changes often precede "
-                           "price moves by 24-48 hours. Track max pain divergence from current price.",
+                "content": "Unusual Whales dark pool prints >$1M and concentrated OI changes often precede "  # noqa: E501
+                "price moves by 24-48 hours. Track max pain divergence from current price.",
                 "tags": ["trading", "options"],
             },
             {
                 "title": "Sector Rotation Detection",
-                "content": "Monitor the SignalCorrelator's sector direction changes. When 3+ sectors shift "
-                           "direction within 24 hours, it often signals regime change.",
+                "content": "Monitor the SignalCorrelator's sector direction changes. When 3+ sectors shift "  # noqa: E501
+                "direction within 24 hours, it often signals regime change.",
                 "tags": ["trading", "sectors"],
             },
         ],
@@ -314,19 +316,19 @@ class ContextAwareTips:
             {
                 "title": "Morning Routine Optimization",
                 "content": "Review morning brief → check working context → scan council flags → "
-                           "journal observations → set today's research focus. 15 minutes total.",
+                "journal observations → set today's research focus. 15 minutes total.",
                 "tags": ["operations", "routine"],
             },
             {
                 "title": "Signal-to-Noise Calibration",
-                "content": "If you're getting too many push alerts, raise the threshold from 80 to 85. "
-                           "If you're missing things, lower to 75. Calibrate weekly based on hit rate.",
+                "content": "If you're getting too many push alerts, raise the threshold from 80 to 85. "  # noqa: E501
+                "If you're missing things, lower to 75. Calibrate weekly based on hit rate.",
                 "tags": ["operations", "calibration"],
             },
             {
                 "title": "Journal as Feedback Loop",
-                "content": "Every decision you journal becomes memory. Every question becomes a research topic. "
-                           "Every observation shapes tomorrow's working context. The journal IS the feedback loop.",
+                "content": "Every decision you journal becomes memory. Every question becomes a research topic. "  # noqa: E501
+                "Every observation shapes tomorrow's working context. The journal IS the feedback loop.",  # noqa: E501
                 "tags": ["operations", "journal"],
             },
         ],
@@ -334,8 +336,8 @@ class ContextAwareTips:
             {
                 "title": "Council Deep-Dive Triggers",
                 "content": "Auto-trigger a council when: (1) 3+ high-importance signals converge, "
-                           "(2) prediction confidence drops below 0.4, or (3) you're about to make a "
-                           "major allocation decision. Let the models debate before you decide.",
+                "(2) prediction confidence drops below 0.4, or (3) you're about to make a "
+                "major allocation decision. Let the models debate before you decide.",
                 "tags": ["council", "triggers"],
             },
         ],
@@ -359,13 +361,15 @@ class ContextAwareTips:
         # First: stored tips matching today's tags
         for tip in stored_tips:
             if any(t in today_tags for t in tip.tags):
-                results.append({
-                    "source": "personal",
-                    "title": tip.title,
-                    "content": tip.content,
-                    "category": tip.category,
-                    "relevance": "matches today's topics",
-                })
+                results.append(
+                    {
+                        "source": "personal",
+                        "title": tip.title,
+                        "content": tip.content,
+                        "category": tip.category,
+                        "relevance": "matches today's topics",
+                    }
+                )
                 if len(results) >= limit:
                     return results
 
@@ -374,13 +378,15 @@ class ContextAwareTips:
             if any(category in t for t in today_tags) or not today_tags:
                 for tip in tips:
                     if any(t in today_tags for t in tip["tags"]) or not today_tags:
-                        results.append({
-                            "source": "builtin",
-                            "title": tip["title"],
-                            "content": tip["content"],
-                            "category": category,
-                            "relevance": "general best practice",
-                        })
+                        results.append(
+                            {
+                                "source": "builtin",
+                                "title": tip["title"],
+                                "content": tip["content"],
+                                "category": category,
+                                "relevance": "general best practice",
+                            }
+                        )
                         if len(results) >= limit:
                             return results
 

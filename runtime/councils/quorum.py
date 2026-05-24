@@ -32,7 +32,7 @@ import logging
 import os
 import re
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -40,28 +40,43 @@ from typing import Any, Awaitable, Callable, List, Optional
 
 import httpx
 
+
 log = logging.getLogger("ncl.councils.quorum")
 
 # ---------------------------------------------------------------------------
 # Model IDs (locked per CLAUDE.md — sonnet-4-6 returned HTTP 404)
 # ---------------------------------------------------------------------------
 SONNET_MODEL = "claude-sonnet-4-20250514"
-HAIKU_MODEL = "claude-haiku-3-5-20241022"
+# Haiku 3.5 in the canonical MODEL_REGISTRY is "claude-3-5-haiku-20241022".
+HAIKU_MODEL = "claude-3-5-haiku-20241022"
 
-# Per-1K-token pricing (USD) — used for cost gating + ledger
-PRICING = {
-    SONNET_MODEL: {"input": 0.003, "output": 0.015},
-    HAIKU_MODEL: {"input": 0.0008, "output": 0.004},
-}
+# Per-token pricing is owned by ``runtime.llm.models.MODEL_REGISTRY`` —
+# the stale module-local PRICING dict was deleted 2026-05-23 (W6-C). All
+# cost arithmetic below reads ``ModelSpec.input_per_mtok`` /
+# ``output_per_mtok`` via ``lookup(model)``.
 
-# Conservative pre-call estimate for the budget gate (input + 1K output guess)
-EST_CALL_COST = {SONNET_MODEL: 0.018, HAIKU_MODEL: 0.0048}
 
-ANTHROPIC_BASE = os.getenv("ANTHROPIC_API_BASE", "https://api.anthropic.com")
+# Conservative pre-call estimate for the budget gate. Sized for ~1K input
+# tokens + a full ``max_tokens`` output, computed from MODEL_REGISTRY.
+def _estimate_call_cost(model: str, max_output_tokens: int = 1024) -> float:
+    from runtime.llm.models import lookup
+
+    spec = lookup(model)
+    # ~1K input prompt + worst-case output, in MUSD terms
+    return (1000 / 1_000_000.0) * spec.input_per_mtok + (
+        max_output_tokens / 1_000_000.0
+    ) * spec.output_per_mtok
+
+
+# NOTE: ANTHROPIC_BASE was removed 2026-05-23 (W6-C) — the unified LLM
+# facade owns the API endpoint.
 ANTHROPIC_KEY_ENV = "ANTHROPIC_API_KEY"
 
 QUORUM_LOG_PATH = Path(
-    os.getenv("NCL_QUORUM_LOG", str(Path.home() / "dev" / "NCL" / "data" / "councils" / "quorum_log.jsonl"))
+    os.getenv(
+        "NCL_QUORUM_LOG",
+        str(Path.home() / "dev" / "NCL" / "data" / "councils" / "quorum_log.jsonl"),
+    )
 )
 
 # Embedder is lazy-loaded once per process
@@ -73,9 +88,9 @@ _EMBEDDER_TRIED = False
 # Public types
 # ---------------------------------------------------------------------------
 class QuorumDecision(Enum):
-    AGREE_SHORT_CIRCUIT = "agree"       # Return Sonnet's answer directly
+    AGREE_SHORT_CIRCUIT = "agree"  # Return Sonnet's answer directly
     ESCALATE_FULL_COUNCIL = "escalate"  # Run the full 5-LLM debate
-    ERROR_ESCALATE = "error_escalate"   # Quorum failed, default to full council
+    ERROR_ESCALATE = "error_escalate"  # Quorum failed, default to full council
 
 
 @dataclass
@@ -83,15 +98,15 @@ class QuorumResult:
     decision: QuorumDecision
     sonnet_response: str
     haiku_response: str
-    similarity: float            # cosine 0-1 (or Jaccard fallback)
-    disagreement_score: float    # 1 - similarity
-    confidence: float            # 0-1 — how sure we are this is a real agree/disagree
-    cost_usd: float              # actual recorded cost of the two calls
+    similarity: float  # cosine 0-1 (or Jaccard fallback)
+    disagreement_score: float  # 1 - similarity
+    confidence: float  # 0-1 — how sure we are this is a real agree/disagree
+    cost_usd: float  # actual recorded cost of the two calls
     reason: str
     duration_s: float
-    sonnet_tokens: tuple[int, int] = (0, 0)   # (input, output)
+    sonnet_tokens: tuple[int, int] = (0, 0)  # (input, output)
     haiku_tokens: tuple[int, int] = (0, 0)
-    similarity_method: str = "cosine"          # "cosine" | "jaccard"
+    similarity_method: str = "cosine"  # "cosine" | "jaccard"
     topic: str = ""
 
     def to_dict(self) -> dict[str, Any]:
@@ -111,6 +126,7 @@ def _try_load_embedder() -> Optional[Any]:
     _EMBEDDER_TRIED = True
     try:
         from sentence_transformers import SentenceTransformer  # type: ignore
+
         _EMBEDDER = SentenceTransformer("all-MiniLM-L6-v2")
         log.info("[quorum] Loaded sentence-transformers all-MiniLM-L6-v2 embedder")
     except Exception as e:
@@ -216,45 +232,60 @@ class CouncilQuorum:
 
         if not self.api_key:
             return self._fail(
-                start, "Anthropic API key not configured",
-                decision=QuorumDecision.ERROR_ESCALATE, topic=topic,
+                start,
+                "Anthropic API key not configured",
+                decision=QuorumDecision.ERROR_ESCALATE,
+                topic=topic,
             )
 
         # Pre-call budget gates — fail OPEN to the full council, never silently agree
         if self.cost_gate is not None:
             try:
-                ok_sonnet = await self.cost_gate("anthropic", EST_CALL_COST[SONNET_MODEL])
-                ok_haiku = await self.cost_gate("anthropic", EST_CALL_COST[HAIKU_MODEL])
+                ok_sonnet = await self.cost_gate(
+                    "anthropic", _estimate_call_cost(SONNET_MODEL, self.max_tokens)
+                )
+                ok_haiku = await self.cost_gate(
+                    "anthropic", _estimate_call_cost(HAIKU_MODEL, self.max_tokens)
+                )
                 if not (ok_sonnet and ok_haiku):
                     return self._fail(
-                        start, "budget gate blocked quorum — escalating to full council",
-                        decision=QuorumDecision.ESCALATE_FULL_COUNCIL, topic=topic,
+                        start,
+                        "budget gate blocked quorum — escalating to full council",
+                        decision=QuorumDecision.ESCALATE_FULL_COUNCIL,
+                        topic=topic,
                     )
             except Exception as e:
                 log.warning(f"[quorum] cost gate raised {e!r} — escalating")
                 return self._fail(
-                    start, f"cost gate error: {e}",
-                    decision=QuorumDecision.ERROR_ESCALATE, topic=topic,
+                    start,
+                    f"cost gate error: {e}",
+                    decision=QuorumDecision.ERROR_ESCALATE,
+                    topic=topic,
                 )
 
         # Parallel calls
         try:
             sonnet_task = asyncio.create_task(self._call(SONNET_MODEL, full_prompt))
             haiku_task = asyncio.create_task(self._call(HAIKU_MODEL, full_prompt))
-            (sonnet_text, sonnet_in, sonnet_out), (haiku_text, haiku_in, haiku_out) = \
-                await asyncio.gather(sonnet_task, haiku_task)
+            (
+                (sonnet_text, sonnet_in, sonnet_out),
+                (haiku_text, haiku_in, haiku_out),
+            ) = await asyncio.gather(sonnet_task, haiku_task)
         except Exception as e:
             log.warning(f"[quorum] model call failed: {e}")
             return self._fail(
-                start, f"model call failed: {e}",
-                decision=QuorumDecision.ERROR_ESCALATE, topic=topic,
+                start,
+                f"model call failed: {e}",
+                decision=QuorumDecision.ERROR_ESCALATE,
+                topic=topic,
             )
 
-        cost = (
-            (sonnet_in / 1000.0) * PRICING[SONNET_MODEL]["input"]
-            + (sonnet_out / 1000.0) * PRICING[SONNET_MODEL]["output"]
-            + (haiku_in / 1000.0) * PRICING[HAIKU_MODEL]["input"]
-            + (haiku_out / 1000.0) * PRICING[HAIKU_MODEL]["output"]
+        from runtime.llm.models import lookup
+
+        sonnet_spec = lookup(SONNET_MODEL)
+        haiku_spec = lookup(HAIKU_MODEL)
+        cost = sonnet_spec.estimate_cost(sonnet_in, sonnet_out) + haiku_spec.estimate_cost(
+            haiku_in, haiku_out
         )
 
         # Similarity
@@ -276,7 +307,9 @@ class CouncilQuorum:
             )
 
         # Confidence = how far we are from the threshold (0 at threshold, 1 at extremes)
-        confidence = min(1.0, abs(disagreement - self.threshold) / max(self.threshold, 1 - self.threshold))
+        confidence = min(
+            1.0, abs(disagreement - self.threshold) / max(self.threshold, 1 - self.threshold)
+        )
 
         result = QuorumResult(
             decision=decision,
@@ -318,27 +351,24 @@ class CouncilQuorum:
         return "\n".join(parts)
 
     async def _call(self, model: str, prompt: str) -> tuple[str, int, int]:
-        """Single Anthropic Messages call. Returns (text, input_tokens, output_tokens)."""
-        resp = await self.http.post(
-            f"{ANTHROPIC_BASE}/v1/messages",
-            headers={
-                "x-api-key": self.api_key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": model,
-                "max_tokens": self.max_tokens,
-                "messages": [{"role": "user", "content": prompt}],
-            },
-            timeout=self.timeout_s,
+        """Single Anthropic Messages call via the unified LLM facade.
+
+        Returns (text, input_tokens, output_tokens). The facade owns budget
+        gating, retry/backoff, circuit breaking, and cost recording — the
+        local ``cost_gate`` short-circuit upstream remains, and the
+        per-result cost arithmetic below stays the source of truth for
+        the quorum ledger row.
+        """
+        from runtime.llm import chat
+
+        result = await chat(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=self.max_tokens,
+            budget_key="anthropic",
+            timeout_s=self.timeout_s,
         )
-        resp.raise_for_status()
-        data = resp.json()
-        content = data.get("content", [])
-        text = content[0].get("text", "") if content else ""
-        usage = data.get("usage", {}) or {}
-        return text, int(usage.get("input_tokens", 0)), int(usage.get("output_tokens", 0))
+        return result.text, result.usage_input_tokens, result.usage_output_tokens
 
     def _similarity(self, a: str, b: str) -> tuple[float, str]:
         """Compute similarity. Prefer embedder, fall back to Jaccard."""
@@ -358,7 +388,9 @@ class CouncilQuorum:
                 va, vb = _embed_pair(embedder, a, b)
                 return _cosine(va, vb), "cosine"
             except Exception as e:
-                log.warning(f"[quorum] sentence-transformers encode failed ({e}) — Jaccard fallback")
+                log.warning(
+                    f"[quorum] sentence-transformers encode failed ({e}) — Jaccard fallback"
+                )
 
         # 3. Token-set Jaccard
         return _jaccard(a, b), "jaccard"

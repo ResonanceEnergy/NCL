@@ -20,25 +20,25 @@ All collectors share:
 import asyncio
 import json
 import logging
-import math
 import os
 import re
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import httpx
 
 from .models import (
     IntelSignal,
-    TrendSignal,
-    PredictionMarketSignal,
     MarketSignal,
     NewsSignal,
-    SocialSignal,
+    PredictionMarketSignal,
     SignalDirection,
+    SocialSignal,
     SourceType,
+    TrendSignal,
 )
+
 
 log = logging.getLogger("ncl.intelligence.collectors")
 
@@ -127,7 +127,8 @@ async def _fetch_json(
                 return None
             if resp.status_code == 429:
                 import random
-                base_wait = int(resp.headers.get("retry-after", 2 ** attempt))
+
+                base_wait = int(resp.headers.get("retry-after", 2**attempt))
                 jitter = random.uniform(0.5, 2.0)  # Add jitter to avoid thundering herd
                 wait = base_wait + jitter
                 log.warning(f"Rate limited on {url.split('?', 1)[0]}, waiting {wait:.1f}s")
@@ -136,7 +137,8 @@ async def _fetch_json(
             if resp.status_code == 503:
                 # Reddit returns 503 during heavy traffic — treat like rate limit
                 import random
-                wait = (2 ** attempt) * 5 + random.uniform(1, 3)
+
+                wait = (2**attempt) * 5 + random.uniform(1, 3)
                 log.warning(f"503 from {url.split('?', 1)[0]}, backing off {wait:.1f}s")
                 await asyncio.sleep(wait)
                 continue
@@ -149,7 +151,7 @@ async def _fetch_json(
             raise
         except (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException) as e:
             last_err = e
-            await asyncio.sleep(2 ** attempt)
+            await asyncio.sleep(2**attempt)
     # Wrap final failure in SafeAPIError so callers can't accidentally
     # log an httpx error containing response.text from the upstream.
     if isinstance(last_err, httpx.HTTPStatusError):
@@ -190,7 +192,7 @@ async def retry_api_call(
         except Exception as e:
             last_err = e
             if attempt < max_retries - 1:
-                delay = backoff * (2 ** attempt)
+                delay = backoff * (2**attempt)
                 log.warning(
                     "retry_api_call: attempt %d/%d failed: %s — retrying in %.1fs",
                     attempt + 1,
@@ -236,8 +238,8 @@ class GoogleTrendsCollector:
             timeout=30.0,
             headers={
                 "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                              "AppleWebKit/537.36 (KHTML, like Gecko) "
-                              "Chrome/125.0.0.0 Safari/537.36",
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/125.0.0.0 Safari/537.36",
             },
             follow_redirects=True,
         )
@@ -274,8 +276,12 @@ class GoogleTrendsCollector:
             status = "down"
         return {
             "status": status,
-            "rss_feed": "ok" if rss_ok else f"failing ({self._health['rss_consecutive_failures']} consecutive)",
-            "json_api": "ok" if json_ok else f"failing ({self._health['json_consecutive_failures']} consecutive)",
+            "rss_feed": "ok"
+            if rss_ok
+            else f"failing ({self._health['rss_consecutive_failures']} consecutive)",
+            "json_api": "ok"
+            if json_ok
+            else f"failing ({self._health['json_consecutive_failures']} consecutive)",
             "pytrends": "removed (archived April 2025 — using RSS keyword matching)",
             **self._health,
         }
@@ -316,18 +322,21 @@ class GoogleTrendsCollector:
                     self._health["rss_consecutive_failures"] += 1
                     self._health["rss_last_failure"] = now_iso
                     self._health["rss_last_failure_reason"] = "200 OK but parsed 0 items"
-                    log.warning("[GTRENDS] RSS returned 200 but parsed 0 items — "
-                                "feed format may have changed")
+                    log.warning(
+                        "[GTRENDS] RSS returned 200 but parsed 0 items — "
+                        "feed format may have changed"
+                    )
             else:
                 self._health["rss_failures"] += 1
                 self._health["rss_consecutive_failures"] += 1
                 self._health["rss_last_failure"] = now_iso
                 self._health["rss_last_failure_reason"] = (
-                    f"HTTP {resp.status_code}" if resp.status_code != 200
-                    else "Response not XML"
+                    f"HTTP {resp.status_code}" if resp.status_code != 200 else "Response not XML"
                 )
-                log.warning(f"[GTRENDS] RSS non-200 or non-XML: status={resp.status_code}, "
-                            f"body_start={resp.text[:80]!r}")
+                log.warning(
+                    f"[GTRENDS] RSS non-200 or non-XML: status={resp.status_code}, "
+                    f"body_start={resp.text[:80]!r}"
+                )
         except Exception as e:
             self._health["rss_failures"] += 1
             self._health["rss_consecutive_failures"] += 1
@@ -347,8 +356,10 @@ class GoogleTrendsCollector:
                 self._health["json_consecutive_failures"] += 1
                 self._health["json_last_failure"] = now_iso
                 self._health["json_last_failure_reason"] = f"HTTP {resp.status_code}"
-                log.warning(f"[GTRENDS] JSON API HTTP {resp.status_code} "
-                            f"(consecutive failures: {self._health['json_consecutive_failures']})")
+                log.warning(
+                    f"[GTRENDS] JSON API HTTP {resp.status_code} "
+                    f"(consecutive failures: {self._health['json_consecutive_failures']})"
+                )
                 return signals
 
             # Google prepends ")]}'" to JSON responses
@@ -366,30 +377,29 @@ class GoogleTrendsCollector:
                     traffic = trend.get("formattedTraffic", "0")
                     traffic_num = self._parse_traffic(traffic)
 
-                    related = [
-                        r.get("query", "")
-                        for r in trend.get("relatedQueries", [])
-                    ]
+                    related = [r.get("query", "") for r in trend.get("relatedQueries", [])]
 
                     articles = trend.get("articles", [])
                     snippet = articles[0].get("snippet", "") if articles else ""
 
-                    signals.append(TrendSignal(
-                        source=SourceType.GOOGLE_TRENDS,
-                        category="trending",
-                        title=query,
-                        content=snippet[:500] if snippet else f"Trending: {query}",
-                        search_term=query,
-                        trend_direction="rising",
-                        related_queries=related[:5],
-                        geo=geo,
-                        value=traffic_num,
-                        volume=traffic_num,
-                        confidence=min(0.9, 0.3 + (traffic_num / 1_000_000) * 0.6),
-                        direction=SignalDirection.EMERGING,
-                        tags=["trending", "google", geo.lower()],
-                        metadata={"formatted_traffic": traffic, "article_count": len(articles)},
-                    ))
+                    signals.append(
+                        TrendSignal(
+                            source=SourceType.GOOGLE_TRENDS,
+                            category="trending",
+                            title=query,
+                            content=snippet[:500] if snippet else f"Trending: {query}",
+                            search_term=query,
+                            trend_direction="rising",
+                            related_queries=related[:5],
+                            geo=geo,
+                            value=traffic_num,
+                            volume=traffic_num,
+                            confidence=min(0.9, 0.3 + (traffic_num / 1_000_000) * 0.6),
+                            direction=SignalDirection.EMERGING,
+                            tags=["trending", "google", geo.lower()],
+                            metadata={"formatted_traffic": traffic, "article_count": len(articles)},
+                        )
+                    )
 
             if signals:
                 self._health["json_successes"] += 1
@@ -412,13 +422,16 @@ class GoogleTrendsCollector:
 
         # If both paths failed, log a loud warning
         if not signals:
-            total_consecutive = (self._health["rss_consecutive_failures"]
-                                 + self._health["json_consecutive_failures"])
+            total_consecutive = (
+                self._health["rss_consecutive_failures"] + self._health["json_consecutive_failures"]
+            )
             if total_consecutive >= 4:
-                log.error(f"[GTRENDS] BOTH feeds failing — RSS: "
-                          f"{self._health['rss_consecutive_failures']} consecutive, "
-                          f"JSON: {self._health['json_consecutive_failures']} consecutive. "
-                          f"Google Trends is producing ZERO signals.")
+                log.error(
+                    f"[GTRENDS] BOTH feeds failing — RSS: "
+                    f"{self._health['rss_consecutive_failures']} consecutive, "
+                    f"JSON: {self._health['json_consecutive_failures']} consecutive. "
+                    f"Google Trends is producing ZERO signals."
+                )
 
         return signals
 
@@ -446,7 +459,7 @@ class GoogleTrendsCollector:
 
                 # Description / snippet
                 desc_el = item.find("description")
-                desc = desc_el.text if desc_el is not None else ""
+                desc = desc_el.text if desc_el is not None else ""  # noqa: F841
 
                 # Link
                 link_el = item.find("link")
@@ -462,30 +475,34 @@ class GoogleTrendsCollector:
 
                 content = " | ".join(snippets) if snippets else f"Trending: {title}"
 
-                signals.append(TrendSignal(
-                    source=SourceType.GOOGLE_TRENDS,
-                    category="trending",
-                    title=title,
-                    content=content[:500],
-                    search_term=title,
-                    trend_direction="rising",
-                    related_queries=[],
-                    geo=geo,
-                    value=traffic_num,
-                    volume=traffic_num,
-                    confidence=min(0.9, 0.3 + (traffic_num / 1_000_000) * 0.6),
-                    direction=SignalDirection.EMERGING,
-                    tags=["trending", "google", geo.lower()],
-                    url=link if link else None,
-                    metadata={"formatted_traffic": traffic_str, "rss_rank": i + 1},
-                ))
+                signals.append(
+                    TrendSignal(
+                        source=SourceType.GOOGLE_TRENDS,
+                        category="trending",
+                        title=title,
+                        content=content[:500],
+                        search_term=title,
+                        trend_direction="rising",
+                        related_queries=[],
+                        geo=geo,
+                        value=traffic_num,
+                        volume=traffic_num,
+                        confidence=min(0.9, 0.3 + (traffic_num / 1_000_000) * 0.6),
+                        direction=SignalDirection.EMERGING,
+                        tags=["trending", "google", geo.lower()],
+                        url=link if link else None,
+                        metadata={"formatted_traffic": traffic_str, "rss_rank": i + 1},
+                    )
+                )
 
         except ET.ParseError as e:
             log.warning(f"RSS XML parse error: {e}")
 
         return signals
 
-    async def collect_interest(self, keywords: list[str], timeframe: str = "now 7-d", geo: str = "US") -> list[TrendSignal]:
+    async def collect_interest(
+        self, keywords: list[str], timeframe: str = "now 7-d", geo: str = "US"
+    ) -> list[TrendSignal]:
         """
         Check whether watched keywords appear in current Google Trends.
 
@@ -527,25 +544,30 @@ class GoogleTrendsCollector:
             # Exact match
             if kw in trending_map:
                 match = trending_map[kw]
-                signals.append(TrendSignal(
-                    source=SourceType.GOOGLE_TRENDS,
-                    category="interest",
-                    title=f"Watch Topic Trending: {kw_orig}",
-                    content=(
-                        f"'{kw_orig}' is currently trending on Google with "
-                        f"~{match.volume:,.0f} searches. {match.content[:200]}"
-                    ),
-                    search_term=kw_orig,
-                    trend_direction="rising",
-                    geo=geo,
-                    value=match.value,
-                    volume=match.volume,
-                    change_pct=0.0,  # No time-series data from RSS
-                    confidence=0.85,  # High — confirmed trending
-                    direction=SignalDirection.EMERGING,
-                    tags=["interest", "watch_topic", "trending_match", kw.replace(" ", "_")],
-                    metadata={"match_type": "exact", "rss_rank": match.metadata.get("rss_rank", 0)},
-                ))
+                signals.append(
+                    TrendSignal(
+                        source=SourceType.GOOGLE_TRENDS,
+                        category="interest",
+                        title=f"Watch Topic Trending: {kw_orig}",
+                        content=(
+                            f"'{kw_orig}' is currently trending on Google with "
+                            f"~{match.volume:,.0f} searches. {match.content[:200]}"
+                        ),
+                        search_term=kw_orig,
+                        trend_direction="rising",
+                        geo=geo,
+                        value=match.value,
+                        volume=match.volume,
+                        change_pct=0.0,  # No time-series data from RSS
+                        confidence=0.85,  # High — confirmed trending
+                        direction=SignalDirection.EMERGING,
+                        tags=["interest", "watch_topic", "trending_match", kw.replace(" ", "_")],
+                        metadata={
+                            "match_type": "exact",
+                            "rss_rank": match.metadata.get("rss_rank", 0),
+                        },
+                    )
+                )
                 self._health["interest_matches"] += 1
                 log.info(f"[GTRENDS] Watch topic EXACT match: '{kw_orig}' is trending!")
                 continue
@@ -553,42 +575,50 @@ class GoogleTrendsCollector:
             # Partial / substring match (e.g., "crypto" matches "crypto regulation news")
             for trending_term, match in trending_map.items():
                 if kw in trending_term or trending_term in kw:
-                    signals.append(TrendSignal(
-                        source=SourceType.GOOGLE_TRENDS,
-                        category="interest",
-                        title=f"Watch Topic Related: {kw_orig} ↔ {match.search_term}",
-                        content=(
-                            f"Watch topic '{kw_orig}' partially matches trending term "
-                            f"'{match.search_term}' (~{match.volume:,.0f} searches). "
-                            f"{match.content[:150]}"
-                        ),
-                        search_term=kw_orig,
-                        trend_direction="rising",
-                        geo=geo,
-                        value=match.value,
-                        volume=match.volume,
-                        change_pct=0.0,
-                        confidence=0.65,  # Lower — partial match
-                        direction=SignalDirection.EMERGING,
-                        tags=["interest", "watch_topic", "partial_match", kw.replace(" ", "_")],
-                        metadata={
-                            "match_type": "partial",
-                            "matched_term": match.search_term,
-                            "rss_rank": match.metadata.get("rss_rank", 0),
-                        },
-                    ))
+                    signals.append(
+                        TrendSignal(
+                            source=SourceType.GOOGLE_TRENDS,
+                            category="interest",
+                            title=f"Watch Topic Related: {kw_orig} ↔ {match.search_term}",
+                            content=(
+                                f"Watch topic '{kw_orig}' partially matches trending term "
+                                f"'{match.search_term}' (~{match.volume:,.0f} searches). "
+                                f"{match.content[:150]}"
+                            ),
+                            search_term=kw_orig,
+                            trend_direction="rising",
+                            geo=geo,
+                            value=match.value,
+                            volume=match.volume,
+                            change_pct=0.0,
+                            confidence=0.65,  # Lower — partial match
+                            direction=SignalDirection.EMERGING,
+                            tags=["interest", "watch_topic", "partial_match", kw.replace(" ", "_")],
+                            metadata={
+                                "match_type": "partial",
+                                "matched_term": match.search_term,
+                                "rss_rank": match.metadata.get("rss_rank", 0),
+                            },
+                        )
+                    )
                     self._health["interest_matches"] += 1
-                    log.info(f"[GTRENDS] Watch topic PARTIAL match: '{kw_orig}' ↔ "
-                             f"'{match.search_term}'")
+                    log.info(
+                        f"[GTRENDS] Watch topic PARTIAL match: '{kw_orig}' ↔ "
+                        f"'{match.search_term}'"
+                    )
                     break  # One match per keyword is enough
 
         if signals:
             self._health["total_signals_produced"] += len(signals)
-            log.info(f"[GTRENDS] Interest check: {len(signals)} keyword matches "
-                     f"from {len(rss_signals)} trending items")
+            log.info(
+                f"[GTRENDS] Interest check: {len(signals)} keyword matches "
+                f"from {len(rss_signals)} trending items"
+            )
         else:
-            log.debug(f"[GTRENDS] Interest check: 0/{len(keywords)} watch topics "
-                      f"trending right now (checked {len(rss_signals)} items)")
+            log.debug(
+                f"[GTRENDS] Interest check: 0/{len(keywords)} watch topics "
+                f"trending right now (checked {len(rss_signals)} items)"
+            )
 
         return signals
 
@@ -712,31 +742,35 @@ class PolymarketCollector:
                 if _event_category == "sports" and vol_24h < 500_000:
                     continue  # Skip low-volume sports — not actionable intelligence
 
-                signals.append(PredictionMarketSignal(
-                    source=SourceType.POLYMARKET,
-                    category=_event_category,
-                    title=question[:200],
-                    content=f"Polymarket: {question} — YES={yes_price:.1%}, NO={no_price:.1%}, 24h vol=${vol_24h:,.0f}",
-                    market_question=question,
-                    yes_price=yes_price,
-                    no_price=no_price,
-                    market_volume=total_vol,
-                    volume_24h=vol_24h,
-                    price_change_24h=price_change_24h,
-                    value=yes_price,
-                    volume=vol_24h,
-                    change_pct=price_change_24h,
-                    direction=direction,
-                    confidence=min(0.9, 0.3 + (vol_24h / 1_000_000) * 0.3 + (liquidity / 500_000) * 0.2),
-                    tags=["polymarket", "prediction"] + [t.lower() for t in tag_labels[:5]],
-                    url=f"https://polymarket.com/event/{slug}",
-                    metadata={
-                        "event_slug": slug,
-                        "liquidity": liquidity,
-                        "total_volume": total_vol,
-                        "num_outcomes": len(markets),
-                    },
-                ))
+                signals.append(
+                    PredictionMarketSignal(
+                        source=SourceType.POLYMARKET,
+                        category=_event_category,
+                        title=question[:200],
+                        content=f"Polymarket: {question} — YES={yes_price:.1%}, NO={no_price:.1%}, 24h vol=${vol_24h:,.0f}",  # noqa: E501
+                        market_question=question,
+                        yes_price=yes_price,
+                        no_price=no_price,
+                        market_volume=total_vol,
+                        volume_24h=vol_24h,
+                        price_change_24h=price_change_24h,
+                        value=yes_price,
+                        volume=vol_24h,
+                        change_pct=price_change_24h,
+                        direction=direction,
+                        confidence=min(
+                            0.9, 0.3 + (vol_24h / 1_000_000) * 0.3 + (liquidity / 500_000) * 0.2
+                        ),
+                        tags=["polymarket", "prediction"] + [t.lower() for t in tag_labels[:5]],
+                        url=f"https://polymarket.com/event/{slug}",
+                        metadata={
+                            "event_slug": slug,
+                            "liquidity": liquidity,
+                            "total_volume": total_vol,
+                            "num_outcomes": len(markets),
+                        },
+                    )
+                )
 
         except Exception as e:
             log.warning(f"Polymarket collection failed: {e}")
@@ -762,20 +796,22 @@ class PolymarketCollector:
                             continue  # Skip markets with missing price data
                         vol = float(mkt.get("volume", 0) or 0)
 
-                        signals.append(PredictionMarketSignal(
-                            source=SourceType.POLYMARKET,
-                            category=kw.lower(),
-                            title=question[:200],
-                            content=f"{question} — {yes_price:.1%} YES, vol=${vol:,.0f}",
-                            market_question=question,
-                            yes_price=yes_price,
-                            no_price=1.0 - yes_price,
-                            market_volume=vol,
-                            value=yes_price,
-                            volume=vol,
-                            confidence=min(0.85, 0.4 + (vol / 500_000) * 0.3),
-                            tags=["polymarket", kw.lower()],
-                        ))
+                        signals.append(
+                            PredictionMarketSignal(
+                                source=SourceType.POLYMARKET,
+                                category=kw.lower(),
+                                title=question[:200],
+                                content=f"{question} — {yes_price:.1%} YES, vol=${vol:,.0f}",
+                                market_question=question,
+                                yes_price=yes_price,
+                                no_price=1.0 - yes_price,
+                                market_volume=vol,
+                                value=yes_price,
+                                volume=vol,
+                                confidence=min(0.85, 0.4 + (vol / 500_000) * 0.3),
+                                tags=["polymarket", kw.lower()],
+                            )
+                        )
             except Exception as e:
                 log.warning(f"Polymarket search for '{kw}' failed: {e}")
 
@@ -794,7 +830,7 @@ class PolymarketCollector:
                 return None
         if isinstance(raw, str):
             cleaned = raw.strip().strip("[]")
-            parts = [p.strip().strip('"\'') for p in cleaned.split(",")]
+            parts = [p.strip().strip("\"'") for p in cleaned.split(",")]
             if parts:
                 try:
                     return float(parts[0])
@@ -815,76 +851,247 @@ class PolymarketCollector:
                 return "sports"
 
         # Order matters — more specific categories first
-        if any(k in combined for k in [
-            "crypto", "bitcoin", "ethereum", "solana", "btc", "eth",
-            "defi", "nft", "token", "blockchain", "web3", "stablecoin",
-        ]):
+        if any(
+            k in combined
+            for k in [
+                "crypto",
+                "bitcoin",
+                "ethereum",
+                "solana",
+                "btc",
+                "eth",
+                "defi",
+                "nft",
+                "token",
+                "blockchain",
+                "web3",
+                "stablecoin",
+            ]
+        ):
             return "crypto"
-        if any(k in combined for k in [
-            "fed ", "federal reserve", "inflation", "interest rate", "gdp",
-            "economy", "recession", "treasury", "cpi", "unemployment",
-            "tariff", "trade war", "debt ceiling", "s&p", "dow jones",
-            "nasdaq", "stock market", "bond", "yield curve",
-        ]):
+        if any(
+            k in combined
+            for k in [
+                "fed ",
+                "federal reserve",
+                "inflation",
+                "interest rate",
+                "gdp",
+                "economy",
+                "recession",
+                "treasury",
+                "cpi",
+                "unemployment",
+                "tariff",
+                "trade war",
+                "debt ceiling",
+                "s&p",
+                "dow jones",
+                "nasdaq",
+                "stock market",
+                "bond",
+                "yield curve",
+            ]
+        ):
             return "macro"
-        if any(k in combined for k in [
-            "ai ", "artificial intelligence", "openai", "gpt", "llm",
-            "machine learning", "anthropic", "deepmind", "nvidia ai",
-            "agi", "chatgpt", "gemini ai", "claude",
-        ]):
+        if any(
+            k in combined
+            for k in [
+                "ai ",
+                "artificial intelligence",
+                "openai",
+                "gpt",
+                "llm",
+                "machine learning",
+                "anthropic",
+                "deepmind",
+                "nvidia ai",
+                "agi",
+                "chatgpt",
+                "gemini ai",
+                "claude",
+            ]
+        ):
             return "ai_tech"
-        if any(k in combined for k in [
-            "election", "president", "congress", "senate", "governor",
-            "politics", "democrat", "republican", "trump", "biden",
-            "vote", "poll", "legislation", "supreme court", "geopolit",
-            "war", "ceasefire", "ukraine", "russia", "china", "israel",
-            "nato", "sanctions", "missile", "nuclear", "military",
-            "hezbollah", "hamas", "iran",
-        ]):
+        if any(
+            k in combined
+            for k in [
+                "election",
+                "president",
+                "congress",
+                "senate",
+                "governor",
+                "politics",
+                "democrat",
+                "republican",
+                "trump",
+                "biden",
+                "vote",
+                "poll",
+                "legislation",
+                "supreme court",
+                "geopolit",
+                "war",
+                "ceasefire",
+                "ukraine",
+                "russia",
+                "china",
+                "israel",
+                "nato",
+                "sanctions",
+                "missile",
+                "nuclear",
+                "military",
+                "hezbollah",
+                "hamas",
+                "iran",
+            ]
+        ):
             return "politics"
-        if any(k in combined for k in [
-            "tech", "apple", "google", "microsoft", "amazon", "meta",
-            "spacex", "tesla", "semiconductor", "chip", "iphone",
-            "startup", "ipo", "acquisition", "merger",
-        ]):
+        if any(
+            k in combined
+            for k in [
+                "tech",
+                "apple",
+                "google",
+                "microsoft",
+                "amazon",
+                "meta",
+                "spacex",
+                "tesla",
+                "semiconductor",
+                "chip",
+                "iphone",
+                "startup",
+                "ipo",
+                "acquisition",
+                "merger",
+            ]
+        ):
             return "tech"
-        if any(k in combined for k in [
-            "sport", "nba", "nfl", "mlb", "nhl", "soccer", "football",
-            "cricket", "tennis", "golf", "ufc", "boxing", "mma",
-            "world cup", "fifa", "olympics", "f1", "formula",
-            "playoffs", "championship", "win the", "super bowl",
-            "world series", "premier league", "champions league",
-            "grand slam", "march madness",
-        ]):
+        if any(
+            k in combined
+            for k in [
+                "sport",
+                "nba",
+                "nfl",
+                "mlb",
+                "nhl",
+                "soccer",
+                "football",
+                "cricket",
+                "tennis",
+                "golf",
+                "ufc",
+                "boxing",
+                "mma",
+                "world cup",
+                "fifa",
+                "olympics",
+                "f1",
+                "formula",
+                "playoffs",
+                "championship",
+                "win the",
+                "super bowl",
+                "world series",
+                "premier league",
+                "champions league",
+                "grand slam",
+                "march madness",
+            ]
+        ):
             return "sports"
-        if any(k in combined for k in [
-            "entertainment", "movie", "film", "oscars", "emmy",
-            "grammy", "album", "song", "music", "artist",
-            "eurovision", "gta", "game release", "box office",
-            "streaming", "netflix", "disney", "tv show", "celebrity",
-            "kardashian", "taylor swift", "drake", "kanye",
-        ]):
+        if any(
+            k in combined
+            for k in [
+                "entertainment",
+                "movie",
+                "film",
+                "oscars",
+                "emmy",
+                "grammy",
+                "album",
+                "song",
+                "music",
+                "artist",
+                "eurovision",
+                "gta",
+                "game release",
+                "box office",
+                "streaming",
+                "netflix",
+                "disney",
+                "tv show",
+                "celebrity",
+                "kardashian",
+                "taylor swift",
+                "drake",
+                "kanye",
+            ]
+        ):
             return "entertainment"
-        if any(k in combined for k in [
-            "climate", "weather", "hurricane", "earthquake", "wildfire",
-            "temperature", "carbon", "renewable", "energy",
-        ]):
+        if any(
+            k in combined
+            for k in [
+                "climate",
+                "weather",
+                "hurricane",
+                "earthquake",
+                "wildfire",
+                "temperature",
+                "carbon",
+                "renewable",
+                "energy",
+            ]
+        ):
             return "climate"
-        if any(k in combined for k in [
-            "covid", "pandemic", "vaccine", "fda", "drug",
-            "health", "disease", "outbreak", "who ",
-        ]):
+        if any(
+            k in combined
+            for k in [
+                "covid",
+                "pandemic",
+                "vaccine",
+                "fda",
+                "drug",
+                "health",
+                "disease",
+                "outbreak",
+                "who ",
+            ]
+        ):
             return "health"
-        if any(k in combined for k in [
-            "crude oil", "wti", "brent", "gold", "silver", "commodity",
-            "wheat", "corn", "natural gas", "copper", "futures",
-            "s&p 500", "nasdaq", "dow jones", "stock", "share price",
-            "earnings", "market cap", "ipo", "etf", "index",
-        ]):
+        if any(
+            k in combined
+            for k in [
+                "crude oil",
+                "wti",
+                "brent",
+                "gold",
+                "silver",
+                "commodity",
+                "wheat",
+                "corn",
+                "natural gas",
+                "copper",
+                "futures",
+                "s&p 500",
+                "nasdaq",
+                "dow jones",
+                "stock",
+                "share price",
+                "earnings",
+                "market cap",
+                "ipo",
+                "etf",
+                "index",
+            ]
+        ):
             return "markets"
         # "hit $X" or "above $X" patterns suggest market/price events
         import re
-        if re.search(r'(hit|above|below|reach|exceed)\s*\$[\d,]+', title_lower):
+
+        if re.search(r"(hit|above|below|reach|exceed)\s*\$[\d,]+", title_lower):
             return "markets"
         return "general"
 
@@ -921,7 +1128,9 @@ class NewsCollector:
         self._client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
         self._limiter = _RateLimiter(calls=10, window_seconds=60)
 
-    async def collect_top_headlines(self, category: str = "general", lang: str = "en") -> list[NewsSignal]:
+    async def collect_top_headlines(
+        self, category: str = "general", lang: str = "en"
+    ) -> list[NewsSignal]:
         """Fetch top headlines (GNews → NewsAPI → RSS fallback)."""
         signals = []
 
@@ -1001,6 +1210,7 @@ class NewsCollector:
     async def _collect_rss_topic(self, query: str) -> list[NewsSignal]:
         """Search Google News RSS for a topic."""
         from urllib.parse import quote_plus
+
         url = f"https://news.google.com/rss/search?q={quote_plus(query)}&hl=en-US&gl=US&ceid=US:en"
         return await self._fetch_rss(url, query)
 
@@ -1018,13 +1228,20 @@ class NewsCollector:
         signals: list[NewsSignal] = []
         # Lightweight regex-based extraction (no external dep)
         import re
+
         # Match <item>...</item> blocks
         for item_match in list(re.finditer(r"<item>(.*?)</item>", xml_text, re.DOTALL))[:15]:
             block = item_match.group(1)
-            title_match = re.search(r"<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</title>", block, re.DOTALL)
+            title_match = re.search(
+                r"<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</title>", block, re.DOTALL
+            )
             link_match = re.search(r"<link>(.*?)</link>", block, re.DOTALL)
-            source_match = re.search(r'<source[^>]*>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</source>', block, re.DOTALL)
-            desc_match = re.search(r"<description>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</description>", block, re.DOTALL)
+            source_match = re.search(
+                r"<source[^>]*>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</source>", block, re.DOTALL
+            )
+            desc_match = re.search(
+                r"<description>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</description>", block, re.DOTALL
+            )
             if not title_match:
                 continue
             title = re.sub(r"<[^>]+>", "", title_match.group(1)).strip()
@@ -1075,7 +1292,11 @@ class NewsCollector:
     def _article_to_signal(self, article: dict, topic: str) -> NewsSignal:
         title = article.get("title", "")
         description = article.get("description", "") or ""
-        source_name = article.get("source", {}).get("name", "") if isinstance(article.get("source"), dict) else str(article.get("source", ""))
+        source_name = (
+            article.get("source", {}).get("name", "")
+            if isinstance(article.get("source"), dict)
+            else str(article.get("source", ""))
+        )
 
         # Basic sentiment from title keywords
         sentiment = self._quick_sentiment(title + " " + description)
@@ -1104,10 +1325,36 @@ class NewsCollector:
     def _quick_sentiment(self, text: str) -> float:
         """Ultra-simple keyword sentiment. -1 to 1."""
         text_lower = text.lower()
-        positive = ["surge", "rally", "boom", "soar", "gain", "record high", "breakthrough",
-                     "bullish", "growth", "expand", "optimis", "strong"]
-        negative = ["crash", "plunge", "crisis", "collapse", "sell-off", "bearish", "recession",
-                     "decline", "fear", "risk", "warning", "drop", "fall", "worst"]
+        positive = [
+            "surge",
+            "rally",
+            "boom",
+            "soar",
+            "gain",
+            "record high",
+            "breakthrough",
+            "bullish",
+            "growth",
+            "expand",
+            "optimis",
+            "strong",
+        ]
+        negative = [
+            "crash",
+            "plunge",
+            "crisis",
+            "collapse",
+            "sell-off",
+            "bearish",
+            "recession",
+            "decline",
+            "fear",
+            "risk",
+            "warning",
+            "drop",
+            "fall",
+            "worst",
+        ]
 
         pos_count = sum(1 for w in positive if w in text_lower)
         neg_count = sum(1 for w in negative if w in text_lower)
@@ -1206,7 +1453,9 @@ class CryptoMarketCollector:
                         limiter=self._limiter,
                     )
                     if isinstance(hist, dict) and "prices" in hist:
-                        closes = [p[1] for p in hist["prices"] if isinstance(p, list) and len(p) == 2]
+                        closes = [
+                            p[1] for p in hist["prices"] if isinstance(p, list) and len(p) == 2
+                        ]
                         if closes:
                             coin_rsi = compute_rsi(closes)
                             macd_result = compute_macd(closes)
@@ -1223,35 +1472,37 @@ class CryptoMarketCollector:
                     ta_parts.append(f"MACD-H: {coin_macd_hist:.4f}")
                 ta_str = f" | {' | '.join(ta_parts)}" if ta_parts else ""
 
-                signals.append(MarketSignal(
-                    source=SourceType.CRYPTO,
-                    category="crypto",
-                    title=f"{symbol} ${price:,.2f} ({change_24h:+.1f}%)",
-                    content=(
-                        f"{symbol}: ${price:,.2f} | 24h: {change_24h:+.1f}% | "
-                        f"7d: {change_7d:+.1f}% | 30d: {change_30d:+.1f}% | "
-                        f"Vol: ${volume:,.0f} | MCap: ${market_cap:,.0f}{ta_str}"
-                    ),
-                    symbol=symbol,
-                    current_price=price,
-                    high_period=high_24h,
-                    low_period=low_24h,
-                    market_cap=market_cap,
-                    value=price,
-                    change_pct=change_24h,
-                    volume=volume,
-                    rsi=coin_rsi,
-                    macd_histogram=coin_macd_hist,
-                    direction=direction,
-                    confidence=0.85,  # Hard data, high confidence
-                    tags=["crypto", symbol.lower(), "market_data"],
-                    metadata={
-                        "change_7d": change_7d,
-                        "change_30d": change_30d,
-                        "ath": ath,
-                        "ath_distance_pct": ((price - ath) / ath * 100) if ath > 0 else 0,
-                    },
-                ))
+                signals.append(
+                    MarketSignal(
+                        source=SourceType.CRYPTO,
+                        category="crypto",
+                        title=f"{symbol} ${price:,.2f} ({change_24h:+.1f}%)",
+                        content=(
+                            f"{symbol}: ${price:,.2f} | 24h: {change_24h:+.1f}% | "
+                            f"7d: {change_7d:+.1f}% | 30d: {change_30d:+.1f}% | "
+                            f"Vol: ${volume:,.0f} | MCap: ${market_cap:,.0f}{ta_str}"
+                        ),
+                        symbol=symbol,
+                        current_price=price,
+                        high_period=high_24h,
+                        low_period=low_24h,
+                        market_cap=market_cap,
+                        value=price,
+                        change_pct=change_24h,
+                        volume=volume,
+                        rsi=coin_rsi,
+                        macd_histogram=coin_macd_hist,
+                        direction=direction,
+                        confidence=0.85,  # Hard data, high confidence
+                        tags=["crypto", symbol.lower(), "market_data"],
+                        metadata={
+                            "change_7d": change_7d,
+                            "change_30d": change_30d,
+                            "ath": ath,
+                            "ath_distance_pct": ((price - ath) / ath * 100) if ath > 0 else 0,
+                        },
+                    )
+                )
 
         except Exception as e:
             log.warning(f"CoinGecko market overview failed: {e}")
@@ -1276,18 +1527,20 @@ class CryptoMarketCollector:
                 price_btc = float(coin.get("price_btc", 0) or 0)
                 market_cap_rank = coin.get("market_cap_rank")
 
-                signals.append(MarketSignal(
-                    source=SourceType.CRYPTO,
-                    category="crypto_trending",
-                    title=f"Trending: {name} ({symbol})",
-                    content=f"{name} ({symbol}) trending on CoinGecko. Rank #{score+1}. MCap rank: {market_cap_rank}",
-                    symbol=symbol,
-                    value=float(score),
-                    direction=SignalDirection.EMERGING,
-                    confidence=0.6,
-                    tags=["crypto", "trending", symbol.lower()],
-                    metadata={"market_cap_rank": market_cap_rank, "price_btc": price_btc},
-                ))
+                signals.append(
+                    MarketSignal(
+                        source=SourceType.CRYPTO,
+                        category="crypto_trending",
+                        title=f"Trending: {name} ({symbol})",
+                        content=f"{name} ({symbol}) trending on CoinGecko. Rank #{score+1}. MCap rank: {market_cap_rank}",  # noqa: E501
+                        symbol=symbol,
+                        value=float(score),
+                        direction=SignalDirection.EMERGING,
+                        confidence=0.6,
+                        tags=["crypto", "trending", symbol.lower()],
+                        metadata={"market_cap_rank": market_cap_rank, "price_btc": price_btc},
+                    )
+                )
 
         except Exception as e:
             log.warning(f"CoinGecko trending failed: {e}")
@@ -1318,23 +1571,25 @@ class CryptoMarketCollector:
             else:
                 direction = SignalDirection.NEUTRAL
 
-            signals.append(IntelSignal(
-                source=SourceType.CRYPTO,
-                category="crypto_global",
-                title=f"Crypto Market: ${total_mcap/1e12:.2f}T ({mcap_change:+.1f}%)",
-                content=(
-                    f"Total crypto market cap: ${total_mcap/1e12:.2f}T ({mcap_change:+.1f}% 24h). "
-                    f"BTC dominance: {btc_dom:.1f}%. ETH dominance: {eth_dom:.1f}%. "
-                    f"24h volume: ${total_vol/1e9:.1f}B."
-                ),
-                value=total_mcap,
-                change_pct=mcap_change,
-                volume=total_vol,
-                direction=direction,
-                confidence=0.9,
-                tags=["crypto", "global", "market_cap"],
-                metadata={"btc_dominance": btc_dom, "eth_dominance": eth_dom},
-            ))
+            signals.append(
+                IntelSignal(
+                    source=SourceType.CRYPTO,
+                    category="crypto_global",
+                    title=f"Crypto Market: ${total_mcap/1e12:.2f}T ({mcap_change:+.1f}%)",
+                    content=(
+                        f"Total crypto market cap: ${total_mcap/1e12:.2f}T ({mcap_change:+.1f}% 24h). "  # noqa: E501
+                        f"BTC dominance: {btc_dom:.1f}%. ETH dominance: {eth_dom:.1f}%. "
+                        f"24h volume: ${total_vol/1e9:.1f}B."
+                    ),
+                    value=total_mcap,
+                    change_pct=mcap_change,
+                    volume=total_vol,
+                    direction=direction,
+                    confidence=0.9,
+                    tags=["crypto", "global", "market_cap"],
+                    metadata={"btc_dominance": btc_dom, "eth_dominance": eth_dom},
+                )
+            )
 
         except Exception as e:
             log.warning(f"CoinGecko global metrics failed: {e}")
@@ -1348,6 +1603,7 @@ class CryptoMarketCollector:
 # ═══════════════════════════════════════════════════════════════════════════
 # RSI/MACD helpers (from AAC daily_recommendation_engine pattern)
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def compute_rsi(prices: list[float], period: int = 14) -> Optional[float]:
     """Relative Strength Index using Wilder's exponential smoothing. Returns 0-100 or None."""
@@ -1500,28 +1756,30 @@ class UnusualWhalesCollector:
             else:
                 direction = SignalDirection.NEUTRAL
 
-            signals.append(MarketSignal(
-                source=SourceType.OPTIONS_FLOW,
-                category="index_flow",
-                title=f"Market Tide: net premium ${net_premium:+,.0f}",
-                content=(
-                    f"Net call premium: ${net_call:+,.0f} | "
-                    f"Net put premium: ${net_put:+,.0f} | "
-                    f"Net volume: {net_volume:+,.0f}"
-                ),
-                symbol="SPY",
-                value=net_premium,
-                volume=abs(net_volume),
-                direction=direction,
-                confidence=0.80,
-                tags=["options_flow", "market_tide", "spy", "index"],
-                metadata={
-                    "net_call_premium": net_call,
-                    "net_put_premium": net_put,
-                    "net_volume": net_volume,
-                    "timestamp_uw": latest.get("timestamp"),
-                },
-            ))
+            signals.append(
+                MarketSignal(
+                    source=SourceType.OPTIONS_FLOW,
+                    category="index_flow",
+                    title=f"Market Tide: net premium ${net_premium:+,.0f}",
+                    content=(
+                        f"Net call premium: ${net_call:+,.0f} | "
+                        f"Net put premium: ${net_put:+,.0f} | "
+                        f"Net volume: {net_volume:+,.0f}"
+                    ),
+                    symbol="SPY",
+                    value=net_premium,
+                    volume=abs(net_volume),
+                    direction=direction,
+                    confidence=0.80,
+                    tags=["options_flow", "market_tide", "spy", "index"],
+                    metadata={
+                        "net_call_premium": net_call,
+                        "net_put_premium": net_put,
+                        "net_volume": net_volume,
+                        "timestamp_uw": latest.get("timestamp"),
+                    },
+                )
+            )
         except Exception as e:
             log.warning(f"UW market-tide failed: {e}")
         return signals
@@ -1573,30 +1831,36 @@ class UnusualWhalesCollector:
                 # Confidence scales with premium size + OI penetration.
                 conf = min(0.95, 0.5 + (total_prem / 1_000_000) * 0.1)
 
-                signals.append(MarketSignal(
-                    source=SourceType.OPTIONS_FLOW,
-                    category="options_flow",
-                    title=f"{ticker} flow alert: ${total_prem:,.0f} ({size:.0f} contracts)",
-                    content=(
-                        f"{ticker} — ask ${ask_prem:,.0f} / bid ${bid_prem:,.0f} | "
-                        f"size {size:.0f} | OI {oi:.0f} | sector {sector}"
-                        + (" | multileg" if has_multileg else "")
-                    ),
-                    symbol=ticker,
-                    value=total_prem,
-                    volume=size,
-                    direction=direction,
-                    confidence=conf,
-                    tags=["options_flow", ticker.lower(), sector.lower().replace(" ", "_") or "unknown"],
-                    metadata={
-                        "ask_premium": ask_prem,
-                        "bid_premium": bid_prem,
-                        "open_interest": oi,
-                        "iv_end": iv_end,
-                        "has_multileg": has_multileg,
-                        "rule_id": alert.get("rule_id"),
-                    },
-                ))
+                signals.append(
+                    MarketSignal(
+                        source=SourceType.OPTIONS_FLOW,
+                        category="options_flow",
+                        title=f"{ticker} flow alert: ${total_prem:,.0f} ({size:.0f} contracts)",
+                        content=(
+                            f"{ticker} — ask ${ask_prem:,.0f} / bid ${bid_prem:,.0f} | "
+                            f"size {size:.0f} | OI {oi:.0f} | sector {sector}"
+                            + (" | multileg" if has_multileg else "")
+                        ),
+                        symbol=ticker,
+                        value=total_prem,
+                        volume=size,
+                        direction=direction,
+                        confidence=conf,
+                        tags=[
+                            "options_flow",
+                            ticker.lower(),
+                            sector.lower().replace(" ", "_") or "unknown",
+                        ],
+                        metadata={
+                            "ask_premium": ask_prem,
+                            "bid_premium": bid_prem,
+                            "open_interest": oi,
+                            "iv_end": iv_end,
+                            "has_multileg": has_multileg,
+                            "rule_id": alert.get("rule_id"),
+                        },
+                    )
+                )
         except Exception as e:
             log.warning(f"UW flow-alerts failed: {e}")
         return signals
@@ -1642,10 +1906,16 @@ class UnusualWhalesCollector:
                     side_bias = -1
                 else:
                     side_bias = 0
-                slot = by_ticker.setdefault(ticker, {
-                    "total_prem": 0.0, "total_size": 0.0,
-                    "max_print": 0.0, "side_score": 0, "n_prints": 0,
-                })
+                slot = by_ticker.setdefault(
+                    ticker,
+                    {
+                        "total_prem": 0.0,
+                        "total_size": 0.0,
+                        "max_print": 0.0,
+                        "side_score": 0,
+                        "n_prints": 0,
+                    },
+                )
                 slot["total_prem"] += premium
                 slot["total_size"] += size
                 slot["max_print"] = max(slot["max_print"], premium)
@@ -1660,27 +1930,29 @@ class UnusualWhalesCollector:
                 else:
                     direction = SignalDirection.NEUTRAL
                 conf = min(0.95, 0.5 + (agg["total_prem"] / 50_000_000) * 0.4)
-                signals.append(MarketSignal(
-                    source=SourceType.OPTIONS_FLOW,
-                    category="dark_pool",
-                    title=f"{ticker} dark pool: ${agg['total_prem']:,.0f} across {agg['n_prints']} prints",
-                    content=(
-                        f"{ticker} — total ${agg['total_prem']:,.0f} | "
-                        f"max single ${agg['max_print']:,.0f} | "
-                        f"size {agg['total_size']:,.0f} | side_score {agg['side_score']}"
-                    ),
-                    symbol=ticker,
-                    value=agg["total_prem"],
-                    volume=agg["total_size"],
-                    direction=direction,
-                    confidence=conf,
-                    tags=["dark_pool", ticker.lower(), "institutional"],
-                    metadata={
-                        "max_print": agg["max_print"],
-                        "n_prints": agg["n_prints"],
-                        "side_score": agg["side_score"],
-                    },
-                ))
+                signals.append(
+                    MarketSignal(
+                        source=SourceType.OPTIONS_FLOW,
+                        category="dark_pool",
+                        title=f"{ticker} dark pool: ${agg['total_prem']:,.0f} across {agg['n_prints']} prints",  # noqa: E501
+                        content=(
+                            f"{ticker} — total ${agg['total_prem']:,.0f} | "
+                            f"max single ${agg['max_print']:,.0f} | "
+                            f"size {agg['total_size']:,.0f} | side_score {agg['side_score']}"
+                        ),
+                        symbol=ticker,
+                        value=agg["total_prem"],
+                        volume=agg["total_size"],
+                        direction=direction,
+                        confidence=conf,
+                        tags=["dark_pool", ticker.lower(), "institutional"],
+                        metadata={
+                            "max_print": agg["max_print"],
+                            "n_prints": agg["n_prints"],
+                            "side_score": agg["side_score"],
+                        },
+                    )
+                )
         except Exception as e:
             log.warning(f"UW dark-pool failed: {e}")
         return signals
@@ -1723,30 +1995,32 @@ class UnusualWhalesCollector:
                     direction = SignalDirection.EXPANDING
                     regime = "short_gamma_volatile"
 
-                signals.append(MarketSignal(
-                    source=SourceType.OPTIONS_FLOW,
-                    category="greek_exposure",
-                    title=f"{ticker} net gamma {net_gamma:+,.0f} ({regime})",
-                    content=(
-                        f"{ticker} — net delta {net_delta:+,.0f} | "
-                        f"net gamma {net_gamma:+,.0f} | regime {regime}"
-                    ),
-                    symbol=ticker,
-                    value=net_gamma,
-                    direction=direction,
-                    confidence=0.75,
-                    tags=["greek_exposure", ticker.lower(), regime],
-                    metadata={
-                        "call_delta": call_delta,
-                        "put_delta": put_delta,
-                        "call_gamma": call_gamma,
-                        "put_gamma": put_gamma,
-                        "net_delta": net_delta,
-                        "net_gamma": net_gamma,
-                        "regime": regime,
-                        "date": latest.get("date"),
-                    },
-                ))
+                signals.append(
+                    MarketSignal(
+                        source=SourceType.OPTIONS_FLOW,
+                        category="greek_exposure",
+                        title=f"{ticker} net gamma {net_gamma:+,.0f} ({regime})",
+                        content=(
+                            f"{ticker} — net delta {net_delta:+,.0f} | "
+                            f"net gamma {net_gamma:+,.0f} | regime {regime}"
+                        ),
+                        symbol=ticker,
+                        value=net_gamma,
+                        direction=direction,
+                        confidence=0.75,
+                        tags=["greek_exposure", ticker.lower(), regime],
+                        metadata={
+                            "call_delta": call_delta,
+                            "put_delta": put_delta,
+                            "call_gamma": call_gamma,
+                            "put_gamma": put_gamma,
+                            "net_delta": net_delta,
+                            "net_gamma": net_gamma,
+                            "regime": regime,
+                            "date": latest.get("date"),
+                        },
+                    )
+                )
             except Exception as e:
                 log.warning(f"UW greek-exposure {ticker} failed: {e}")
         return signals
@@ -1780,27 +2054,29 @@ class UnusualWhalesCollector:
                     direction = SignalDirection.BULLISH  # pin higher
                 else:
                     direction = SignalDirection.NEUTRAL
-                signals.append(MarketSignal(
-                    source=SourceType.OPTIONS_FLOW,
-                    category="max_pain",
-                    title=f"{ticker} max pain ${max_pain:,.2f} ({pin_distance_pct:+.2f}% from spot)",
-                    content=(
-                        f"{ticker} — spot ${close:,.2f} | max pain ${max_pain:,.2f} | "
-                        f"expiry {latest.get('expiry','?')}"
-                    ),
-                    symbol=ticker,
-                    current_price=close,
-                    value=max_pain,
-                    change_pct=pin_distance_pct,
-                    direction=direction,
-                    confidence=0.65,
-                    tags=["max_pain", ticker.lower()],
-                    metadata={
-                        "expiry": latest.get("expiry"),
-                        "next_upper_strike": latest.get("next_upper_strike"),
-                        "next_lower_strike": latest.get("next_lower_strike"),
-                    },
-                ))
+                signals.append(
+                    MarketSignal(
+                        source=SourceType.OPTIONS_FLOW,
+                        category="max_pain",
+                        title=f"{ticker} max pain ${max_pain:,.2f} ({pin_distance_pct:+.2f}% from spot)",  # noqa: E501
+                        content=(
+                            f"{ticker} — spot ${close:,.2f} | max pain ${max_pain:,.2f} | "
+                            f"expiry {latest.get('expiry','?')}"
+                        ),
+                        symbol=ticker,
+                        current_price=close,
+                        value=max_pain,
+                        change_pct=pin_distance_pct,
+                        direction=direction,
+                        confidence=0.65,
+                        tags=["max_pain", ticker.lower()],
+                        metadata={
+                            "expiry": latest.get("expiry"),
+                            "next_upper_strike": latest.get("next_upper_strike"),
+                            "next_lower_strike": latest.get("next_lower_strike"),
+                        },
+                    )
+                )
             except Exception as e:
                 log.warning(f"UW max-pain {ticker} failed: {e}")
         return signals
@@ -1845,32 +2121,34 @@ class UnusualWhalesCollector:
                 else:
                     direction = SignalDirection.NEUTRAL
 
-                signals.append(MarketSignal(
-                    source=SourceType.OPTIONS_FLOW,
-                    category="sector_rotation",
-                    title=f"{ticker} {day_change_pct:+.2f}% | net opt prem ${net_prem:+,.0f}",
-                    content=(
-                        f"{ticker} ({row.get('full_name','')}) — last ${last:,.2f} | "
-                        f"P/C ratio {pcr:.2f} | call prem ${call_prem:,.0f} | put prem ${put_prem:,.0f}"
-                    ),
-                    symbol=ticker,
-                    current_price=last,
-                    value=net_prem,
-                    change_pct=day_change_pct,
-                    volume=call_vol + put_vol,
-                    direction=direction,
-                    confidence=0.85,
-                    tags=["sector_etf", ticker.lower(), "rotation"],
-                    metadata={
-                        "call_premium": call_prem,
-                        "put_premium": put_prem,
-                        "call_volume": call_vol,
-                        "put_volume": put_vol,
-                        "put_call_ratio": pcr,
-                        "in_out_flow": row.get("in_out_flow"),
-                        "marketcap": row.get("marketcap"),
-                    },
-                ))
+                signals.append(
+                    MarketSignal(
+                        source=SourceType.OPTIONS_FLOW,
+                        category="sector_rotation",
+                        title=f"{ticker} {day_change_pct:+.2f}% | net opt prem ${net_prem:+,.0f}",
+                        content=(
+                            f"{ticker} ({row.get('full_name','')}) — last ${last:,.2f} | "
+                            f"P/C ratio {pcr:.2f} | call prem ${call_prem:,.0f} | put prem ${put_prem:,.0f}"  # noqa: E501
+                        ),
+                        symbol=ticker,
+                        current_price=last,
+                        value=net_prem,
+                        change_pct=day_change_pct,
+                        volume=call_vol + put_vol,
+                        direction=direction,
+                        confidence=0.85,
+                        tags=["sector_etf", ticker.lower(), "rotation"],
+                        metadata={
+                            "call_premium": call_prem,
+                            "put_premium": put_prem,
+                            "call_volume": call_vol,
+                            "put_volume": put_vol,
+                            "put_call_ratio": pcr,
+                            "in_out_flow": row.get("in_out_flow"),
+                            "marketcap": row.get("marketcap"),
+                        },
+                    )
+                )
         except Exception as e:
             log.warning(f"UW sector-etfs failed: {e}")
         return signals
@@ -1909,30 +2187,32 @@ class UnusualWhalesCollector:
             else:
                 direction = SignalDirection.NEUTRAL
                 regime = "balanced"
-            signals.append(MarketSignal(
-                source=SourceType.OPTIONS_FLOW,
-                category="market_regime",
-                title=f"Market regime: {regime} (P/C vol {pcr_volume:.2f}, put prem {put_prem_pct:.0%})",
-                content=(
-                    f"Total call vol {call_vol:,.0f} | put vol {put_vol:,.0f} | "
-                    f"call prem ${call_prem:,.0f} | put prem ${put_prem:,.0f}"
-                ),
-                symbol="MARKET",
-                value=pcr_volume,
-                direction=direction,
-                confidence=0.85,
-                tags=["market_regime", regime, "options_flow"],
-                metadata={
-                    "call_volume": call_vol,
-                    "put_volume": put_vol,
-                    "call_premium": call_prem,
-                    "put_premium": put_prem,
-                    "put_call_ratio_volume": pcr_volume,
-                    "put_premium_pct": put_prem_pct,
-                    "regime": regime,
-                    "date": latest.get("date"),
-                },
-            ))
+            signals.append(
+                MarketSignal(
+                    source=SourceType.OPTIONS_FLOW,
+                    category="market_regime",
+                    title=f"Market regime: {regime} (P/C vol {pcr_volume:.2f}, put prem {put_prem_pct:.0%})",  # noqa: E501
+                    content=(
+                        f"Total call vol {call_vol:,.0f} | put vol {put_vol:,.0f} | "
+                        f"call prem ${call_prem:,.0f} | put prem ${put_prem:,.0f}"
+                    ),
+                    symbol="MARKET",
+                    value=pcr_volume,
+                    direction=direction,
+                    confidence=0.85,
+                    tags=["market_regime", regime, "options_flow"],
+                    metadata={
+                        "call_volume": call_vol,
+                        "put_volume": put_vol,
+                        "call_premium": call_prem,
+                        "put_premium": put_prem,
+                        "put_call_ratio_volume": pcr_volume,
+                        "put_premium_pct": put_prem_pct,
+                        "regime": regime,
+                        "date": latest.get("date"),
+                    },
+                )
+            )
         except Exception as e:
             log.warning(f"UW total-options-volume failed: {e}")
         return signals
@@ -1961,7 +2241,9 @@ class UnusualWhalesCollector:
                 amounts = trade.get("amounts") or ""
                 # Parse upper bound from "$100,001 - $250,000"
                 try:
-                    amt_high = float(amounts.split("-")[-1].replace("$", "").replace(",", "").strip())
+                    amt_high = float(
+                        amounts.split("-")[-1].replace("$", "").replace(",", "").strip()
+                    )
                 except Exception:
                     amt_high = 0
                 if "buy" in txn or "purchase" in txn:
@@ -1971,36 +2253,45 @@ class UnusualWhalesCollector:
                 else:
                     direction = SignalDirection.NEUTRAL
                 conf = min(0.85, 0.4 + (amt_high / 1_000_000) * 0.3)
-                signals.append(IntelSignal(
-                    source=SourceType.MARKET_DATA,
-                    category="congress_trade",
-                    title=f"{trade.get('name','?')} {txn} {ticker} ({amounts})",
-                    content=(
-                        f"{trade.get('name','?')} ({trade.get('member_type','?')}) "
-                        f"{txn} {ticker} on {trade.get('transaction_date','?')} | "
-                        f"issuer={trade.get('issuer','?')} | filed {trade.get('filed_at_date','?')}"
-                    ),
-                    value=amt_high,
-                    direction=direction,
-                    confidence=conf,
-                    tags=["congress_trade", ticker.lower(), txn, trade.get('member_type', 'unknown')],
-                    metadata={
-                        "ticker": ticker,
-                        "politician": trade.get("name"),
-                        "politician_id": trade.get("politician_id"),
-                        "issuer": trade.get("issuer"),
-                        "txn_type": trade.get("txn_type"),
-                        "amounts": amounts,
-                        "transaction_date": trade.get("transaction_date"),
-                        "filed_at_date": trade.get("filed_at_date"),
-                        "member_type": trade.get("member_type"),
-                    },
-                ))
+                signals.append(
+                    IntelSignal(
+                        source=SourceType.MARKET_DATA,
+                        category="congress_trade",
+                        title=f"{trade.get('name','?')} {txn} {ticker} ({amounts})",
+                        content=(
+                            f"{trade.get('name','?')} ({trade.get('member_type','?')}) "
+                            f"{txn} {ticker} on {trade.get('transaction_date','?')} | "
+                            f"issuer={trade.get('issuer','?')} | filed {trade.get('filed_at_date','?')}"  # noqa: E501
+                        ),
+                        value=amt_high,
+                        direction=direction,
+                        confidence=conf,
+                        tags=[
+                            "congress_trade",
+                            ticker.lower(),
+                            txn,
+                            trade.get("member_type", "unknown"),
+                        ],
+                        metadata={
+                            "ticker": ticker,
+                            "politician": trade.get("name"),
+                            "politician_id": trade.get("politician_id"),
+                            "issuer": trade.get("issuer"),
+                            "txn_type": trade.get("txn_type"),
+                            "amounts": amounts,
+                            "transaction_date": trade.get("transaction_date"),
+                            "filed_at_date": trade.get("filed_at_date"),
+                            "member_type": trade.get("member_type"),
+                        },
+                    )
+                )
         except Exception as e:
             log.warning(f"UW congress-trades failed: {e}")
         return signals
 
-    async def collect_insider_clusters(self, limit: int = 100, min_cluster: int = 3) -> list[IntelSignal]:
+    async def collect_insider_clusters(
+        self, limit: int = 100, min_cluster: int = 3
+    ) -> list[IntelSignal]:
         """
         Form-4 insider transactions; emit cluster signals when ≥ min_cluster
         distinct insiders transact same ticker recently (very strong signal).
@@ -2027,11 +2318,18 @@ class UnusualWhalesCollector:
                 # P = open-market purchase (strongest), S = sale, A/M = grant/option (noise)
                 if not ticker or code not in {"P", "S"}:
                     continue
-                slot = clusters.setdefault(ticker, {
-                    "owners": set(), "buys": 0, "sells": 0,
-                    "value": 0.0, "officers": 0, "directors": 0,
-                    "sample": txn,
-                })
+                slot = clusters.setdefault(
+                    ticker,
+                    {
+                        "owners": set(),
+                        "buys": 0,
+                        "sells": 0,
+                        "value": 0.0,
+                        "officers": 0,
+                        "directors": 0,
+                        "sample": txn,
+                    },
+                )
                 slot["owners"].add(txn.get("owner_name", ""))
                 amount = float(txn.get("amount", 0) or 0)
                 price = float(txn.get("price", 0) or 0) or float(txn.get("stock_price", 0) or 0)
@@ -2056,33 +2354,37 @@ class UnusualWhalesCollector:
                     direction = SignalDirection.BEARISH
                 else:
                     direction = SignalDirection.NEUTRAL
-                conf = min(0.95, 0.55 + n_owners * 0.05 + (agg["officers"] + agg["directors"]) * 0.02)
-                signals.append(IntelSignal(
-                    source=SourceType.MARKET_DATA,
-                    category="insider_cluster",
-                    title=f"{ticker} insider cluster: {n_owners} insiders, net {net:+d} (${agg['value']:,.0f})",
-                    content=(
-                        f"{ticker} — {n_owners} distinct insiders | "
-                        f"buys {agg['buys']} / sells {agg['sells']} | "
-                        f"officers {agg['officers']} | directors {agg['directors']} | "
-                        f"value ${agg['value']:,.0f}"
-                    ),
-                    value=agg["value"],
-                    direction=direction,
-                    confidence=conf,
-                    tags=["insider_cluster", ticker.lower(), "form4"],
-                    metadata={
-                        "ticker": ticker,
-                        "n_owners": n_owners,
-                        "buys": agg["buys"],
-                        "sells": agg["sells"],
-                        "officers": agg["officers"],
-                        "directors": agg["directors"],
-                        "value": agg["value"],
-                        "sector": agg["sample"].get("sector"),
-                        "marketcap": agg["sample"].get("marketcap"),
-                    },
-                ))
+                conf = min(
+                    0.95, 0.55 + n_owners * 0.05 + (agg["officers"] + agg["directors"]) * 0.02
+                )
+                signals.append(
+                    IntelSignal(
+                        source=SourceType.MARKET_DATA,
+                        category="insider_cluster",
+                        title=f"{ticker} insider cluster: {n_owners} insiders, net {net:+d} (${agg['value']:,.0f})",  # noqa: E501
+                        content=(
+                            f"{ticker} — {n_owners} distinct insiders | "
+                            f"buys {agg['buys']} / sells {agg['sells']} | "
+                            f"officers {agg['officers']} | directors {agg['directors']} | "
+                            f"value ${agg['value']:,.0f}"
+                        ),
+                        value=agg["value"],
+                        direction=direction,
+                        confidence=conf,
+                        tags=["insider_cluster", ticker.lower(), "form4"],
+                        metadata={
+                            "ticker": ticker,
+                            "n_owners": n_owners,
+                            "buys": agg["buys"],
+                            "sells": agg["sells"],
+                            "officers": agg["officers"],
+                            "directors": agg["directors"],
+                            "value": agg["value"],
+                            "sector": agg["sample"].get("sector"),
+                            "marketcap": agg["sample"].get("marketcap"),
+                        },
+                    )
+                )
         except Exception as e:
             log.warning(f"UW insider-clusters failed: {e}")
         return signals
@@ -2109,7 +2411,7 @@ class UnusualWhalesCollector:
             rows = (data or {}).get("data") if isinstance(data, dict) else None
             if not rows:
                 return signals
-            now = datetime.now(timezone.utc)
+            now = datetime.now(timezone.utc)  # noqa: F841
             for ev in rows:
                 event = ev.get("event") or ""
                 t_iso = ev.get("time") or ""
@@ -2117,29 +2419,44 @@ class UnusualWhalesCollector:
                 prev = ev.get("prev")
                 # Tier importance from event keywords
                 ev_lower = event.lower()
-                high_impact = any(k in ev_lower for k in (
-                    "cpi", "ppi", "fomc", "non-farm", "nonfarm", "payroll",
-                    "unemployment", "gdp", "fed funds", "interest rate",
-                    "powell", "jobless", "retail sales",
-                ))
+                high_impact = any(
+                    k in ev_lower
+                    for k in (
+                        "cpi",
+                        "ppi",
+                        "fomc",
+                        "non-farm",
+                        "nonfarm",
+                        "payroll",
+                        "unemployment",
+                        "gdp",
+                        "fed funds",
+                        "interest rate",
+                        "powell",
+                        "jobless",
+                        "retail sales",
+                    )
+                )
                 conf = 0.85 if high_impact else 0.55
-                signals.append(IntelSignal(
-                    source=SourceType.MARKET_DATA,
-                    category="economic_calendar",
-                    title=f"{event} ({ev.get('reported_period','')}) @ {t_iso}",
-                    content=f"{event} | period={ev.get('reported_period')} | forecast={forecast} | prev={prev}",
-                    direction=SignalDirection.NEUTRAL,
-                    confidence=conf,
-                    tags=["macro", "calendar", "high_impact" if high_impact else "low_impact"],
-                    metadata={
-                        "event": event,
-                        "time": t_iso,
-                        "forecast": forecast,
-                        "prev": prev,
-                        "period": ev.get("reported_period"),
-                        "type": ev.get("type"),
-                    },
-                ))
+                signals.append(
+                    IntelSignal(
+                        source=SourceType.MARKET_DATA,
+                        category="economic_calendar",
+                        title=f"{event} ({ev.get('reported_period','')}) @ {t_iso}",
+                        content=f"{event} | period={ev.get('reported_period')} | forecast={forecast} | prev={prev}",  # noqa: E501
+                        direction=SignalDirection.NEUTRAL,
+                        confidence=conf,
+                        tags=["macro", "calendar", "high_impact" if high_impact else "low_impact"],
+                        metadata={
+                            "event": event,
+                            "time": t_iso,
+                            "forecast": forecast,
+                            "prev": prev,
+                            "period": ev.get("reported_period"),
+                            "type": ev.get("type"),
+                        },
+                    )
+                )
         except Exception as e:
             log.warning(f"UW economic-calendar failed: {e}")
         return signals
@@ -2180,32 +2497,37 @@ class UnusualWhalesCollector:
                 has_options = bool(ev.get("has_options"))
                 base = 0.55 if has_options else 0.40
                 conf = base + (0.20 if is_forward else 0.0)
-                signals.append(IntelSignal(
-                    source=SourceType.MARKET_DATA,
-                    category="fda_catalyst",
-                    title=f"{ticker} FDA: {etype} on {target}",
-                    content=(ev.get("description") or "")[:400],
-                    direction=SignalDirection.NEUTRAL,
-                    confidence=conf,
-                    tags=["biotech", "fda", ticker.lower(), "options" if has_options else "no_options"],
-                    metadata={
-                        "ticker": ticker,
-                        "target_date": target,
-                        "event_type": etype,
-                        "drug": ev.get("drug"),
-                        "indication": ev.get("indication"),
-                        "outcome": ev.get("outcome"),
-                        "has_options": has_options,
-                        "marketcap": ev.get("marketcap"),
-                    },
-                ))
+                signals.append(
+                    IntelSignal(
+                        source=SourceType.MARKET_DATA,
+                        category="fda_catalyst",
+                        title=f"{ticker} FDA: {etype} on {target}",
+                        content=(ev.get("description") or "")[:400],
+                        direction=SignalDirection.NEUTRAL,
+                        confidence=conf,
+                        tags=[
+                            "biotech",
+                            "fda",
+                            ticker.lower(),
+                            "options" if has_options else "no_options",
+                        ],
+                        metadata={
+                            "ticker": ticker,
+                            "target_date": target,
+                            "event_type": etype,
+                            "drug": ev.get("drug"),
+                            "indication": ev.get("indication"),
+                            "outcome": ev.get("outcome"),
+                            "has_options": has_options,
+                            "marketcap": ev.get("marketcap"),
+                        },
+                    )
+                )
         except Exception as e:
             log.warning(f"UW fda-calendar failed: {e}")
         return signals
 
-    async def collect_oi_change(
-        self, tickers: list[str], top_n: int = 10
-    ) -> list[IntelSignal]:
+    async def collect_oi_change(self, tickers: list[str], top_n: int = 10) -> list[IntelSignal]:
         """Largest day-over-day OI deltas per ticker (positioning shifts)."""
         signals: list[IntelSignal] = []
         if not self.enabled or not tickers:
@@ -2234,33 +2556,37 @@ class UnusualWhalesCollector:
                         continue
                     is_call = "C" in sym[-9:-8] if len(sym) >= 9 else False
                     direction = (
-                        SignalDirection.BULLISH if (is_call and delta > 0) or (not is_call and delta < 0)
-                        else SignalDirection.BEARISH if (is_call and delta < 0) or (not is_call and delta > 0)
+                        SignalDirection.BULLISH
+                        if (is_call and delta > 0) or (not is_call and delta < 0)
+                        else SignalDirection.BEARISH
+                        if (is_call and delta < 0) or (not is_call and delta > 0)
                         else SignalDirection.NEUTRAL
                     )
-                    signals.append(IntelSignal(
-                        source=SourceType.MARKET_DATA,
-                        category="oi_change",
-                        title=f"{t} {sym} OI Δ {delta:+,.0f}",
-                        content=(
-                            f"{t} {sym} | oi_change={delta:+,.0f} | "
-                            f"curr_oi={row.get('curr_oi')} | volume={row.get('volume')} | "
-                            f"prev_premium=${row.get('prev_total_premium')}"
-                        ),
-                        value=abs(delta),
-                        direction=direction,
-                        confidence=min(0.85, 0.5 + abs(delta) / 100000),
-                        tags=["oi_change", t.lower(), "calls" if is_call else "puts"],
-                        metadata={
-                            "ticker": t,
-                            "option_symbol": sym,
-                            "oi_change": delta,
-                            "curr_oi": row.get("curr_oi"),
-                            "volume": row.get("volume"),
-                            "prev_total_premium": row.get("prev_total_premium"),
-                            "days_of_oi_increases": row.get("days_of_oi_increases"),
-                        },
-                    ))
+                    signals.append(
+                        IntelSignal(
+                            source=SourceType.MARKET_DATA,
+                            category="oi_change",
+                            title=f"{t} {sym} OI Δ {delta:+,.0f}",
+                            content=(
+                                f"{t} {sym} | oi_change={delta:+,.0f} | "
+                                f"curr_oi={row.get('curr_oi')} | volume={row.get('volume')} | "
+                                f"prev_premium=${row.get('prev_total_premium')}"
+                            ),
+                            value=abs(delta),
+                            direction=direction,
+                            confidence=min(0.85, 0.5 + abs(delta) / 100000),
+                            tags=["oi_change", t.lower(), "calls" if is_call else "puts"],
+                            metadata={
+                                "ticker": t,
+                                "option_symbol": sym,
+                                "oi_change": delta,
+                                "curr_oi": row.get("curr_oi"),
+                                "volume": row.get("volume"),
+                                "prev_total_premium": row.get("prev_total_premium"),
+                                "days_of_oi_increases": row.get("days_of_oi_increases"),
+                            },
+                        )
+                    )
             except Exception as e:
                 log.warning(f"UW oi-change failed for {t}: {e}")
         return signals
@@ -2289,27 +2615,29 @@ class UnusualWhalesCollector:
                 top = max(rows, key=lambda r: int(r.get("open_interest") or 0))
                 top_pct = int(top.get("open_interest") or 0) / total_oi
                 conf = 0.55 + min(0.35, top_pct)
-                signals.append(IntelSignal(
-                    source=SourceType.MARKET_DATA,
-                    category="expiry_breakdown",
-                    title=f"{t} top expiry {top.get('expires')} = {top_pct:.0%} OI",
-                    content=(
-                        f"{t} | total_oi={total_oi:,} | total_vol={total_vol:,} | "
-                        f"top_expiry={top.get('expires')} ({top_pct:.0%} OI, {top.get('chains')} chains)"
-                    ),
-                    value=float(top_pct),
-                    direction=SignalDirection.NEUTRAL,
-                    confidence=conf,
-                    tags=["expiry", "gamma", t.lower()],
-                    metadata={
-                        "ticker": t,
-                        "total_oi": total_oi,
-                        "total_volume": total_vol,
-                        "top_expiry": top.get("expires"),
-                        "top_concentration_pct": round(top_pct, 4),
-                        "expiry_count": len(rows),
-                    },
-                ))
+                signals.append(
+                    IntelSignal(
+                        source=SourceType.MARKET_DATA,
+                        category="expiry_breakdown",
+                        title=f"{t} top expiry {top.get('expires')} = {top_pct:.0%} OI",
+                        content=(
+                            f"{t} | total_oi={total_oi:,} | total_vol={total_vol:,} | "
+                            f"top_expiry={top.get('expires')} ({top_pct:.0%} OI, {top.get('chains')} chains)"  # noqa: E501
+                        ),
+                        value=float(top_pct),
+                        direction=SignalDirection.NEUTRAL,
+                        confidence=conf,
+                        tags=["expiry", "gamma", t.lower()],
+                        metadata={
+                            "ticker": t,
+                            "total_oi": total_oi,
+                            "total_volume": total_vol,
+                            "top_expiry": top.get("expires"),
+                            "top_concentration_pct": round(top_pct, 4),
+                            "expiry_count": len(rows),
+                        },
+                    )
+                )
             except Exception as e:
                 log.warning(f"UW expiry-breakdown failed for {t}: {e}")
         return signals
@@ -2340,37 +2668,41 @@ class UnusualWhalesCollector:
                 if abs(net) < 1_000_000:  # $1M floor
                     continue
                 direction = (
-                    SignalDirection.BULLISH if net > 0
-                    else SignalDirection.BEARISH if net < 0
+                    SignalDirection.BULLISH
+                    if net > 0
+                    else SignalDirection.BEARISH
+                    if net < 0
                     else SignalDirection.NEUTRAL
                 )
                 conf = min(0.85, 0.5 + abs(net) / 50_000_000)
-                signals.append(IntelSignal(
-                    source=SourceType.MARKET_DATA,
-                    category="screener_unusual",
-                    title=f"{ticker} flow imbalance ${net:+,.0f}",
-                    content=(
-                        f"{ticker} ({row.get('full_name')}) | "
-                        f"bullish ${bull:,.0f} / bearish ${bear:,.0f} | net ${net:+,.0f} | "
-                        f"iv30d={row.get('iv30d')} | iv_rank={row.get('iv_rank')} | "
-                        f"sector={row.get('sector')}"
-                    ),
-                    value=abs(net),
-                    direction=direction,
-                    confidence=conf,
-                    tags=["screener", "unusual_flow", ticker.lower()],
-                    metadata={
-                        "ticker": ticker,
-                        "bullish_premium": bull,
-                        "bearish_premium": bear,
-                        "net_premium": net,
-                        "iv30d": row.get("iv30d"),
-                        "iv_rank": row.get("iv_rank"),
-                        "sector": row.get("sector"),
-                        "marketcap": row.get("marketcap"),
-                        "next_earnings_date": row.get("next_earnings_date"),
-                    },
-                ))
+                signals.append(
+                    IntelSignal(
+                        source=SourceType.MARKET_DATA,
+                        category="screener_unusual",
+                        title=f"{ticker} flow imbalance ${net:+,.0f}",
+                        content=(
+                            f"{ticker} ({row.get('full_name')}) | "
+                            f"bullish ${bull:,.0f} / bearish ${bear:,.0f} | net ${net:+,.0f} | "
+                            f"iv30d={row.get('iv30d')} | iv_rank={row.get('iv_rank')} | "
+                            f"sector={row.get('sector')}"
+                        ),
+                        value=abs(net),
+                        direction=direction,
+                        confidence=conf,
+                        tags=["screener", "unusual_flow", ticker.lower()],
+                        metadata={
+                            "ticker": ticker,
+                            "bullish_premium": bull,
+                            "bearish_premium": bear,
+                            "net_premium": net,
+                            "iv30d": row.get("iv30d"),
+                            "iv_rank": row.get("iv_rank"),
+                            "sector": row.get("sector"),
+                            "marketcap": row.get("marketcap"),
+                            "next_earnings_date": row.get("next_earnings_date"),
+                        },
+                    )
+                )
         except Exception as e:
             log.warning(f"UW screener-stocks failed: {e}")
         return signals
@@ -2403,35 +2735,39 @@ class UnusualWhalesCollector:
                     if years < 5:
                         continue
                     direction = (
-                        SignalDirection.BULLISH if avg > 0.005 and pos_perc > 0.6
-                        else SignalDirection.BEARISH if avg < -0.005 and pos_perc < 0.4
+                        SignalDirection.BULLISH
+                        if avg > 0.005 and pos_perc > 0.6
+                        else SignalDirection.BEARISH
+                        if avg < -0.005 and pos_perc < 0.4
                         else SignalDirection.NEUTRAL
                     )
                     horizon = "current" if m == current_month else "next"
-                    signals.append(IntelSignal(
-                        source=SourceType.MARKET_DATA,
-                        category="seasonality",
-                        title=f"{t} M{m} ({horizon}): avg {avg:+.2%}, {pos_perc:.0%} positive ({years}y)",
-                        content=(
-                            f"{t} month {m} | avg_change={avg:+.2%} | "
-                            f"median={row.get('median_change')} | "
-                            f"positive_months={pos_perc:.0%} ({row.get('positive_closes')}/{years}) | "
-                            f"max={row.get('max_change')} | min={row.get('min_change')}"
-                        ),
-                        value=avg,
-                        direction=direction,
-                        confidence=min(0.75, 0.4 + abs(pos_perc - 0.5) + years * 0.005),
-                        tags=["seasonality", t.lower(), horizon],
-                        metadata={
-                            "ticker": t,
-                            "month": m,
-                            "horizon": horizon,
-                            "avg_change": avg,
-                            "median_change": row.get("median_change"),
-                            "positive_months_perc": pos_perc,
-                            "years": years,
-                        },
-                    ))
+                    signals.append(
+                        IntelSignal(
+                            source=SourceType.MARKET_DATA,
+                            category="seasonality",
+                            title=f"{t} M{m} ({horizon}): avg {avg:+.2%}, {pos_perc:.0%} positive ({years}y)",  # noqa: E501
+                            content=(
+                                f"{t} month {m} | avg_change={avg:+.2%} | "
+                                f"median={row.get('median_change')} | "
+                                f"positive_months={pos_perc:.0%} ({row.get('positive_closes')}/{years}) | "  # noqa: E501
+                                f"max={row.get('max_change')} | min={row.get('min_change')}"
+                            ),
+                            value=avg,
+                            direction=direction,
+                            confidence=min(0.75, 0.4 + abs(pos_perc - 0.5) + years * 0.005),
+                            tags=["seasonality", t.lower(), horizon],
+                            metadata={
+                                "ticker": t,
+                                "month": m,
+                                "horizon": horizon,
+                                "avg_change": avg,
+                                "median_change": row.get("median_change"),
+                                "positive_months_perc": pos_perc,
+                                "years": years,
+                            },
+                        )
+                    )
             except Exception as e:
                 log.warning(f"UW seasonality failed for {t}: {e}")
         return signals
@@ -2459,30 +2795,33 @@ class UnusualWhalesCollector:
                 has_options = bool(row.get("has_options"))
                 is_sp500 = bool(row.get("is_s_p_500"))
                 conf = 0.55 + (0.15 if is_sp500 else 0) + (0.1 if has_options else 0)
-                signals.append(IntelSignal(
-                    source=SourceType.MARKET_DATA,
-                    category="earnings_afterhours",
-                    title=f"{ticker} earnings AH — expected move {expected_move or 'n/a'}",
-                    content=(
-                        f"{ticker} ({row.get('full_name')}) | "
-                        f"sector={row.get('sector')} | report_time={row.get('report_time')} | "
-                        f"street_est={row.get('street_mean_est')} | "
-                        f"expected_move={expected_move} | sp500={is_sp500}"
-                    ),
-                    direction=SignalDirection.NEUTRAL,
-                    confidence=min(0.85, conf),
-                    tags=["earnings", "afterhours", ticker.lower()] + (["sp500"] if is_sp500 else []),
-                    metadata={
-                        "ticker": ticker,
-                        "report_time": row.get("report_time"),
-                        "expected_move_perc": expected_move,
-                        "street_mean_est": row.get("street_mean_est"),
-                        "sector": row.get("sector"),
-                        "is_sp500": is_sp500,
-                        "has_options": has_options,
-                        "marketcap": row.get("marketcap"),
-                    },
-                ))
+                signals.append(
+                    IntelSignal(
+                        source=SourceType.MARKET_DATA,
+                        category="earnings_afterhours",
+                        title=f"{ticker} earnings AH — expected move {expected_move or 'n/a'}",
+                        content=(
+                            f"{ticker} ({row.get('full_name')}) | "
+                            f"sector={row.get('sector')} | report_time={row.get('report_time')} | "
+                            f"street_est={row.get('street_mean_est')} | "
+                            f"expected_move={expected_move} | sp500={is_sp500}"
+                        ),
+                        direction=SignalDirection.NEUTRAL,
+                        confidence=min(0.85, conf),
+                        tags=["earnings", "afterhours", ticker.lower()]
+                        + (["sp500"] if is_sp500 else []),
+                        metadata={
+                            "ticker": ticker,
+                            "report_time": row.get("report_time"),
+                            "expected_move_perc": expected_move,
+                            "street_mean_est": row.get("street_mean_est"),
+                            "sector": row.get("sector"),
+                            "is_sp500": is_sp500,
+                            "has_options": has_options,
+                            "marketcap": row.get("marketcap"),
+                        },
+                    )
+                )
         except Exception as e:
             log.warning(f"UW earnings-afterhours failed: {e}")
         return signals
@@ -2511,31 +2850,35 @@ class UnusualWhalesCollector:
                 sentiment = (row.get("sentiment") or "neutral").lower()
                 is_major = bool(row.get("is_major"))
                 direction = (
-                    SignalDirection.BULLISH if sentiment in ("positive", "bullish")
-                    else SignalDirection.BEARISH if sentiment in ("negative", "bearish")
+                    SignalDirection.BULLISH
+                    if sentiment in ("positive", "bullish")
+                    else SignalDirection.BEARISH
+                    if sentiment in ("negative", "bearish")
                     else SignalDirection.NEUTRAL
                 )
                 conf = 0.55 + (0.25 if is_major else 0) + (0.1 if tickers else 0)
-                signals.append(IntelSignal(
-                    source=SourceType.NEWS,
-                    category="news_headline",
-                    title=headline[:200],
-                    content=f"{headline} | tickers={tickers} | sentiment={sentiment} | source={row.get('source')}",
-                    direction=direction,
-                    confidence=min(0.9, conf),
-                    tags=["news", row.get("source", "").lower()] + (
-                        ["major"] if is_major else []
-                    ) + [t.lower() for t in tickers[:3]],
-                    metadata={
-                        "headline": headline,
-                        "tickers": tickers,
-                        "sentiment": sentiment,
-                        "is_major": is_major,
-                        "source": row.get("source"),
-                        "created_at": row.get("created_at"),
-                        "tags": row.get("tags"),
-                    },
-                ))
+                signals.append(
+                    IntelSignal(
+                        source=SourceType.NEWS,
+                        category="news_headline",
+                        title=headline[:200],
+                        content=f"{headline} | tickers={tickers} | sentiment={sentiment} | source={row.get('source')}",  # noqa: E501
+                        direction=direction,
+                        confidence=min(0.9, conf),
+                        tags=["news", row.get("source", "").lower()]
+                        + (["major"] if is_major else [])
+                        + [t.lower() for t in tickers[:3]],
+                        metadata={
+                            "headline": headline,
+                            "tickers": tickers,
+                            "sentiment": sentiment,
+                            "is_major": is_major,
+                            "source": row.get("source"),
+                            "created_at": row.get("created_at"),
+                            "tags": row.get("tags"),
+                        },
+                    )
+                )
         except Exception as e:
             log.warning(f"UW news-headlines failed: {e}")
         return signals
@@ -2573,10 +2916,10 @@ class RedditCollector:
     # bot-detection on the public .json endpoints.  Authenticated OAuth
     # requests always use the bot-style UA that Reddit requires.
     _BROWSER_UAS: list[str] = [
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",  # noqa: E501
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",  # noqa: E501
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",  # noqa: E501
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15",  # noqa: E501
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0",
     ]
     # NOTE: _ua_index was previously class-level shared state; now initialised
@@ -2585,69 +2928,69 @@ class RedditCollector:
     # ── Tiered subreddit network ──────────────────────────────────
     # TIER 1: Scanned every cycle (hot + top + rising) — core alpha sources
     TIER1_SUBS = [
-        "wallstreetbets",       # 19.9M — retail HQ, YOLO culture
-        "Superstonk",           # 1.2M  — GME deep DD, DRS movement
-        "options",              # 1.4M  — options flow, strategies
-        "stocks",               # 9.2M  — general equity discussion
-        "StockMarket",          # 4.0M  — market-wide sentiment
-        "Daytrading",           # 5.1M  — intraday momentum
-        "unusual_whales",       # 250K  — unusual options activity
-        "GME",                  # 469K  — dedicated GME intel
-        "Shortsqueeze",         # 378K  — squeeze play detection
-        "pennystocks",          # 2.2M  — small cap momentum
+        "wallstreetbets",  # 19.9M — retail HQ, YOLO culture
+        "Superstonk",  # 1.2M  — GME deep DD, DRS movement
+        "options",  # 1.4M  — options flow, strategies
+        "stocks",  # 9.2M  — general equity discussion
+        "StockMarket",  # 4.0M  — market-wide sentiment
+        "Daytrading",  # 5.1M  — intraday momentum
+        "unusual_whales",  # 250K  — unusual options activity
+        "GME",  # 469K  — dedicated GME intel
+        "Shortsqueeze",  # 378K  — squeeze play detection
+        "pennystocks",  # 2.2M  — small cap momentum
     ]
 
     # TIER 2: Scanned every cycle (hot only) — strong supporting intel
     TIER2_SUBS = [
-        "thetagang",            # 325K  — options sellers / premium
-        "amcstock",             # 522K  — AMC / meme stock sentiment
-        "DeepFuckingValue",     # 308K  — DFV / GME culture
-        "investing",            # 3.3M  — longer-term sentiment
-        "ValueInvesting",       # 714K  — value plays
-        "swingtrading",         # 162K  — multi-day setups
-        "smallstreetbets",      # 456K  — small account YOLOs
+        "thetagang",  # 325K  — options sellers / premium
+        "amcstock",  # 522K  — AMC / meme stock sentiment
+        "DeepFuckingValue",  # 308K  — DFV / GME culture
+        "investing",  # 3.3M  — longer-term sentiment
+        "ValueInvesting",  # 714K  — value plays
+        "swingtrading",  # 162K  — multi-day setups
+        "smallstreetbets",  # 456K  — small account YOLOs
         "WallStreetbetsELITE",  # 700K  — WSB overflow
-        "FluentInFinance",      # 571K  — financial news/analysis
-        "TheRaceTo10Million",   # 561K  — aggressive growth plays
-        "SatoshiStreetBets",    # 759K  — crypto YOLO culture
-        "CryptoCurrency",      # 10.1M — crypto sentiment
-        "Bitcoin",              # 8.1M  — BTC sentiment
-        "RealDayTrading",       # 128K  — serious day trading DD
-        "DDintoGME",            # 65K   — deep GME research
-        "SqueezePlays",         # 47K   — active squeeze hunting
+        "FluentInFinance",  # 571K  — financial news/analysis
+        "TheRaceTo10Million",  # 561K  — aggressive growth plays
+        "SatoshiStreetBets",  # 759K  — crypto YOLO culture
+        "CryptoCurrency",  # 10.1M — crypto sentiment
+        "Bitcoin",  # 8.1M  — BTC sentiment
+        "RealDayTrading",  # 128K  — serious day trading DD
+        "DDintoGME",  # 65K   — deep GME research
+        "SqueezePlays",  # 47K   — active squeeze hunting
     ]
 
     # TIER 3: Rotated scan (5 per cycle) — broader context
     TIER3_SUBS = [
-        "ethereum",             # 3.7M  — ETH ecosystem
-        "CryptoMoonShots",      # 2.3M  — speculative crypto
-        "economics",            # 5.7M  — macro context
-        "economy",              # 1.1M  — economic indicators
-        "finance",              # 2.1M  — general finance
-        "wallstreet",           # 97K   — Wall Street culture
-        "dividends",            # 859K  — income investing
-        "Bogleheads",           # 829K  — index investing sentiment
-        "financialindependence", # 2.4M — FIRE movement
-        "algotrading",          # 1.9M  — quant / algo strategies
-        "Forex",                # 525K  — FX markets
-        "FuturesTrading",       # 181K  — futures flow
-        "quant",                # 187K  — quantitative finance
-        "SPACs",                # 177K  — SPAC deals
-        "weedstocks",           # 267K  — cannabis sector
-        "Biotechplays",         # 22K   — biotech catalysts
-        "Semiconductors",       # 31K   — chip sector
-        "Vitards",              # 48K   — steel/commodities DD
-        "CanadianInvestor",     # 650K  — Canadian markets
-        "AusFinance",           # 805K  — Australian markets
-        "UKInvesting",          # 236K  — UK markets
-        "Optionswheel",         # 48K   — wheel strategy
-        "optionstrading",       # 31K   — options education
-        "MillennialBets",       # 12K   — millennial traders
-        "FinancialPlanning",    # 976K  — planning / macro
-        "EducatedInvesting",    # 95K   — investment education
-        "TradingView",          # 107K  — charting / TA community
-        "maxjustrisk",          # 7K    — risk analysis DD
-        "personalfinance",      # 21.7M — consumer sentiment
+        "ethereum",  # 3.7M  — ETH ecosystem
+        "CryptoMoonShots",  # 2.3M  — speculative crypto
+        "economics",  # 5.7M  — macro context
+        "economy",  # 1.1M  — economic indicators
+        "finance",  # 2.1M  — general finance
+        "wallstreet",  # 97K   — Wall Street culture
+        "dividends",  # 859K  — income investing
+        "Bogleheads",  # 829K  — index investing sentiment
+        "financialindependence",  # 2.4M — FIRE movement
+        "algotrading",  # 1.9M  — quant / algo strategies
+        "Forex",  # 525K  — FX markets
+        "FuturesTrading",  # 181K  — futures flow
+        "quant",  # 187K  — quantitative finance
+        "SPACs",  # 177K  — SPAC deals
+        "weedstocks",  # 267K  — cannabis sector
+        "Biotechplays",  # 22K   — biotech catalysts
+        "Semiconductors",  # 31K   — chip sector
+        "Vitards",  # 48K   — steel/commodities DD
+        "CanadianInvestor",  # 650K  — Canadian markets
+        "AusFinance",  # 805K  — Australian markets
+        "UKInvesting",  # 236K  — UK markets
+        "Optionswheel",  # 48K   — wheel strategy
+        "optionstrading",  # 31K   — options education
+        "MillennialBets",  # 12K   — millennial traders
+        "FinancialPlanning",  # 976K  — planning / macro
+        "EducatedInvesting",  # 95K   — investment education
+        "TradingView",  # 107K  — charting / TA community
+        "maxjustrisk",  # 7K    — risk analysis DD
+        "personalfinance",  # 21.7M — consumer sentiment
     ]
 
     # All subreddits combined
@@ -2656,29 +2999,79 @@ class RedditCollector:
     # Flair categories that carry high signal value
     HIGH_SIGNAL_FLAIRS = {
         # WSB
-        "dd", "due diligence", "technical analysis", "yolo",
-        "gain", "loss", "news", "discussion", "catalyst",
+        "dd",
+        "due diligence",
+        "technical analysis",
+        "yolo",
+        "gain",
+        "loss",
+        "news",
+        "discussion",
+        "catalyst",
         # Superstonk
-        "📚 due diligence", "📈 technical analysis", "☁ hype/ fluff",
-        "📰 news", "💡 education", "📳social media", "🤔 speculation / opinion",
+        "📚 due diligence",
+        "📈 technical analysis",
+        "☁ hype/ fluff",
+        "📰 news",
+        "💡 education",
+        "📳social media",
+        "🤔 speculation / opinion",
         # Options
-        "strategy", "trade idea", "unusual activity",
+        "strategy",
+        "trade idea",
+        "unusual activity",
         # General
-        "research", "analysis", "breaking",
+        "research",
+        "analysis",
+        "breaking",
     }
 
     # Keywords that indicate actionable intelligence
     ALPHA_KEYWORDS = [
-        "squeeze", "short interest", "dark pool", "ftd", "failure to deliver",
-        "options chain", "gamma ramp", "max pain", "drs", "citadel",
-        "market maker", "pfof", "payment for order flow", "sec filing",
-        "13f", "insider", "whale", "unusual volume", "breakout",
-        "earnings", "catalyst", "merger", "acquisition", "buyback",
-        "dilution", "offering", "reverse split", "margin call",
-        "unusual whales", "options flow", "call sweep", "put sweep",
-        "block trade", "golden cross", "death cross", "support",
-        "resistance", "fibonacci", "cup and handle", "head and shoulders",
-        "short ladder", "naked short", "reg sho", "threshold list",
+        "squeeze",
+        "short interest",
+        "dark pool",
+        "ftd",
+        "failure to deliver",
+        "options chain",
+        "gamma ramp",
+        "max pain",
+        "drs",
+        "citadel",
+        "market maker",
+        "pfof",
+        "payment for order flow",
+        "sec filing",
+        "13f",
+        "insider",
+        "whale",
+        "unusual volume",
+        "breakout",
+        "earnings",
+        "catalyst",
+        "merger",
+        "acquisition",
+        "buyback",
+        "dilution",
+        "offering",
+        "reverse split",
+        "margin call",
+        "unusual whales",
+        "options flow",
+        "call sweep",
+        "put sweep",
+        "block trade",
+        "golden cross",
+        "death cross",
+        "support",
+        "resistance",
+        "fibonacci",
+        "cup and handle",
+        "head and shoulders",
+        "short ladder",
+        "naked short",
+        "reg sho",
+        "threshold list",
     ]
 
     # NOTE: _tier3_offset was previously class-level shared state; now
@@ -2890,12 +3283,14 @@ class RedditCollector:
         Tier 3 (29 subs): 5 per cycle, rotating — broad context
         """
         all_signals: list[SocialSignal] = []
-        scan_list = self.subreddits if not self._use_tiers else self._build_scan_list(advance_offset=True)
+        scan_list = (
+            self.subreddits if not self._use_tiers else self._build_scan_list(advance_offset=True)
+        )
 
         # Batch subs into concurrent groups of 5 to manage rate limits
         batch_size = 5
         for batch_start in range(0, len(scan_list), batch_size):
-            batch = scan_list[batch_start:batch_start + batch_size]
+            batch = scan_list[batch_start : batch_start + batch_size]
             tasks = []
 
             for sub in batch:
@@ -2913,8 +3308,6 @@ class RedditCollector:
                     all_signals.extend(result)
                 elif isinstance(result, Exception):
                     log.warning(f"Reddit batch scan error: {result}")
-
-
 
         # Deduplicate by post ID
         seen_ids: set[str] = set()
@@ -3008,7 +3401,10 @@ class RedditCollector:
                 headers = await self._auth_headers()
                 try:
                     data = await _fetch_json(
-                        self._client, url, params=query, headers=headers,
+                        self._client,
+                        url,
+                        params=query,
+                        headers=headers,
                         limiter=self._limiter,
                     )
                     if data is not None:
@@ -3089,7 +3485,7 @@ class RedditCollector:
             confidence = min(0.95, confidence + 0.15)
 
         # Extract ticker mentions ($GME, $AMC, etc.)
-        tickers = list(set(re.findall(r'\$([A-Z]{1,5})\b', title + " " + selftext)))
+        tickers = list(set(re.findall(r"\$([A-Z]{1,5})\b", title + " " + selftext)))
 
         # Check for alpha keywords in title/body
         combined_text = (title + " " + selftext).lower()
@@ -3113,7 +3509,9 @@ class RedditCollector:
 
         # Build content summary
         content_parts = [f"r/{subreddit} [{flair}]" if flair else f"r/{subreddit}"]
-        content_parts.append(f"Score: {score:,} | Comments: {num_comments:,} | Ratio: {upvote_ratio:.0%}")
+        content_parts.append(
+            f"Score: {score:,} | Comments: {num_comments:,} | Ratio: {upvote_ratio:.0%}"
+        )
         if tickers:
             content_parts.append(f"Tickers: {', '.join('$'+t for t in tickers[:5])}")
         if alpha_hits:
@@ -3175,15 +3573,43 @@ class RedditCollector:
 
         # Keyword-based adjustment
         bullish_words = [
-            "moon", "rocket", "squeeze", "tendies", "diamond hands",
-            "bullish", "calls", "buy", "long", "undervalued", "breakout",
-            "gamma", "ramp", "drs", "moass", "lfg", "to the moon",
-            "all in", "yolo", "send it",
+            "moon",
+            "rocket",
+            "squeeze",
+            "tendies",
+            "diamond hands",
+            "bullish",
+            "calls",
+            "buy",
+            "long",
+            "undervalued",
+            "breakout",
+            "gamma",
+            "ramp",
+            "drs",
+            "moass",
+            "lfg",
+            "to the moon",
+            "all in",
+            "yolo",
+            "send it",
         ]
         bearish_words = [
-            "puts", "short", "crash", "dump", "sell", "overvalued",
-            "bearish", "rip", "bag hold", "loss porn", "margin call",
-            "rug pull", "scam", "dilution", "offering",
+            "puts",
+            "short",
+            "crash",
+            "dump",
+            "sell",
+            "overvalued",
+            "bearish",
+            "rip",
+            "bag hold",
+            "loss porn",
+            "margin call",
+            "rug pull",
+            "scam",
+            "dilution",
+            "offering",
         ]
 
         bull_count = sum(1 for w in bullish_words if w in text)
@@ -3227,8 +3653,12 @@ class RedditCollector:
         return "retail_general"
 
     def _build_tags(
-        self, subreddit: str, flair: str, tickers: list[str],
-        listing_type: str, strength: str,
+        self,
+        subreddit: str,
+        flair: str,
+        tickers: list[str],
+        listing_type: str,
+        strength: str,
     ) -> list[str]:
         """Build tag list for signal."""
         tags = ["reddit", subreddit.lower(), listing_type, strength]
@@ -3236,7 +3666,7 @@ class RedditCollector:
             # Normalize flair to tag-safe string
             flair_tag = flair.lower().replace(" ", "_").replace("/", "_")
             # Strip emoji
-            flair_tag = re.sub(r'[^\w_]', '', flair_tag).strip("_")
+            flair_tag = re.sub(r"[^\w_]", "", flair_tag).strip("_")
             if flair_tag:
                 tags.append(f"flair:{flair_tag}")
         for ticker in tickers[:3]:
@@ -3256,11 +3686,23 @@ class RedditCollector:
     # Extra noise tickers to filter when scanning meme / gaming-adjacent subs
     # where these tickers appear as cultural references, not trade signals.
     _MEME_SUB_NOISE_TICKERS = {
-        "GME", "AMC", "BBBY", "BB", "NOK", "WISH", "CLOV", "PLTR",
+        "GME",
+        "AMC",
+        "BBBY",
+        "BB",
+        "NOK",
+        "WISH",
+        "CLOV",
+        "PLTR",
     }
     _MEME_SUBS = {
-        "wallstreetbets", "superstonk", "amcstock", "gme",
-        "deepfuckingvalue", "smallstreetbets", "wallstreetbetselite",
+        "wallstreetbets",
+        "superstonk",
+        "amcstock",
+        "gme",
+        "deepfuckingvalue",
+        "smallstreetbets",
+        "wallstreetbetselite",
     }
 
     async def collect_ticker_mentions(
@@ -3310,8 +3752,11 @@ class RedditCollector:
             headers = await self._auth_headers()
             try:
                 data = await _fetch_json(
-                    self._client, url, params=query_params,
-                    headers=headers, limiter=self._limiter,
+                    self._client,
+                    url,
+                    params=query_params,
+                    headers=headers,
+                    limiter=self._limiter,
                 )
             except Exception as e:
                 log.warning(f"Reddit ticker scan r/{subreddit} OAuth failed: {e}")
@@ -3323,8 +3768,11 @@ class RedditCollector:
                 headers = await self._auth_headers()
                 try:
                     data = await _fetch_json(
-                        self._client, url, params=query_params,
-                        headers=headers, limiter=self._limiter,
+                        self._client,
+                        url,
+                        params=query_params,
+                        headers=headers,
+                        limiter=self._limiter,
                     )
                     if data is not None:
                         break  # success — don't try fallback
@@ -3347,11 +3795,48 @@ class RedditCollector:
 
         # Common false positives to filter out
         noise_tickers = {
-            "DD", "TA", "USA", "CEO", "CFO", "CTO", "IPO", "SEC", "FDA",
-            "ETF", "OTC", "IMO", "FYI", "ATH", "ATL", "OG", "USD", "EUR",
-            "API", "AI", "EPS", "PE", "IV", "DTE", "ITM", "OTM", "WSB",
-            "DRS", "MOASS", "PFOF", "FTD", "SI", "YOLO", "LOL",
-            "RIP", "HODL", "BRO", "LMAO", "PDF", "ALL", "NEW", "TOP",
+            "DD",
+            "TA",
+            "USA",
+            "CEO",
+            "CFO",
+            "CTO",
+            "IPO",
+            "SEC",
+            "FDA",
+            "ETF",
+            "OTC",
+            "IMO",
+            "FYI",
+            "ATH",
+            "ATL",
+            "OG",
+            "USD",
+            "EUR",
+            "API",
+            "AI",
+            "EPS",
+            "PE",
+            "IV",
+            "DTE",
+            "ITM",
+            "OTM",
+            "WSB",
+            "DRS",
+            "MOASS",
+            "PFOF",
+            "FTD",
+            "SI",
+            "YOLO",
+            "LOL",
+            "RIP",
+            "HODL",
+            "BRO",
+            "LMAO",
+            "PDF",
+            "ALL",
+            "NEW",
+            "TOP",
         }
 
         # For meme/gaming-adjacent subs, add tickers that appear as cultural
@@ -3369,7 +3854,7 @@ class RedditCollector:
         for post in data.get("data", {}).get("children", []):
             pd = post.get("data", {})
             text = pd.get("title", "") + " " + (pd.get("selftext", "") or "")
-            found = re.findall(r'\$([A-Z]{1,5})\b', text)
+            found = re.findall(r"\$([A-Z]{1,5})\b", text)
             for ticker in found:
                 if ticker not in noise_tickers:
                     ticker_counts[ticker] = ticker_counts.get(ticker, 0) + 1

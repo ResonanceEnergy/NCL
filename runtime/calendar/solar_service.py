@@ -18,6 +18,7 @@ All HTTP calls have a 10s timeout and a stale-cache fallback —
 on transient API failure we return the last successful payload
 flagged with `stale: true` rather than empty data.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -31,6 +32,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 import aiohttp
+
 
 log = logging.getLogger("ncl.calendar.solar")
 
@@ -92,14 +94,14 @@ _solar_cache: dict[str, tuple[float, Any]] = {}
 _stale_cache: dict[str, Any] = {}
 
 # TTLs in seconds
-_TTL_SUNRISE = 86400       # 24h — changes daily
-_TTL_SPACE_WEATHER = 900   # 15m — Kp, solar wind, X-ray
-_TTL_SUNSPOT = 21600       # 6h
+_TTL_SUNRISE = 86400  # 24h — changes daily
+_TTL_SPACE_WEATHER = 900  # 15m — Kp, solar wind, X-ray
+_TTL_SUNSPOT = 21600  # 6h
 _TTL_SOLAR_CALENDAR = 86400  # 24h
-_TTL_AURORA = 1800         # 30m
-_TTL_CME = 900             # 15m
-_TTL_SCHUMANN = 3600       # 1h
-_TTL_SEASONAL = 86400      # 24h
+_TTL_AURORA = 1800  # 30m
+_TTL_CME = 900  # 15m
+_TTL_SCHUMANN = 3600  # 1h
+_TTL_SEASONAL = 86400  # 24h
 
 _HTTP_TIMEOUT = aiohttp.ClientTimeout(total=10)
 
@@ -136,6 +138,7 @@ def _stale_or(key: str, fallback: dict) -> dict:
 
 
 # ── Sunrise / Sunset / Twilight ─────────────────────────────────────
+
 
 async def _fetch_sunrise_sunset(lat: float, lon: float, dt: date) -> dict:
     """
@@ -234,6 +237,7 @@ async def get_sunrise_sunset(city_id: str) -> dict:
 
 # ── NOAA SWPC fetch helpers ─────────────────────────────────────────
 
+
 async def _fetch_json(session: aiohttp.ClientSession, url: str) -> Any:
     """Generic JSON fetch with error handling."""
     try:
@@ -261,6 +265,7 @@ async def _fetch_text(session: aiohttp.ClientSession, url: str) -> Optional[str]
 
 
 # ── Space Weather: Kp Index ─────────────────────────────────────────
+
 
 async def _fetch_kp_index() -> dict:
     """Latest Kp index values from NOAA planetary-k-index feed.
@@ -293,12 +298,14 @@ async def _fetch_kp_index() -> dict:
                 for row in rows:
                     if not isinstance(row, list):
                         continue
-                    entries.append({
-                        "time_tag": row[0] if len(row) > 0 else None,
-                        "Kp": row[1] if len(row) > 1 else None,
-                        "a_running": row[2] if len(row) > 2 else None,
-                        "station_count": row[3] if len(row) > 3 else None,
-                    })
+                    entries.append(
+                        {
+                            "time_tag": row[0] if len(row) > 0 else None,
+                            "Kp": row[1] if len(row) > 1 else None,
+                            "a_running": row[2] if len(row) > 2 else None,
+                            "station_count": row[3] if len(row) > 3 else None,
+                        }
+                    )
 
             if not entries:
                 return _stale_or(cache_key, _kp_defaults())
@@ -306,12 +313,14 @@ async def _fetch_kp_index() -> dict:
             recent_entries = entries[-8:]
             parsed = []
             for row in recent_entries:
-                parsed.append({
-                    "time_tag": row.get("time_tag"),
-                    "kp": _safe_float(row.get("Kp") if "Kp" in row else row.get("kp")),
-                    "a_running": _safe_float(row.get("a_running")),
-                    "station_count": _safe_int(row.get("station_count")),
-                })
+                parsed.append(
+                    {
+                        "time_tag": row.get("time_tag"),
+                        "kp": _safe_float(row.get("Kp") if "Kp" in row else row.get("kp")),
+                        "a_running": _safe_float(row.get("a_running")),
+                        "station_count": _safe_int(row.get("station_count")),
+                    }
+                )
 
             current_kp = parsed[-1]["kp"] if parsed else None
             storm_level = _kp_storm_level(current_kp)
@@ -360,6 +369,7 @@ def _kp_defaults() -> dict:
 
 
 # ── Space Weather: Solar Wind ───────────────────────────────────────
+
 
 async def _fetch_solar_wind() -> dict:
     """Latest solar wind speed and density from plasma-1-day feed."""
@@ -431,6 +441,7 @@ def _solar_wind_defaults() -> dict:
 
 
 # ── Space Weather: X-ray flux / flare class ─────────────────────────
+
 
 async def _fetch_xray_flux() -> dict:
     """Latest X-ray flux (solar flare class) from GOES primary."""
@@ -507,6 +518,7 @@ def _xray_defaults() -> dict:
 
 # ── Space Weather: Proton flux ──────────────────────────────────────
 
+
 async def _fetch_proton_flux() -> dict:
     """Latest >=10 MeV proton flux from GOES integral protons."""
     cache_key = "space:proton"
@@ -519,7 +531,9 @@ async def _fetch_proton_flux() -> dict:
         async with aiohttp.ClientSession(timeout=_HTTP_TIMEOUT) as session:
             data = await _fetch_json(session, url)
             if not data or not isinstance(data, list) or len(data) == 0:
-                return _stale_or(cache_key, {"proton_flux": None, "source": "NOAA SWPC", "error": "unavailable"})
+                return _stale_or(
+                    cache_key, {"proton_flux": None, "source": "NOAA SWPC", "error": "unavailable"}
+                )
 
             # Prefer the >=10 MeV channel.
             latest = None
@@ -545,7 +559,9 @@ async def _fetch_proton_flux() -> dict:
             return result
     except Exception as exc:
         log.error("Proton flux fetch failed: %s", exc)
-        return _stale_or(cache_key, {"flux_pfu": None, "source": "NOAA SWPC", "error": "unavailable"})
+        return _stale_or(
+            cache_key, {"flux_pfu": None, "source": "NOAA SWPC", "error": "unavailable"}
+        )
 
 
 def _proton_alert_level(flux: Optional[float]) -> str:
@@ -566,6 +582,7 @@ def _proton_alert_level(flux: Optional[float]) -> str:
 
 
 # ── Space Weather composite ─────────────────────────────────────────
+
 
 async def get_space_weather() -> dict:
     """
@@ -602,6 +619,7 @@ async def get_space_weather() -> dict:
 
 # ── Sunspot / F10.7 ─────────────────────────────────────────────────
 
+
 async def _fetch_sunspot_number() -> dict:
     """Daily sunspot number from SWPC summary endpoint."""
     cache_key = "space:sunspot_number"
@@ -615,7 +633,9 @@ async def _fetch_sunspot_number() -> dict:
         async with aiohttp.ClientSession(timeout=_HTTP_TIMEOUT) as session:
             data = await _fetch_json(session, url)
             if not data or not isinstance(data, list) or len(data) == 0:
-                return _stale_or(cache_key, {"ssn": None, "source": "NOAA SWPC", "error": "unavailable"})
+                return _stale_or(
+                    cache_key, {"ssn": None, "source": "NOAA SWPC", "error": "unavailable"}
+                )
 
             latest = data[-1]
             result = {
@@ -644,7 +664,9 @@ async def _fetch_f107_flux() -> dict:
         async with aiohttp.ClientSession(timeout=_HTTP_TIMEOUT) as session:
             data = await _fetch_json(session, url)
             if not data:
-                return _stale_or(cache_key, {"f10_7": None, "source": "NOAA SWPC", "error": "unavailable"})
+                return _stale_or(
+                    cache_key, {"f10_7": None, "source": "NOAA SWPC", "error": "unavailable"}
+                )
 
             # SWPC has shipped this endpoint as both a list ([{flux, time_tag}])
             # and a dict ({Flux, TimeStamp}). Support both.
@@ -654,7 +676,9 @@ async def _fetch_f107_flux() -> dict:
             elif isinstance(data, dict):
                 payload = data
             else:
-                return _stale_or(cache_key, {"f10_7": None, "source": "NOAA SWPC", "error": "unavailable"})
+                return _stale_or(
+                    cache_key, {"f10_7": None, "source": "NOAA SWPC", "error": "unavailable"}
+                )
 
             flux = _safe_float(payload.get("flux", payload.get("Flux")))
             ts = payload.get("time_tag", payload.get("TimeStamp"))
@@ -692,6 +716,7 @@ async def get_sunspot_data() -> dict:
 
 # ── Aurora forecast ─────────────────────────────────────────────────
 
+
 async def _fetch_aurora_ovation() -> dict:
     """Ovation aurora model — global aurora probability grid."""
     cache_key = "aurora:ovation"
@@ -704,7 +729,9 @@ async def _fetch_aurora_ovation() -> dict:
         async with aiohttp.ClientSession(timeout=_HTTP_TIMEOUT) as session:
             data = await _fetch_json(session, url)
             if not data or not isinstance(data, dict):
-                return _stale_or(cache_key, {"coordinates": [], "source": "NOAA SWPC", "error": "unavailable"})
+                return _stale_or(
+                    cache_key, {"coordinates": [], "source": "NOAA SWPC", "error": "unavailable"}
+                )
 
             result = {
                 "observation_time": data.get("Observation Time"),
@@ -717,7 +744,9 @@ async def _fetch_aurora_ovation() -> dict:
             return result
     except Exception as exc:
         log.error("Ovation aurora fetch failed: %s", exc)
-        return _stale_or(cache_key, {"coordinates": [], "source": "NOAA SWPC", "error": "unavailable"})
+        return _stale_or(
+            cache_key, {"coordinates": [], "source": "NOAA SWPC", "error": "unavailable"}
+        )
 
 
 async def _fetch_3day_kp_forecast() -> dict:
@@ -732,12 +761,22 @@ async def _fetch_3day_kp_forecast() -> dict:
         async with aiohttp.ClientSession(timeout=_HTTP_TIMEOUT) as session:
             text = await _fetch_text(session, url)
             if not text:
-                return _stale_or(cache_key, {"max_kp_3day": None, "forecast": [], "source": "NOAA SWPC", "error": "unavailable"})
+                return _stale_or(
+                    cache_key,
+                    {
+                        "max_kp_3day": None,
+                        "forecast": [],
+                        "source": "NOAA SWPC",
+                        "error": "unavailable",
+                    },
+                )
 
             forecast = _parse_3day_kp_forecast(text)
             result = {
                 "forecast": forecast,
-                "max_kp_3day": max((f["max_kp"] for f in forecast if f.get("max_kp") is not None), default=None),
+                "max_kp_3day": max(
+                    (f["max_kp"] for f in forecast if f.get("max_kp") is not None), default=None
+                ),
                 "raw_excerpt": text[:1500],
                 "source": "NOAA SWPC",
                 "fetched_at": datetime.now(timezone.utc).isoformat(),
@@ -746,7 +785,10 @@ async def _fetch_3day_kp_forecast() -> dict:
             return result
     except Exception as exc:
         log.error("3-day Kp forecast fetch failed: %s", exc)
-        return _stale_or(cache_key, {"max_kp_3day": None, "forecast": [], "source": "NOAA SWPC", "error": "unavailable"})
+        return _stale_or(
+            cache_key,
+            {"max_kp_3day": None, "forecast": [], "source": "NOAA SWPC", "error": "unavailable"},
+        )
 
 
 def _parse_3day_kp_forecast(text: str) -> list[dict]:
@@ -767,8 +809,7 @@ def _parse_3day_kp_forecast(text: str) -> list[dict]:
     daily_max: dict[str, float] = {}
     daily_values: dict[str, list[float]] = {}
 
-    months = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
-              "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+    months = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
     for line in lines:
         stripped = line.strip()
@@ -779,9 +820,11 @@ def _parse_3day_kp_forecast(text: str) -> list[dict]:
         if not in_kp_block:
             continue
         # Stop on next section header (B./C./D.) or solar-radiation block.
-        if (_re.match(r"^[B-Z]\.\s", stripped)
-                or "SOLAR RADIATION" in upper
-                or "RADIO BLACKOUT" in upper):
+        if (
+            _re.match(r"^[B-Z]\.\s", stripped)
+            or "SOLAR RADIATION" in upper
+            or "RADIO BLACKOUT" in upper
+        ):
             break
         if not stripped:
             continue
@@ -847,7 +890,10 @@ async def get_aurora_forecast(city_id: str) -> dict:
     kp_task = _fetch_kp_index()
 
     ovation, forecast, kp = await asyncio.gather(
-        ovation_task, forecast_task, kp_task, return_exceptions=True,
+        ovation_task,
+        forecast_task,
+        kp_task,
+        return_exceptions=True,
     )
 
     if isinstance(ovation, Exception):
@@ -880,11 +926,19 @@ async def get_aurora_forecast(city_id: str) -> dict:
 # ── CME / Geomagnetic alerts ────────────────────────────────────────
 
 CME_KEYWORDS = (
-    "CME", "coronal mass ejection",
-    "geomagnetic storm", "geomagnetic sudden impulse",
-    "solar energetic particle", "proton event",
-    "K-index", "X-ray", "M-class", "X-class",
-    "Type II", "Type IV", "halo",
+    "CME",
+    "coronal mass ejection",
+    "geomagnetic storm",
+    "geomagnetic sudden impulse",
+    "solar energetic particle",
+    "proton event",
+    "K-index",
+    "X-ray",
+    "M-class",
+    "X-class",
+    "Type II",
+    "Type IV",
+    "halo",
 )
 
 
@@ -932,12 +986,14 @@ async def get_cme_alerts() -> list[dict]:
                 product_id = alert.get("product_id", "") or ""
                 blob_upper = (msg + " " + product_id).upper()
                 if any(kw.upper() in blob_upper for kw in CME_KEYWORDS):
-                    filtered.append({
-                        "issue_datetime": alert.get("issue_datetime"),
-                        "product_id": product_id,
-                        "severity": _alert_severity(msg, product_id),
-                        "message": msg[:1000],
-                    })
+                    filtered.append(
+                        {
+                            "issue_datetime": alert.get("issue_datetime"),
+                            "product_id": product_id,
+                            "severity": _alert_severity(msg, product_id),
+                            "message": msg[:1000],
+                        }
+                    )
 
             # Newest first, capped.
             filtered.sort(key=lambda a: a.get("issue_datetime") or "", reverse=True)
@@ -951,6 +1007,7 @@ async def get_cme_alerts() -> list[dict]:
 
 
 # ── Schumann Resonance (stub) ───────────────────────────────────────
+
 
 def get_schumann_resonance() -> dict:
     """
@@ -995,8 +1052,8 @@ _sf_ts = None
 _sf_eph = None
 
 try:  # pragma: no cover - import-time side-effect
-    from skyfield.api import load as _sf_load
     from skyfield import almanac as _sf_almanac
+    from skyfield.api import load as _sf_load
 
     _sf_data_dir = os.path.join(os.path.dirname(__file__), "data")
     os.makedirs(_sf_data_dir, exist_ok=True)
@@ -1039,9 +1096,7 @@ def _next_equinox_solstice(after: datetime) -> tuple[str, datetime]:
         try:
             t0 = _sf_ts.from_datetime(after.astimezone(timezone.utc))
             t1 = _sf_ts.from_datetime((after + timedelta(days=400)).astimezone(timezone.utc))
-            times, events = _sf_almanac.find_discrete(
-                t0, t1, _sf_almanac.seasons(_sf_eph)
-            )
+            times, events = _sf_almanac.find_discrete(t0, t1, _sf_almanac.seasons(_sf_eph))
             if len(times) > 0:
                 names = ["vernal_equinox", "summer_solstice", "autumnal_equinox", "winter_solstice"]
                 first_time = times[0].utc_datetime()
@@ -1054,13 +1109,17 @@ def _next_equinox_solstice(after: datetime) -> tuple[str, datetime]:
     year = after.year
     candidates: list[tuple[str, datetime]] = []
     for yr in (year, year + 1):
-        candidates.extend([
-            ("vernal_equinox", datetime(yr, 3, 20, 12, 0, tzinfo=timezone.utc)),
-            ("summer_solstice", datetime(yr, 6, 21, 12, 0, tzinfo=timezone.utc)),
-            ("autumnal_equinox", datetime(yr, 9, 22, 12, 0, tzinfo=timezone.utc)),
-            ("winter_solstice", datetime(yr, 12, 21, 12, 0, tzinfo=timezone.utc)),
-        ])
-    after_utc = after.astimezone(timezone.utc) if after.tzinfo else after.replace(tzinfo=timezone.utc)
+        candidates.extend(
+            [
+                ("vernal_equinox", datetime(yr, 3, 20, 12, 0, tzinfo=timezone.utc)),
+                ("summer_solstice", datetime(yr, 6, 21, 12, 0, tzinfo=timezone.utc)),
+                ("autumnal_equinox", datetime(yr, 9, 22, 12, 0, tzinfo=timezone.utc)),
+                ("winter_solstice", datetime(yr, 12, 21, 12, 0, tzinfo=timezone.utc)),
+            ]
+        )
+    after_utc = (
+        after.astimezone(timezone.utc) if after.tzinfo else after.replace(tzinfo=timezone.utc)
+    )
     for name, dt in candidates:
         if dt > after_utc:
             return name, dt
@@ -1124,6 +1183,7 @@ def get_seasonal_marker(target_date: Optional[date] = None) -> dict:
 
 
 # ── Solar Calendar (legacy, kept for backward compat) ──────────────
+
 
 def _get_solar_events(year: int) -> list[tuple[str, date]]:
     """Approximate equinox/solstice dates for a given year (fallback)."""
@@ -1214,6 +1274,7 @@ def get_solar_calendar(latitude: float) -> dict:
 
 # ── Solar energy mode (composite UI label) ──────────────────────────
 
+
 def _derive_solar_energy_mode(
     kp_index: dict,
     xray: dict,
@@ -1243,11 +1304,11 @@ def _derive_solar_energy_mode(
     # Flare class contribution
     flare = xray.get("flare_class") if isinstance(xray, dict) else None
     rank = _flare_class_rank(flare or "")
-    if rank == 4:        # X
+    if rank == 4:  # X
         score += 4
-    elif rank == 3:      # M
+    elif rank == 3:  # M
         score += 2
-    elif rank == 2:      # C
+    elif rank == 2:  # C
         score += 1
 
     # Aurora visibility forecast at moderate-to-high latitudes
@@ -1274,6 +1335,7 @@ def _derive_solar_energy_mode(
 
 # ── Full Solar State composite ──────────────────────────────────────
 
+
 async def get_full_solar_state(city_id: str) -> dict:
     """
     Single function the Calendar Agent and SunView call.
@@ -1292,7 +1354,11 @@ async def get_full_solar_state(city_id: str) -> dict:
     cme_task = get_cme_alerts()
 
     sun_times, space, sunspot, aurora, cme_alerts = await asyncio.gather(
-        sun_times_task, space_task, sunspot_task, aurora_task, cme_task,
+        sun_times_task,
+        space_task,
+        sunspot_task,
+        aurora_task,
+        cme_task,
         return_exceptions=True,
     )
 
@@ -1303,11 +1369,25 @@ async def get_full_solar_state(city_id: str) -> dict:
         return value
 
     sun_times = _coerce(sun_times, _sunrise_defaults())
-    space = _coerce(space, {"kp_index": _kp_defaults(), "solar_wind": _solar_wind_defaults(),
-                            "xray_flux": _xray_defaults(), "proton_flux": {"flux_pfu": None}})
+    space = _coerce(
+        space,
+        {
+            "kp_index": _kp_defaults(),
+            "solar_wind": _solar_wind_defaults(),
+            "xray_flux": _xray_defaults(),
+            "proton_flux": {"flux_pfu": None},
+        },
+    )
     sunspot = _coerce(sunspot, {"sunspot_number": {"ssn": None}, "f10_7_flux": {"f10_7": None}})
-    aurora = _coerce(aurora, {"visibility_now": "unknown", "visibility_3day_peak": "unknown",
-                              "current_kp": None, "max_kp_3day": None})
+    aurora = _coerce(
+        aurora,
+        {
+            "visibility_now": "unknown",
+            "visibility_3day_peak": "unknown",
+            "current_kp": None,
+            "max_kp_3day": None,
+        },
+    )
     cme_alerts = _coerce(cme_alerts, [])
     if not isinstance(cme_alerts, list):
         cme_alerts = []
@@ -1339,6 +1419,7 @@ async def get_full_solar_state(city_id: str) -> dict:
 
 # ── Snapshot persistence ────────────────────────────────────────────
 
+
 async def snapshot_to_disk(city_id: str = "edmonton") -> dict:
     """
     Persist a daily snapshot of get_full_solar_state to
@@ -1362,6 +1443,7 @@ async def snapshot_to_disk(city_id: str = "edmonton") -> dict:
 
 
 # ── Legacy exports (kept stable for current callers) ────────────────
+
 
 async def get_solar_data(city_id: str) -> dict:
     """Legacy alias: per-city sunrise/sunset + solar calendar."""
@@ -1400,6 +1482,7 @@ async def get_sun_dashboard(city_id: str) -> dict:
 
 
 # ── Helpers ─────────────────────────────────────────────────────────
+
 
 def _safe_float(val: Any) -> Optional[float]:
     """Convert value to float, returning None on failure or 'null'."""

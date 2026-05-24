@@ -6,16 +6,17 @@ This module provides comprehensive service management for NCL daemon services:
 - ServiceStatus: Operational status enum
 """
 
-from .models import (
-    ServiceName,
-    ServiceStatus,
-    ServiceHealth,
-    ServiceDefinition,
-    ServiceState,
-    DeploymentConfig,
-)
 from .manager import DeploymentManager
+from .models import (
+    DeploymentConfig,
+    ServiceDefinition,
+    ServiceHealth,
+    ServiceName,
+    ServiceState,
+    ServiceStatus,
+)
 from .monitor import ServiceMonitor
+
 
 __all__ = [
     "DeploymentManager",

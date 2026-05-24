@@ -49,9 +49,11 @@ import os
 import time
 from collections import deque
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
 
 import httpx
+
 
 log = logging.getLogger("ncl.notifications")
 
@@ -66,13 +68,21 @@ _DEDUP_COOLDOWN_S = float(os.getenv("NCL_ALERT_DEDUP_COOLDOWN_S", "3600"))
 # Bounded queue — drop oldest if a runaway producer floods.
 _MAX_QUEUE_SIZE = int(os.getenv("NCL_ALERT_QUEUE_MAX", "500"))
 
+# Sentinel loop tunables — W10B-11 stuck-dispatcher detection.
+_SENTINEL_INTERVAL_S = float(os.getenv("NCL_ALERT_SENTINEL_INTERVAL_S", "300"))  # 5min
+_SENTINEL_STALE_S = float(os.getenv("NCL_ALERT_SENTINEL_STALE_S", "1800"))  # 30min
+_SENTINEL_DEPTH_THRESHOLD = int(os.getenv("NCL_ALERT_SENTINEL_DEPTH", "10"))
+_SENTINEL_FLAG_PATH = Path(
+    os.getenv("NCL_ALERT_SENTINEL_FLAG", "data/alerts/dispatcher-stuck.flag")
+)
+
 
 @dataclass
 class Alert:
     title: str
     body: str
     priority: str = "3"  # ntfy priority 1-5
-    tags: str = ""        # comma-joined
+    tags: str = ""  # comma-joined
     dedup_key: Optional[str] = None
     source: str = "generic"
     enqueued_at: float = field(default_factory=time.time)
@@ -89,6 +99,14 @@ class AlertDispatcher:
         self._dedup: dict[str, float] = {}
         # Last-global-send timestamp for rate limiting.
         self._last_sent_at: float = 0.0
+        # W10B-11 — wall-clock timestamp of last *successful* ntfy send.
+        # Distinct from `_last_sent_at` (which is bumped pre-send to drive the
+        # rate limit even on send failures). 0.0 means "never sent".
+        self.last_send_at: float = 0.0
+        # W10B-11 — last error string from a failed send (for sentinel context).
+        self._last_send_error: Optional[str] = None
+        # W10B-11 — sentinel loop singleton guard (idempotent across hot reload).
+        self._sentinel_task: Optional[asyncio.Task] = None
         # Reusable client; lazily created in the loop's own loop context.
         self._client: Optional[httpx.AsyncClient] = None
         # Stats
@@ -126,6 +144,13 @@ class AlertDispatcher:
             self._queue.append(alert)
             if pre_len == _MAX_QUEUE_SIZE:
                 self.stats["dropped_overflow"] += 1
+                # W10B-11 — surface overflow evictions (previously silent).
+                log.warning(
+                    "[ALERT] queue overflow — dropped oldest (cap=%d, source=%s, title=%r)",
+                    _MAX_QUEUE_SIZE,
+                    alert.source,
+                    alert.title[:80],
+                )
             self.stats["enqueued"] += 1
         except Exception as e:  # never raise from a producer
             log.warning("[ALERT] enqueue failed: %s", e)
@@ -135,10 +160,15 @@ class AlertDispatcher:
         """Drain the queue forever, respecting rate limit + dedup cooldowns."""
         log.info(
             "[ALERT] dispatcher started — topic=%s interval=%.1fs cooldown=%.0fs",
-            NTFY_TOPIC, _GLOBAL_INTERVAL_S, _DEDUP_COOLDOWN_S,
+            NTFY_TOPIC,
+            _GLOBAL_INTERVAL_S,
+            _DEDUP_COOLDOWN_S,
         )
         # Reusable client bound to this loop.
         self._client = httpx.AsyncClient(timeout=httpx.Timeout(10.0))
+        # W10B-11 — co-locate the sentinel with the dispatcher's lifetime.
+        # Idempotent: only spawns if not already running (hot-reload safe).
+        self.start_sentinel()
         try:
             while True:
                 try:
@@ -168,8 +198,10 @@ class AlertDispatcher:
             try:
                 if self._client is not None:
                     await self._client.aclose()
-            except Exception:
-                pass
+            except Exception as _close_err:
+                log.warning(
+                    "[alert_dispatch] httpx client aclose swallowed: %s", _close_err
+                )
             self._client = None
 
     def _pop_next_eligible(self) -> Optional[Alert]:
@@ -212,13 +244,95 @@ class AlertDispatcher:
             )
             resp.raise_for_status()
             self.stats["dispatched"] += 1
+            # W10B-11 — record success timestamp for sentinel watchdog.
+            self.last_send_at = time.time()
             log.info(
                 "[ALERT] sent [%s/%s] %s",
-                alert.source, alert.priority, alert.title[:80],
+                alert.source,
+                alert.priority,
+                alert.title[:80],
             )
         except Exception as e:
             self.stats["send_failures"] += 1
+            self._last_send_error = f"{type(e).__name__}: {e}"
             log.warning("[ALERT] send failed (%s): %s", alert.source, e)
+
+    # ─── W10B-11 stuck-dispatcher sentinel ─────────────────────────────
+    def start_sentinel(self) -> None:
+        """Spawn _sentinel_loop iff not already running.
+
+        Idempotent: callable from dispatch_loop() startup, scheduler boot, or
+        hot-reload without double-instantiating. A task whose `done()` is True
+        (e.g. crashed) is replaced with a fresh one.
+        """
+        existing = self._sentinel_task
+        if existing is not None and not existing.done():
+            return  # already running
+        try:
+            self._sentinel_task = asyncio.create_task(
+                self._sentinel_loop(),
+                name="ncl-alert-dispatch-sentinel",
+            )
+            log.info(
+                "[ALERT] sentinel started — interval=%.0fs stale_threshold=%.0fs depth_threshold=%d flag=%s",
+                _SENTINEL_INTERVAL_S,
+                _SENTINEL_STALE_S,
+                _SENTINEL_DEPTH_THRESHOLD,
+                _SENTINEL_FLAG_PATH,
+            )
+        except RuntimeError as e:
+            # No running loop — caller should retry from inside an async ctx.
+            log.warning("[ALERT] sentinel start deferred (no running loop): %s", e)
+
+    async def _sentinel_loop(self) -> None:
+        """Watchdog — every 5min, write a flag file if dispatcher looks stuck.
+
+        Stuck = no successful send in `_SENTINEL_STALE_S` AND queue depth
+        exceeds `_SENTINEL_DEPTH_THRESHOLD`. A heartbeat watchdog elsewhere
+        stat()s the flag and escalates.
+        """
+        while True:
+            try:
+                await asyncio.sleep(_SENTINEL_INTERVAL_S)
+                now = time.time()
+                depth = len(self._queue)
+                last = self.last_send_at
+                stale_s = (now - last) if last > 0 else float("inf")
+                if stale_s > _SENTINEL_STALE_S and depth > _SENTINEL_DEPTH_THRESHOLD:
+                    payload = (
+                        f"timestamp={now:.0f}\n"
+                        f"queue_depth={depth}\n"
+                        f"last_send_at={last:.0f}\n"
+                        f"stale_seconds={stale_s:.0f}\n"
+                        f"send_failures={self.stats.get('send_failures', 0)}\n"
+                        f"last_error={self._last_send_error or 'none'}\n"
+                    )
+                    try:
+                        _SENTINEL_FLAG_PATH.parent.mkdir(parents=True, exist_ok=True)
+                        _SENTINEL_FLAG_PATH.write_text(payload, encoding="utf-8")
+                    except Exception as fe:
+                        log.error("[ALERT] sentinel flag write failed: %s", fe)
+                    log.critical(
+                        "[ALERT] DISPATCHER STUCK — depth=%d stale=%.0fs last_send=%.0f last_error=%s",
+                        depth,
+                        stale_s,
+                        last,
+                        self._last_send_error or "none",
+                    )
+                else:
+                    # Clean up a stale flag once we recover.
+                    if _SENTINEL_FLAG_PATH.exists():
+                        try:
+                            _SENTINEL_FLAG_PATH.unlink()
+                            log.info("[ALERT] sentinel cleared stale flag — dispatcher healthy")
+                        except Exception:
+                            pass
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.error("[ALERT] sentinel iteration error: %s", e, exc_info=True)
+                # Don't tight-loop on persistent failure.
+                await asyncio.sleep(min(_SENTINEL_INTERVAL_S, 60.0))
 
 
 # ── Singleton accessor ────────────────────────────────────────────────

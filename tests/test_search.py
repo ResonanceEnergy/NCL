@@ -1,14 +1,12 @@
 """Tests for NCL search indexer."""
-import asyncio
-import json
+
 import tempfile
-from pathlib import Path
 from datetime import datetime, timezone
 
 import pytest
 
+from runtime.ncl_brain.models import EventType, NCLEvent
 from runtime.search.indexer import SearchIndexer, SearchResult, tokenize
-from runtime.ncl_brain.models import NCLEvent, EventType, MemUnit
 
 
 @pytest.fixture
@@ -211,7 +209,7 @@ async def test_search_result_model(temp_data_dir):
         score=0.85,
         snippet="This is a test snippet",
         timestamp=datetime.now(timezone.utc),
-        data={"event_type": "pump_received"}
+        data={"event_type": "pump_received"},
     )
 
     assert result.doc_id == "doc-001"

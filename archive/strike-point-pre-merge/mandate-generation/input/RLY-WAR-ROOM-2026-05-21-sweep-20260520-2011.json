@@ -1,0 +1,10 @@
+{
+  "source": "war_room_council",
+  "type": "directive_relay",
+  "session_id": "sweep-20260520-2011",
+  "date": "2026-05-21",
+  "directives": "**D1:** INTELLIGENCE RECOVERY \u2014 Technical Team diagnoses X Council Vector 1/2 failures and activates backup intelligence sources by 2026-05-22 1200 UTC. Success metric: 90% intelligence capacity restored.\n\n**D2:** GAMING MOMENTUM CAPTURE \u2014 Content Team deploys GTA VI resonance content by 2026-05-22 0600 UTC while cultural energy peaks. Success metric: Content published during 48h optimal window.\n\n**D3:** AI POSITIONING PREPARATION \u2014 Strategy Team develops AI agent reliability analysis framework by 2026-05-23 1800 UTC, positioning NARTIX ahead of market correction. Success metric: Framework document completed and approved.\n\n**D4:** YOUTUBE INTELLIGENCE RESTORATION \u2014 Operations Team establishes contact with YouTube Council by 2026-05-22 0900 UTC to determine intelligence status. Success metric: YouTube intelligence pipeline status confirmed.\n\n**D5:** POLITICAL ALGORITHM MITIGATION \u2014 Content Team implements political-peak avoidance scheduling by 2026-05-22 1500 UTC. Success metric: Content calendar adjusted for algorithm pressure windows.",
+  "priority": "P2",
+  "requires_approval": true,
+  "created_at": "2026-05-21T02:15:48.465246+00:00"
+}

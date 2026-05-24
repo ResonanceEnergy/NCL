@@ -13,13 +13,11 @@ Run:
     pytest tests/test_memory_limits.py -v --asyncio-mode=auto
 """
 
-import pytest
 import tempfile
-from pathlib import Path
-from datetime import datetime, timezone
 
-from runtime.memory.store import MemoryStore, MAX_CONTENT_LENGTH, MAX_TOTAL_UNITS
-from runtime.ncl_brain.models import MemUnit
+import pytest
+
+from runtime.memory.store import MAX_CONTENT_LENGTH, MemoryStore
 
 
 @pytest.fixture

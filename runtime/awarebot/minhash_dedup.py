@@ -56,10 +56,12 @@ import threading
 import time
 from typing import Optional
 
+
 logger = logging.getLogger(__name__)
 
 try:
     from datasketch import MinHash, MinHashLSH  # type: ignore
+
     _DATASKETCH_OK = True
 except ImportError:  # pragma: no cover
     _DATASKETCH_OK = False
@@ -132,11 +134,9 @@ class MinHashDedup:
         norm = _WS_RE.sub(" ", text.lower()).strip()
         if len(norm) < k:
             return {norm} if norm else set()
-        return {norm[i:i + k] for i in range(len(norm) - k + 1)}
+        return {norm[i : i + k] for i in range(len(norm) - k + 1)}
 
-    def is_duplicate(
-        self, text: str
-    ) -> tuple[bool, float, Optional[str]]:
+    def is_duplicate(self, text: str) -> tuple[bool, float, Optional[str]]:
         """Returns `(is_dup, max_similarity, dup_signal_id)`.
 
         Looks up `text`'s MinHash in the LSH index. If any candidate
@@ -232,9 +232,7 @@ class MinHashDedup:
         """Drop all entries. For tests + manual /memory/* admin."""
         with self._lock:
             if self._enabled:
-                self._lsh = MinHashLSH(
-                    threshold=self.threshold, num_perm=self.num_perm
-                )
+                self._lsh = MinHashLSH(threshold=self.threshold, num_perm=self.num_perm)
             self._entries.clear()
 
     # ── internals ─────────────────────────────────────────────────
@@ -250,9 +248,7 @@ class MinHashDedup:
         if not self._entries:
             return
         cutoff = now - self.ttl_seconds
-        expired = [
-            sid for sid, (_, ts) in self._entries.items() if ts < cutoff
-        ]
+        expired = [sid for sid, (_, ts) in self._entries.items() if ts < cutoff]
         for sid in expired:
             try:
                 self._lsh.remove(sid)

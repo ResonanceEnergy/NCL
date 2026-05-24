@@ -45,15 +45,16 @@ Position dict::
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+
 try:
     import httpx
+
     _HTTPX_AVAILABLE = True
 except ImportError:
     httpx = None  # type: ignore
@@ -131,7 +132,8 @@ class PolymarketAdapter:
         self._cached_usdc = self._derive_usdc(positions or [])
         logger.info(
             "Polymarket adapter connected — funder=%s positions=%d",
-            self._truncated(), len(self._cached_positions),
+            self._truncated(),
+            len(self._cached_positions),
         )
         return True
 
@@ -208,29 +210,31 @@ class PolymarketAdapter:
             end_date = p.get("endDate") or p.get("end_date_iso") or ""
             event_id = p.get("eventSlug") or p.get("eventId") or ""
 
-            out.append({
-                "broker": "POLYMARKET",
-                "account_id": self.funder_address,
-                "symbol": str(slug),
-                "name": str(title),
-                "quantity": qty,
-                "avg_cost": avg_cost,
-                "current_price": current,
-                "market_value": round(value, 2),
-                "asset_class": "prediction",
-                "currency": "USD",
-                "sector": "Prediction",
-                "unrealized_pl": round(upl, 2),
-                "unrealized_pl_pct": round(upl_pct, 2),
-                "daily_pl": 0.0,
-                "daily_pl_pct": 0.0,
-                "metadata": {
-                    "end_date": end_date,
-                    "event_id": event_id,
-                    "outcome": outcome,
-                    "condition_id": p.get("conditionId", ""),
-                },
-            })
+            out.append(
+                {
+                    "broker": "POLYMARKET",
+                    "account_id": self.funder_address,
+                    "symbol": str(slug),
+                    "name": str(title),
+                    "quantity": qty,
+                    "avg_cost": avg_cost,
+                    "current_price": current,
+                    "market_value": round(value, 2),
+                    "asset_class": "prediction",
+                    "currency": "USD",
+                    "sector": "Prediction",
+                    "unrealized_pl": round(upl, 2),
+                    "unrealized_pl_pct": round(upl_pct, 2),
+                    "daily_pl": 0.0,
+                    "daily_pl_pct": 0.0,
+                    "metadata": {
+                        "end_date": end_date,
+                        "event_id": event_id,
+                        "outcome": outcome,
+                        "condition_id": p.get("conditionId", ""),
+                    },
+                }
+            )
 
         return out
 

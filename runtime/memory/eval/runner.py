@@ -10,7 +10,6 @@ the most recent prior run on disk.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import math
@@ -23,7 +22,32 @@ from typing import Any, Optional
 
 import aiofiles
 
+from ...config import flags
+
+
 log = logging.getLogger("ncl.memory.eval")
+
+
+# ── SQLite units-index fast path (W6-A) ───────────────────────────────────
+#
+# The weekly eval harness loads the entire corpus once per ``run_eval``
+# cycle. When ``NCL_UNITS_INDEX_SQLITE=true``, try the SQLite ``units_index``
+# table first (W4-14, store.py:_search_units_via_sqlite_index) — same
+# semantic result, no JSONL full-scan. Falls back to ``search_units`` on
+# flag-off or ANY failure — flag-off behavior is bit-identical to before
+# this retrofit so eval correctness is preserved.
+async def _maybe_indexed_search(memory_store, **kwargs):
+    """Drop-in replacement for ``memory_store.search_units(**kwargs)``."""
+    if flags.units_index_sqlite():
+        try:
+            unit_ids = await memory_store._search_units_via_sqlite_index(**kwargs)
+            if unit_ids:
+                units_by_id = await memory_store._load_units_batch(set(unit_ids))
+                return [units_by_id[uid] for uid in unit_ids if uid in units_by_id]
+        except Exception as e:
+            log.debug("[EVAL] sqlite index search failed (%s) — falling back", e)
+    return await memory_store.search_units(**kwargs)
+
 
 # ─── Optional dependency: rank_bm25 ──────────────────────────────────────
 # Loop 11 may already ship a shared BM25 retriever at
@@ -32,12 +56,14 @@ log = logging.getLogger("ncl.memory.eval")
 # (so the harness still runs in CI containers without the package).
 try:
     from ..retrieval.bm25 import BM25Retriever  # type: ignore
+
     _HAVE_SHARED_BM25 = True
 except Exception:
     _HAVE_SHARED_BM25 = False
 
 try:  # pragma: no cover — exercised when rank_bm25 is installed
     from rank_bm25 import BM25Okapi  # type: ignore
+
     _HAVE_RANK_BM25 = True
 except Exception:
     _HAVE_RANK_BM25 = False
@@ -125,8 +151,7 @@ class MemoryEvalRunner:
         self.memory_store = memory_store
         self.working_context = working_context
         self.questions_path = Path(
-            questions_path
-            or (Path(__file__).resolve().parent / "questions.jsonl")
+            questions_path or (Path(__file__).resolve().parent / "questions.jsonl")
         )
         # ``data/memory/eval/`` next to the live units.jsonl by default.
         if results_dir is not None:
@@ -172,9 +197,9 @@ class MemoryEvalRunner:
     async def _load_corpus(self) -> tuple[list[Any], list[list[str]]]:
         """Load all memory units and tokenize once per ``run_eval`` cycle."""
         try:
-            units = await self.memory_store.search_units(days_back=None)
+            units = await _maybe_indexed_search(self.memory_store, days_back=None)
         except TypeError:
-            units = await self.memory_store.search_units()
+            units = await _maybe_indexed_search(self.memory_store)
         except Exception as e:
             log.error("search_units failed: %s", e)
             return [], []
@@ -250,7 +275,7 @@ class MemoryEvalRunner:
     def score_question(cls, units: list[Any], question: dict) -> dict:
         """Score retrieval for a single question — returns metrics dict."""
         keywords = question.get("expected_keywords", [])
-        top5 = units[:5]
+        top5 = units[:5]  # noqa: F841
         top10 = units[:10]
         rank = cls._first_hit_rank(top10, keywords)
         hit5 = bool(rank is not None and rank <= 5)
@@ -258,10 +283,7 @@ class MemoryEvalRunner:
         mrr = (1.0 / rank) if rank else 0.0
         recall = cls._keyword_coverage(top10, keywords)
         min_units = int(question.get("min_units", 1))
-        passing_units = sum(
-            1 for u in top10
-            if any(kw in cls._unit_text(u) for kw in keywords)
-        )
+        passing_units = sum(1 for u in top10 if any(kw in cls._unit_text(u) for kw in keywords))
         return {
             "hit5": hit5,
             "hit10": hit10,
@@ -303,9 +325,9 @@ class MemoryEvalRunner:
                         key=lambda x: float(x[1]),
                         reverse=True,
                     )
-                    retrieved = [
-                        u for u, s in ranked[: self.DEFAULT_LIMIT] if s > 0
-                    ] or [u for u, _ in ranked[: self.DEFAULT_LIMIT]]
+                    retrieved = [u for u, s in ranked[: self.DEFAULT_LIMIT] if s > 0] or [
+                        u for u, _ in ranked[: self.DEFAULT_LIMIT]
+                    ]
             metrics = self.score_question(retrieved, q)
             entry = {
                 "id": q["id"],
@@ -315,7 +337,9 @@ class MemoryEvalRunner:
             }
             per_q.append(entry)
             cat = q["category"]
-            bucket = categories.setdefault(cat, {"hit5": [], "hit10": [], "mrr": [], "recall10": []})
+            bucket = categories.setdefault(
+                cat, {"hit5": [], "hit10": [], "mrr": [], "recall10": []}
+            )
             bucket["hit5"].append(1.0 if metrics["hit5"] else 0.0)
             bucket["hit10"].append(1.0 if metrics["hit10"] else 0.0)
             bucket["mrr"].append(metrics["mrr"])
@@ -332,8 +356,7 @@ class MemoryEvalRunner:
         }
 
         per_category = {
-            cat: {k: _avg(v) for k, v in scores.items()}
-            for cat, scores in categories.items()
+            cat: {k: _avg(v) for k, v in scores.items()} for cat, scores in categories.items()
         }
 
         result = {
@@ -344,8 +367,10 @@ class MemoryEvalRunner:
             "per_category": per_category,
             "per_question": per_q,
             "retriever": (
-                "shared-bm25" if _HAVE_SHARED_BM25
-                else "rank_bm25" if _HAVE_RANK_BM25
+                "shared-bm25"
+                if _HAVE_SHARED_BM25
+                else "rank_bm25"
+                if _HAVE_RANK_BM25
                 else "minibm25"
             ),
         }

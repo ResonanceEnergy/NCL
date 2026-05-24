@@ -1,13 +1,13 @@
 """Tests for runtime/calendar/cities_pref.py."""
+
 from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from pathlib import Path
 
 import pytest
 
-from runtime.calendar import cities_pref, local_events
+from runtime.calendar import cities_pref
 
 
 @pytest.fixture

@@ -769,11 +769,16 @@ async function batchArchive(itemIds) {
   }
 }
 
+// W6-E (2026-05-24): token injected server-side by /review-queue/dashboard
+// handler in runtime/api/routes.py. The literal __AUTH_TOKEN__ is replaced
+// with the requester's verified Bearer token before the HTML is served.
+const AUTH = '__AUTH_TOKEN__';
+
 async function approvePump(pumpId) {
   try {
     const response = await fetch(`${API_BASE}${ENDPOINTS.pumpApprove(pumpId)}`, {
       method: 'POST',
-      headers: { 'Authorization': 'Bearer nartix-token' }
+      headers: { 'Authorization': `Bearer ${AUTH}` }
     });
     return response.ok;
   } catch (err) {
@@ -800,7 +805,7 @@ async function approveAction(actionId) {
   try {
     const response = await fetch(`${API_BASE}${ENDPOINTS.actionApprove(actionId)}`, {
       method: 'POST',
-      headers: { 'Authorization': 'Bearer nartix-token' }
+      headers: { 'Authorization': `Bearer ${AUTH}` }
     });
     return response.ok;
   } catch (err) {

@@ -32,17 +32,18 @@ Persistence
 Robust against missing dependency modules — every import is wrapped in
 try/except ImportError and degraded gracefully with a logged warning.
 """
+
 from __future__ import annotations
 
 import asyncio
 import inspect
 import json
 import logging
-import os
 import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Optional
+
 
 log = logging.getLogger("ncl.calendar.agent")
 
@@ -50,6 +51,7 @@ log = logging.getLogger("ncl.calendar.agent")
 # ── Lazy / optional imports ──────────────────────────────────────────
 # Each subsystem is imported in a guarded helper so the agent still runs
 # when an upstream module hasn't been merged yet.
+
 
 def _try_import(label: str, fn: Callable[[], Any]) -> Optional[Any]:
     """Run an import callable, swallow ImportError, log + return None."""
@@ -73,32 +75,44 @@ def _load_modules() -> dict[str, Any]:
 
     def _imp_solar():
         from . import solar_service  # type: ignore
+
         return solar_service
+
     mods["solar"] = _try_import("solar_service", _imp_solar)
 
     def _imp_events():
         from . import events_compiler  # type: ignore
+
         return events_compiler
+
     mods["events_compiler"] = _try_import("events_compiler", _imp_events)
 
     def _imp_todos():
         from . import todo_generator  # type: ignore
+
         return todo_generator
+
     mods["todo_generator"] = _try_import("todo_generator", _imp_todos)
 
     def _imp_corr():
         from . import correlator  # type: ignore
+
         return correlator
+
     mods["correlator"] = _try_import("correlator", _imp_corr)
 
     def _imp_cities():
         from . import cities_pref  # type: ignore
+
         return cities_pref
+
     mods["cities_pref"] = _try_import("cities_pref", _imp_cities)
 
     def _imp_lunar():
         from . import lunar  # type: ignore
+
         return lunar
+
     mods["lunar"] = _try_import("lunar", _imp_lunar)
 
     return mods
@@ -106,15 +120,16 @@ def _load_modules() -> dict[str, Any]:
 
 # ── Constants ────────────────────────────────────────────────────────
 
-SCAN_INTERVAL_S = 15 * 60         # 15 minutes between scan_cycle passes
-TODO_CACHE_MIN_AGE_S = 30 * 60    # only regen TODOs if cache > 30 min old
-EVENT_CACHE_MAX_AGE_S = 15 * 60   # events cache is fresh for 15 min
-SUN_CACHE_MAX_AGE_S = 15 * 60     # sun snapshot cache freshness
+SCAN_INTERVAL_S = 15 * 60  # 15 minutes between scan_cycle passes
+TODO_CACHE_MIN_AGE_S = 30 * 60  # only regen TODOs if cache > 30 min old
+EVENT_CACHE_MAX_AGE_S = 15 * 60  # events cache is fresh for 15 min
+SUN_CACHE_MAX_AGE_S = 15 * 60  # sun snapshot cache freshness
 DEFAULT_CITIES = ["edmonton"]
 DEFAULT_WINDOWS = [7, 30]
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
+
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -130,6 +145,7 @@ def _safe_run_maybe_async(value: Any) -> Awaitable[Any]:
 
     async def _wrap() -> Any:
         return value
+
     return _wrap()
 
 
@@ -209,6 +225,7 @@ def _event_id_set(events: list[dict] | None) -> frozenset[str]:
 
 
 # ── Calendar Agent ───────────────────────────────────────────────────
+
 
 class CalendarAgent:
     """
@@ -305,11 +322,13 @@ class CalendarAgent:
 
     def _record_error(self, where: str, exc: Exception) -> None:
         self._errors_since_start += 1
-        self._recent_errors.append({
-            "where": where,
-            "error": f"{type(exc).__name__}: {exc}",
-            "at": _utc_now_iso(),
-        })
+        self._recent_errors.append(
+            {
+                "where": where,
+                "error": f"{type(exc).__name__}: {exc}",
+                "at": _utc_now_iso(),
+            }
+        )
         # bound the in-memory buffer
         if len(self._recent_errors) > 100:
             self._recent_errors = self._recent_errors[-50:]
@@ -430,8 +449,11 @@ class CalendarAgent:
         events: list[dict] = []
 
         if events_compiler is None:
-            log.debug("[CALENDAR-AGENT] events_compiler missing — empty event list for %s/%d",
-                      city_id, window_days)
+            log.debug(
+                "[CALENDAR-AGENT] events_compiler missing — empty event list for %s/%d",
+                city_id,
+                window_days,
+            )
             self._events_cache[(city_id, int(window_days))] = {
                 "ts": time.time(),
                 "events": events,
@@ -451,9 +473,11 @@ class CalendarAgent:
                 kwargs_options=[
                     {"city_id": city_id, "window_days": int(window_days)},
                     # Existing signature (city_id, start, end) — date window
-                    {"city_id": city_id,
-                     "start": date.today(),
-                     "end": date.today() + timedelta(days=int(window_days))},
+                    {
+                        "city_id": city_id,
+                        "start": date.today(),
+                        "end": date.today() + timedelta(days=int(window_days)),
+                    },
                 ],
                 positional_options=[
                     (city_id, int(window_days)),
@@ -465,11 +489,18 @@ class CalendarAgent:
             elif isinstance(result, dict) and "events" in result:
                 events = list(result["events"])
             else:
-                log.warning("[CALENDAR-AGENT] events_compiler returned unexpected type: %s",
-                            type(result).__name__)
+                log.warning(
+                    "[CALENDAR-AGENT] events_compiler returned unexpected type: %s",
+                    type(result).__name__,
+                )
         except Exception as e:
-            log.error("[CALENDAR-AGENT] events compile failed for %s/%d: %s",
-                      city_id, window_days, e, exc_info=True)
+            log.error(
+                "[CALENDAR-AGENT] events compile failed for %s/%d: %s",
+                city_id,
+                window_days,
+                e,
+                exc_info=True,
+            )
             self._record_error(f"events_compiler({city_id},{window_days})", e)
 
         self._events_cache[(city_id, int(window_days))] = {
@@ -502,13 +533,19 @@ class CalendarAgent:
                 # fall back to legacy combined dashboard
                 getter = getattr(solar, "get_sun_dashboard", None)
             if getter is None:
-                sun = {"city_id": city_id, "available": False,
-                       "reason": "no get_full_solar_state / get_sun_dashboard"}
+                sun = {
+                    "city_id": city_id,
+                    "available": False,
+                    "reason": "no get_full_solar_state / get_sun_dashboard",
+                }
             else:
                 sun = await _maybe_await(getter, city_id)
                 if not isinstance(sun, dict):
-                    sun = {"city_id": city_id, "available": False,
-                           "reason": f"unexpected return type {type(sun).__name__}"}
+                    sun = {
+                        "city_id": city_id,
+                        "available": False,
+                        "reason": f"unexpected return type {type(sun).__name__}",
+                    }
         except Exception as e:
             log.error("[CALENDAR-AGENT] sun fetch failed for %s: %s", city_id, e, exc_info=True)
             self._record_error(f"solar.get_full_solar_state({city_id})", e)
@@ -561,11 +598,15 @@ class CalendarAgent:
                 attach,
                 kwargs_options=[
                     # Spec'd signature
-                    {"events": events, "moon": moon, "sun": sun,
-                     "city_id": city_id, "window_days": int(window_days)},
+                    {
+                        "events": events,
+                        "moon": moon,
+                        "sun": sun,
+                        "city_id": city_id,
+                        "window_days": int(window_days),
+                    },
                     # Existing signature: (events, solar_state, moon_phase, now)
-                    {"events": events, "solar_state": sun,
-                     "moon_phase": moon_phase, "now": now_dt},
+                    {"events": events, "solar_state": sun, "moon_phase": moon_phase, "now": now_dt},
                 ],
                 positional_options=[
                     (events, moon, sun, city_id, int(window_days)),
@@ -577,8 +618,7 @@ class CalendarAgent:
                 return result
             return events
         except Exception as e:
-            log.warning("[CALENDAR-AGENT] correlator failed for %s/%d: %s",
-                        city_id, window_days, e)
+            log.warning("[CALENDAR-AGENT] correlator failed for %s/%d: %s", city_id, window_days, e)
             self._record_error(f"correlator({city_id},{window_days})", e)
             return events
 
@@ -619,7 +659,9 @@ class CalendarAgent:
             if age < TODO_CACHE_MIN_AGE_S and same_events:
                 log.debug(
                     "[CALENDAR-AGENT] todos cached %s/%d — skip LLM (age=%.0fs, events unchanged)",
-                    city_id, window_days, age,
+                    city_id,
+                    window_days,
+                    age,
                 )
                 return cached["todos"]
 
@@ -647,8 +689,13 @@ class CalendarAgent:
             result = await _call_with_compat(
                 gen,
                 kwargs_options=[
-                    {"city_id": city_id, "window_days": int(window_days),
-                     "events": events, "solar_state": sun_state, "moon_phase": moon_phase},
+                    {
+                        "city_id": city_id,
+                        "window_days": int(window_days),
+                        "events": events,
+                        "solar_state": sun_state,
+                        "moon_phase": moon_phase,
+                    },
                     {"city_id": city_id, "window_days": int(window_days), "events": events},
                 ],
                 positional_options=[
@@ -660,8 +707,13 @@ class CalendarAgent:
             elif isinstance(result, dict) and "todos" in result:
                 todos = list(result["todos"])
         except Exception as e:
-            log.error("[CALENDAR-AGENT] todo generation failed for %s/%d: %s",
-                      city_id, window_days, e, exc_info=True)
+            log.error(
+                "[CALENDAR-AGENT] todo generation failed for %s/%d: %s",
+                city_id,
+                window_days,
+                e,
+                exc_info=True,
+            )
             self._record_error(f"todo_generator({city_id},{window_days})", e)
 
         self._todos_cache[key] = {
@@ -731,28 +783,42 @@ class CalendarAgent:
                 try:
                     events = await self._refresh_events(city_id, window)
                 except Exception as e:  # noqa: BLE001
-                    errors.append({"city": city_id, "window": window, "step": "events",
-                                   "error": str(e)})
+                    errors.append(
+                        {"city": city_id, "window": window, "step": "events", "error": str(e)}
+                    )
                     self._record_error(f"scan.events({city_id},{window})", e)
                     events = []
                 if self._errors_since_start > pre_evt_err_count:
                     last = self._recent_errors[-1] if self._recent_errors else {}
-                    errors.append({"city": city_id, "window": window, "step": "events",
-                                   "error": last.get("error", "internal events error")})
+                    errors.append(
+                        {
+                            "city": city_id,
+                            "window": window,
+                            "step": "events",
+                            "error": last.get("error", "internal events error"),
+                        }
+                    )
 
                 # b. correlate
                 pre_corr_err_count = self._errors_since_start
                 try:
                     events = await self._correlate(events, moon, sun, city_id, window)
                 except Exception as e:  # noqa: BLE001
-                    errors.append({"city": city_id, "window": window, "step": "correlate",
-                                   "error": str(e)})
+                    errors.append(
+                        {"city": city_id, "window": window, "step": "correlate", "error": str(e)}
+                    )
                     self._record_error(f"scan.correlate({city_id},{window})", e)
                 if self._errors_since_start > pre_corr_err_count:
                     # Internal correlator error already recorded; surface it in summary
                     last = self._recent_errors[-1] if self._recent_errors else {}
-                    errors.append({"city": city_id, "window": window, "step": "correlate",
-                                   "error": last.get("error", "internal correlator error")})
+                    errors.append(
+                        {
+                            "city": city_id,
+                            "window": window,
+                            "step": "correlate",
+                            "error": last.get("error", "internal correlator error"),
+                        }
+                    )
 
                 # Update cache with possibly-correlated events (preserves id-set)
                 self._events_cache[(city_id, int(window))] = {
@@ -767,14 +833,21 @@ class CalendarAgent:
                 try:
                     todos = await self._maybe_regen_todos(city_id, window, events)
                 except Exception as e:  # noqa: BLE001
-                    errors.append({"city": city_id, "window": window, "step": "todos",
-                                   "error": str(e)})
+                    errors.append(
+                        {"city": city_id, "window": window, "step": "todos", "error": str(e)}
+                    )
                     self._record_error(f"scan.todos({city_id},{window})", e)
                     todos = []
                 if self._errors_since_start > pre_todo_err_count:
                     last = self._recent_errors[-1] if self._recent_errors else {}
-                    errors.append({"city": city_id, "window": window, "step": "todos",
-                                   "error": last.get("error", "internal todos error")})
+                    errors.append(
+                        {
+                            "city": city_id,
+                            "window": window,
+                            "step": "todos",
+                            "error": last.get("error", "internal todos error"),
+                        }
+                    )
                 todos_per_city[city_id][window] = len(todos)
 
         # Snapshot solar for default city only (cost: 1 write/cycle)

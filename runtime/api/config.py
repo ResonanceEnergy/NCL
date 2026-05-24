@@ -10,6 +10,7 @@ import yaml
 from pydantic import ConfigDict
 from pydantic_settings import BaseSettings
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -23,7 +24,9 @@ def keychain_get(service: str, account: str = "natrix") -> Optional[str]:
     try:
         r = subprocess.run(
             ["security", "find-generic-password", "-s", service, "-a", account, "-w"],
-            capture_output=True, text=True, timeout=2,
+            capture_output=True,
+            text=True,
+            timeout=2,
         )
         if r.returncode == 0:
             return r.stdout.strip() or None
@@ -97,6 +100,7 @@ def bootstrap_env_from_keychain() -> int:
         logger.info(f"keychain: hydrated {hydrated} env vars from macOS keychain")
     return hydrated
 
+
 # ── Required vars — startup fails without these ───────────────────────────────
 _REQUIRED_VARS: list[tuple[str, str]] = [
     ("ANTHROPIC_API_KEY", "Claude API key — get from https://console.anthropic.com/settings/keys"),
@@ -105,7 +109,10 @@ _REQUIRED_VARS: list[tuple[str, str]] = [
 
 # ── Recommended vars — degraded but functional without them ───────────────────
 _RECOMMENDED_VARS: list[tuple[str, str]] = [
-    ("XAI_API_KEY", "xAI Grok — Council Strategist + X Intelligence (get from https://console.x.ai)"),
+    (
+        "XAI_API_KEY",
+        "xAI Grok — Council Strategist + X Intelligence (get from https://console.x.ai)",
+    ),
     ("GOOGLE_API_KEY", "Google Gemini — Council Analyst (get from https://aistudio.google.com)"),
     ("OPENAI_API_KEY", "OpenAI GPT — Council Creative + Whisper fallback"),
     ("PERPLEXITY_API_KEY", "Perplexity — Council Researcher (fact-checking)"),
@@ -294,7 +301,9 @@ def validate_config(settings: Settings) -> None:
             or getattr(settings, env_name.lower(), None)
         )
         if not value:
-            logger.debug("Optional env var not set — feature disabled: %s (%s)", env_name, description)
+            logger.debug(
+                "Optional env var not set — feature disabled: %s (%s)", env_name, description
+            )
 
 
 def load_config() -> Settings:
@@ -357,7 +366,9 @@ def load_config() -> Settings:
                 else:
                     setattr(settings, field_name, env_value)
             except (ValueError, TypeError) as exc:
-                logger.warning("Could not coerce %s=%r to %s: %s", env_var, env_value, base_type, exc)
+                logger.warning(
+                    "Could not coerce %s=%r to %s: %s", env_var, env_value, base_type, exc
+                )
 
     return settings
 

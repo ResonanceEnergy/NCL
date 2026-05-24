@@ -15,22 +15,30 @@ import asyncio
 import json
 import logging
 import os
-from datetime import datetime, timezone
 from typing import Optional
 
 from ..shared.models import (
-    CouncilReport, CouncilSource, Insight, SignalCategory, VideoMeta, Transcript,
+    CouncilReport,
+    CouncilSource,
+    Insight,
+    SignalCategory,
+    Transcript,
+    VideoMeta,
 )
 
+
 log = logging.getLogger("ncl.councils.youtube.analyzer")
+
 
 # API config — lazy-read functions so keys set after import (e.g. by
 # keychain helper) are picked up.
 def _get_anthropic_key() -> str:
     return os.getenv("ANTHROPIC_API_KEY", "")
 
+
 def _get_xai_key() -> str:
     return os.getenv("XAI_API_KEY", "")
+
 
 # Normalise OLLAMA_HOST: accept '11434', ':11434', '/11434', 'localhost:11434',
 # 'http://localhost:11434' or full URLs and always end up with a scheme.
@@ -98,7 +106,7 @@ Output your analysis as JSON matching this exact schema:
   ],
   "cross_video_patterns": "string",
   "content_opportunities": "string"
-}"""
+}"""  # noqa: E501
 
 SINGLE_VIDEO_SYSTEM_PROMPT = """You are the YouTube Council Analyst for NARTIX — Resonance Energy studio.
 
@@ -135,7 +143,7 @@ Output your analysis as JSON matching this exact schema:
   ],
   "key_quotes": "string",
   "content_assessment": "string"
-}"""
+}"""  # noqa: E501
 
 ROLLUP_SYSTEM_PROMPT = """You are the YouTube Council Analyst for NARTIX — Resonance Energy studio.
 
@@ -175,12 +183,15 @@ async def analyze_videos(
         )
 
     # Build the analysis prompt with all transcripts.
-    # Dynamically allocate transcript budget based on video count to stay
-    # within ~150K chars total prompt (safe for 200K-token context models).
-    # Old value was 8,000 chars — that lost 50-70% of most videos.
-    TOTAL_TRANSCRIPT_BUDGET = 150_000  # chars across all videos
+    # Dynamically allocate transcript budget based on video count.
+    # 2026-05-23 COST EMERGENCY: halved 150K -> 50K. YTC was the single
+    # biggest anthropic line item (~$8/day at 150K chars * N videos). At
+    # ~$3/M input tokens for Sonnet 4, dropping to 50K cuts YTC spend by
+    # roughly two-thirds with negligible insight loss (transcripts past
+    # the 50K mark are typically tail filler).
+    TOTAL_TRANSCRIPT_BUDGET = 50_000  # chars across all videos  # noqa: N806
     n_videos = len(transcribed)
-    per_video_budget = max(12_000, TOTAL_TRANSCRIPT_BUDGET // max(n_videos, 1))
+    per_video_budget = max(8_000, TOTAL_TRANSCRIPT_BUDGET // max(n_videos, 1))
 
     prompt_parts = []
     videos: list[VideoMeta] = []
@@ -206,19 +217,44 @@ async def analyze_videos(
 
         # Build per-video section
         prompt_parts.append(f"\n## Video: {vid.title}")
-        prompt_parts.append(f"Channel: {vid.channel} | Duration: {vid.duration_seconds // 60}m | Views: {vid.view_count:,}")
+        prompt_parts.append(
+            f"Channel: {vid.channel} | Duration: {vid.duration_seconds // 60}m | Views: {vid.view_count:,}"  # noqa: E501
+        )
         prompt_parts.append(f"URL: {vid.url}")
         if vid.description:
             prompt_parts.append(f"Description: {vid.description[:300]}")
         text = transcript.timestamped_text
-        prompt_parts.append(f"\n### Transcript:\n{text[:per_video_budget]}")
-        if len(text) > per_video_budget:
-            prompt_parts.append(f"\n[...transcript truncated at {per_video_budget} chars, {len(transcript.segments)} total segments...]")
+        # 2026-05-23 COST EMERGENCY per-video gate: for very long transcripts
+        # (>100K chars, i.e. ~3+ hours of audio) sample first 30K + last 10K
+        # rather than truncate. The middle of a long video is typically
+        # filler; head + tail keeps the framing AND the conclusions.
+        sampled = False
+        if len(text) > 100_000:
+            sample_text = (
+                text[:30_000] + "\n\n[...mid-transcript elided for cost...]\n\n" + text[-10_000:]
+            )
+            transcript_chunk = sample_text[:per_video_budget]
+            sampled = True
+        else:
+            transcript_chunk = text[:per_video_budget]
+        log.info(
+            "[YTC] transcript_chars=%d, sampled=%s",
+            len(transcript_chunk),
+            sampled,
+        )
+        prompt_parts.append(f"\n### Transcript:\n{transcript_chunk}")
+        if len(text) > per_video_budget and not sampled:
+            prompt_parts.append(
+                f"\n[...transcript truncated at {per_video_budget} chars, {len(transcript.segments)} total segments...]"  # noqa: E501
+            )
+        elif sampled:
+            prompt_parts.append(
+                f"\n[...transcript sampled (head+tail) from {len(text)} chars, {len(transcript.segments)} total segments...]"  # noqa: E501
+            )
 
     user_prompt = (
         f"Analyze the following {len(transcribed)} YouTube videos "
-        f"({total_duration / 3600:.1f} hours total content):\n"
-        + "\n".join(prompt_parts)
+        f"({total_duration / 3600:.1f} hours total content):\n" + "\n".join(prompt_parts)
     )
 
     # Call the AI model
@@ -286,25 +322,47 @@ async def analyze_single_video(
         thumbnail_url=video_info.get("thumbnail", ""),
     )
 
-    # Full transcript budget for a single video — no splitting needed
+    # Transcript budget for a single video.
+    # 2026-05-23 COST EMERGENCY: halved 150K -> 50K. Per-video gate also
+    # samples head+tail for very long transcripts (>100K chars) to avoid
+    # paying Sonnet input tokens for filler middles.
     text = transcript.timestamped_text
-    per_video_budget = 150_000  # full budget for one video
+    per_video_budget = 50_000  # was 150_000
 
     prompt_parts = [
         f"## Video: {vid.title}",
-        f"Channel: {vid.channel} | Duration: {vid.duration_seconds // 60}m | Views: {vid.view_count:,}",
+        f"Channel: {vid.channel} | Duration: {vid.duration_seconds // 60}m | Views: {vid.view_count:,}",  # noqa: E501
         f"URL: {vid.url}",
     ]
     if vid.description:
         prompt_parts.append(f"Description: {vid.description[:500]}")
-    prompt_parts.append(f"\n### Transcript:\n{text[:per_video_budget]}")
-    if len(text) > per_video_budget:
-        prompt_parts.append(f"\n[...transcript truncated at {per_video_budget} chars, {len(transcript.segments)} total segments...]")
+    sampled = False
+    if len(text) > 100_000:
+        sample_text = (
+            text[:30_000] + "\n\n[...mid-transcript elided for cost...]\n\n" + text[-10_000:]
+        )
+        transcript_chunk = sample_text[:per_video_budget]
+        sampled = True
+    else:
+        transcript_chunk = text[:per_video_budget]
+    log.info(
+        "[YTC] transcript_chars=%d, sampled=%s",
+        len(transcript_chunk),
+        sampled,
+    )
+    prompt_parts.append(f"\n### Transcript:\n{transcript_chunk}")
+    if len(text) > per_video_budget and not sampled:
+        prompt_parts.append(
+            f"\n[...transcript truncated at {per_video_budget} chars, {len(transcript.segments)} total segments...]"  # noqa: E501
+        )
+    elif sampled:
+        prompt_parts.append(
+            f"\n[...transcript sampled (head+tail) from {len(text)} chars, {len(transcript.segments)} total segments...]"  # noqa: E501
+        )
 
     user_prompt = (
         f"Analyze this YouTube video in depth "
-        f"({transcript.duration_seconds / 3600:.1f} hours of content):\n"
-        + "\n".join(prompt_parts)
+        f"({transcript.duration_seconds / 3600:.1f} hours of content):\n" + "\n".join(prompt_parts)
     )
 
     raw_response = await _call_model(user_prompt, system_prompt=SINGLE_VIDEO_SYSTEM_PROMPT)
@@ -320,7 +378,7 @@ async def analyze_single_video(
             session_id=session_id,
             sources_processed=1,
             total_duration_hours=transcript.duration_seconds / 3600,
-            summary=f"Analysis failed for '{vid.title}' — all AI providers returned empty responses.",
+            summary=f"Analysis failed for '{vid.title}' — all AI providers returned empty responses.",  # noqa: E501
             videos=[vid],
         )
 
@@ -384,8 +442,7 @@ async def synthesize_rollup(
 
     user_prompt = (
         f"Synthesize cross-video patterns from {len(per_video_reports)} individually-analyzed "
-        f"YouTube videos ({total_duration:.1f} hours total):\n\n"
-        + "\n".join(prompt_parts)
+        f"YouTube videos ({total_duration:.1f} hours total):\n\n" + "\n".join(prompt_parts)
     )
 
     raw_response = await _call_model(user_prompt, system_prompt=ROLLUP_SYSTEM_PROMPT)
@@ -492,7 +549,7 @@ async def _call_model(user_prompt: str, system_prompt: str = ANALYSIS_SYSTEM_PRO
 
 
 # Shared HTTP client for YouTube analyzer — avoids connection pool exhaustion
-_yt_client: Optional["httpx.AsyncClient"] = None
+_yt_client: Optional["httpx.AsyncClient"] = None  # noqa: F821
 _yt_client_lock: Optional["asyncio.Lock"] = None
 
 
@@ -500,14 +557,16 @@ def _get_yt_lock():
     global _yt_client_lock
     if _yt_client_lock is None:
         import asyncio
+
         _yt_client_lock = asyncio.Lock()
     return _yt_client_lock
 
 
 async def _get_yt_client():
     global _yt_client
+
     import httpx
-    import asyncio
+
     if _yt_client is None or _yt_client.is_closed:
         async with _get_yt_lock():
             if _yt_client is None or _yt_client.is_closed:
@@ -516,46 +575,26 @@ async def _get_yt_client():
 
 
 async def _call_anthropic(prompt: str, system_prompt: str = ANALYSIS_SYSTEM_PROMPT) -> str:
-    """Call Anthropic Claude API."""
-    from ...cost_tracker import check_budget, record_cost
+    """Call Anthropic Claude via the unified LLM facade.
 
-    # Budget check
-    if not await check_budget("anthropic", 0.25):
-        raise RuntimeError("Anthropic daily budget exceeded")
+    The facade owns budget gating, retry/backoff, circuit breaking, and
+    cost recording — this wrapper just maps the YTC call shape onto it.
+    """
+    from runtime.llm import chat
 
     try:
-        client = await _get_yt_client()
-        response = await client.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": _get_anthropic_key(),
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": CLAUDE_MODEL,
-                "max_tokens": 4096,
-                "system": system_prompt,
-                "messages": [{"role": "user", "content": prompt}],
-            },
-            timeout=120.0,
+        result = await chat(
+            model=CLAUDE_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            system=system_prompt,
+            max_tokens=4096,
+            budget_key="anthropic",
+            timeout_s=120.0,  # YouTube transcripts can be slow
         )
-        response.raise_for_status()
-        data = response.json()
-        text = data["content"][0]["text"]
-
-        # Record actual cost from usage data
-        usage = data.get("usage", {})
-        input_tokens = usage.get("input_tokens", 0)
-        output_tokens = usage.get("output_tokens", 0)
-        cost = (input_tokens / 1000 * 0.003) + (output_tokens / 1000 * 0.015)
-        await record_cost(
-            "anthropic", cost, "ytc_analysis",
-            f"model={CLAUDE_MODEL} in={input_tokens} out={output_tokens}",
-            model=CLAUDE_MODEL, input_tokens=input_tokens, output_tokens=output_tokens,
+        text = result.text
+        log.info(
+            f"Anthropic ({CLAUDE_MODEL}) response: {len(text)} chars, " f"${result.cost_usd:.4f}"
         )
-
-        log.info(f"Anthropic ({CLAUDE_MODEL}) response: {len(text)} chars, ${cost:.4f}")
         return text
     except Exception as e:
         log.error(f"Anthropic API ({CLAUDE_MODEL}) failed: {e}")
@@ -597,9 +636,13 @@ async def _call_xai(prompt: str, system_prompt: str = ANALYSIS_SYSTEM_PROMPT) ->
         output_tokens = usage.get("completion_tokens", 0)
         cost = (input_tokens / 1000 * 0.005) + (output_tokens / 1000 * 0.015)
         await record_cost(
-            "xai", cost, "ytc_analysis",
+            "xai",
+            cost,
+            "ytc_analysis",
             f"model={GROK_MODEL} in={input_tokens} out={output_tokens}",
-            model=GROK_MODEL, input_tokens=input_tokens, output_tokens=output_tokens,
+            model=GROK_MODEL,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
         )
 
         log.info(f"xAI ({GROK_MODEL}) response: {len(text)} chars, ${cost:.4f}")
@@ -659,16 +702,18 @@ def _parse_single_video_analysis(raw: str, video_id: str) -> tuple[list[Insight]
             cat = SignalCategory.CONTENT
 
         raw_conf = float(item.get("confidence", 0.5))
-        insights.append(Insight(
-            title=item.get("title", "Untitled"),
-            description=item.get("description", ""),
-            category=cat,
-            confidence=max(0.0, min(1.0, raw_conf)),
-            tags=item.get("tags", []),
-            source_refs=[video_id],  # Link insight to this specific video
-            actionable=bool(item.get("actionable", False)),
-            action_suggestion=item.get("action_suggestion", ""),
-        ))
+        insights.append(
+            Insight(
+                title=item.get("title", "Untitled"),
+                description=item.get("description", ""),
+                category=cat,
+                confidence=max(0.0, min(1.0, raw_conf)),
+                tags=item.get("tags", []),
+                source_refs=[video_id],  # Link insight to this specific video
+                actionable=bool(item.get("actionable", False)),
+                action_suggestion=item.get("action_suggestion", ""),
+            )
+        )
 
     summary = data.get("summary", "")
     raw_analysis = ""
@@ -708,15 +753,17 @@ def _parse_analysis(raw: str) -> tuple[list[Insight], str, str]:
             cat = SignalCategory.CONTENT
 
         raw_conf = float(item.get("confidence", 0.5))
-        insights.append(Insight(
-            title=item.get("title", "Untitled"),
-            description=item.get("description", ""),
-            category=cat,
-            confidence=max(0.0, min(1.0, raw_conf)),
-            tags=item.get("tags", []),
-            actionable=bool(item.get("actionable", False)),
-            action_suggestion=item.get("action_suggestion", ""),
-        ))
+        insights.append(
+            Insight(
+                title=item.get("title", "Untitled"),
+                description=item.get("description", ""),
+                category=cat,
+                confidence=max(0.0, min(1.0, raw_conf)),
+                tags=item.get("tags", []),
+                actionable=bool(item.get("actionable", False)),
+                action_suggestion=item.get("action_suggestion", ""),
+            )
+        )
 
     summary = data.get("summary", "")
     cross_patterns = data.get("cross_video_patterns", "")

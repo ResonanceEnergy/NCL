@@ -18,11 +18,11 @@ import sys
 import time
 import uuid
 from datetime import datetime, timezone
-
-import pytest
 from pathlib import Path
 
 import httpx
+import pytest
+
 
 # Tests in this file hit live network endpoints (relay + brain).
 # They are skipped by default and only run when RUN_LIVE_TESTS=1 is set.
@@ -34,8 +34,14 @@ _live = pytest.mark.skipif(
 # Config
 RELAY_URL = os.getenv("RELAY_URL", "https://localhost:8787")
 BRAIN_URL = os.getenv("BRAIN_URL", "http://localhost:8800")
-NCL_INPUT_DIR = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL"))) / "mandate-generation" / "input"
-NCL_PROCESSED_DIR = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL"))) / "mandate-generation" / "processed"
+NCL_INPUT_DIR = (
+    Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL"))) / "mandate-generation" / "input"
+)
+NCL_PROCESSED_DIR = (
+    Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
+    / "mandate-generation"
+    / "processed"
+)
 
 GREEN = "\033[92m"
 RED = "\033[91m"

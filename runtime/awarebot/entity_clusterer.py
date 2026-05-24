@@ -63,12 +63,12 @@ from __future__ import annotations
 
 import logging
 import math
-import re
 import uuid
-from collections import OrderedDict, Counter
+from collections import Counter, OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Iterable, Optional
+from typing import Any, Callable, Optional
+
 
 log = logging.getLogger("ncl.awarebot.entity_clusterer")
 
@@ -80,59 +80,175 @@ log = logging.getLogger("ncl.awarebot.entity_clusterer")
 # refactor SECTOR_KEYWORDS into its own module both can import.
 SECTOR_KEYWORDS: dict[str, list[str]] = {
     "crypto": [
-        "bitcoin", "btc", "ethereum", "eth", "crypto", "blockchain",
-        "defi", "solana", "web3", "nft", "token", "stablecoin", "altcoin",
+        "bitcoin",
+        "btc",
+        "ethereum",
+        "eth",
+        "crypto",
+        "blockchain",
+        "defi",
+        "solana",
+        "web3",
+        "nft",
+        "token",
+        "stablecoin",
+        "altcoin",
     ],
     "ai_tech": [
-        "ai", "artificial intelligence", "llm", "openai", "anthropic",
-        "claude", "gpt", "machine learning", "deepmind", "agi",
-        "chatgpt", "gemini ai", "nvidia ai",
+        "ai",
+        "artificial intelligence",
+        "llm",
+        "openai",
+        "anthropic",
+        "claude",
+        "gpt",
+        "machine learning",
+        "deepmind",
+        "agi",
+        "chatgpt",
+        "gemini ai",
+        "nvidia ai",
     ],
     "macro": [
-        "fed", "federal reserve", "inflation", "interest rate", "gdp",
-        "recession", "employment", "treasury", "bond", "cpi",
-        "tariff", "trade war", "debt ceiling", "yield curve",
-        "unemployment", "central bank",
+        "fed",
+        "federal reserve",
+        "inflation",
+        "interest rate",
+        "gdp",
+        "recession",
+        "employment",
+        "treasury",
+        "bond",
+        "cpi",
+        "tariff",
+        "trade war",
+        "debt ceiling",
+        "yield curve",
+        "unemployment",
+        "central bank",
     ],
     "politics": [
-        "election", "president", "congress", "senate", "regulation",
-        "policy", "government", "democrat", "republican", "trump",
-        "biden", "vote", "legislation", "supreme court",
-        "war", "ceasefire", "ukraine", "russia", "china", "israel",
-        "nato", "sanctions", "hezbollah", "hamas", "iran", "military",
+        "election",
+        "president",
+        "congress",
+        "senate",
+        "regulation",
+        "policy",
+        "government",
+        "democrat",
+        "republican",
+        "trump",
+        "biden",
+        "vote",
+        "legislation",
+        "supreme court",
+        "war",
+        "ceasefire",
+        "ukraine",
+        "russia",
+        "china",
+        "israel",
+        "nato",
+        "sanctions",
+        "hezbollah",
+        "hamas",
+        "iran",
+        "military",
         "geopolit",
     ],
     "markets": [
-        "stock", "s&p", "nasdaq", "dow", "equity", "trading",
-        "options", "call flow", "put flow", "unusual whales",
-        "earnings", "ipo", "merger", "acquisition",
+        "stock",
+        "s&p",
+        "nasdaq",
+        "dow",
+        "equity",
+        "trading",
+        "options",
+        "call flow",
+        "put flow",
+        "unusual whales",
+        "earnings",
+        "ipo",
+        "merger",
+        "acquisition",
     ],
     "tech": [
-        "apple", "google", "microsoft", "amazon", "meta", "tesla",
-        "spacex", "semiconductor", "chip", "iphone", "startup",
-        "software", "saas", "cloud computing",
+        "apple",
+        "google",
+        "microsoft",
+        "amazon",
+        "meta",
+        "tesla",
+        "spacex",
+        "semiconductor",
+        "chip",
+        "iphone",
+        "startup",
+        "software",
+        "saas",
+        "cloud computing",
     ],
     "entertainment": [
-        "movie", "film", "oscars", "emmy", "grammy", "album",
-        "eurovision", "gta", "game release", "box office",
-        "streaming", "netflix", "disney", "tv show", "celebrity",
+        "movie",
+        "film",
+        "oscars",
+        "emmy",
+        "grammy",
+        "album",
+        "eurovision",
+        "gta",
+        "game release",
+        "box office",
+        "streaming",
+        "netflix",
+        "disney",
+        "tv show",
+        "celebrity",
         "music award",
     ],
     "sports": [
-        "sport", "nba", "nfl", "mlb", "nhl", "soccer", "football",
-        "world cup", "fifa", "olympics", "f1", "ufc", "boxing",
-        "playoffs", "championship", "super bowl", "premier league",
-        "champions league", "grand slam",
+        "sport",
+        "nba",
+        "nfl",
+        "mlb",
+        "nhl",
+        "soccer",
+        "football",
+        "world cup",
+        "fifa",
+        "olympics",
+        "f1",
+        "ufc",
+        "boxing",
+        "playoffs",
+        "championship",
+        "super bowl",
+        "premier league",
+        "champions league",
+        "grand slam",
     ],
     "energy": [
-        "oil", "gas", "energy", "solar", "nuclear", "opec",
-        "renewable", "petroleum", "lng",
+        "oil",
+        "gas",
+        "energy",
+        "solar",
+        "nuclear",
+        "opec",
+        "renewable",
+        "petroleum",
+        "lng",
     ],
     "gaming": ["game", "gaming", "indie", "steam", "unity", "unreal"],
     "music": ["music", "production", "audio", "streaming", "dubforge"],
     "climate": [
-        "climate", "weather", "hurricane", "earthquake", "wildfire",
-        "temperature", "carbon", "renewable energy",
+        "climate",
+        "weather",
+        "hurricane",
+        "earthquake",
+        "wildfire",
+        "temperature",
+        "carbon",
+        "renewable energy",
     ],
 }
 
@@ -243,6 +359,7 @@ class StreamingCluster:
 # the memory subsystem.
 def _default_entity_extractor(text: str) -> list[str]:
     from ..memory.entity_extractor import fast_extract_entities
+
     return fast_extract_entities(text)
 
 
@@ -292,9 +409,7 @@ class EntityStreamingClusterer:
         self.max_clusters = max_clusters
         self.min_entity_freq = min_entity_freq
         self.min_entity_overlap = min_entity_overlap
-        self.sector_keywords = (
-            sector_keywords if sector_keywords is not None else SECTOR_KEYWORDS
-        )
+        self.sector_keywords = sector_keywords if sector_keywords is not None else SECTOR_KEYWORDS
         self.entity_extractor = entity_extractor or _default_entity_extractor
 
         # OrderedDict so we can do LRU eviction cheaply (move_to_end on touch,
@@ -343,9 +458,7 @@ class EntityStreamingClusterer:
 
         source = getattr(signal, "source", "") or "unknown"
         signal_id = (
-            getattr(signal, "signal_id", None)
-            or getattr(signal, "id", None)
-            or str(uuid.uuid4())
+            getattr(signal, "signal_id", None) or getattr(signal, "id", None) or str(uuid.uuid4())
         )
         ts = getattr(signal, "timestamp", None) or _utc_now()
         ts = _ensure_aware(ts)
@@ -538,11 +651,7 @@ class EntityStreamingClusterer:
 
     def _evict_stale(self, now: datetime) -> None:
         cutoff = now - self.window
-        stale = [
-            cid
-            for cid, c in self._clusters.items()
-            if c.last_updated_at < cutoff
-        ]
+        stale = [cid for cid, c in self._clusters.items() if c.last_updated_at < cutoff]
         for cid in stale:
             self._drop(cid)
             self._evicted_stale += 1

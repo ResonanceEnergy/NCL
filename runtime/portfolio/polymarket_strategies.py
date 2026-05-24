@@ -24,18 +24,21 @@ from typing import Any, Optional
 import httpx
 from fastapi import APIRouter, Header, HTTPException, Query
 
+
 try:
     import httpx
+
     _HTTPX_AVAILABLE = True
 except ImportError:
     httpx = None  # type: ignore
     _HTTPX_AVAILABLE = False
 
-from .strategies.planktonxd_scorer import score_market, classify_category
+from .strategies.planktonxd_scorer import score_market
 from .strategies.weatherbetter_scorer import (
     is_weather_market,
     score_weather_market,
 )
+
 
 log = logging.getLogger(__name__)
 
@@ -53,6 +56,7 @@ def _get_strike_token() -> str:
     """Lazily resolve the strike token — reads at call time, not import."""
     try:
         from runtime.api.routes import STRIKE_TOKEN
+
         return STRIKE_TOKEN
     except ImportError:
         return os.getenv("STRIKE_AUTH_TOKEN", "")
@@ -60,6 +64,7 @@ def _get_strike_token() -> str:
 
 def _verify_strike_token(authorization: str) -> None:
     import secrets
+
     if not authorization:
         raise HTTPException(status_code=401, detail="Missing Authorization header")
     token = authorization.replace("Bearer ", "").strip()
@@ -69,6 +74,7 @@ def _verify_strike_token(authorization: str) -> None:
 
 
 # ── Gamma API fetch ──────────────────────────────────────────────────
+
 
 async def _fetch_active_markets(limit: int = 200) -> list[dict[str, Any]]:
     """Fetch active Polymarket markets via Gamma API.
@@ -81,6 +87,7 @@ async def _fetch_active_markets(limit: int = 200) -> list[dict[str, Any]]:
     and return what we have so far (or last cache snapshot if empty).
     """
     import time
+
     now = time.time()
     if (
         now - _MARKETS_CACHE["at"] < _CACHE_TTL_S
@@ -111,8 +118,7 @@ async def _fetch_active_markets(limit: int = 200) -> list[dict[str, Any]]:
                     log.warning("Polymarket Gamma page %d fetch failed: %s", i, exc)
                     break
                 if resp.status_code != 200:
-                    log.warning("Polymarket Gamma /markets: HTTP %s (page %d)",
-                                resp.status_code, i)
+                    log.warning("Polymarket Gamma /markets: HTTP %s (page %d)", resp.status_code, i)
                     break
                 body = resp.json() or []
                 if not isinstance(body, list) or not body:
@@ -142,6 +148,7 @@ def _parse_prices(market: dict[str, Any]) -> tuple[float, float]:
     if isinstance(raw, str):
         try:
             import json
+
             raw = json.loads(raw)
         except (TypeError, ValueError):
             raw = None
@@ -205,6 +212,7 @@ def _parse_tags(market: dict[str, Any]) -> list[str]:
 
 # ── Optional memory write (fire-and-forget) ──────────────────────────
 
+
 async def _maybe_write_memory(
     strategy: str,
     rows: list[dict[str, Any]],
@@ -218,7 +226,7 @@ async def _maybe_write_memory(
     if not rows:
         return
     try:
-        from runtime.memory.async_writer import get_async_writer, WriteRequest
+        from runtime.memory.async_writer import WriteRequest, get_async_writer
     except Exception:
         return
     try:
@@ -259,10 +267,15 @@ async def _maybe_write_memory(
 @router.get("/planktonxd/opportunities")
 async def planktonxd_opportunities(
     limit: int = Query(default=20, ge=1, le=100),
-    pool_size: int = Query(default=200, ge=20, le=500,
-                           description="How many active markets to pull from Gamma before scoring"),
-    write_memory: bool = Query(default=True,
-                               description="Fire-and-forget enqueue top opportunities into MemoryStore"),
+    pool_size: int = Query(
+        default=200,
+        ge=20,
+        le=500,
+        description="How many active markets to pull from Gamma before scoring",
+    ),
+    write_memory: bool = Query(
+        default=True, description="Fire-and-forget enqueue top opportunities into MemoryStore"
+    ),
     authorization: str = Header(default=""),
 ) -> dict:
     """Top deep-OTM Polymarket opportunities ranked by composite edge.
@@ -334,10 +347,14 @@ async def planktonxd_opportunities(
 @router.get("/weatherbetter/opportunities")
 async def weatherbetter_opportunities(
     limit: int = Query(default=20, ge=1, le=100),
-    pool_size: int = Query(default=2000, ge=20, le=5000,
-                           description="How many active markets to pull from Gamma before filtering. "
-                                       "Default is high because weather markets are a small fraction "
-                                       "of Polymarket's catalog."),
+    pool_size: int = Query(
+        default=2000,
+        ge=20,
+        le=5000,
+        description="How many active markets to pull from Gamma before filtering. "
+        "Default is high because weather markets are a small fraction "
+        "of Polymarket's catalog.",
+    ),
     write_memory: bool = Query(default=True),
     authorization: str = Header(default=""),
 ) -> dict:
@@ -398,8 +415,17 @@ async def weatherbetter_opportunities(
                 "price_ceil": 0.10,
                 "min_edge": 0.005,
                 "keywords": [
-                    "rain", "snow", "temperature", "hurricane", "tornado",
-                    "drought", "weather", "climate", "storm", "wind", "hail",
+                    "rain",
+                    "snow",
+                    "temperature",
+                    "hurricane",
+                    "tornado",
+                    "drought",
+                    "weather",
+                    "climate",
+                    "storm",
+                    "wind",
+                    "hail",
                 ],
             },
             "pool_size": pool_size,
@@ -407,8 +433,9 @@ async def weatherbetter_opportunities(
             "scored_count": len(scored),
             "returned_count": len(rows),
             "generated_at": datetime.now(timezone.utc).isoformat(),
-            "weather_events_seen": sorted({r.get("weather_event_type", "")
-                                           for r in scored if r.get("weather_event_type")}),
+            "weather_events_seen": sorted(
+                {r.get("weather_event_type", "") for r in scored if r.get("weather_event_type")}
+            ),
         },
     }
 
@@ -480,9 +507,7 @@ async def trending_markets(
                 },
             )
         if resp.status_code != 200:
-            log.warning(
-                f"[POLYMARKET:TRENDING] Gamma returned HTTP {resp.status_code}"
-            )
+            log.warning(f"[POLYMARKET:TRENDING] Gamma returned HTTP {resp.status_code}")
             return {
                 "ok": False,
                 "error": f"gamma_http_{resp.status_code}",
@@ -514,6 +539,7 @@ async def trending_markets(
         if isinstance(raw_prices, str):
             try:
                 import json as _json
+
                 outcome_prices = [float(p) for p in _json.loads(raw_prices)]
             except Exception:
                 outcome_prices = []
@@ -525,6 +551,7 @@ async def trending_markets(
         if isinstance(raw_outcomes, str):
             try:
                 import json as _json
+
                 outcomes = list(_json.loads(raw_outcomes))
             except Exception:
                 outcomes = []
@@ -532,38 +559,38 @@ async def trending_markets(
             outcomes = list(raw_outcomes)
 
         yes_price = outcome_prices[0] if outcome_prices else _f(m.get("lastTradePrice"))
-        no_price = (
-            outcome_prices[1] if len(outcome_prices) > 1 else (1.0 - yes_price)
-        )
+        no_price = outcome_prices[1] if len(outcome_prices) > 1 else (1.0 - yes_price)
 
-        flat.append({
-            "id": m.get("id") or m.get("conditionId"),
-            "slug": m.get("slug") or "",
-            "question": m.get("question") or m.get("title") or "",
-            "description": (m.get("description") or "")[:400],
-            "image": m.get("image") or m.get("icon") or "",
-            "category": m.get("category") or "",
-            "event_title": (m.get("eventName") or m.get("event") or {}).get("title", "")
-                            if isinstance(m.get("event"), dict)
-                            else (m.get("eventName") or m.get("eventTitle") or ""),
-            "end_date": m.get("endDate") or m.get("endTime") or "",
-            "start_date": m.get("startDate") or "",
-            "volume_24h": round(vol_24h, 2),
-            "volume_total": round(_f(m.get("volume") or m.get("volumeNum")), 2),
-            "liquidity": round(_f(m.get("liquidity") or m.get("liquidityNum")), 2),
-            "yes_price": round(yes_price, 4),
-            "no_price": round(no_price, 4),
-            "yes_change_24h": _f(m.get("oneDayPriceChange")),
-            "outcomes": outcomes,
-            "outcome_prices": outcome_prices,
-            "active": bool(m.get("active", True)),
-            "closed": bool(m.get("closed", False)),
-            "url": (
-                f"https://polymarket.com/market/{m.get('slug')}"
-                if m.get("slug")
-                else f"https://polymarket.com/event/{m.get('id', '')}"
-            ),
-        })
+        flat.append(
+            {
+                "id": m.get("id") or m.get("conditionId"),
+                "slug": m.get("slug") or "",
+                "question": m.get("question") or m.get("title") or "",
+                "description": (m.get("description") or "")[:400],
+                "image": m.get("image") or m.get("icon") or "",
+                "category": m.get("category") or "",
+                "event_title": (m.get("eventName") or m.get("event") or {}).get("title", "")
+                if isinstance(m.get("event"), dict)
+                else (m.get("eventName") or m.get("eventTitle") or ""),
+                "end_date": m.get("endDate") or m.get("endTime") or "",
+                "start_date": m.get("startDate") or "",
+                "volume_24h": round(vol_24h, 2),
+                "volume_total": round(_f(m.get("volume") or m.get("volumeNum")), 2),
+                "liquidity": round(_f(m.get("liquidity") or m.get("liquidityNum")), 2),
+                "yes_price": round(yes_price, 4),
+                "no_price": round(no_price, 4),
+                "yes_change_24h": _f(m.get("oneDayPriceChange")),
+                "outcomes": outcomes,
+                "outcome_prices": outcome_prices,
+                "active": bool(m.get("active", True)),
+                "closed": bool(m.get("closed", False)),
+                "url": (
+                    f"https://polymarket.com/market/{m.get('slug')}"
+                    if m.get("slug")
+                    else f"https://polymarket.com/event/{m.get('id', '')}"
+                ),
+            }
+        )
         if len(flat) >= limit:
             break
 

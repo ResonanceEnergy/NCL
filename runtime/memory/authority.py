@@ -12,7 +12,12 @@ that the salience and retrieval-fusion layers apply on top of their normal
 ranking math.
 
 Authority chain (from CLAUDE.md):
-    NATRIX (absolute) -> NCL -> NCC/BRS/AAC
+    NATRIX (absolute) -> NCL -> NCC
+
+(BRS and AAC were retired 2026-05-23 per NATRIX directive — "no orphan
+them we dont use them". Historical memory units stamped with BRS/AAC
+source tags are preserved as-is; SOURCE_TIER_MAP no longer carries any
+BRS/AAC keys but unknown source strings still resolve to RAW(10).)
 
 That chain is mirrored in the tier scale below.
 
@@ -48,12 +53,11 @@ salience formula and the FusedRetriever multiply through.
 
 from __future__ import annotations
 
-import json
 import logging
 from collections import Counter
 from enum import IntEnum
-from pathlib import Path
 from typing import TYPE_CHECKING, Iterable
+
 
 if TYPE_CHECKING:
     from .store import MemoryStore
@@ -69,13 +73,13 @@ log = logging.getLogger("ncl.memory.authority")
 class AuthorityTier(IntEnum):
     """Provenance tier for a memory unit. Higher = more trustworthy."""
 
-    NATRIX = 100        # NATRIX directive — absolute authority
-    COUNCIL = 80        # Ratified council consensus
-    BRAIN = 60          # Brain-generated synthesis output
-    CALENDAR = 50       # Scheduler / calendar fact
-    LLM_SINGLE = 40     # Single-LLM one-shot response
-    SCANNER = 20        # Awarebot scanner / raw signal
-    RAW = 10            # Unknown / unverified ingestion
+    NATRIX = 100  # NATRIX directive — absolute authority
+    COUNCIL = 80  # Ratified council consensus
+    BRAIN = 60  # Brain-generated synthesis output
+    CALENDAR = 50  # Scheduler / calendar fact
+    LLM_SINGLE = 40  # Single-LLM one-shot response
+    SCANNER = 20  # Awarebot scanner / raw signal
+    RAW = 10  # Unknown / unverified ingestion
 
 
 # Convenience: lower-cased name -> tier (for the API endpoint)
@@ -100,14 +104,14 @@ SOURCE_TIER_MAP: dict[str, AuthorityTier] = {
     "pump": AuthorityTier.NATRIX,
     "journal-entry": AuthorityTier.NATRIX,
     "journal_entry": AuthorityTier.NATRIX,
-    "journal": AuthorityTier.NATRIX,                # raw NATRIX journal entries
+    "journal": AuthorityTier.NATRIX,  # raw NATRIX journal entries
     # Audit 2026-05-22: chat fragments like "health", "Wild" landed at NATRIX(100)
     # and poisoned ticker searches (TSLA query returned chat noise as top hit).
     # Demoted to CALENDAR(50) — chat is still high-authority but won't dominate
     # vector search the way verified pumps/directives do. Pump endpoints +
     # journal entries remain at full NATRIX(100).
-    "first-strike-chat": AuthorityTier.CALENDAR,    # demoted from NATRIX
-    "first_strike_chat": AuthorityTier.CALENDAR,    # demoted from NATRIX
+    "first-strike-chat": AuthorityTier.CALENDAR,  # demoted from NATRIX
+    "first_strike_chat": AuthorityTier.CALENDAR,  # demoted from NATRIX
     # Portfolio events.
     # Audit 2026-05-22: NATRIX(100) count was 286 units, dominated by
     # `portfolio:snapshot` (background aggregate telemetry, not a directive)
@@ -118,14 +122,14 @@ SOURCE_TIER_MAP: dict[str, AuthorityTier] = {
     # Per the audit spec: ONLY direct user trades (position_opened /
     # position_closed) stay at NATRIX. Everything else under portfolio:* is
     # broker-derived telemetry / aggregate analytics and lives at BRAIN.
-    "portfolio": AuthorityTier.BRAIN,                   # bare prefix — fallback for new portfolio:* keys
-    "portfolio:snapshot": AuthorityTier.BRAIN,          # was NATRIX; demoted 2026-05-22
+    "portfolio": AuthorityTier.BRAIN,  # bare prefix — fallback for new portfolio:* keys
+    "portfolio:snapshot": AuthorityTier.BRAIN,  # was NATRIX; demoted 2026-05-22
     "portfolio:position_opened": AuthorityTier.NATRIX,
     "portfolio:position_closed": AuthorityTier.NATRIX,
     "portfolio:significant_move": AuthorityTier.BRAIN,  # was NATRIX; demoted 2026-05-22
-    "portfolio:quantity_change": AuthorityTier.BRAIN,   # was NATRIX; demoted 2026-05-22
-    "portfolio:account_change": AuthorityTier.BRAIN,    # was NATRIX; demoted 2026-05-22
-    "portfolio:buying_power_risk": AuthorityTier.BRAIN, # was NATRIX; demoted 2026-05-22
+    "portfolio:quantity_change": AuthorityTier.BRAIN,  # was NATRIX; demoted 2026-05-22
+    "portfolio:account_change": AuthorityTier.BRAIN,  # was NATRIX; demoted 2026-05-22
+    "portfolio:buying_power_risk": AuthorityTier.BRAIN,  # was NATRIX; demoted 2026-05-22
     # Crypto + prediction adapters (added 2026-05-22 EOD). Treated as
     # NATRIX(100) — these are user-funded wallets / exchange accounts, the
     # actual money the owner controls, so they deserve the same authority
@@ -133,7 +137,6 @@ SOURCE_TIER_MAP: dict[str, AuthorityTier] = {
     "portfolio:ndax": AuthorityTier.NATRIX,
     "portfolio:metamask": AuthorityTier.NATRIX,
     "portfolio:polymarket": AuthorityTier.NATRIX,
-
     # ---- COUNCIL (80) -------------------------------------------------
     "council-decision": AuthorityTier.COUNCIL,
     "council_decision": AuthorityTier.COUNCIL,
@@ -148,7 +151,6 @@ SOURCE_TIER_MAP: dict[str, AuthorityTier] = {
     "council:youtube:insight": AuthorityTier.COUNCIL,
     "council:x": AuthorityTier.COUNCIL,
     "mandate": AuthorityTier.COUNCIL,
-
     # ---- BRAIN (60) ---------------------------------------------------
     "brain-chat-response": AuthorityTier.BRAIN,
     "brain_chat_response": AuthorityTier.BRAIN,
@@ -171,7 +173,6 @@ SOURCE_TIER_MAP: dict[str, AuthorityTier] = {
     # not a NATRIX directive, but high-trust how-the-system-works facts.
     "claude-md": AuthorityTier.BRAIN,
     "claude_md": AuthorityTier.BRAIN,
-
     # ---- CALENDAR (50) -----------------------------------------------
     "calendar-event": AuthorityTier.CALENDAR,
     "calendar_event": AuthorityTier.CALENDAR,
@@ -181,7 +182,6 @@ SOURCE_TIER_MAP: dict[str, AuthorityTier] = {
     "calendar_agent": AuthorityTier.CALENDAR,
     "calendar": AuthorityTier.CALENDAR,
     "scheduler": AuthorityTier.CALENDAR,
-
     # ---- LLM_SINGLE (40) ---------------------------------------------
     "llm-haiku": AuthorityTier.LLM_SINGLE,
     "llm_haiku": AuthorityTier.LLM_SINGLE,
@@ -194,7 +194,6 @@ SOURCE_TIER_MAP: dict[str, AuthorityTier] = {
     "gemini-direct": AuthorityTier.LLM_SINGLE,
     "gpt-direct": AuthorityTier.LLM_SINGLE,
     "perplexity-direct": AuthorityTier.LLM_SINGLE,
-
     # ---- SCANNER (20) ------------------------------------------------
     "awarebot": AuthorityTier.SCANNER,
     "awarebot:reddit": AuthorityTier.SCANNER,
@@ -209,8 +208,8 @@ SOURCE_TIER_MAP: dict[str, AuthorityTier] = {
     "awarebot:unknown": AuthorityTier.SCANNER,
     "intelligence_polymarket": AuthorityTier.SCANNER,
     "scanner": AuthorityTier.SCANNER,
-    "scanner:goat": AuthorityTier.SCANNER,         # 2026-05-22 EOD swarm
-    "scanner:bravo": AuthorityTier.SCANNER,        # 2026-05-22 EOD swarm
+    "scanner:goat": AuthorityTier.SCANNER,  # 2026-05-22 EOD swarm
+    "scanner:bravo": AuthorityTier.SCANNER,  # 2026-05-22 EOD swarm
     "signal": AuthorityTier.SCANNER,
 }
 
@@ -340,8 +339,7 @@ def tier_at_least(tier: AuthorityTier | int, floor: AuthorityTier | int | str) -
             floor_val = int(TIER_BY_NAME[floor.strip().lower()])
         except KeyError:
             raise ValueError(
-                f"unknown authority tier name: {floor!r} "
-                f"(valid: {sorted(TIER_BY_NAME)})"
+                f"unknown authority tier name: {floor!r} " f"(valid: {sorted(TIER_BY_NAME)})"
             )
     else:
         floor_val = int(floor)
@@ -418,17 +416,19 @@ async def retag_authority_tiers(memory_store: "MemoryStore") -> dict:
         await memory_store._rewrite_units(units)
         log.info(
             "authority retag: updated=%d unchanged=%d scanned=%d",
-            updated, unchanged, len(units),
+            updated,
+            unchanged,
+            len(units),
         )
 
         return {
             "scanned": len(units),
             "updated": updated,
             "unchanged": unchanged,
-            "before_by_tier": {t.name.lower(): before.get(t.name.lower(), 0)
-                               for t in AuthorityTier},
-            "after_by_tier": {t.name.lower(): after.get(t.name.lower(), 0)
-                              for t in AuthorityTier},
+            "before_by_tier": {
+                t.name.lower(): before.get(t.name.lower(), 0) for t in AuthorityTier
+            },
+            "after_by_tier": {t.name.lower(): after.get(t.name.lower(), 0) for t in AuthorityTier},
         }
     finally:
         memory_store._release_write()
@@ -499,22 +499,27 @@ async def backfill_authority_tiers(memory_store: "MemoryStore") -> dict:
             await memory_store._rewrite_units(units)
             log.info(
                 "authority backfill: updated=%d already_set=%d scanned=%d",
-                updated, already, len(units),
+                updated,
+                already,
+                len(units),
             )
         else:
             log.info(
                 "authority backfill: no-op (already_set=%d scanned=%d)",
-                already, len(units),
+                already,
+                len(units),
             )
 
         return {
             "updated": updated,
             "scanned": len(units),
             "already_set": already,
-            "by_tier": {t.name.lower(): final_by_tier.get(t.name.lower(), 0)
-                        for t in AuthorityTier},
-            "newly_tiered_by_tier": {t.name.lower(): newly_by_tier.get(t.name.lower(), 0)
-                                     for t in AuthorityTier},
+            "by_tier": {
+                t.name.lower(): final_by_tier.get(t.name.lower(), 0) for t in AuthorityTier
+            },
+            "newly_tiered_by_tier": {
+                t.name.lower(): newly_by_tier.get(t.name.lower(), 0) for t in AuthorityTier
+            },
         }
     finally:
         memory_store._release_write()

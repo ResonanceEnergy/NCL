@@ -1,61 +1,118 @@
-# NCL (NUREALCORTEXLINK) — Brain & Think Pillar
+# NCL (NUREALCORTEXLINK) — Standalone Personal-AI Brain
+
+**Status**: Authoritative spec, rewritten 2026-05-23, updated 2026-05-24 (Wave 10) — supersedes pre-retirement docs in `archive/docs-pre-retirement/`.
+
+**Recent wave summary (2026-05-24)**:
+- Wave 8 — 15-agent foundation swarm: Tailscale-only bind, A/B harness, burn-in verifier, Prometheus /metrics, tracing IDs, LLM facade complete, pillar dispatch excised, SQLite double-write live on 3 tables.
+- Wave 9 — 10-agent post-W8 audit + Director's synthesis.
+- Wave 10 — 45-agent 3-phase implementation: stop silent bleeds + CI sanity (10A) → foundation refactors (10B) → cleanup + carves + DI completion (10C). Net: scheduler.py 7,464 → 4,802 LOC (3 night-watch monsters carved), intel.py carved into package, DoubleWriteHook abstraction, central flags module, SQLite connection pool (1 writer + 4 readers), double-writes off hot path (12× speedup), correlation IDs in 5 high-volume loops, CouncilQuorum wired (autonomous-only Sonnet+Haiku pre-pass), 9 routers DI-converted, ChromaDB batched upsert, predictions live SQLite write hook, /metrics separate read-only token, SQLite OperationalError retry handler, stall watchdog deadband for long-running tags, alert-dispatcher sentinel.
 
 **Codename**: NCL (NUREALCORTEXLINK)
-**Pillar**: Think, research, plan, remember, decide
-**Analogy**: The Brain of Resonance Energy
-**Authority**: Receives directives from NATRIX (absolute) → Sets mandates for NCC/BRS/AAC
+**Role**: Standalone personal AI brain serving NATRIX via the FirstStrike iOS app.
 **Host**: Mac Studio M1 Ultra 64GB, Tailscale IP 100.72.223.123
 
 ---
 
 ## Identity
-NCL is the canonical brain cortex of the NATRIX ecosystem. It receives pump prompts from NATRIX via Grok on iPhone, chairs councils (Claude chairs; Grok, Gemini, Perplexity, GPT as members), produces mandates, manages institutional memory, and synthesizes feedback from NCC, BRS, and AAC.
 
-**Key Role**: NATRIX intent → research/council → doctrine → mandates for downstream pillars.
+NCL is a standalone personal-AI brain. It is **not** a router or dispatcher in a multi-pillar ecosystem.
+
+The original "Resonance Energy" architecture (NCL → NCC/BRS/AAC) has been fully retired:
+
+- **BRS** (would-have-been tactical revenue) — never existed as a real service. Retired 2026-05-23.
+- **AAC** (sibling trading-system repo at `/Users/natrix/dev/AAC`) — integration shelved. Elements (planktonxd + weatherbetter strategy scorers, IBKR connection patterns) were cherry-picked into NCL and now live entirely inside this repo with no live dependency on AAC. Pillar retired 2026-05-23.
+- **NCC** — repo no longer present on this machine. Mandate dispatch path is archived. The Brain's `_dispatch_to_ncc()` helper is a vestigial sink that writes to a non-existent intake directory.
+
+What NCL **is** today:
+- FastAPI service on port 8800 (`runtime/api/routes.py:versioned_app`)
+- 34 in-process autonomous loops (memory consolidation, calendar correlation, awarebot intel, council auto-spawn, journal reflection, working-context assembly, portfolio sync, etc.) <!-- verified 2026-05-24 / Wave 10 — 34 unique `ncl-*` task names in runtime/autonomous/scheduler.py incl. supervisor -->
+
+- Memory subsystem: 25K MemUnits, ChromaDB vectors, BM25 keyword index, NetworkX knowledge graph, 7-tier authority weighting, Beta-Bernoulli source-authority learner, ACE reflection, conflict resolver, narrative threads, PII redactor, async write queue
+- Multi-LLM council system (Claude chairs; Grok, Gemini, Perplexity, GPT, Copilot as members). Universal context pack at `runtime/council_pack/` consolidates assembly + MMR + temporal split + contradictions surfacing + position trick + 40% utilization cap + MapReduce compression + Anthropic Citations API document blocks + calibrated verbalized confidence + anonymized peer review + 3-tier hierarchical write-back
+- Awarebot intelligence pipeline with 6-factor scoring + exclusive tier routing (focused/micro/macro)
+- Local portfolio integration (IBKR, Moomoo, SnapTrade, NDAX, MetaMask, Polymarket) feeding FirstStrike's Portfolio tab
+- Calendar system (lunar, market events, 7-city local events)
+- Journal store with daily LLM reflection
+- Cost tracker with per-source budget enforcement and a $20/day platform-wide hard cap
+
+**Authority**: NATRIX (absolute) → NCL (standalone). No downstream pillars.
+
+---
+
+## Archived Subsystems (2026-05-23)
+
+The pump → council → mandate → pillar pipeline was MERGED into the Brain. The legacy file-queue scaffolding around it was moved to `archive/`:
+
+| Was | Where it lives now |
+|-----|--------------------|
+| `runtime/pump_watcher.py` | `archive/strike-point-pre-merge/pump_watcher.py` — replaced by Brain `POST /pump` endpoint (`routes.py:795`) |
+| `runtime/strike_point_orchestrator.py` | `archive/strike-point-pre-merge/strike_point_orchestrator.py` — replaced by Brain `receive_pump_prompt(auto_flow=True)` at `brain.py:312-399`, which runs the full strike-point flow in-process |
+| `runtime/execution_loop.py` | `archive/strike-point-pre-merge/execution_loop.py` — Copilot/Claude-Code subprocess bridge, separately dead (manual-mode fallback since May 22) |
+| `tests/test_pump_watcher.py` | `archive/strike-point-pre-merge/` |
+| `mandate-generation/` directory tree (input/, processed/, failed/, output/) | `archive/strike-point-pre-merge/mandate-generation/` — preserved with 21 historical processed pumps + 5 stuck AAC War Room sweeps |
+| `workspaces/execution-pipeline/` | `archive/strike-point-pre-merge/execution-pipeline/` — MWP stage directories |
+| `com.resonanceenergy.ncl-watcher.plist` | `archive/launchd-disabled/` — `launchctl bootout`'d |
+| `com.resonanceenergy.ncl-orchestrator.plist` | `archive/launchd-disabled/` — `launchctl bootout`'d |
+| `feedback-synthesis/{brs,aac,ncc}-reports/` + senders | Neutralized in place by A03b (2026-05-23). BRS/AAC sender stubs exit 1; READMEs marked RETIRED. |
+| Stale Apr-May docs (`RESONANCE_ENERGY_SOT.md`, `RUNTIME_GUIDE.md`, `BUILD_SUMMARY.md`, `INDEX.md`, `MANIFEST.txt`, `STRUCTURE.md`, `README.md`, `CONTEXT.md`, `AUDIT_brain.md`, `WORKSPACES_INDEX.md`, `shared/doctrine/AGENTS.md`, `shared/doctrine/paperclip.config.json`, `shared/doctrine/NARTIX-Ecosystem-Build-Plan.md`) | `archive/docs-pre-retirement/` — all described an architecture that no longer exists |
+
+The Brain has been verified healthy post-archive: pid still serving 8800, FirstStrike iOS connections ESTABLISHED.
+
+**Stale mandate cleanup (2026-05-24)**: After A03b retired the BRS/AAC enum values, `data/mandates.json` still held 21 mandates with `target_pillar: 'brs'` or `'aac'` that the Pydantic model now rejects on `load_state()` — 105 ERROR lines per boot. Pruned via `scripts/prune_retired_pillar_mandates.py` (idempotent, takes a timestamped `.pre-prune-*.bak` backup, drops only retired-pillar entries). 70 NCC mandates retained because the NCC enum value is kept for back-compat. Re-run the script if the mandate file ever regrows retired-pillar entries.
+
+**Strike Point pipeline — current architecture**:
+iOS `POST /pump` → Brain `routes.py:receive_pump_prompt` → `brain.py:receive_pump_prompt(auto_flow=True)` → `spawn_council_session()` → `_extract_mandates_from_council()` → council write-back via async writer → memory persistence. All in-process, no file queue, no external dispatch.
+
+**iOS pump transport**: defaults to Brain Direct (port 8800). Relay mode (port 8787 via `/Users/natrix/Projects/FirstStrike/relay-pump-endpoint.py`) is a fallback that requires explicit toggle in iOS settings; relay still drops files to `archive/strike-point-pre-merge/mandate-generation/input/` if exercised, but nothing reads them anymore.
 
 ---
 
 ## Runtime System
 
-NCL Brain API runs as a **FastAPI service on port 8800** with 176+ endpoints across 20 categories. The runtime layer is autonomous and persistent.
+NCL Brain API runs as a **FastAPI service on port 8800** with 289+ route decorators across 20+ categories. The runtime layer is autonomous and persistent. <!-- verified 2026-05-24 / Wave 10 — `grep -rE "@\w+\.(get|post|put|delete|patch)\(" runtime/` = 323 raw matches; ~289 unique routes after stripping duplicate decorators on the same handler -->
 
-### Autonomous Scheduler — 32 Active Tasks (as of May 22, 2026 EOD)
+### Autonomous Scheduler — 34 Active Named Tasks (verified 2026-05-24 / Wave 10)
 
 | # | Task name | Method | Cadence | Status |
 |---|-----------|--------|---------|--------|
 | 1 | `ncl-awarebot-agent` — 8-source scanning, 6-factor scoring, tier routing, intel briefs, predictions (internal YTC sub-task DISABLED) | `Awarebot.run()` | per-source rate limits | ACTIVE (X 402; Crypto disabled) |
-| 2 | `ncl-awarebot-brief` — periodic Awarebot executive-brief synthesis | `Awarebot.brief()` | hourly | ACTIVE |
-| 3 | `ncl-council-auto` — Delphi-MAD debate on 3+ converging signals or 4hr review | `_council_auto_loop` | 5m poll | ACTIVE |
-| 4 | `ncl-memory` — decay + prune + cluster + merge + ChromaDB reindex | `_memory_consolidation_loop` | 1hr | ACTIVE |
-| 5 | `ncl-workspace` — MWP pipeline stage health | `_workspace_health_loop` | 30m | ACTIVE |
-| 6 | `ncl-mandate-purge` — hygiene against state-leak | `_mandate_purge_loop` | 6hr | ACTIVE |
-| 7 | `ncl-feedback-synth` — pillar reports → synthesis notes | `_feedback_synthesis_loop` | 5m | ACTIVE |
-| 8 | `ncl-heartbeat` — JSONL liveness + watchdog (alerts via central dispatcher) | `_heartbeat_loop` | 60s | ACTIVE |
-| 9 | `ncl-working-ctx` — 6am assembly, noon refresh, 11pm EOD | `_working_context_loop` | 3x daily | ACTIVE |
-| 10 | `ncl-journal-reflection` — Sonnet 4 daily synthesis (`claude-sonnet-4-20250514`) | `_journal_reflection_loop` | 10pm ET daily | ACTIVE |
-| 11 | `ncl-night-watch` — 5-phase maintenance (M1 is now a no-op that reads `last_dedup_scan_merged_24h`) | `_night_watch_loop` | 2am ET nightly | ACTIVE |
-| 12 | `ncl-calendar-agent` — lunar/market/local event correlation | `CalendarAgent.run()` | per-agent | ACTIVE |
-| 13 | `ncl-calendar-alerts` — push critical/high alerts (via central dispatcher) | `_calendar_alert_check_loop` | 10m | ACTIVE |
-| 14 | `ncl-health-rollup` — aggregated component status → `data/health/current.json` + `/system/health/rollup` | `_health_rollup_loop` | 60s | ACTIVE |
-| 15 | `ncl-cost-rollover` — UTC-midnight cost ledger close + JSONL `cost_day_closed` audit | `_cost_rollover_loop` | 60s poll | ACTIVE |
-| 16 | `ncl-cache-warmer` — pre-touches calendar (7d/30d) + todos + sun + working context | `_cache_warmer_loop` | 5m | ACTIVE |
-| 17 | `ncl-alert-dispatch` — centralized rate-limited (1/10s) + deduped (1h per-key) ntfy queue | `_alert_dispatch_loop` | 10s tick | ACTIVE |
-| 18 | `ncl-ytc-dedicated` — YouTube Council with own $3/day cap; dedup window 1d | `_ytc_dedicated_loop` | 1hr | ACTIVE |
-| 19 | `ncl-bm25-rebuild` — BM25 keyword index rebuild for FusedRetriever | `_bm25_rebuild_loop` | 30m | ACTIVE |
-| 20 | `ncl-memory-eval` — weekly 50 Q/A regression eval; hit@5 / MRR / recall@10; ntfy on regression | `_memory_eval_loop` | Sun 3am ET | ACTIVE |
-| 21 | `ncl-chroma-gc` — purges orphaned ChromaDB embeddings (zero-ghost collections now preserved in output) | `_chroma_gc_loop` | 1hr | ACTIVE |
-| 22 | `ncl-conflict-arb` — `contradicts` edge detection + council arbitration; cap 50/cycle, adaptive cadence | `_conflict_arb_loop` | 5/10/15m (backlog-adaptive) | ACTIVE |
-| 23 | `ncl-staleness` — re-verifies high-importance facts (≥70) using `created_at` (not `last_accessed`) | `_staleness_loop` | 6hr | ACTIVE |
-| 24 | `ncl-narrative-threads` — cross-session entity threading; ties related units into named narratives | `_narrative_threads_loop` | 6hr | ACTIVE |
-| 25 | `ncl-async-writer` — fire-and-forget memory write queue (4 drainers, Sonnet 4 enrichment, budget-gated) | `AsyncWriter.run()` | continuous | ACTIVE |
-| 26 | `ncl-memory-budget` — per-tier token-spend rollup + cap-exceed ntfy | `_memory_budget_loop` | 15m | ACTIVE |
-| 27 | `ncl-dedup-scan` — sliding-window 500-unit M1 dedup (lifted out of Night Watch after 30m timeout) | `_dedup_scan_loop` | 6hr | ACTIVE (new EOD 2026-05-22) |
-| 28 | `ncl-claude-md-refresh` — re-ingests `CLAUDE.md` as procedural memory (importance 90, BRAIN tier) | `_claude_md_refresh_loop` | 24hr | ACTIVE (new EOD 2026-05-22) |
+| 2 | `ncl-council-auto` — Delphi-MAD debate on 3+ converging signals or 4hr review | `_council_auto_loop` | 5m poll | ACTIVE |
+| 3 | `ncl-memory` — decay + prune + cluster + merge + ChromaDB reindex | `_memory_consolidation_loop` | 1hr | ACTIVE |
+| 4 | `ncl-workspace` — MWP pipeline stage health | `_workspace_health_loop` | 30m | ACTIVE |
+| 5 | `ncl-mandate-purge` — hygiene against state-leak | `_mandate_purge_loop` | 6hr | ACTIVE |
+| 6 | `ncl-feedback-synth` — pillar reports → synthesis notes | `_feedback_synthesis_loop` | 5m | ACTIVE |
+| 7 | `ncl-heartbeat` — JSONL liveness + watchdog (alerts via central dispatcher) | `_heartbeat_loop` | 60s | ACTIVE |
+| 8 | `ncl-working-ctx` — 6am assembly, noon refresh, 11pm EOD | `_working_context_loop` | 3x daily | ACTIVE |
+| 9 | `ncl-journal-reflection` — Sonnet 4 daily synthesis (`claude-sonnet-4-20250514`) | `_journal_reflection_loop` | 10pm ET daily | ACTIVE |
+| 10 | `ncl-night-watch` — 5-phase maintenance (M1 is now a no-op that reads `last_dedup_scan_merged_24h`) | `_night_watch_loop` | 2am ET nightly | ACTIVE |
+| 11 | `ncl-calendar-agent` — lunar/market/local event correlation | `CalendarAgent.run()` | per-agent | ACTIVE |
+| 12 | `ncl-calendar-alerts` — push critical/high alerts (via central dispatcher) | `_calendar_alert_check_loop` | 10m | ACTIVE |
+| 13 | `ncl-health-rollup` — aggregated component status → `data/health/current.json` + `/system/health/rollup` | `_health_rollup_loop` | 60s | ACTIVE |
+| 14 | `ncl-cost-rollover` — UTC-midnight cost ledger close + JSONL `cost_day_closed` audit | `_cost_rollover_loop` | 60s poll | ACTIVE |
+| 15 | `ncl-cache-warmer` — pre-touches calendar (7d/30d) + todos + sun + working context | `_cache_warmer_loop` | 5m | ACTIVE |
+| 16 | `ncl-alert-dispatch` — centralized rate-limited (1/10s) + deduped (1h per-key) ntfy queue | `_alert_dispatch_loop` | 10s tick | ACTIVE |
+| 17 | `ncl-ytc-dedicated` — YouTube Council with own $3/day cap; dedup window 1d | `_ytc_dedicated_loop` | 1hr | ACTIVE |
+| 18 | `ncl-bm25-rebuild` — BM25 keyword index rebuild for FusedRetriever | `_bm25_rebuild_loop` | 30m | ACTIVE |
+| 19 | `ncl-memory-eval` — weekly 50 Q/A regression eval; hit@5 / MRR / recall@10; ntfy on regression | `_memory_eval_loop` | Sun 3am ET | ACTIVE |
+| 20 | `ncl-chroma-gc` — purges orphaned ChromaDB embeddings (zero-ghost collections now preserved in output) | `_chroma_gc_loop` | 1hr | ACTIVE |
+| 21 | `ncl-conflict-arb` — `contradicts` edge detection + council arbitration; cap 50/cycle, adaptive cadence | `_conflict_arb_loop` | 5/10/15m (backlog-adaptive) | ACTIVE |
+| 22 | `ncl-staleness` — re-verifies high-importance facts (≥70) using `created_at` (not `last_accessed`) | `_staleness_loop` | 6hr | ACTIVE |
+| 23 | `ncl-narrative-threads` — cross-session entity threading; ties related units into named narratives | `_narrative_threads_loop` | 6hr | ACTIVE |
+| 24 | `ncl-async-writer` — fire-and-forget memory write queue (4 drainers, Sonnet 4 enrichment, budget-gated) | `AsyncWriter.run()` | continuous | ACTIVE |
+| 25 | `ncl-memory-budget` — per-tier token-spend rollup + cap-exceed ntfy | `_memory_budget_loop` | 15m | ACTIVE |
+| 26 | `ncl-dedup-scan` — sliding-window 500-unit M1 dedup (lifted out of Night Watch after 30m timeout) | `_dedup_scan_loop` | 6hr | ACTIVE |
+| 27 | `ncl-claude-md-refresh` — re-ingests `CLAUDE.md` as procedural memory (importance 90, BRAIN tier) | `_claude_md_refresh_loop` | 24hr | ACTIVE |
+| 28 | `ncl-stall-watchdog` — detects + alerts on stalled scheduler tasks | `_stall_watchdog_loop` | continuous | ACTIVE <!-- added Wave 10 verification 2026-05-24 --> |
+| 29 | `ncl-city-events` — per-city local-events refresh loop | `_city_events_loop` | per-loop | ACTIVE <!-- added Wave 10 verification 2026-05-24 --> |
+| 30 | `ncl-stocks-scan` — internal stocks/market scan loop | `_stocks_scan_loop` | per-loop | ACTIVE <!-- added Wave 10 verification 2026-05-24 --> |
+| 31 | `ncl-haiku-ab-monitor` — Haiku A/B model rollout monitor | `_haiku_ab_monitor_loop` | per-loop | ACTIVE (gated) <!-- added Wave 10 verification 2026-05-24 --> |
+| 32 | `ncl-sqlite-burnin-verify` — SQLite burn-in verification probe | `_sqlite_burnin_verify_loop` | per-loop | ACTIVE (gated) <!-- added Wave 10 verification 2026-05-24 --> |
+| 33 | `ncl-startup-migrations` — one-shot startup data migrations | `_startup_migrations` | one-shot at boot | ACTIVE <!-- added Wave 10 verification 2026-05-24 --> |
 | + | `ncl-supervisor` — monitors and restarts crashed tasks (max 3 restarts) | `_supervisor_loop` | 30s | ACTIVE (supervises itself) |
 
-> Active set: 28 named tasks + supervisor + 4 async-writer drainer subtasks (reported individually in `/autonomous/loops`) = 32 entries.
+> Active set: 33 named work tasks + supervisor = **34 unique `ncl-*` names** in `runtime/autonomous/scheduler.py` (verified 2026-05-24 / Wave 10 via `grep -oE 'name="ncl-[a-z0-9-]+"' runtime/autonomous/scheduler.py | sort -u | wc -l`). Plus 4 async-writer drainer subtasks reported individually in `/autonomous/loops`.
 
-**Removed:** `_aac_sync_loop` (low-value pillar-sync memory units; functionality folded into Night Watch Phase 1).
+**Removed since prior doc:** `_aac_sync_loop` (folded into Night Watch Phase 1) and the previously-listed `ncl-awarebot-brief` — that task name has no `create_task(..., name="ncl-awarebot-brief")` in `runtime/autonomous/scheduler.py` and was a doc artifact (verified 2026-05-24 / Wave 10).
 
 **Dormant / not yet wired:** `X Liked Videos` (READY — needs OAuth token).
 
@@ -67,7 +124,7 @@ NCL Brain API runs as a **FastAPI service on port 8800** with 176+ endpoints acr
 |----------|---------|
 | `GET /memory/search/fused?q=...&top_k=N` | Vector + BM25 + entity-graph via RRF. Surfaces `tier`+`signal_id`. `NCL_FUSION_MIN_SCORE` env knob |
 | `GET /memory/by-authority?min_tier=council` | Filter recall by authority tier |
-| `POST /memory/backfill-authority` / `POST /memory/retag-authority` | One-shot migrations (both already run; 9,711 units re-tagged) |
+| `POST /memory/backfill-authority` / `POST /memory/retag-authority` | One-shot migrations (both already run; ~12,792 units now in `data/memory/units.jsonl`, verified 2026-05-24 / Wave 10 via `wc -l`) |
 | `POST /memory/bootstrap-claude-md` | Ingest CLAUDE.md files as procedural memory |
 | `POST /memory/kg-cleanup` | Purge URL/domain noise nodes (one-shot) |
 | `GET /memory/budget` / `/memory/budget/history` / `/memory/budget/check` | Per-tier token-spend telemetry |
@@ -83,7 +140,7 @@ NCL Brain API runs as a **FastAPI service on port 8800** with 176+ endpoints acr
 | `POST/DELETE /focus/queries` + `/focus/subreddits` | Accept tier as bare digit `1`/`2`/`3` |
 | `GET /youtube/reports/recent?limit=N` | Recent YTC + YouTube reports, dedup by `video_id` |
 | `GET /predictions` | Each item: cleaned `description`, `direction` (regex classifier), `models` (parsed from `[Consensus: lead=X][Y concurs]`), `linked_signals` |
-| `GET /autonomous/loops` | 32 loops with correct `last_run` |
+| `GET /autonomous/loops` | 34 loops with correct `last_run` (verified 2026-05-24 / Wave 10) |
 | `GET /portfolio/accounts` | `positions_count` propagation fixed |
 | `GET /portfolio/options-flow` | **NEW EOD** — top-20 grouped by ticker with premium splits + call/put ratio + `is_held_in_portfolio` flag |
 | `GET /calendar/events/compiled?window=30` | Auto-excludes first 7 days; scanner contribution capped at 30% (was 93%) |
@@ -100,7 +157,8 @@ NCL Brain API runs as a **FastAPI service on port 8800** with 176+ endpoints acr
 - ChromaDB GC now preserves zero-ghost collections in output (was dropping them)
 - M1 dedup lifted into own 6h loop (was timing out at 30min inside Night Watch on false-positive comparator)
 - `MAX_TOTAL_UNITS` 10K → 25K (was thrashing eviction every ~4s)
-- Anthropic daily cap $5 → $15 (was hitting cap by 18:00 ET)
+- Anthropic daily cap $5 → $12 (was hitting cap by 18:00 ET) <!-- value verified 2026-05-24 / Wave 10 against runtime/cost_tracker.py:53 `"anthropic": 12.00`; prior doc said $15 — drift -->
+
 - `first-strike-chat` re-tagged NATRIX(100) → CALENDAR(50) (was polluting TSLA searches)
 
 **P0 — council + pump + KG + budget (final swarm)**
@@ -121,7 +179,7 @@ NCL Brain API runs as a **FastAPI service on port 8800** with 176+ endpoints acr
 |-------|--------|-----------|
 | **X/Twitter DISABLED** | Scanner ON HOLD per NATRIX (May 19). API 402 + cost overrun. Set `X_SCANNER_ENABLED=true` in .env to re-enable. | Renew subscription |
 | **Paperclip not deployed** | Adapter wired but backend never existed. **MITIGATED** by `runtime/cost_tracker.py`. | Paperclip is dead code; cost_tracker.py owns this |
-| **BRS Dashboard is a stub** | `start-all.sh` runs an inline Python stub returning `{'workers': 0}`. | Build real BRS Dashboard or remove the stub |
+| **BRS Dashboard (legacy stub)** | Pillar retired 2026-05-23 — the start-all.sh stub at port 8000 is unused dead weight. | Remove from start-all.sh |
 | **CoinGecko rate limiting** | Crypto source disabled (60s+ delays). | Alternative source or paid tier |
 
 ### Tailscale Mesh (verified GREEN EOD 2026-05-22)
@@ -184,7 +242,7 @@ YTC now produces one deep-dive report per video (full 150K char transcript budge
 Tracks NATRIX's liked videos on X via OAuth 2.0 user auth, downloads via yt-dlp, transcribes with Whisper, analyzes per-video, stores reports + transcripts in long-term memory. Autonomous scan every 6h when OAuth token is available. Setup: set `X_OAUTH_CLIENT_ID`/`X_OAUTH_CLIENT_SECRET` in `.env`, call `POST /x/oauth/authorize`.
 
 ### Memory System (Hardened May 22, 2026 EOD)
-**MemoryStore**: **25K unit capacity** (bumped from 10K — was thrashing eviction every ~4s), ~9,711 units stamped with authority tier post-retag. Seven-layer architecture inspired by MemGPT/Letta + Mem0, plus Zep/Graphiti bi-temporal KG edges.
+**MemoryStore**: **25K unit capacity** (bumped from 10K — was thrashing eviction every ~4s), ~12,792 units now in `data/memory/units.jsonl` (verified 2026-05-24 / Wave 10 via `wc -l`; up from the ~9,711 figure recorded at the May-22 EOD retag). Seven-layer architecture inspired by MemGPT/Letta + Mem0, plus Zep/Graphiti bi-temporal KG edges.
 
 **Core Features:**
 - Two-speed decay (FadeMem): LML 0.999/day (facts, decisions, preferences, procedures), SML 0.95/day (signals, episodes)
@@ -238,12 +296,13 @@ Real, file-backed cost tracking with per-source daily budget enforcement. Every 
 | Source | Daily Cap | Override Env Var |
 |--------|----------|-----------------|
 | x_twitter | $2.00 | NCL_BUDGET_X_TWITTER |
-| anthropic | $15.00 | NCL_BUDGET_ANTHROPIC |
+| anthropic | $12.00 | NCL_BUDGET_ANTHROPIC |
 | xai | $2.00 | NCL_BUDGET_XAI |
 | openai | $2.00 | NCL_BUDGET_OPENAI |
 | google | $2.00 | NCL_BUDGET_GOOGLE |
 
-> Anthropic raised $5 → $15 EOD 2026-05-22 (was hitting cap by 18:00 ET after Sonnet-everywhere migration).
+> Anthropic raised $5 → $12 EOD 2026-05-22 (was hitting cap by 18:00 ET after Sonnet-everywhere migration). <!-- value verified 2026-05-24 / Wave 10 — earlier doc said $15 but `runtime/cost_tracker.py` shipped with $12 -->
+
 
 **Enforcement**: Budget check runs before every paid API call. 80% warning logged, 100% hard stop blocks the call + push notification sent (via ntfy/Pushover). Platform-wide $20/day hard cap. Date rollover at midnight UTC resets totals.
 
@@ -254,31 +313,30 @@ Real, file-backed cost tracking with per-source daily budget enforcement. Every 
 **X scan interval**: Reduced from 5min to 30min (was burning $25-36/day via 2,304 calls/day).
 
 ### Paperclip — DESIGNED BUT NOT DEPLOYED (SUPERSEDED)
-Paperclip was designed as the agent orchestration backbone but no real backend was ever deployed. Cost tracking is now handled by `runtime/cost_tracker.py` instead. The Paperclip adapter (`runtime/paperclip_adapter/client.py`) still exists but is effectively dead code — CostGate in `runtime/swarm/cost_gate.py` falls back to in-memory when Paperclip is unreachable.
+Paperclip was designed as the agent orchestration backbone but no real backend was ever deployed. Cost tracking is now handled by `runtime/cost_tracker.py` instead. The original `runtime/paperclip_adapter/client.py` has been removed from disk — only the in-repo `paperclip_mock.py` and `config/paperclip` config stub remain (verified 2026-05-24 / Wave 10 via `find . -name "paperclip*"`). CostGate in `runtime/swarm/cost_gate.py` still references Paperclip but falls back to in-memory bookkeeping since the adapter and the backend never existed.
 
 ---
 
 ## Infrastructure
 
-### Services (Mac LaunchAgents)
-| Plist | Process | Port | Lifecycle |
-|-------|---------|------|-----------|
-| `com.resonanceenergy.ncl-brain.plist` | Brain API | 8800 | KeepAlive, RunAtLoad |
-| `com.resonanceenergy.relay.plist` | Relay pump endpoint | 8787 | RunAtLoad |
-| `com.resonanceenergy.ncl-orchestrator.plist` | Strike Point orchestrator | — | RunAtLoad |
-| `com.resonanceenergy.ncl-watcher.plist` | Pump watcher | — | RunAtLoad |
-| `com.resonanceenergy.ncl-councils.plist` | Council sweep | — | Every 6h, no RunAtLoad |
+### Services (Mac LaunchAgents — current 2026-05-23)
+| Plist | Process | Port | Lifecycle | Status |
+|-------|---------|------|-----------|--------|
+| `com.resonanceenergy.ncl-brain.plist` | Brain API (`uvicorn runtime.api.routes:versioned_app`) | 8800 | KeepAlive, RunAtLoad | **LIVE** |
+| `com.resonanceenergy.relay.plist` | Relay pump endpoint (FirstStrike repo) | 8787 | RunAtLoad | Live but idle (iOS defaults to Brain Direct) |
+| `com.resonanceenergy.ncl-councils.plist` | Council sweep | — | Every 6h, no RunAtLoad | Live (autonomous council loop in Brain also runs this on 5m poll) |
+| ~~`com.resonanceenergy.ncl-orchestrator.plist`~~ | ~~Strike Point orchestrator~~ | — | — | **ARCHIVED 2026-05-23** — strike point merged into Brain `auto_flow`. Plist in `archive/launchd-disabled/`. |
+| ~~`com.resonanceenergy.ncl-watcher.plist`~~ | ~~Pump watcher~~ | — | — | **ARCHIVED 2026-05-23** — Brain `/pump` endpoint absorbed this function. Plist in `archive/launchd-disabled/`. |
 
-### Other Services (via start-all.sh, NOT LaunchAgents)
+### Adjacent Services (independent processes)
 | Service | Port | Status |
 |---------|------|--------|
-| NCC Relay | 8787 | Real service (redundant with LaunchAgent relay) |
-| NCC Master | 8765 | Real service |
-| One-Drop | 8123 | Real service |
-| AAC Monitor | 8080 | Has stub fallback |
-| BRS Dashboard | 8000 | **STUB** — returns static JSON |
-| Paperclip | 3100 | **STUB** — returns static JSON |
-| Ollama | 11434 | Local LLM |
+| Ollama | 11434 | Local LLM, live |
+| ~~NCC Relay / Master~~ | ~~8787 / 8765~~ | Repo absent from disk. Any code path that references NCC is vestigial. |
+| ~~One-Drop~~ | ~~8123~~ | Not currently running. Pre-retirement service, not in scope. |
+| ~~AAC Monitor~~ | ~~8080~~ | Retired 2026-05-23. |
+| ~~BRS Dashboard~~ | ~~8000~~ | Retired 2026-05-23. |
+| ~~Paperclip~~ | ~~3100~~ | Never deployed. Cost tracking handled by `runtime/cost_tracker.py`. |
 
 ### Key Config
 - **Tailscale IP**: 100.72.223.123
@@ -292,20 +350,20 @@ Paperclip was designed as the agent orchestration backbone but no real backend w
 - **iPhone 16e Sim**: `9F77D8B9-90B7-49F5-A654-BF6CE34F1D60`
 - **iPad Pro M5 Sim**: `CE298CEE-1125-4090-8847-116691BE501B`
 
-### Authority Chain
+### Authority Chain (current 2026-05-23)
 ```
 NATRIX (absolute)
   |
-NCL (directive, mandates, doctrine updates)
+NCL Brain (standalone — owns memory, councils, intel, calendar, journal, portfolio)
   |
-NCC (operational execution)
-BRS (tactical revenue)
-AAC (tactical capital investment)
-  |
-Feedback (interpreted only, never raw data)
+FirstStrike iOS (the interface)
 ```
 
-**Key Rule**: Only NCL updates doctrine, mandates, roadmaps, and context files. NCC/BRS/AAC never set strategy — only execute work orders.
+No downstream pillars. The Brain is the terminus.
+
+> Historical context: the "Resonance Energy" architecture aimed for NCL → NCC/BRS/AAC pillar handoff. That doctrine was retired in stages — BRS never shipped, AAC integration was shelved (elements cherry-picked into NCL), and the NCC repo was removed from this machine. Mandate dispatch is now an in-process Brain concept, not an external service call.
+
+**Key Rule**: NCL is the whole product. Treat mandates, council outputs, and feedback as Brain-internal artifacts persisted to memory — not as RPC payloads to external pillars.
 
 ---
 
@@ -342,7 +400,22 @@ The `.env` file is sourced by `scripts/launch-brain.sh` at startup. Do not hardc
 If disabling a source/feature, it must be done via a config flag or by removing the call from code. Verify the change is reflected at runtime. Do not just mark a task as "completed" without testing.
 
 ### 5. Do not create stubs or mocks for missing services
-If a service doesn't exist (Paperclip, BRS Dashboard), acknowledge it in documentation. Do not create fake inline stubs that pretend the service is healthy.
+If a service doesn't exist (Paperclip never deployed; BRS/AAC/NCC retired 2026-05-23), acknowledge it in documentation. Do not create fake inline stubs that pretend the service is healthy.
+
+### 6. Do not resurrect the archived strike-point pipeline (added 2026-05-23)
+The pump → mandate → pillar pipeline was MERGED into the Brain. `pump_watcher`, `strike_point_orchestrator`, `execution_loop`, `mandate-generation/`, and `workspaces/execution-pipeline/` are in `archive/strike-point-pre-merge/`. The Brain's `POST /pump` endpoint (`routes.py:795`) with `auto_flow=True` (default) IS the strike-point flow. Do not:
+- Re-create `mandate-generation/{input,processed,failed,output}/` in the repo root
+- Re-load the unloaded LaunchAgents (`ncl-watcher`, `ncl-orchestrator`)
+- Import from `runtime.pump_watcher` or `runtime.strike_point_orchestrator` (they're not on the import path anymore)
+- Wire any new code to write or poll those archived directories
+
+If a future change really does need to revive any of this, do it as a separate explicit project — not as a side effect of another fix.
+
+### 7. Do not re-introduce pillar dispatch to NCC/BRS/AAC (added 2026-05-23)
+NCL is standalone. `PillarType` enum has `NCL` and `NCC` values for historical compatibility; the actual dispatcher (`brain._dispatch_to_ncc`, `runtime/dispatch/pillar_router.py`) writes to a non-existent intake dir and is a no-op in practice. Do not rebuild this. If multi-target dispatch is ever needed again, that's a fresh feature decision, not a "restoration".
+
+### 8. Do not hardcode the STRIKE_AUTH_TOKEN in dashboard HTML (added 2026-05-24, W6-E)
+`dashboard/command-center.html` and `dashboard/review-queue.html` contain the placeholder `__AUTH_TOKEN__` which the `/app` and `/review-queue/dashboard` handlers in `runtime/api/routes.py` substitute with the requester's already-verified Bearer token before serving. The token is NEVER on disk + NEVER in VCS. If you add a new authed dashboard page, follow the same pattern: ship `__AUTH_TOKEN__` in the HTML, run `_verify_strike_token(authorization)` in the handler, then `html.replace("__AUTH_TOKEN__", safe_token)` before returning `HTMLResponse`. Do NOT paste the real token back into the HTML "just for testing" — that puts it back into git history.
 
 ---
 

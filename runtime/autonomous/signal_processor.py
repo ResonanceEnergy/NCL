@@ -26,6 +26,7 @@ from typing import Any, Optional
 
 import aiofiles
 
+
 log = logging.getLogger("ncl.signal_processor")
 
 
@@ -43,10 +44,10 @@ def _json_safe(obj: Any) -> Any:
 
 
 # ── Importance thresholds ──────────────────────────────────
-MEMORY_THRESHOLD = 50.0       # Store in long-term memory
+MEMORY_THRESHOLD = 50.0  # Store in long-term memory
 WORKING_CONTEXT_THRESHOLD = 75.0  # Inject into working context
 PUSH_ALERT_THRESHOLD = 80.0  # Push to iPhone
-COUNCIL_FLAG_THRESHOLD = 85.0 # Flag for council consideration
+COUNCIL_FLAG_THRESHOLD = 85.0  # Flag for council consideration
 
 
 class SignalProcessor:
@@ -71,9 +72,7 @@ class SignalProcessor:
         self.signal_lock = signal_lock or asyncio.Lock()
 
         # Data directory for JSONL persistence
-        self.data_dir = data_dir or Path(
-            os.getenv("NCL_DATA", str(Path.home() / "NCL" / "data"))
-        )
+        self.data_dir = data_dir or Path(os.getenv("NCL_DATA", str(Path.home() / "NCL" / "data")))
         self.intel_dir = self.data_dir / "intelligence"
         self.intel_dir.mkdir(parents=True, exist_ok=True)
         self.signals_jsonl = self.intel_dir / "signals.jsonl"
@@ -180,9 +179,7 @@ class SignalProcessor:
         # Update stats
         self._stats["total_processed"] += len(unique)
         src_key = source_label.split(":")[0] if ":" in source_label else source_label
-        self._stats["by_source"][src_key] = (
-            self._stats["by_source"].get(src_key, 0) + len(unique)
-        )
+        self._stats["by_source"][src_key] = self._stats["by_source"].get(src_key, 0) + len(unique)
 
         log.info(
             f"[PROCESSOR] {source_label}: {len(unique)} signals → "
@@ -238,8 +235,8 @@ class SignalProcessor:
                 "tags": list(getattr(sig, "tags", []))[:15],
                 "url": getattr(sig, "url", None),
                 "timestamp": getattr(sig, "timestamp", now).isoformat()
-                    if hasattr(getattr(sig, "timestamp", now), "isoformat")
-                    else str(getattr(sig, "timestamp", now)),
+                if hasattr(getattr(sig, "timestamp", now), "isoformat")
+                else str(getattr(sig, "timestamp", now)),
                 "metadata": {},
             }
 
@@ -248,7 +245,9 @@ class SignalProcessor:
             source_val = getattr(sig, "source", None)
             source_str = source_val.value if hasattr(source_val, "value") else str(source_val)
             direction_val = getattr(sig, "direction", None)
-            direction_str = direction_val.value if hasattr(direction_val, "value") else str(direction_val)
+            direction_str = (
+                direction_val.value if hasattr(direction_val, "value") else str(direction_val)
+            )
             return {
                 "signal_id": getattr(sig, "signal_id", ""),
                 "source": f"intel:{source_str}",
@@ -261,8 +260,8 @@ class SignalProcessor:
                 "tags": list(getattr(sig, "tags", []))[:15],
                 "url": getattr(sig, "url", None),
                 "timestamp": getattr(sig, "timestamp", now).isoformat()
-                    if hasattr(getattr(sig, "timestamp", now), "isoformat")
-                    else str(getattr(sig, "timestamp", now)),
+                if hasattr(getattr(sig, "timestamp", now), "isoformat")
+                else str(getattr(sig, "timestamp", now)),
                 "metadata": getattr(sig, "metadata", {}),
             }
 
@@ -292,13 +291,15 @@ class SignalProcessor:
         count = 0
         async with self.signal_lock:
             for entry in entries:
-                self.signal_buffer.append({
-                    "source": entry["source"],
-                    "content": entry["content"][:500],
-                    "importance": entry["importance"],
-                    "tags": entry["tags"],
-                    "timestamp": entry["timestamp"],
-                })
+                self.signal_buffer.append(
+                    {
+                        "source": entry["source"],
+                        "content": entry["content"][:500],
+                        "importance": entry["importance"],
+                        "tags": entry["tags"],
+                        "timestamp": entry["timestamp"],
+                    }
+                )
                 count += 1
         self._stats["total_fed_predictor"] += count
         return count
@@ -324,13 +325,18 @@ class SignalProcessor:
 
     async def _rotate_if_needed(self) -> None:
         """Rename signals.jsonl → signals.{timestamp}.jsonl when it exceeds 50 MB."""
-        _MAX_SIGNALS_FILE_BYTES = 50 * 1024 * 1024  # 50 MB
+        _MAX_SIGNALS_FILE_BYTES = 50 * 1024 * 1024  # 50 MB  # noqa: N806
         try:
-            if self.signals_jsonl.exists() and self.signals_jsonl.stat().st_size > _MAX_SIGNALS_FILE_BYTES:
+            if (
+                self.signals_jsonl.exists()
+                and self.signals_jsonl.stat().st_size > _MAX_SIGNALS_FILE_BYTES
+            ):
                 stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
                 rotated = self.signals_jsonl.with_name(f"signals.{stamp}.jsonl")
                 self.signals_jsonl.rename(rotated)
-                log.info(f"[PROCESSOR] Rotated {self.signals_jsonl.name} → {rotated.name} (exceeded 50 MB)")
+                log.info(
+                    f"[PROCESSOR] Rotated {self.signals_jsonl.name} → {rotated.name} (exceeded 50 MB)"  # noqa: E501
+                )
         except Exception as e:
             log.warning(f"[PROCESSOR] File rotation failed for {self.signals_jsonl}: {e}")
 
@@ -360,20 +366,23 @@ class SignalProcessor:
         count = 0
         try:
             from ..memory.working_context import ContextItem
+
             for entry in critical[:5]:
                 source_upper = entry["source"].split(":")[-1].upper()
-                await self.working_context.add_item(ContextItem(
-                    item_id=f"processor:{entry['signal_id']}",
-                    content=f"[{source_upper} HOT] {entry['title']}: {entry['content'][:300]}",
-                    source=entry["source"],
-                    category="hot_signal",
-                    salience_score=0.0,
-                    importance=entry["importance"],
-                    recency_score=0.95,
-                    relevance_score=0.0,
-                    tags=entry["tags"] + ["hot_signal", "auto_processed"],
-                    metadata={"signal_id": entry["signal_id"], "url": entry.get("url")},
-                ))
+                await self.working_context.add_item(
+                    ContextItem(
+                        item_id=f"processor:{entry['signal_id']}",
+                        content=f"[{source_upper} HOT] {entry['title']}: {entry['content'][:300]}",
+                        source=entry["source"],
+                        category="hot_signal",
+                        salience_score=0.0,
+                        importance=entry["importance"],
+                        recency_score=0.95,
+                        relevance_score=0.0,
+                        tags=entry["tags"] + ["hot_signal", "auto_processed"],
+                        metadata={"signal_id": entry["signal_id"], "url": entry.get("url")},
+                    )
+                )
                 count += 1
         except Exception as e:
             log.debug(f"[PROCESSOR] Working context injection failed: {e}")
@@ -388,11 +397,14 @@ class SignalProcessor:
         count = 0
         try:
             from ..strike_point_orchestrator import notify_intel_signal_alert
+
             for entry in hot[:3]:  # Max 3 alerts per batch
                 await notify_intel_signal_alert(entry)
                 count += 1
         except ImportError:
-            log.warning("[PROCESSOR] strike_point_orchestrator not available — push alerts disabled")
+            log.warning(
+                "[PROCESSOR] strike_point_orchestrator not available — push alerts disabled"
+            )
         except Exception as e:
             log.debug(f"[PROCESSOR] Push alert failed: {e}")
         self._stats["total_pushed_alerts"] += count

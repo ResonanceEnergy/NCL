@@ -20,15 +20,21 @@ import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
 
 import aiofiles
 
 from .models import (
-    LivingDoctrine, SandboxEntry, TradingInsight, DoctrineRule,
-    DoctrineSignal, TrendMonitor, RiskThreshold, InsightCategory,
-    Urgency, RuleStatus,
+    DoctrineRule,
+    DoctrineSignal,
+    InsightCategory,
+    LivingDoctrine,
+    RiskThreshold,
+    RuleStatus,
+    SandboxEntry,
+    TradingInsight,
+    TrendMonitor,
 )
+
 
 log = logging.getLogger("ncl.lde.sandbox")
 
@@ -61,6 +67,7 @@ class LDESandbox:
         # Try to initialize vector store
         try:
             from ..councils.shared.vector_store import CouncilVectorStore
+
             self._vector_store = CouncilVectorStore(data_dir=self.data_dir)
             await self._vector_store.init()
             log.info(f"LDE vector store: {self._vector_store._backend}")
@@ -287,13 +294,15 @@ class LDESandbox:
         doctrine.urls_processed += 1
         doctrine.total_insights_extracted += insights_count
 
-        doctrine.history.append({
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "url": url,
-            "insights_extracted": insights_count,
-            "analysis_summary": analysis_summary[:500],
-            "doctrine_changes": doctrine_changes[:500],
-        })
+        doctrine.history.append(
+            {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "url": url,
+                "insights_extracted": insights_count,
+                "analysis_summary": analysis_summary[:500],
+                "doctrine_changes": doctrine_changes[:500],
+            }
+        )
 
         # Keep history manageable (last 200 entries in full, summarize older)
         if len(doctrine.history) > 200:
@@ -337,7 +346,9 @@ class LDESandbox:
             "urls_processed": doctrine.urls_processed,
             "total_insights": doctrine.total_insights_extracted,
             "active_rules": len([r for r in doctrine.core_rules if r.status == RuleStatus.ACTIVE]),
-            "suspended_rules": len([r for r in doctrine.core_rules if r.status == RuleStatus.SUSPENDED]),
+            "suspended_rules": len(
+                [r for r in doctrine.core_rules if r.status == RuleStatus.SUSPENDED]
+            ),
             "active_signals": len(doctrine.active_signals),
             "monitored_trends": len(doctrine.monitored_trends),
             "risk_thresholds": len(doctrine.risk_thresholds),

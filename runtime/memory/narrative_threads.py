@@ -35,11 +35,12 @@ import logging
 import os
 import re
 import uuid
-from collections import Counter, defaultdict
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone, timedelta
+from collections import defaultdict
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
+
 
 log = logging.getLogger("ncl.memory.narrative_threads")
 
@@ -49,8 +50,8 @@ NCL_BASE = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
 
 # Thread caps
 MAX_ACTIVE_THREADS = 100
-MIN_SOURCES_PER_THREAD = 2          # distinct source_unit_id (or source labels) required
-MIN_UNITS_PER_THREAD = 2             # raw unit count
+MIN_SOURCES_PER_THREAD = 2  # distinct source_unit_id (or source labels) required
+MIN_UNITS_PER_THREAD = 2  # raw unit count
 WORKING_CONTEXT_SURFACE_THRESHOLD = 5  # len(unit_ids) at which thread is surfaced
 
 # Importance bump for member units (applied via link_to_units)
@@ -59,32 +60,75 @@ MEMBER_IMPORTANCE_BONUS = 5.0
 # LLM
 SUMMARIZATION_MODEL = "claude-sonnet-4-20250514"
 PER_CYCLE_LLM_BUDGET_USD = 0.20
-SUMMARY_MAX_TOKENS = 220             # short, 2-3 sentences
+SUMMARY_MAX_TOKENS = 220  # short, 2-3 sentences
 
 # Entity allow-list patterns (high-importance primary entities)
-_TICKER_RE = re.compile(r'(?:\$([A-Z]{1,5})\b|\b([A-Z]{2,5})\b(?=\s+(?:stock|shares|earnings|price|rally|drop|surge|crash)))')
-_PERSON_RE = re.compile(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b')
-_HASHTAG_RE = re.compile(r'#([a-zA-Z0-9_]{3,})')
+_TICKER_RE = re.compile(
+    r"(?:\$([A-Z]{1,5})\b|\b([A-Z]{2,5})\b(?=\s+(?:stock|shares|earnings|price|rally|drop|surge|crash)))"
+)
+_PERSON_RE = re.compile(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b")
+_HASHTAG_RE = re.compile(r"#([a-zA-Z0-9_]{3,})")
 
 # Words we never want as primary thread entities
 _BANNED_PRIMARIES = {
-    "the", "this", "that", "they", "we", "monday", "tuesday", "wednesday",
-    "thursday", "friday", "saturday", "sunday", "january", "february",
-    "march", "april", "may", "june", "july", "august", "september",
-    "october", "november", "december", "today", "yesterday", "tomorrow",
-    "claude", "url", "http", "https", "reddit.com", "t.co", "www",
-    "ai", "llm", "api",
+    "the",
+    "this",
+    "that",
+    "they",
+    "we",
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
+    "today",
+    "yesterday",
+    "tomorrow",
+    "claude",
+    "url",
+    "http",
+    "https",
+    "reddit.com",
+    "t.co",
+    "www",
+    "ai",
+    "llm",
+    "api",
 }
 
 # Multi-word generic phrases that appear in templates (council headers,
 # brief boilerplate, etc.) — reject as primary entities even though they
 # pass the capitalized-multi-word heuristic.
 _BANNED_PRIMARY_PHRASES = {
-    "council report", "executive summary", "council insight",
-    "key insights", "intelligence sweep", "morning brief",
-    "council session", "youtube council", "council member",
-    "key metric", "session id", "session report", "daily reflection",
-    "intel brief", "context signals",
+    "council report",
+    "executive summary",
+    "council insight",
+    "key insights",
+    "intelligence sweep",
+    "morning brief",
+    "council session",
+    "youtube council",
+    "council member",
+    "key metric",
+    "session id",
+    "session report",
+    "daily reflection",
+    "intel brief",
+    "context signals",
 }
 
 
@@ -96,18 +140,18 @@ class NarrativeThread:
     """A persistent narrative spanning multiple memory units / sessions."""
 
     thread_id: str
-    title: str                              # human-readable, e.g. "TSLA Q1 earnings analysis"
-    primary_entity: str                     # canonical key, e.g. "$TSLA"
+    title: str  # human-readable, e.g. "TSLA Q1 earnings analysis"
+    primary_entity: str  # canonical key, e.g. "$TSLA"
     related_entities: list[str] = field(default_factory=list)
-    started_at: str = ""                    # ISO
-    last_updated_at: str = ""               # ISO
+    started_at: str = ""  # ISO
+    last_updated_at: str = ""  # ISO
     unit_ids: list[str] = field(default_factory=list)
     session_ids: list[str] = field(default_factory=list)
-    importance: float = 0.0                 # max importance across members
-    summary: str = ""                       # LLM- or rule-generated
+    importance: float = 0.0  # max importance across members
+    summary: str = ""  # LLM- or rule-generated
     # Bookkeeping
     member_sources: list[str] = field(default_factory=list)
-    summary_model: str = ""                 # "claude-sonnet-4-20250514" or "rule"
+    summary_model: str = ""  # "claude-sonnet-4-20250514" or "rule"
     archived: bool = False
 
     def to_dict(self) -> dict:
@@ -211,7 +255,7 @@ def _source_root(source: str) -> str:
     """Strip 'consolidation:' wrappers and keep top-level source family."""
     s = (source or "").lower()
     while s.startswith("consolidation:"):
-        s = s[len("consolidation:"):]
+        s = s[len("consolidation:") :]
     return s.split(":", 1)[0] or "unknown"
 
 
@@ -234,13 +278,13 @@ class NarrativeThreader:
     def __init__(self, memory_store, knowledge_graph=None) -> None:
         self.memory_store = memory_store
         self.knowledge_graph = knowledge_graph
-        self.data_dir = (NCL_BASE / "data" / "memory")
+        self.data_dir = NCL_BASE / "data" / "memory"
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.active_file = self.data_dir / "narrative_threads.jsonl"
         self.archive_file = self.data_dir / "narrative_threads_archive.jsonl"
         self._lock = asyncio.Lock()
-        self._threads: dict[str, NarrativeThread] = {}     # thread_id -> thread
-        self._by_primary: dict[str, str] = {}              # primary_entity -> thread_id
+        self._threads: dict[str, NarrativeThread] = {}  # thread_id -> thread
+        self._by_primary: dict[str, str] = {}  # primary_entity -> thread_id
         self._loaded = False
 
     # ── Persistence ──
@@ -257,7 +301,8 @@ class NarrativeThreader:
                             continue
                         try:
                             t = NarrativeThread.from_dict(json.loads(line))
-                        except Exception:
+                        except Exception as e:
+                            log.warning("[NARRATIVE] corrupt thread line skipped: %s", e)
                             continue
                         if t.archived:
                             continue
@@ -305,13 +350,12 @@ class NarrativeThreader:
                 # Convert naive to UTC; MemUnit should already be tz-aware but
                 # belt-and-suspenders.
                 from datetime import timezone as _tz
+
                 created = created.replace(tzinfo=_tz.utc)
             if created < cutoff:
                 continue
             existing = getattr(u, "entities", None) or []
-            primaries = _extract_primary_entities(
-                getattr(u, "content", "") or "", existing
-            )
+            primaries = _extract_primary_entities(getattr(u, "content", "") or "", existing)
             if not primaries:
                 continue
             for p in primaries:
@@ -329,10 +373,9 @@ class NarrativeThreader:
             # Also enforce: at least 2 distinct source roots OR at least
             # 2 distinct sessions, to avoid all-from-one-feed clusters.
             sessions = {
-                s for s in (
-                    _session_id_from_tags(getattr(u, "tags", []) or [])
-                    for u, _ in hits
-                ) if s
+                s
+                for s in (_session_id_from_tags(getattr(u, "tags", []) or []) for u, _ in hits)
+                if s
             }
             if len(sources) < 2 and len(sessions) < 2:
                 # Single source family AND single session — likely just noise
@@ -345,20 +388,23 @@ class NarrativeThreader:
                 if t:
                     if getattr(t, "tzinfo", None) is None:
                         from datetime import timezone as _tz
+
                         t = t.replace(tzinfo=_tz.utc)
                     timestamps.append(t)
             if not timestamps:
                 continue
             span_days = (max(timestamps) - min(timestamps)).total_seconds() / 86400.0
 
-            candidates.append({
-                "candidate_entity": entity,
-                "units": [u for u, _ in hits],
-                "span_days": round(span_days, 2),
-                "source_count": len(sources),
-                "session_count": len(sessions),
-                "all_primaries": list({p for _, ps in hits for p in ps}),
-            })
+            candidates.append(
+                {
+                    "candidate_entity": entity,
+                    "units": [u for u, _ in hits],
+                    "span_days": round(span_days, 2),
+                    "source_count": len(sources),
+                    "session_count": len(sessions),
+                    "all_primaries": list({p for _, ps in hits for p in ps}),
+                }
+            )
 
         # Order by quality * size (bigger, higher-quality entities first)
         candidates.sort(
@@ -373,9 +419,7 @@ class NarrativeThreader:
 
     # ── Materialization ──
 
-    async def materialize_threads(
-        self, candidates: list[dict]
-    ) -> list[NarrativeThread]:
+    async def materialize_threads(self, candidates: list[dict]) -> list[NarrativeThread]:
         """
         Create or update threads from candidate clusters. Idempotent.
 
@@ -446,8 +490,7 @@ class NarrativeThreader:
                 # Title — only set on first creation, or if currently empty
                 if not thread.title:
                     sample_content = next(
-                        (getattr(u, "content", "") for u in units
-                         if getattr(u, "content", "")),
+                        (getattr(u, "content", "") for u in units if getattr(u, "content", "")),
                         "",
                     )
                     thread.title = _short_title(primary, sample_content)[:120]
@@ -499,6 +542,7 @@ class NarrativeThreader:
 
         Returns (summary, cost_usd, model_label).
         """
+
         # Rule-based fallback summary — always available
         def _rule_summary() -> str:
             ranked = sorted(
@@ -529,12 +573,13 @@ class NarrativeThreader:
         # Check daily cost_tracker budget too
         try:
             from ..cost_tracker import get_tracker, record_cost
+
             tracker = await get_tracker()
             est = min(budget_usd, 0.05)
             if not await tracker.can_spend("anthropic", est):
                 return _rule_summary(), 0.0, "rule"
         except Exception:
-            record_cost = None  # type: ignore
+            record_cost = None  # type: ignore  # noqa: F841
 
         # Build the prompt
         sample_lines = []
@@ -559,57 +604,48 @@ class NarrativeThreader:
             f"Member excerpts (most important first):\n"
             + "\n".join(sample_lines)
             + "\n\nWrite a 2-3 sentence narrative summary that captures what "
-              "is happening with this entity across the sessions. Be concrete. "
-              "No preamble. No 'this thread' meta-talk."
+            "is happening with this entity across the sessions. Be concrete. "
+            "No preamble. No 'this thread' meta-talk."
         )
 
         try:
-            import httpx
-            async with httpx.AsyncClient(timeout=20.0) as client:
-                resp = await client.post(
-                    "https://api.anthropic.com/v1/messages",
-                    headers={
-                        "x-api-key": api_key,
-                        "anthropic-version": "2023-06-01",
-                        "content-type": "application/json",
-                    },
-                    json={
-                        "model": SUMMARIZATION_MODEL,
-                        "max_tokens": SUMMARY_MAX_TOKENS,
-                        "messages": [{"role": "user", "content": prompt}],
-                    },
+            # W6-D: routed through runtime.llm facade. Facade owns cost
+            # recording, retries, and budget gating — but we still need
+            # to record memory-budget telemetry (prompt-context tokens
+            # by-component) ourselves, so we read usage off result.
+            from ..llm import chat as _llm_chat
+
+            result = await _llm_chat(
+                model=SUMMARIZATION_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=SUMMARY_MAX_TOKENS,
+                temperature=0.7,
+                budget_key="anthropic",
+                timeout_s=20.0,
+            )
+            text = (result.text or "").strip()
+            cost = float(result.cost_usd or 0.0)
+            # Memory budget telemetry — count Sonnet prompt-context tokens.
+            try:
+                from .budget_tracker import record as _bt_record
+
+                await _bt_record(
+                    "narrative_summary",
+                    int(result.usage_input_tokens or 0),
+                    tokens_out=int(result.usage_output_tokens or 0),
+                    source=f"thread:{thread.primary_entity}",
                 )
-                resp.raise_for_status()
-                data = resp.json()
-                text = data["content"][0]["text"].strip()
-                usage = data.get("usage", {}) or {}
-                # Sonnet 4 pricing: $3/M input, $15/M output
-                cost = (
-                    usage.get("input_tokens", 0) * 3.0
-                    + usage.get("output_tokens", 0) * 15.0
-                ) / 1_000_000.0
-                try:
-                    from ..cost_tracker import record_cost as _rc
-                    if cost > 0:
-                        await _rc("anthropic", cost, "narrative_thread_summary",
-                                  detail=thread.primary_entity)
-                except Exception:
-                    pass
-                # Memory budget telemetry — count Sonnet prompt-context tokens.
-                try:
-                    from .budget_tracker import record as _bt_record
-                    await _bt_record(
-                        "narrative_summary",
-                        int(usage.get("input_tokens", 0) or 0),
-                        tokens_out=int(usage.get("output_tokens", 0) or 0),
-                        source=f"thread:{thread.primary_entity}",
-                    )
-                except Exception:
-                    pass
-                return text, cost, SUMMARIZATION_MODEL
+            except Exception as e:
+                log.warning(
+                    "[NARRATIVE] budget_tracker record swallowed for %s: %s",
+                    thread.primary_entity,
+                    e,
+                )
+            return text, cost, SUMMARIZATION_MODEL
         except Exception as e:
-            log.warning(f"[NARRATIVE] LLM summarization failed for "
-                        f"{thread.primary_entity}: {e}")
+            log.warning(
+                f"[NARRATIVE] LLM summarization failed for " f"{thread.primary_entity}: {e}"
+            )
             return _rule_summary(), 0.0, "rule"
 
     # ── Queries ──
@@ -619,9 +655,7 @@ class NarrativeThreader:
             self._load()
             return self._threads.get(thread_id)
 
-    async def list_threads(
-        self, limit: int = 50, active_only: bool = True
-    ) -> list[dict]:
+    async def list_threads(self, limit: int = 50, active_only: bool = True) -> list[dict]:
         async with self._lock:
             self._load()
             threads = sorted(
@@ -639,13 +673,12 @@ class NarrativeThreader:
                                 if not line:
                                     continue
                                 try:
-                                    threads.append(
-                                        NarrativeThread.from_dict(json.loads(line))
-                                    )
-                                except Exception:
+                                    threads.append(NarrativeThread.from_dict(json.loads(line)))
+                                except Exception as e:
+                                    log.warning("[NARRATIVE] corrupt archive line skipped: %s", e)
                                     continue
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        log.warning("[NARRATIVE] archive read swallowed: %s", e)
             return [t.to_dict() for t in threads[:limit]]
 
     # ── Side effects on member units ──
@@ -684,8 +717,7 @@ class NarrativeThreader:
             finally:
                 store._release_write()  # noqa: SLF001
         except Exception as e:
-            log.warning(f"[NARRATIVE] link_to_units failed for "
-                        f"{thread.thread_id}: {e}")
+            log.warning(f"[NARRATIVE] link_to_units failed for " f"{thread.thread_id}: {e}")
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -709,7 +741,8 @@ async def _narrative_thread_loop(self) -> None:
     paste the body into scheduler.py alongside _mandate_purge_loop.
     """
     import asyncio as _asyncio
-    from datetime import datetime as _dt, timezone as _tz
+    from datetime import datetime as _dt
+    from datetime import timezone as _tz
 
     log.info("[NARRATIVE] loop task spawned, warming up 60s...")
     try:
@@ -724,7 +757,8 @@ async def _narrative_thread_loop(self) -> None:
             store = self.brain.memory_store if self.brain else None
             kg = getattr(store, "_knowledge_graph", None) if store else None
             self._narrative_threader = NarrativeThreader(
-                memory_store=store, knowledge_graph=kg,
+                memory_store=store,
+                knowledge_graph=kg,
             )
         except Exception as e:
             log.error(f"[NARRATIVE] init failed: {e}", exc_info=True)
@@ -733,8 +767,18 @@ async def _narrative_thread_loop(self) -> None:
     threader: NarrativeThreader = self._narrative_threader
 
     while getattr(self, "_running", True):
+        # W10B-7: fresh per-cycle correlation id so every NARRATIVE log
+        # line is tagged with `[req=loop-narrative-<hex8>]`.
+        try:
+            from ..api.middleware.correlation import loop_request_id, set_request_id
+
+            set_request_id(loop_request_id("loop-narrative"))
+        except Exception:  # pragma: no cover — defensive
+            pass
+
         try:
             from ..autonomous.scheduler import EMERGENCY_STOP_EVENT  # local import
+
             if EMERGENCY_STOP_EVENT.is_set():
                 log.critical("[NARRATIVE] Emergency stop active — halting loop")
                 break
@@ -747,7 +791,7 @@ async def _narrative_thread_loop(self) -> None:
 
             before_ids = set(threader._threads.keys())  # noqa: SLF001
             touched = await threader.materialize_threads(candidates)
-            after_ids = set(threader._threads.keys())   # noqa: SLF001
+            after_ids = set(threader._threads.keys())  # noqa: SLF001
             created = len(after_ids - before_ids)
             updated = len(touched) - created
 
@@ -757,6 +801,7 @@ async def _narrative_thread_loop(self) -> None:
             if wc is not None:
                 try:
                     from .working_context import ContextItem  # local import
+
                     for t in touched:
                         if len(t.unit_ids) < WORKING_CONTEXT_SURFACE_THRESHOLD:
                             continue
@@ -769,8 +814,7 @@ async def _narrative_thread_loop(self) -> None:
                             importance=t.importance,
                             recency_score=1.0,
                             relevance_score=0.7,
-                            tags=["narrative_thread", t.primary_entity]
-                                 + t.related_entities[:5],
+                            tags=["narrative_thread", t.primary_entity] + t.related_entities[:5],
                             created_at=t.started_at,
                             metadata={
                                 "thread_id": t.thread_id,

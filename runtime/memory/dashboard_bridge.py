@@ -2,15 +2,39 @@
 
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
+import os
 from typing import Optional
 
+from ..config import flags
 from .store import MemoryStore
+
 
 log = logging.getLogger("ncl.memory.dashboard")
 
 # Maximum time (seconds) allowed for any single bridge call
 _BRIDGE_TIMEOUT = 30.0
+
+
+# ── SQLite units-index fast path (W5-07) ─────────────────────────────────
+#
+# NOTE: ``get_stats()`` and ``get_timeline()`` both still need the FULL
+# ``_load_all_units()`` snapshot (they compute aggregate stats / per-unit
+# events over every record), so the SQLite fast path doesn't fit them —
+# only the filtered ``search()`` call below benefits. When the flag is
+# off or the SQLite query fails for any reason, we fall back to the
+# canonical search_units path — flag-off behavior is bit-identical to
+# before this retrofit.
+async def _maybe_indexed_search(memory_store, **kwargs):
+    """Drop-in replacement for ``memory_store.search_units(**kwargs)``."""
+    if flags.units_index_sqlite():
+        try:
+            unit_ids = await memory_store._search_units_via_sqlite_index(**kwargs)
+            if unit_ids:
+                units_by_id = await memory_store._load_units_batch(set(unit_ids))
+                return [units_by_id[uid] for uid in unit_ids if uid in units_by_id]
+        except Exception as e:
+            log.debug("sqlite index search failed (%s) — falling back", e)
+    return await memory_store.search_units(**kwargs)
 
 
 class MemoryDashboardBridge:
@@ -34,9 +58,7 @@ class MemoryDashboardBridge:
             units_by_source (dict), top_tags (list), importance_distribution (dict)
         """
         try:
-            units = await asyncio.wait_for(
-                self.store._load_all_units(), timeout=_BRIDGE_TIMEOUT
-            )
+            units = await asyncio.wait_for(self.store._load_all_units(), timeout=_BRIDGE_TIMEOUT)
         except asyncio.TimeoutError:
             log.warning("get_stats: _load_all_units timed out after %.0fs", _BRIDGE_TIMEOUT)
             units = []
@@ -113,9 +135,7 @@ class MemoryDashboardBridge:
             List of timeline events sorted by time (newest first)
         """
         try:
-            units = await asyncio.wait_for(
-                self.store._load_all_units(), timeout=_BRIDGE_TIMEOUT
-            )
+            units = await asyncio.wait_for(self.store._load_all_units(), timeout=_BRIDGE_TIMEOUT)
         except asyncio.TimeoutError:
             log.warning("get_timeline: _load_all_units timed out after %.0fs", _BRIDGE_TIMEOUT)
             return []
@@ -189,7 +209,8 @@ class MemoryDashboardBridge:
         """
         try:
             results = await asyncio.wait_for(
-                self.store.search_units(
+                _maybe_indexed_search(
+                    self.store,
                     tags=tags,
                     importance_threshold=importance_threshold,
                     days_back=days_back,
@@ -212,9 +233,7 @@ class MemoryDashboardBridge:
         return [
             {
                 "unit_id": u.unit_id,
-                "content": (
-                    u.content[:200] + "..." if len(u.content) > 200 else u.content
-                ),
+                "content": (u.content[:200] + "..." if len(u.content) > 200 else u.content),
                 "source": u.source,
                 "importance": round(self.store._apply_decay(u), 2),
                 "tags": u.tags,

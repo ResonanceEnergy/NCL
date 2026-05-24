@@ -48,15 +48,16 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
+
 log = logging.getLogger("ncl.memory.dedup_scanner")
 
 
 # ── Tunables ─────────────────────────────────────────────────────────────
 DEDUP_WINDOW_DEFAULT = 500
 DEDUP_MAX_MERGES_DEFAULT = 200
-SIMILARITY_THRESHOLD = 0.92         # cosine sim above this counts as duplicate
-QUERY_N_RESULTS = 5                 # how many neighbors to fetch per unit
-PER_CYCLE_TIMEOUT_SECONDS = 600     # 10-minute hard cap
+SIMILARITY_THRESHOLD = 0.92  # cosine sim above this counts as duplicate
+QUERY_N_RESULTS = 5  # how many neighbors to fetch per unit
+PER_CYCLE_TIMEOUT_SECONDS = 600  # 10-minute hard cap
 
 
 _CONSOLIDATION_RE = re.compile(r"\[CONSOLIDATED[^\]]*\]\s*")
@@ -89,14 +90,15 @@ async def _find_duplicate_pairs(
         errors.append("no_chroma_collections")
         return pairs, errors
 
-    window_ids = {u.unit_id for u in window}
+    window_ids = {u.unit_id for u in window}  # noqa: F841
 
     for unit in window:
         # Hard cycle timeout
         if time.monotonic() - task_t0 > PER_CYCLE_TIMEOUT_SECONDS:
             errors.append("timeout")
-            log.warning("[DEDUP-SCAN] hit %ds timeout — aborting query phase",
-                        PER_CYCLE_TIMEOUT_SECONDS)
+            log.warning(
+                "[DEDUP-SCAN] hit %ds timeout — aborting query phase", PER_CYCLE_TIMEOUT_SECONDS
+            )
             break
 
         mem_type = getattr(unit, "memory_type", "episodic")
@@ -111,8 +113,7 @@ async def _find_duplicate_pairs(
                 n_results=QUERY_N_RESULTS,
             )
         except Exception as e:
-            log.debug("[DEDUP-SCAN] ChromaDB query for %s: %s",
-                      unit.unit_id[:8], e)
+            log.debug("[DEDUP-SCAN] ChromaDB query for %s: %s", unit.unit_id[:8], e)
             continue
 
         if not results or not results.get("ids") or not results["ids"][0]:
@@ -120,9 +121,7 @@ async def _find_duplicate_pairs(
         if not results.get("distances") or not results["distances"][0]:
             continue
 
-        for match_id, distance in zip(
-            results["ids"][0], results["distances"][0]
-        ):
+        for match_id, distance in zip(results["ids"][0], results["distances"][0]):
             if match_id == unit.unit_id:
                 continue
             # ChromaDB cosine distance: 0 = identical, 2 = opposite
@@ -153,9 +152,11 @@ def _plan_merge(keep: Any, drop: Any) -> Any:
     keep.tags = merged_tags
 
     keep.importance = min(100.0, float(keep.importance) * 1.05)
-    keep.reinforcement_count = int(
-        getattr(keep, "reinforcement_count", 0) or 0
-    ) + int(getattr(drop, "reinforcement_count", 0) or 0) + 1
+    keep.reinforcement_count = (
+        int(getattr(keep, "reinforcement_count", 0) or 0)
+        + int(getattr(drop, "reinforcement_count", 0) or 0)
+        + 1
+    )
     keep.last_accessed = datetime.now(timezone.utc)
     return keep
 
@@ -185,8 +186,12 @@ async def _apply_merges_batch(
         try:
             _plan_merge(keep, drop)
         except Exception as e:
-            log.warning("[DEDUP-SCAN] plan_merge failed (keep=%s,drop=%s): %s",
-                        keep.unit_id[:8], drop.unit_id[:8], e)
+            log.warning(
+                "[DEDUP-SCAN] plan_merge failed (keep=%s,drop=%s): %s",
+                keep.unit_id[:8],
+                drop.unit_id[:8],
+                e,
+            )
 
     await memory_store._acquire_write()
     try:
@@ -206,6 +211,7 @@ async def _apply_merges_batch(
     # Outside the lock — purge the dropped embeddings in one chunked call.
     try:
         from .chroma_gc import delete_unit_embeddings
+
         await delete_unit_embeddings(memory_store, list(drop_ids))
     except Exception as e:
         log.debug("[DEDUP-SCAN] batched embedding delete failed: %s", e)
@@ -287,7 +293,8 @@ async def run_dedup_scan(
 
     log.info(
         "[DEDUP-SCAN] Phase 1 complete: %d pairs found in %.1fs",
-        len(pairs), time.monotonic() - task_t0,
+        len(pairs),
+        time.monotonic() - task_t0,
     )
 
     if not pairs:
@@ -302,10 +309,11 @@ async def run_dedup_scan(
     units_by_id = {u.unit_id: u for u in units}
     merge_plan: list[tuple[Any, Any]] = []
     seen_drops: set[str] = set()
-    for (id_a, id_b) in sorted(pairs):  # deterministic order
+    for id_a, id_b in sorted(pairs):  # deterministic order
         if len(merge_plan) >= max_merges:
-            log.info("[DEDUP-SCAN] hit max_merges=%d cap — deferring rest "
-                     "to next cycle", max_merges)
+            log.info(
+                "[DEDUP-SCAN] hit max_merges=%d cap — deferring rest " "to next cycle", max_merges
+            )
             break
         if time.monotonic() - task_t0 > PER_CYCLE_TIMEOUT_SECONDS:
             out["errors"].append("merge_phase_timeout")
@@ -322,9 +330,7 @@ async def run_dedup_scan(
             continue
 
         # Higher importance wins; tie → older (smaller created_at) wins
-        if (float(a.importance), -_ts(a).timestamp()) >= (
-            float(b.importance), -_ts(b).timestamp()
-        ):
+        if (float(a.importance), -_ts(a).timestamp()) >= (float(b.importance), -_ts(b).timestamp()):
             keep, drop = a, b
         else:
             keep, drop = b, a
@@ -345,7 +351,9 @@ async def run_dedup_scan(
 
     log.info(
         "[DEDUP-SCAN] checked=%d, pairs=%d, merged=%d, duration=%.1fs%s",
-        out["candidates_checked"], out["dupes_found"], out["merged"],
+        out["candidates_checked"],
+        out["dupes_found"],
+        out["merged"],
         out["duration_s"],
         f", errors={out['errors']}" if out["errors"] else "",
     )

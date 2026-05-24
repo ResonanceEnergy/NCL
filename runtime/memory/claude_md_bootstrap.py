@@ -34,17 +34,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+
 log = logging.getLogger("ncl.memory.claude_md_bootstrap")
 
 
 # Default doc paths. Override via env vars or function argument.
 DEFAULT_CLAUDE_MD_PATHS = [
-    os.path.expanduser(
-        os.environ.get("NCL_CLAUDE_MD", "~/dev/NCL/CLAUDE.md")
-    ),
-    os.path.expanduser(
-        os.environ.get("FIRSTSTRIKE_CLAUDE_MD", "~/Projects/FirstStrike/CLAUDE.md")
-    ),
+    os.path.expanduser(os.environ.get("NCL_CLAUDE_MD", "~/dev/NCL/CLAUDE.md")),
+    os.path.expanduser(os.environ.get("FIRSTSTRIKE_CLAUDE_MD", "~/Projects/FirstStrike/CLAUDE.md")),
 ]
 
 
@@ -82,26 +79,30 @@ def _split_sections(text: str, source_label: str) -> list[dict]:
         # Whole doc is a single section
         body = text.strip()
         if body:
-            sections.append({
-                "heading": "(full document)",
-                "body": body,
-                "slug": "full",
-                "content_hash": _content_hash(body),
-                "source_doc": source_label,
-            })
+            sections.append(
+                {
+                    "heading": "(full document)",
+                    "body": body,
+                    "slug": "full",
+                    "content_hash": _content_hash(body),
+                    "source_doc": source_label,
+                }
+            )
         return sections
 
     # Intro = text before the first `##`
     first = matches[0]
     intro = text[: first.start()].strip()
     if intro:
-        sections.append({
-            "heading": "(intro)",
-            "body": intro,
-            "slug": "intro",
-            "content_hash": _content_hash(intro),
-            "source_doc": source_label,
-        })
+        sections.append(
+            {
+                "heading": "(intro)",
+                "body": intro,
+                "slug": "intro",
+                "content_hash": _content_hash(intro),
+                "source_doc": source_label,
+            }
+        )
 
     for i, m in enumerate(matches):
         start = m.start()
@@ -111,13 +112,15 @@ def _split_sections(text: str, source_label: str) -> list[dict]:
             continue
         heading_line = m.group(0).strip()
         heading = heading_line.lstrip("#").strip()
-        sections.append({
-            "heading": heading,
-            "body": body,
-            "slug": _slugify(heading),
-            "content_hash": _content_hash(body),
-            "source_doc": source_label,
-        })
+        sections.append(
+            {
+                "heading": heading,
+                "body": body,
+                "slug": _slugify(heading),
+                "content_hash": _content_hash(body),
+                "source_doc": source_label,
+            }
+        )
     return sections
 
 
@@ -296,7 +299,7 @@ async def claude_md_refresh_loop(brain: Any) -> None:
     Re-reads both CLAUDE.md files and bootstraps any new/changed sections.
     Safe to start before MemoryStore is ready — will no-op until it is.
     """
-    INTERVAL = int(os.environ.get("NCL_CLAUDE_MD_REFRESH_S", 24 * 3600))
+    INTERVAL = int(os.environ.get("NCL_CLAUDE_MD_REFRESH_S", 24 * 3600))  # noqa: N806
     # Warm-start delay so we don't hammer the store right at boot.
     await asyncio.sleep(60.0)
     while True:
@@ -309,7 +312,8 @@ async def claude_md_refresh_loop(brain: Any) -> None:
             result = await bootstrap_claude_md(memory_store)
             log.info(
                 "[CLAUDE-MD] refresh tick: created=%d skipped=%d",
-                result["units_created"], result["units_skipped_existing"],
+                result["units_created"],
+                result["units_skipped_existing"],
             )
         except asyncio.CancelledError:
             raise

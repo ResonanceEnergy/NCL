@@ -15,14 +15,13 @@ Coverage:
  12. create_unit stamps authority_tier into metadata
 """
 
-import json
 import tempfile
 
 import pytest
 
 from runtime.memory.authority import (
-    AuthorityTier,
     SOURCE_TIER_MAP,
+    AuthorityTier,
     authority_weight,
     authority_weight_for_source,
     backfill_authority_tiers,
@@ -49,30 +48,34 @@ def test_source_mapping_covers_every_tier():
         assert tier_for_source(src) == tier, src
         seen_tiers.add(tier)
     expected = set(AuthorityTier) - {AuthorityTier.RAW}
-    assert seen_tiers == expected, (
-        f"missing tiers in SOURCE_TIER_MAP: {expected - seen_tiers}"
-    )
+    assert seen_tiers == expected, f"missing tiers in SOURCE_TIER_MAP: {expected - seen_tiers}"
 
 
-@pytest.mark.parametrize("source,expected", [
-    ("natrix-directive", AuthorityTier.NATRIX),
-    ("pump-prompt", AuthorityTier.NATRIX),
-    ("journal", AuthorityTier.NATRIX),
-    ("first-strike-chat", AuthorityTier.NATRIX),
-    ("council-decision", AuthorityTier.COUNCIL),
-    ("council:claude", AuthorityTier.COUNCIL),
-    ("mandate", AuthorityTier.COUNCIL),
-    ("brain-chat-response", AuthorityTier.BRAIN),
-    ("prediction", AuthorityTier.BRAIN),
-    ("journal-reflection", AuthorityTier.BRAIN),
-    ("calendar-event", AuthorityTier.CALENDAR),
-    ("calendar-agent", AuthorityTier.CALENDAR),
-    ("llm-haiku", AuthorityTier.LLM_SINGLE),
-    ("claude-direct", AuthorityTier.LLM_SINGLE),
-    ("awarebot", AuthorityTier.SCANNER),
-    ("awarebot:reddit", AuthorityTier.SCANNER),
-    ("awarebot:options_flow", AuthorityTier.SCANNER),
-])
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        ("natrix-directive", AuthorityTier.NATRIX),
+        ("pump-prompt", AuthorityTier.NATRIX),
+        ("journal", AuthorityTier.NATRIX),
+        # W10A-6 (2026-05-24): first-strike-chat was demoted NATRIX(100) ->
+        # CALENDAR(50) on 2026-05-22 because the chat tag was polluting TSLA
+        # searches (per CLAUDE.md "Authority retag" entry).
+        ("first-strike-chat", AuthorityTier.CALENDAR),
+        ("council-decision", AuthorityTier.COUNCIL),
+        ("council:claude", AuthorityTier.COUNCIL),
+        ("mandate", AuthorityTier.COUNCIL),
+        ("brain-chat-response", AuthorityTier.BRAIN),
+        ("prediction", AuthorityTier.BRAIN),
+        ("journal-reflection", AuthorityTier.BRAIN),
+        ("calendar-event", AuthorityTier.CALENDAR),
+        ("calendar-agent", AuthorityTier.CALENDAR),
+        ("llm-haiku", AuthorityTier.LLM_SINGLE),
+        ("claude-direct", AuthorityTier.LLM_SINGLE),
+        ("awarebot", AuthorityTier.SCANNER),
+        ("awarebot:reddit", AuthorityTier.SCANNER),
+        ("awarebot:options_flow", AuthorityTier.SCANNER),
+    ],
+)
 def test_known_sources_resolve_to_expected_tier(source, expected):
     assert tier_for_source(source) == expected
 
@@ -104,14 +107,10 @@ def test_prefix_match_uses_longest_known_prefix():
 def test_consolidation_resolves_max_tier_across_parts():
     """A consolidation merging scanner + council + natrix sources resolves
     to NATRIX (the maximum tier present)."""
-    assert tier_for_source(
-        "awarebot:reddit,council:claude,pump-prompt"
-    ) == AuthorityTier.NATRIX
+    assert tier_for_source("awarebot:reddit,council:claude,pump-prompt") == AuthorityTier.NATRIX
 
     # Two scanners — should still be SCANNER, not RAW.
-    assert tier_for_source(
-        "awarebot:reddit,awarebot:news"
-    ) == AuthorityTier.SCANNER
+    assert tier_for_source("awarebot:reddit,awarebot:news") == AuthorityTier.SCANNER
 
 
 # ---------------------------------------------------------------------------
@@ -122,13 +121,12 @@ def test_consolidation_resolves_max_tier_across_parts():
 def test_consolidation_prefix_is_transparent():
     """`consolidation:awarebot:reddit` should resolve to SCANNER, not RAW."""
     assert tier_for_source("consolidation:awarebot:reddit") == AuthorityTier.SCANNER
-    assert tier_for_source(
-        "consolidation:awarebot:reddit,consolidation:awarebot:google_trends"
-    ) == AuthorityTier.SCANNER
+    assert (
+        tier_for_source("consolidation:awarebot:reddit,consolidation:awarebot:google_trends")
+        == AuthorityTier.SCANNER
+    )
     # Nested doubles also handled
-    assert tier_for_source(
-        "consolidation:consolidation:awarebot:reddit"
-    ) == AuthorityTier.SCANNER
+    assert tier_for_source("consolidation:consolidation:awarebot:reddit") == AuthorityTier.SCANNER
 
 
 # ---------------------------------------------------------------------------
@@ -136,13 +134,16 @@ def test_consolidation_prefix_is_transparent():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("source", [
-    "",
-    None,
-    "totally-made-up-source",
-    "random:garbage:string",
-    "  ",
-])
+@pytest.mark.parametrize(
+    "source",
+    [
+        "",
+        None,
+        "totally-made-up-source",
+        "random:garbage:string",
+        "  ",
+    ],
+)
 def test_unknown_source_is_raw(source):
     assert tier_for_source(source) == AuthorityTier.RAW
 
@@ -163,11 +164,11 @@ def test_authority_weight_bounds_and_linearity():
 
 
 def test_authority_weight_clamps_to_bounds():
-    assert authority_weight(0) == 0.1     # below min clamps to 0.1
-    assert authority_weight(5) == 0.1     # below min clamps to 0.1
-    assert authority_weight(200) == 1.0   # above max clamps to 1.0
+    assert authority_weight(0) == 0.1  # below min clamps to 0.1
+    assert authority_weight(5) == 0.1  # below min clamps to 0.1
+    assert authority_weight(200) == 1.0  # above max clamps to 1.0
     assert authority_weight(None) == 0.1  # None -> RAW -> 0.1
-    assert authority_weight(-10) == 0.1   # negative clamps
+    assert authority_weight(-10) == 0.1  # negative clamps
 
 
 def test_authority_weight_for_source_combined_helper():
@@ -203,14 +204,23 @@ def test_filter_by_min_tier_uses_metadata_then_source():
     - fall back to tier_for_source(unit.source) when metadata is absent
     """
     u_natrix = MemUnit(
-        unit_id="u1", content="x", source="pump-prompt", importance=50.0,
+        unit_id="u1",
+        content="x",
+        source="pump-prompt",
+        importance=50.0,
         metadata={"authority_tier": int(AuthorityTier.NATRIX)},
     )
     u_scanner_no_meta = MemUnit(
-        unit_id="u2", content="x", source="awarebot:reddit", importance=50.0,
+        unit_id="u2",
+        content="x",
+        source="awarebot:reddit",
+        importance=50.0,
     )
     u_unknown = MemUnit(
-        unit_id="u3", content="x", source="totally-unknown", importance=50.0,
+        unit_id="u3",
+        content="x",
+        source="totally-unknown",
+        importance=50.0,
     )
     units = [u_natrix, u_scanner_no_meta, u_unknown]
 
@@ -235,17 +245,20 @@ def test_salience_natrix_dud_beats_scanner_peak():
     window = DailyContextWindow.__new__(DailyContextWindow)  # bypass __init__
 
     natrix_dud = window.compute_salience(
-        recency=0.10, importance=0.10, relevance=0.10,
+        recency=0.10,
+        importance=0.10,
+        relevance=0.10,
         authority_weight=authority_weight(AuthorityTier.NATRIX),
     )
     scanner_peak = window.compute_salience(
-        recency=1.0, importance=1.0, relevance=1.0,
+        recency=1.0,
+        importance=1.0,
+        relevance=1.0,
         authority_weight=authority_weight(AuthorityTier.SCANNER),
     )
 
     assert natrix_dud > scanner_peak, (
-        f"NATRIX dud {natrix_dud:.3f} should beat SCANNER peak "
-        f"{scanner_peak:.3f}"
+        f"NATRIX dud {natrix_dud:.3f} should beat SCANNER peak " f"{scanner_peak:.3f}"
     )
 
 
@@ -253,10 +266,12 @@ def test_salience_higher_authority_strictly_dominates_on_equal_subscore():
     window = DailyContextWindow.__new__(DailyContextWindow)
     eq = dict(recency=0.5, importance=0.5, relevance=0.5)
     natrix = window.compute_salience(
-        **eq, authority_weight=authority_weight(AuthorityTier.NATRIX),
+        **eq,
+        authority_weight=authority_weight(AuthorityTier.NATRIX),
     )
     scanner = window.compute_salience(
-        **eq, authority_weight=authority_weight(AuthorityTier.SCANNER),
+        **eq,
+        authority_weight=authority_weight(AuthorityTier.SCANNER),
     )
     assert natrix > scanner
 

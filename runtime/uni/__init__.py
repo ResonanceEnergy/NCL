@@ -30,6 +30,7 @@ from .models import (
     SourceType,
 )
 
+
 __all__ = [
     "ResearchCortex",
     "ResearchTask",

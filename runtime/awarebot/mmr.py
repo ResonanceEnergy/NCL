@@ -71,6 +71,7 @@ from __future__ import annotations
 import re
 from typing import Any, Callable, Iterable
 
+
 _TOKEN_RE = re.compile(r"[a-zA-Z0-9]{3,}")
 
 
@@ -191,7 +192,9 @@ def apply_mmr_with_min_per_source(
 
     # Phase 1: top-scoring item from each source (round-robin by source's
     # best score so the strongest source gets seeded first).
-    source_order = sorted(by_source.keys(), key=lambda s: key_score(by_source[s][0]) or 0.0, reverse=True)
+    source_order = sorted(
+        by_source.keys(), key=lambda s: key_score(by_source[s][0]) or 0.0, reverse=True
+    )
     for src in source_order:
         if len(selected) >= top_k:
             break

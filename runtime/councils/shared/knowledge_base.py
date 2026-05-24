@@ -24,7 +24,6 @@ Directory structure:
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import re
@@ -32,7 +31,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from .models import CouncilReport, CouncilSource, Insight, VideoMeta, XPost
+from .models import CouncilReport, Insight, VideoMeta
+
 
 log = logging.getLogger("ncl.councils.knowledge_base")
 
@@ -48,10 +48,10 @@ class KnowledgeBase:
     """
 
     # Size and staleness limits
-    MAX_INSIGHTS = 5_000          # Hard cap on insight notes
-    MAX_TRANSCRIPTS = 1_000       # Hard cap on transcript notes
-    MAX_WAR_ROOM = 500            # Hard cap on war-room notes
-    STALE_AFTER_DAYS = 90         # Notes older than this are candidates for pruning
+    MAX_INSIGHTS = 5_000  # Hard cap on insight notes
+    MAX_TRANSCRIPTS = 1_000  # Hard cap on transcript notes
+    MAX_WAR_ROOM = 500  # Hard cap on war-room notes
+    STALE_AFTER_DAYS = 90  # Notes older than this are candidates for pruning
 
     def __init__(self, base_dir: Path | str | None = None) -> None:
         self.base = Path(base_dir) if base_dir else KB_DIR
@@ -61,8 +61,13 @@ class KnowledgeBase:
         self.war_room_dir = self.base / "war-room"
         self.indices_dir = self.base / "indices"
 
-        for d in [self.insights_dir, self.sessions_dir, self.transcripts_dir,
-                  self.war_room_dir, self.indices_dir]:
+        for d in [
+            self.insights_dir,
+            self.sessions_dir,
+            self.transcripts_dir,
+            self.war_room_dir,
+            self.indices_dir,
+        ]:
             d.mkdir(parents=True, exist_ok=True)
 
         # Tracks the mtime of each .md file at the time it was last indexed.
@@ -122,7 +127,9 @@ class KnowledgeBase:
                         insight_description=insight.description,
                         session_id=session,
                         source=source,
-                        category=insight.category.value if hasattr(insight.category, 'value') else str(insight.category),
+                        category=insight.category.value
+                        if hasattr(insight.category, "value")
+                        else str(insight.category),
                         tags=insight.tags,
                         confidence=insight.confidence,
                     )
@@ -193,13 +200,15 @@ class KnowledgeBase:
         note_name = f"{date}-war-room-{session_id}"
         note_path = self.war_room_dir / f"{note_name}.md"
 
-        frontmatter = _yaml_frontmatter({
-            "type": "war-room-briefing",
-            "session_id": session_id,
-            "date": date,
-            "tags": ["war-room", "briefing", "strategic"],
-            "created": datetime.now(timezone.utc).isoformat(),
-        })
+        frontmatter = _yaml_frontmatter(
+            {
+                "type": "war-room-briefing",
+                "session_id": session_id,
+                "date": date,
+                "tags": ["war-room", "briefing", "strategic"],
+                "created": datetime.now(timezone.utc).isoformat(),
+            }
+        )
 
         content = f"{frontmatter}\n{briefing_text}\n"
         await asyncio.to_thread(note_path.write_text, content, "utf-8")
@@ -349,8 +358,30 @@ class KnowledgeBase:
 def _yaml_escape(value: str) -> str:
     """Escape a string value for safe YAML frontmatter embedding."""
     # If value contains characters that would break YAML, quote and escape it
-    if any(ch in value for ch in (':', '"', "'", '\n', '#', '{', '}', '[', ']', '&', '*', '?', '|', '>', '!', '%', '@', '`')):
-        escaped = value.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+    if any(
+        ch in value
+        for ch in (
+            ":",
+            '"',
+            "'",
+            "\n",
+            "#",
+            "{",
+            "}",
+            "[",
+            "]",
+            "&",
+            "*",
+            "?",
+            "|",
+            ">",
+            "!",
+            "%",
+            "@",
+            "`",
+        )
+    ):
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
         return f'"{escaped}"'
     return f'"{value}"'
 
@@ -385,20 +416,24 @@ def _render_insight_note(
     total: int,
 ) -> str:
     """Render a single insight as an Obsidian note."""
-    cat_value = insight.category.value if hasattr(insight.category, 'value') else str(insight.category)
+    cat_value = (
+        insight.category.value if hasattr(insight.category, "value") else str(insight.category)
+    )
     tags = ["insight", source, cat_value] + insight.tags
 
-    frontmatter = _yaml_frontmatter({
-        "type": "insight",
-        "source": source,
-        "session_id": session_id,
-        "category": cat_value,
-        "confidence": round(insight.confidence, 2),
-        "actionable": insight.actionable,
-        "tags": tags,
-        "date": date,
-        "created": datetime.now(timezone.utc).isoformat(),
-    })
+    frontmatter = _yaml_frontmatter(
+        {
+            "type": "insight",
+            "source": source,
+            "session_id": session_id,
+            "category": cat_value,
+            "confidence": round(insight.confidence, 2),
+            "actionable": insight.actionable,
+            "tags": tags,
+            "date": date,
+            "created": datetime.now(timezone.utc).isoformat(),
+        }
+    )
 
     confidence_bar = "█" * int(insight.confidence * 10) + "░" * (10 - int(insight.confidence * 10))
 
@@ -428,28 +463,32 @@ def _render_video_reference_note(
     date: str,
 ) -> str:
     """Render a video reference note."""
-    frontmatter = _yaml_frontmatter({
-        "type": "video-reference",
-        "video_id": video.video_id,
-        "channel": video.channel,
-        "duration_minutes": video.duration_seconds // 60,
-        "views": video.view_count,
-        "tags": ["video", "transcript", source] + video.tags[:5],
-        "date": date,
-        "url": video.url,
-    })
+    frontmatter = _yaml_frontmatter(
+        {
+            "type": "video-reference",
+            "video_id": video.video_id,
+            "channel": video.channel,
+            "duration_minutes": video.duration_seconds // 60,
+            "views": video.view_count,
+            "tags": ["video", "transcript", source] + video.tags[:5],
+            "date": date,
+            "url": video.url,
+        }
+    )
 
-    return "\n".join([
-        frontmatter,
-        f"# {video.title}\n",
-        f"**Channel**: {video.channel}",
-        f"**Duration**: {video.duration_seconds // 60} min",
-        f"**Views**: {video.view_count:,}",
-        f"**URL**: {video.url}",
-        f"**Uploaded**: {video.upload_date}\n",
-        f"## Description\n\n{video.description[:500] if video.description else '_No description._'}",
-        f"\n---\n_Processed in session {session_id}_",
-    ])
+    return "\n".join(
+        [
+            frontmatter,
+            f"# {video.title}\n",
+            f"**Channel**: {video.channel}",
+            f"**Duration**: {video.duration_seconds // 60} min",
+            f"**Views**: {video.view_count:,}",
+            f"**URL**: {video.url}",
+            f"**Uploaded**: {video.upload_date}\n",
+            f"## Description\n\n{video.description[:500] if video.description else '_No description._'}",  # noqa: E501
+            f"\n---\n_Processed in session {session_id}_",
+        ]
+    )
 
 
 def _render_session_note(
@@ -459,15 +498,17 @@ def _render_session_note(
 ) -> str:
     """Render a session summary note."""
     source = report.council_type.value
-    frontmatter = _yaml_frontmatter({
-        "type": "session-summary",
-        "source": source,
-        "session_id": report.session_id,
-        "sources_processed": report.sources_processed,
-        "insight_count": len(report.insights),
-        "tags": ["session", source],
-        "date": date,
-    })
+    frontmatter = _yaml_frontmatter(
+        {
+            "type": "session-summary",
+            "source": source,
+            "session_id": report.session_id,
+            "sources_processed": report.sources_processed,
+            "insight_count": len(report.insights),
+            "tags": ["session", source],
+            "date": date,
+        }
+    )
 
     lines = [
         frontmatter,

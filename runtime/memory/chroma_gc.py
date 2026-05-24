@@ -36,6 +36,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+
 log = logging.getLogger("ncl.memory.chroma_gc")
 
 # Bounded batch size — ChromaDB delete() can handle a lot, but we keep it
@@ -43,8 +44,8 @@ log = logging.getLogger("ncl.memory.chroma_gc")
 MAX_DELETE_BATCH = 1000
 
 # Loop cadence (seconds) and ghost threshold to trigger purges.
-GC_LOOP_INTERVAL = 3600           # 1 hour
-GHOST_PURGE_THRESHOLD = 50        # only purge collections with > 50 ghosts
+GC_LOOP_INTERVAL = 3600  # 1 hour
+GHOST_PURGE_THRESHOLD = 50  # only purge collections with > 50 ghosts
 
 
 class ChromaGC:
@@ -121,12 +122,16 @@ class ChromaGC:
         """
         collections = self._collections()
         if not collections:
-            log.warning("[CHROMA-GC] find_ghost_ids: no ChromaDB collections — _init_vector_db failed or store has none")
+            log.warning(
+                "[CHROMA-GC] find_ghost_ids: no ChromaDB collections — _init_vector_db failed or store has none"  # noqa: E501
+            )
             return {}
 
         live = await self._live_unit_ids()
         if not live:
-            log.warning("[CHROMA-GC] find_ghost_ids: 0 live unit_ids — refusing to compute ghosts to avoid mass-delete")
+            log.warning(
+                "[CHROMA-GC] find_ghost_ids: 0 live unit_ids — refusing to compute ghosts to avoid mass-delete"  # noqa: E501
+            )
             return {}
 
         ghosts: dict[str, list[str]] = {}
@@ -172,9 +177,7 @@ class ChromaGC:
                     await asyncio.to_thread(collection.delete, ids=batch)
                     purged += len(batch)
                 except Exception as e:
-                    log.warning(
-                        f"purge_ghosts({name}) batch[{i}:{i+len(batch)}] failed: {e}"
-                    )
+                    log.warning(f"purge_ghosts({name}) batch[{i}:{i+len(batch)}] failed: {e}")
             result[name] = purged
         return result
 
@@ -202,9 +205,7 @@ class ChromaGC:
             if collection is None:
                 continue
             try:
-                stored_ids_by_collection[name] = set(
-                    await self._collection_all_ids(collection)
-                )
+                stored_ids_by_collection[name] = set(await self._collection_all_ids(collection))
             except Exception as e:
                 log.warning(f"reindex_missing precache({name}) failed: {e}")
                 stored_ids_by_collection[name] = set()
@@ -318,6 +319,7 @@ class ChromaGC:
 # removes a MemUnit from units.jsonl so the embedding goes with it.      #
 # ---------------------------------------------------------------------- #
 
+
 async def delete_unit_embeddings(memory_store, unit_ids) -> int:
     """
     Delete the given unit_ids from EVERY ChromaDB collection.
@@ -360,8 +362,7 @@ async def delete_unit_embeddings(memory_store, unit_ids) -> int:
                 attempts += 1
             except Exception as e:
                 log.debug(
-                    f"delete_unit_embeddings({name}) batch[{i}:{i+len(batch)}] "
-                    f"failed: {e}"
+                    f"delete_unit_embeddings({name}) batch[{i}:{i+len(batch)}] " f"failed: {e}"
                 )
     return attempts
 
@@ -369,6 +370,7 @@ async def delete_unit_embeddings(memory_store, unit_ids) -> int:
 # ---------------------------------------------------------------------- #
 # Standalone loop for the scheduler to wrap                              #
 # ---------------------------------------------------------------------- #
+
 
 async def _chroma_gc_loop(
     brain,
@@ -435,8 +437,7 @@ async def _chroma_gc_loop(
             # accumulating ~10-20 ghosts) would never cross the per-collection
             # bar even at hundreds of total ghosts.
             should_purge = (
-                any(c > threshold for c in ghost_counts.values())
-                or total_ghosts > threshold
+                any(c > threshold for c in ghost_counts.values()) or total_ghosts > threshold
             )
             purge_result: dict = {}
             if should_purge:
@@ -456,8 +457,7 @@ async def _chroma_gc_loop(
             if stats_dict is not None:
                 stats_dict["last_chroma_gc"] = tick_started
                 stats_dict["chroma_ghosts_purged_lifetime"] = (
-                    stats_dict.get("chroma_ghosts_purged_lifetime", 0)
-                    + purged_total
+                    stats_dict.get("chroma_ghosts_purged_lifetime", 0) + purged_total
                 )
 
             # Audit log — JSONL append, single fsync per tick.

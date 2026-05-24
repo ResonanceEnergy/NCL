@@ -29,6 +29,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+
 log = logging.getLogger("ncl.health")
 
 
@@ -112,6 +113,7 @@ def _portfolio_component() -> dict:
     module load time (avoids circular imports + lets us fail soft)."""
     try:
         from ..portfolio import portfolio_routes  # noqa: WPS433
+
         pm = getattr(portfolio_routes, "_portfolio_manager", None)
     except Exception as e:
         return {"status": "yellow", "reason": f"portfolio import failed: {e}"}
@@ -156,21 +158,19 @@ async def _memory_component(brain) -> dict:
         if hasattr(store, "get_stats"):
             try:
                 import inspect
+
                 stats = store.get_stats()
                 if inspect.iscoroutine(stats):
                     stats = await stats
                 if isinstance(stats, dict):
-                    units = (
-                        stats.get("total_units")
-                        or stats.get("count")
-                        or stats.get("units")
-                    )
+                    units = stats.get("total_units") or stats.get("count") or stats.get("units")
             except Exception:
                 units = None
         if units is None:
             # Last-resort: count units.jsonl line count (read-only, no lock)
             try:
                 from pathlib import Path
+
                 p = getattr(store, "data_path", None) or getattr(store, "_data_path", None)
                 if p is None:
                     # Default location
@@ -205,7 +205,8 @@ async def _memory_component(brain) -> dict:
 
 async def _cost_component() -> dict:
     try:
-        from ..cost_tracker import get_tracker, PLATFORM_DAILY_CAP
+        from ..cost_tracker import PLATFORM_DAILY_CAP, get_tracker
+
         tracker = await get_tracker()
         summary = await tracker.get_daily_summary()
     except Exception as e:
@@ -213,10 +214,7 @@ async def _cost_component() -> dict:
     total = float(summary.get("total_spent_usd", 0.0) or 0.0)
     cap = float(PLATFORM_DAILY_CAP or 1.0)
     pct = (total / cap * 100.0) if cap > 0 else 0.0
-    blocked = [
-        name for name, info in (summary.get("sources") or {}).items()
-        if info.get("blocked")
-    ]
+    blocked = [name for name, info in (summary.get("sources") or {}).items() if info.get("blocked")]
     if blocked or pct >= 100:
         status = "red"
     elif pct >= 80:

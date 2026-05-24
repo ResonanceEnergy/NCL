@@ -52,17 +52,18 @@ from typing import Any, Optional
 
 import aiofiles
 
+
 log = logging.getLogger("ncl.memory.staleness")
 
 # ── Tunables (all overridable via env) ───────────────────────────────────────
 
 _DEFAULT_THRESHOLDS = {
-    "semantic":   30 * 86400,  # 30 days — facts evolve slowly
+    "semantic": 30 * 86400,  # 30 days — facts evolve slowly
     "procedural": 14 * 86400,  # 14 days — workflows shift quarterly-ish
     "preference": 60 * 86400,  # 60 days — preferences are the stickiest
-    "decision":    7 * 86400,  # 7 days  — decisions can be reversed quickly
-    "signal":      3 * 86400,  # 3 days  — signals decay fastest by design
-    "episodic":    7 * 86400,  # 7 days  — episodes lose actionability fast
+    "decision": 7 * 86400,  # 7 days  — decisions can be reversed quickly
+    "signal": 3 * 86400,  # 3 days  — signals decay fastest by design
+    "episodic": 7 * 86400,  # 7 days  — episodes lose actionability fast
 }
 
 
@@ -89,25 +90,127 @@ _IMPORTANCE_DOWNWEIGHT = float(os.getenv("NCL_STALENESS_DOWNWEIGHT", "0.75"))  #
 # Words that, if they show up alongside overlapping content tokens, suggest
 # the live signal CONTRADICTS the stored unit rather than supports it.
 _CONTRADICTION_MARKERS = {
-    "no", "not", "never", "false", "wrong", "reversed", "cancelled",
-    "canceled", "denied", "rejected", "fail", "failed", "down", "dump",
-    "drop", "drops", "decline", "declines", "miss", "missed", "lost",
-    "lose", "loses", "bear", "bearish", "crashes", "crashed", "broke",
-    "broken", "halted", "paused", "delayed", "withdrawn",
+    "no",
+    "not",
+    "never",
+    "false",
+    "wrong",
+    "reversed",
+    "cancelled",
+    "canceled",
+    "denied",
+    "rejected",
+    "fail",
+    "failed",
+    "down",
+    "dump",
+    "drop",
+    "drops",
+    "decline",
+    "declines",
+    "miss",
+    "missed",
+    "lost",
+    "lose",
+    "loses",
+    "bear",
+    "bearish",
+    "crashes",
+    "crashed",
+    "broke",
+    "broken",
+    "halted",
+    "paused",
+    "delayed",
+    "withdrawn",
 }
 
 # Tokens to drop when extracting keywords from content (high-noise stopwords)
 _STOPWORDS = {
-    "the", "a", "an", "and", "or", "but", "is", "are", "was", "were",
-    "be", "been", "being", "to", "of", "in", "on", "at", "for", "with",
-    "as", "by", "from", "this", "that", "these", "those", "it", "its",
-    "i", "you", "he", "she", "we", "they", "him", "her", "them", "my",
-    "your", "his", "their", "our", "me", "us",
-    "have", "has", "had", "do", "does", "did", "will", "would", "could",
-    "should", "may", "might", "can", "just", "than", "then", "so", "too",
-    "very", "any", "some", "all", "more", "most", "other", "into", "over",
-    "about", "up", "down", "out", "off", "if", "no", "not", "only",
-    "consolidation", "consolidated", "scan",
+    "the",
+    "a",
+    "an",
+    "and",
+    "or",
+    "but",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "being",
+    "to",
+    "of",
+    "in",
+    "on",
+    "at",
+    "for",
+    "with",
+    "as",
+    "by",
+    "from",
+    "this",
+    "that",
+    "these",
+    "those",
+    "it",
+    "its",
+    "i",
+    "you",
+    "he",
+    "she",
+    "we",
+    "they",
+    "him",
+    "her",
+    "them",
+    "my",
+    "your",
+    "his",
+    "their",
+    "our",
+    "me",
+    "us",
+    "have",
+    "has",
+    "had",
+    "do",
+    "does",
+    "did",
+    "will",
+    "would",
+    "could",
+    "should",
+    "may",
+    "might",
+    "can",
+    "just",
+    "than",
+    "then",
+    "so",
+    "too",
+    "very",
+    "any",
+    "some",
+    "all",
+    "more",
+    "most",
+    "other",
+    "into",
+    "over",
+    "about",
+    "up",
+    "down",
+    "out",
+    "off",
+    "if",
+    "no",
+    "not",
+    "only",
+    "consolidation",
+    "consolidated",
+    "scan",
 }
 
 _WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9$_]{2,}")
@@ -247,15 +350,17 @@ class StalenessDetector:
                 content = getattr(unit, "content", "") or ""
                 preview = content.strip().replace("\n", " ")[:160]
 
-                out.append({
-                    "unit_id": unit.unit_id,
-                    "memory_type": mem_type,
-                    "importance": importance,
-                    "age_seconds": int(age_seconds),
-                    "threshold_seconds": int(threshold),
-                    "age_ratio": round(age_seconds / threshold, 3) if threshold else 0.0,
-                    "content_preview": preview,
-                })
+                out.append(
+                    {
+                        "unit_id": unit.unit_id,
+                        "memory_type": mem_type,
+                        "importance": importance,
+                        "age_seconds": int(age_seconds),
+                        "threshold_seconds": int(threshold),
+                        "age_ratio": round(age_seconds / threshold, 3) if threshold else 0.0,
+                        "content_preview": preview,
+                    }
+                )
             except Exception as e:
                 log.debug("[STALENESS] skipped one unit: %s", e)
 
@@ -292,7 +397,8 @@ class StalenessDetector:
             try:
                 signals = list(sigs)
                 break
-            except Exception:
+            except Exception as e:
+                log.debug("[STALENESS] awarebot.%s read swallowed: %s", attr, e)
                 continue
 
         if not signals:
@@ -314,10 +420,12 @@ class StalenessDetector:
 
             for sig in signals:
                 try:
-                    sig_text = " ".join([
-                        getattr(sig, "title", "") or "",
-                        getattr(sig, "content", "") or "",
-                    ])
+                    sig_text = " ".join(
+                        [
+                            getattr(sig, "title", "") or "",
+                            getattr(sig, "content", "") or "",
+                        ]
+                    )
                     sig_tokens = _tokens(sig_text)
                     overlap = unit_tokens & sig_tokens
                     # Require at least 2 overlapping content tokens for the
@@ -331,7 +439,8 @@ class StalenessDetector:
                         contradicting += 1
                     else:
                         supporting += 1
-                except Exception:
+                except Exception as e:
+                    log.debug("[STALENESS] per-signal cross-check swallowed: %s", e)
                     continue
 
             result["supporting_signal_count"] = supporting
@@ -375,14 +484,16 @@ class StalenessDetector:
                 log.warning("[STALENESS] persist downweight failed for %s: %s", unit_id, e)
                 # State is still recorded; re-index next cycle.
 
-            await self._append_ledger({
-                "event": "marked_stale",
-                "unit_id": unit_id,
-                "reason": reason,
-                "original_importance": original,
-                "new_importance": new_importance,
-                "at": now_iso,
-            })
+            await self._append_ledger(
+                {
+                    "event": "marked_stale",
+                    "unit_id": unit_id,
+                    "reason": reason,
+                    "original_importance": original,
+                    "new_importance": new_importance,
+                    "at": now_iso,
+                }
+            )
             await self._persist_state()
             return True
         except Exception as e:
@@ -404,9 +515,9 @@ class StalenessDetector:
                 await self._persist_state()
                 return False
 
-            restore_to = float(self._state[unit_id].get(
-                "original_importance", getattr(unit, "importance", 0.0)
-            ))
+            restore_to = float(
+                self._state[unit_id].get("original_importance", getattr(unit, "importance", 0.0))
+            )
             unit.importance = max(0.0, min(100.0, restore_to))
             unit.last_accessed = datetime.now(timezone.utc)
             try:
@@ -414,12 +525,14 @@ class StalenessDetector:
             except Exception as e:
                 log.warning("[STALENESS] persist revive failed for %s: %s", unit_id, e)
 
-            await self._append_ledger({
-                "event": "revived",
-                "unit_id": unit_id,
-                "restored_importance": restore_to,
-                "at": datetime.now(timezone.utc).isoformat(),
-            })
+            await self._append_ledger(
+                {
+                    "event": "revived",
+                    "unit_id": unit_id,
+                    "restored_importance": restore_to,
+                    "at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
             self._state.pop(unit_id, None)
             await self._persist_state()
             return True
@@ -451,8 +564,7 @@ class StalenessDetector:
         # ── Phase 1+2 — find stale candidates, decide ────────────────────
         candidates = await self.find_stale()
         candidates = candidates[:_PER_CYCLE_CAP]
-        log.info("[STALENESS] checking %d candidates (cap %d)",
-                 len(candidates), _PER_CYCLE_CAP)
+        log.info("[STALENESS] checking %d candidates (cap %d)", len(candidates), _PER_CYCLE_CAP)
 
         now = datetime.now(timezone.utc)
 
@@ -549,8 +661,7 @@ class StalenessDetector:
             if raw.strip():
                 self._state = json.loads(raw)
         except Exception as e:
-            log.warning("[STALENESS] failed to load state %s: %s",
-                        self._state_path, e)
+            log.warning("[STALENESS] failed to load state %s: %s", self._state_path, e)
         finally:
             self._state_loaded = True
 
@@ -590,9 +701,7 @@ class StalenessDetector:
 
 
 # Default cadence: 21600s = 6h. Override per-instance if needed.
-STALENESS_LOOP_INTERVAL_SECONDS = int(
-    os.getenv("NCL_STALENESS_LOOP_INTERVAL", "21600")
-)
+STALENESS_LOOP_INTERVAL_SECONDS = int(os.getenv("NCL_STALENESS_LOOP_INTERVAL", "21600"))
 
 
 async def staleness_detector_loop(
@@ -619,9 +728,18 @@ async def staleness_detector_loop(
     try:
         from ..autonomous.scheduler import EMERGENCY_STOP_EVENT  # type: ignore
     except Exception:  # pragma: no cover
-        EMERGENCY_STOP_EVENT = None
+        EMERGENCY_STOP_EVENT = None  # noqa: N806
 
     while getattr(scheduler, "_running", True):
+        # W10B-7: fresh per-cycle correlation id so every staleness check
+        # log line is tagged with `[req=loop-staleness-<hex8>]`.
+        try:
+            from ..api.middleware.correlation import loop_request_id, set_request_id
+
+            set_request_id(loop_request_id("loop-staleness"))
+        except Exception:  # pragma: no cover — defensive: never block loop on tagging
+            pass
+
         if EMERGENCY_STOP_EVENT is not None and EMERGENCY_STOP_EVENT.is_set():
             log.critical("[STALENESS] Emergency stop active — halting loop")
             break
@@ -631,23 +749,22 @@ async def staleness_detector_loop(
             log.info(
                 "[STALENESS] checked %d high-importance, marked %d stale, "
                 "revived %d, refreshed %d (stale total: %d)",
-                result["checked"], result["marked"], result["revived"],
-                result["refreshed"], result["stale_total"],
+                result["checked"],
+                result["marked"],
+                result["revived"],
+                result["refreshed"],
+                result["stale_total"],
             )
 
             # Stats updates — gracefully no-op if scheduler doesn't carry them.
             try:
-                scheduler._stats["last_staleness_check"] = (
-                    datetime.now(timezone.utc).isoformat()
-                )
+                scheduler._stats["last_staleness_check"] = datetime.now(timezone.utc).isoformat()
                 scheduler._stats["stale_units_total"] = result["stale_total"]
                 scheduler._stats["staleness_marked_total"] = (
-                    scheduler._stats.get("staleness_marked_total", 0)
-                    + result["marked"]
+                    scheduler._stats.get("staleness_marked_total", 0) + result["marked"]
                 )
                 scheduler._stats["staleness_revived_total"] = (
-                    scheduler._stats.get("staleness_revived_total", 0)
-                    + result["revived"]
+                    scheduler._stats.get("staleness_revived_total", 0) + result["revived"]
                 )
             except Exception:
                 pass
@@ -655,9 +772,7 @@ async def staleness_detector_loop(
             # Optional autonomous_event log (mirrors other loops).
             try:
                 if hasattr(scheduler, "_log_autonomous_event"):
-                    await scheduler._log_autonomous_event(
-                        "staleness_cycle", result
-                    )
+                    await scheduler._log_autonomous_event("staleness_cycle", result)
             except Exception:
                 pass
 

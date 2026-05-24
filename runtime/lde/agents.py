@@ -16,10 +16,10 @@ import json
 import logging
 import os
 import time
-from datetime import datetime, timezone
 from typing import Any, Optional
 
 import httpx
+
 
 log = logging.getLogger("ncl.lde.agents")
 
@@ -101,7 +101,7 @@ Rules:
 - Every insight must pass the "so what?" test — if it doesn't lead to trading action or understanding, cut it
 - Confidence below 3 = not worth including
 - Be specific: "Tech stocks may move" is garbage. "TSMC 3nm yield issues could pressure NVDA supply Q3" is signal
-- Extract at minimum 3 insights, maximum 15"""
+- Extract at minimum 3 insights, maximum 15"""  # noqa: E501
 
 ANALYZER_SYSTEM = """You are the Sandbox Analyzer Engine for the Living Doctrine Engine.
 
@@ -206,12 +206,15 @@ Rules:
 - Rules with 3+ contradicting insights should be SUSPENDED, not deleted
 - Confidence must be evidence-based, not vibes
 - Every rule needs an ACTION (what to do)
-- Be conservative with CRITICAL urgency — only true market-moving events"""
+- Be conservative with CRITICAL urgency — only true market-moving events"""  # noqa: E501
 
 
 # ── API Call Infrastructure ───────────────────────────────────────────────
 
-async def _call_model(system: str, prompt: str, temperature: float = 0.3, max_tokens: int = 4096) -> tuple[str, str]:
+
+async def _call_model(
+    system: str, prompt: str, temperature: float = 0.3, max_tokens: int = 4096
+) -> tuple[str, str]:
     """Call AI model with Claude → Grok → Ollama fallback. Returns (response, model_name)."""
 
     # Try Claude
@@ -235,26 +238,25 @@ async def _call_model(system: str, prompt: str, temperature: float = 0.3, max_to
 
 
 async def _call_claude(system: str, prompt: str, temp: float, max_tok: int) -> str:
+    """LDE Claude call. W6-D: routed through runtime.llm facade.
+
+    Returns the model's text on success, "" on any error (caller falls
+    through to Grok then Ollama). The empty-string-on-error contract is
+    preserved verbatim — every existing fallback chain still works.
+    """
     try:
-        client = await _get_lde_client()
-        resp = await client.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "x-api-key": ANTHROPIC_KEY,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            json={
-                "model": os.getenv("LDE_CLAUDE_MODEL", "claude-sonnet-4-20250514"),
-                "max_tokens": max_tok,
-                "system": system,
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": temp,
-            },
-            timeout=180.0,
+        from ..llm import chat as _llm_chat
+
+        result = await _llm_chat(
+            model=os.getenv("LDE_CLAUDE_MODEL", "claude-sonnet-4-20250514"),
+            messages=[{"role": "user", "content": prompt}],
+            system=system,
+            max_tokens=max_tok,
+            temperature=temp,
+            budget_key="anthropic",
+            timeout_s=180.0,
         )
-        resp.raise_for_status()
-        return resp.json()["content"][0]["text"]
+        return result.text or ""
     except Exception as e:
         log.warning(f"Claude failed: {e}")
         return ""
@@ -328,7 +330,7 @@ def _parse_json_response(raw: str) -> Any:
             end_idx = text.rfind(end_char)
             if start_idx >= 0 and end_idx > start_idx:
                 try:
-                    return json.loads(text[start_idx:end_idx + 1])
+                    return json.loads(text[start_idx : end_idx + 1])
                 except json.JSONDecodeError:
                     continue
         log.warning(f"Could not parse JSON from response ({len(raw)} chars)")
@@ -336,6 +338,7 @@ def _parse_json_response(raw: str) -> Any:
 
 
 # ── Agent Functions ───────────────────────────────────────────────────────
+
 
 async def extract_insights(
     text: str,
@@ -385,22 +388,28 @@ async def analyze_against_sandbox(
         "## NEW INSIGHTS (just extracted)\n",
         json.dumps(new_insights, indent=2, default=str),
         "\n\n## CURRENT LIVING DOCTRINE\n",
-        json.dumps({
-            "core_rules": doctrine.get("core_rules", [])[:20],
-            "active_signals": doctrine.get("active_signals", [])[:15],
-            "monitored_trends": doctrine.get("monitored_trends", [])[:10],
-            "risk_thresholds": doctrine.get("risk_thresholds", []),
-            "market_bias": doctrine.get("market_bias", "neutral"),
-            "confidence_score": doctrine.get("confidence_score", 5.0),
-            "urls_processed": doctrine.get("urls_processed", 0),
-        }, indent=2, default=str),
+        json.dumps(
+            {
+                "core_rules": doctrine.get("core_rules", [])[:20],
+                "active_signals": doctrine.get("active_signals", [])[:15],
+                "monitored_trends": doctrine.get("monitored_trends", [])[:10],
+                "risk_thresholds": doctrine.get("risk_thresholds", []),
+                "market_bias": doctrine.get("market_bias", "neutral"),
+                "confidence_score": doctrine.get("confidence_score", 5.0),
+                "urls_processed": doctrine.get("urls_processed", 0),
+            },
+            indent=2,
+            default=str,
+        ),
     ]
 
     if recent_history:
         prompt_parts.append("\n\n## RECENT SANDBOX HISTORY (last 5 inputs)\n")
         for entry in recent_history[-5:]:
-            prompt_parts.append(f"- [{entry.get('processed_at', '?')}] {entry.get('source_url', '?')}: "
-                                f"{len(entry.get('insights', []))} insights")
+            prompt_parts.append(
+                f"- [{entry.get('processed_at', '?')}] {entry.get('source_url', '?')}: "
+                f"{len(entry.get('insights', []))} insights"
+            )
 
     prompt = "\n".join(prompt_parts)
     response, model = await _call_model(ANALYZER_SYSTEM, prompt, temperature=0.3)
@@ -408,9 +417,14 @@ async def analyze_against_sandbox(
 
     analysis = _parse_json_response(response)
     if not isinstance(analysis, dict):
-        analysis = {"summary": response[:500] if response else "Analysis failed", "cross_references": []}
+        analysis = {
+            "summary": response[:500] if response else "Analysis failed",
+            "cross_references": [],
+        }
 
-    log.info(f"[Analyzer] via {model} in {elapsed:.1f}s — bias: {analysis.get('market_bias_shift', '?')}")
+    log.info(
+        f"[Analyzer] via {model} in {elapsed:.1f}s — bias: {analysis.get('market_bias_shift', '?')}"
+    )
     return analysis
 
 
@@ -436,12 +450,17 @@ async def update_doctrine(
         f"Produce your doctrine updates now."
     )
 
-    response, model = await _call_model(DOCTRINE_UPDATER_SYSTEM, prompt, temperature=0.3, max_tokens=6000)
+    response, model = await _call_model(
+        DOCTRINE_UPDATER_SYSTEM, prompt, temperature=0.3, max_tokens=6000
+    )
     elapsed = time.monotonic() - start
 
     updates = _parse_json_response(response)
     if not isinstance(updates, dict):
-        updates = {"doctrine_summary": response[:500] if response else "Update failed", "new_rules": []}
+        updates = {
+            "doctrine_summary": response[:500] if response else "Update failed",
+            "new_rules": [],
+        }
 
     log.info(
         f"[Doctrine Guardian] via {model} in {elapsed:.1f}s — "

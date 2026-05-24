@@ -2,7 +2,6 @@
 
 import asyncio
 import sys
-from pathlib import Path
 
 from .runner import GoldenTaskRunner
 
@@ -28,7 +27,7 @@ def print_summary(result) -> None:
     print(f"Duration:        {result.total_duration_ms:.1f}ms")
 
     if result.regression_detected:
-        print(f"\n⚠️  REGRESSION DETECTED")
+        print("\n⚠️  REGRESSION DETECTED")
         print(f"Regressions:     {len(result.regression_tasks)}")
         for task_name in result.regression_tasks[:5]:
             print(f"  - {task_name}")
@@ -51,12 +50,12 @@ def print_failures(result) -> None:
         print(f"   Duration: {task_result.duration_ms:.1f}ms")
 
         if task_result.errors:
-            print(f"   Errors:")
+            print("   Errors:")
             for error in task_result.errors:
                 print(f"     - {error}")
 
         if task_result.failure_reasons:
-            print(f"   Reasons:")
+            print("   Reasons:")
             for reason in task_result.failure_reasons:
                 print(f"     - {reason}")
 
@@ -115,13 +114,13 @@ async def main() -> int:
     passed_gate = result.pass_rate >= min_pass_rate and not has_regressions
 
     if passed_gate:
-        print(f"\n✓ GATE PASSED")
+        print("\n✓ GATE PASSED")
         print(f"  Pass rate {result.pass_rate:.1f}% >= {min_pass_rate}%")
         if not has_regressions:
-            print(f"  No regressions detected")
+            print("  No regressions detected")
         return 0
     else:
-        print(f"\n✗ GATE FAILED")
+        print("\n✗ GATE FAILED")
         if result.pass_rate < min_pass_rate:
             print(
                 f"  Pass rate {result.pass_rate:.1f}% < {min_pass_rate}% "

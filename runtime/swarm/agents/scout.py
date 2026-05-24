@@ -11,9 +11,10 @@ import logging
 import time
 import traceback
 
-from . import register_agent
 from ..agent_base import SwarmAgent
 from ..models import SubtaskNode, TaskResult, TaskStatus
+from . import register_agent
+
 
 logger = logging.getLogger("ncl.swarm.scout")
 
@@ -26,7 +27,7 @@ class ScoutAgent(SwarmAgent):
     data access and Perplexity for verification.
     """
 
-    DESCRIPTION = "Scout — real-time intelligence, trend detection, breaking news (Grok + Perplexity verification)"
+    DESCRIPTION = "Scout — real-time intelligence, trend detection, breaking news (Grok + Perplexity verification)"  # noqa: E501
 
     def __str__(self) -> str:
         return f"ScoutAgent(id={self.agent_id}, state={self.state.value})"
@@ -43,11 +44,7 @@ class ScoutAgent(SwarmAgent):
             timeframe = task.input_data.get("timeframe", "last 24 hours")
             verify_claims = task.input_data.get("verify", True)
 
-            signals_str = (
-                f"\nKey signals to track: {', '.join(signals)}"
-                if signals
-                else ""
-            )
+            signals_str = f"\nKey signals to track: {', '.join(signals)}" if signals else ""
 
             # --- Phase 1: Grok for real-time intel ---
             intel_prompt = (
@@ -73,13 +70,15 @@ class ScoutAgent(SwarmAgent):
             )
             total_cost += grok_response.cost_cents
 
-            await self.checkpoint({
-                "phase": "intel_gathered",
-                "topic": topic,
-            })
+            await self.checkpoint(
+                {
+                    "phase": "intel_gathered",
+                    "topic": topic,
+                }
+            )
 
             # --- Phase 2: Perplexity for verification ---
-            verified_content = grok_response.content
+            verified_content = grok_response.content  # noqa: F841
             verification_note = ""
 
             if verify_claims:

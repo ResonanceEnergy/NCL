@@ -3,18 +3,16 @@
 import asyncio
 import os
 import shutil
-import subprocess
 from datetime import datetime
-from typing import List, Tuple, Dict, Optional
-from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 from .models import (
-    ServiceName,
-    ServiceStatus,
-    ServiceHealth,
-    ServiceDefinition,
-    ServiceState,
     DeploymentConfig,
+    ServiceDefinition,
+    ServiceHealth,
+    ServiceName,
+    ServiceState,
+    ServiceStatus,
 )
 
 
@@ -69,7 +67,9 @@ class DeploymentManager:
             ServiceDefinition(
                 name=ServiceName.ORCHESTRATOR,
                 plist_label="com.resonanceenergy.ncl-orchestrator",
-                plist_path=os.path.join(ncl_root, "config/com.resonanceenergy.ncl-orchestrator.plist"),
+                plist_path=os.path.join(
+                    ncl_root, "config/com.resonanceenergy.ncl-orchestrator.plist"
+                ),
                 description="Strike Point Orchestrator",
                 log_stdout=os.path.join(log_dir, "orchestrator-stdout.log"),
                 log_stderr=os.path.join(log_dir, "orchestrator-stderr.log"),
@@ -157,7 +157,9 @@ class DeploymentManager:
         # Bootout any existing instance, then bootstrap the new plist
         uid = os.getuid()
         await self._run_command(["launchctl", "bootout", f"gui/{uid}/{service.plist_label}"])
-        returncode, stdout, stderr = await self._run_command(["launchctl", "bootstrap", f"gui/{uid}", dest_path])
+        returncode, stdout, stderr = await self._run_command(
+            ["launchctl", "bootstrap", f"gui/{uid}", dest_path]
+        )
 
         if returncode == 0:
             return {
@@ -169,7 +171,7 @@ class DeploymentManager:
             # In sandbox, launchctl may fail; still report success if plist was copied
             return {
                 "success": True,
-                "message": f"Plist copied to {dest_path}. (launchctl bootstrap in sandbox: {stderr.strip() if stderr else 'OK'})",
+                "message": f"Plist copied to {dest_path}. (launchctl bootstrap in sandbox: {stderr.strip() if stderr else 'OK'})",  # noqa: E501
                 "label": service.plist_label,
             }
 
@@ -345,9 +347,7 @@ class DeploymentManager:
             )
 
         # Check launchctl list
-        returncode, stdout, stderr = await self._run_command(
-            ["launchctl", "list"]
-        )
+        returncode, stdout, stderr = await self._run_command(["launchctl", "list"])
 
         pid = None
         status = ServiceStatus.UNKNOWN
@@ -378,6 +378,7 @@ class DeploymentManager:
         if status == ServiceStatus.RUNNING and service.port and service.health_endpoint:
             try:
                 import socket
+
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 sock.settimeout(2)
                 result = sock.connect_ex(("127.0.0.1", service.port))
@@ -424,32 +425,36 @@ class DeploymentManager:
             "NCL_ROOT=~/dev/NCL",
             "LAUNCH_AGENTS=~/Library/LaunchAgents",
             "",
-            "if [ ! -d \"$NCL_ROOT\" ]; then",
+            'if [ ! -d "$NCL_ROOT" ]; then',
             "  echo 'NCL directory not found at $NCL_ROOT'",
             "  exit 1",
             "fi",
             "",
             "echo 'Creating LaunchAgents directory if needed...'",
-            "mkdir -p \"$LAUNCH_AGENTS\"",
+            'mkdir -p "$LAUNCH_AGENTS"',
             "",
         ]
 
         for service in self.config.services:
             label = service.plist_label
-            script_lines.extend([
-                f"# Install {service.name.value}",
-                f"echo 'Installing {label}...'",
-                f"cp \"{service.plist_path}\" \"$LAUNCH_AGENTS/{label}.plist\"",
-                f"launchctl bootout \"gui/$(id -u)/{label}\" 2>/dev/null || true",
-                f"launchctl bootstrap \"gui/$(id -u)\" \"$LAUNCH_AGENTS/{label}.plist\" || true",
-                "",
-            ])
+            script_lines.extend(
+                [
+                    f"# Install {service.name.value}",
+                    f"echo 'Installing {label}...'",
+                    f'cp "{service.plist_path}" "$LAUNCH_AGENTS/{label}.plist"',
+                    f'launchctl bootout "gui/$(id -u)/{label}" 2>/dev/null || true',
+                    f'launchctl bootstrap "gui/$(id -u)" "$LAUNCH_AGENTS/{label}.plist" || true',
+                    "",
+                ]
+            )
 
-        script_lines.extend([
-            "echo 'Verifying service status...'",
-            "launchctl list | grep -E '(ncl-brain|ncl-watcher|ncl-orchestrator|ncl-councils)' || true",
-            "",
-            "echo 'Installation complete!'",
-        ])
+        script_lines.extend(
+            [
+                "echo 'Verifying service status...'",
+                "launchctl list | grep -E '(ncl-brain|ncl-watcher|ncl-orchestrator|ncl-councils)' || true",  # noqa: E501
+                "",
+                "echo 'Installation complete!'",
+            ]
+        )
 
         return "\n".join(script_lines)

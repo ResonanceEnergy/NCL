@@ -11,9 +11,10 @@ import logging
 import time
 import traceback
 
-from . import register_agent
 from ..agent_base import SwarmAgent
 from ..models import SubtaskNode, TaskResult, TaskStatus
+from . import register_agent
+
 
 logger = logging.getLogger("ncl.swarm.architect")
 
@@ -25,7 +26,7 @@ class ArchitectAgent(SwarmAgent):
     architecture, API design, database schemas, and integration planning.
     """
 
-    DESCRIPTION = "Architect — system design, API contracts, data models, implementation planning (Claude + GPT)"
+    DESCRIPTION = "Architect — system design, API contracts, data models, implementation planning (Claude + GPT)"  # noqa: E501
 
     def __str__(self) -> str:
         return f"ArchitectAgent(id={self.agent_id}, state={self.state.value})"
@@ -43,12 +44,8 @@ class ArchitectAgent(SwarmAgent):
             existing_systems = task.input_data.get("existing_systems", [])
             design_type = task.input_data.get("design_type", "system_architecture")
 
-            constraints_str = (
-                f"\nConstraints: {', '.join(constraints)}" if constraints else ""
-            )
-            stack_str = (
-                f"\nTech Stack: {', '.join(tech_stack)}" if tech_stack else ""
-            )
+            constraints_str = f"\nConstraints: {', '.join(constraints)}" if constraints else ""
+            stack_str = f"\nTech Stack: {', '.join(tech_stack)}" if tech_stack else ""
             existing_str = (
                 f"\nExisting Systems to Integrate: {', '.join(existing_systems)}"
                 if existing_systems
@@ -86,10 +83,12 @@ class ArchitectAgent(SwarmAgent):
             )
             total_cost += design_response.cost_cents
 
-            await self.checkpoint({
-                "phase": "design_complete",
-                "design_type": design_type,
-            })
+            await self.checkpoint(
+                {
+                    "phase": "design_complete",
+                    "design_type": design_type,
+                }
+            )
 
             # --- Phase 2: GPT for implementation planning ---
             impl_prompt = (

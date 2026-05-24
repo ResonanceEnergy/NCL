@@ -23,12 +23,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 import math
+import re
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 
 def _json_safe(obj: Any) -> Any:
@@ -51,16 +51,17 @@ def _json_safe(obj: Any) -> Any:
             pass
     return str(obj)
 
-import aiofiles
-from pydantic import ValidationError
 
-from ..ncl_brain.models import NCLEvent, EventType, MemUnit
+import aiofiles  # noqa: E402
+
+from ..ncl_brain.models import MemUnit, NCLEvent  # noqa: E402
+
 
 log = logging.getLogger("ncl.search")
 
 # Index size limits
-MAX_INDEX_DOCS = 100_000       # Max number of documents in the in-memory index
-MAX_DOC_TEXT_CHARS = 10_000    # Max characters of text stored per document
+MAX_INDEX_DOCS = 100_000  # Max number of documents in the in-memory index
+MAX_DOC_TEXT_CHARS = 10_000  # Max characters of text stored per document
 
 # Common stop words to exclude from indexing
 STOP_WORDS = frozenset(
@@ -217,7 +218,9 @@ class SearchIndexer:
                     pass
 
             self._loaded = True
-            log.info(f"Search index rebuilt: {indexed} documents, {len(self._inverted)} unique tokens")
+            log.info(
+                f"Search index rebuilt: {indexed} documents, {len(self._inverted)} unique tokens"
+            )
 
         # Save cache for next startup
         await self._save_cache()
@@ -237,7 +240,9 @@ class SearchIndexer:
             }
             async with aiofiles.open(self._cache_file, "w") as f:
                 await f.write(json.dumps(cache, default=_json_safe))
-            log.info(f"Search index cache saved: {self._doc_count} docs, {len(self._inverted)} tokens")
+            log.info(
+                f"Search index cache saved: {self._doc_count} docs, {len(self._inverted)} tokens"
+            )
         except Exception as e:
             log.warning(f"Failed to save search index cache: {e}")
 
@@ -249,15 +254,27 @@ class SearchIndexer:
             async with aiofiles.open(self._cache_file, "r") as f:
                 content = await f.read()
             cache = json.loads(content)
-            self._inverted = defaultdict(set, {k: set(v) for k, v in cache.get("inverted", {}).items()})
-            self._by_type = defaultdict(set, {k: set(v) for k, v in cache.get("by_type", {}).items()})
-            self._by_correlation = defaultdict(set, {k: set(v) for k, v in cache.get("by_correlation", {}).items()})
-            self._by_pump = defaultdict(set, {k: set(v) for k, v in cache.get("by_pump", {}).items()})
-            self._by_mandate = defaultdict(set, {k: set(v) for k, v in cache.get("by_mandate", {}).items()})
+            self._inverted = defaultdict(
+                set, {k: set(v) for k, v in cache.get("inverted", {}).items()}
+            )
+            self._by_type = defaultdict(
+                set, {k: set(v) for k, v in cache.get("by_type", {}).items()}
+            )
+            self._by_correlation = defaultdict(
+                set, {k: set(v) for k, v in cache.get("by_correlation", {}).items()}
+            )
+            self._by_pump = defaultdict(
+                set, {k: set(v) for k, v in cache.get("by_pump", {}).items()}
+            )
+            self._by_mandate = defaultdict(
+                set, {k: set(v) for k, v in cache.get("by_mandate", {}).items()}
+            )
             self._docs = cache.get("docs", {})
             self._doc_count = cache.get("doc_count", 0)
             self._df = defaultdict(int, cache.get("df", {}))
-            log.info(f"Search index loaded from cache: {self._doc_count} docs, {len(self._inverted)} tokens")
+            log.info(
+                f"Search index loaded from cache: {self._doc_count} docs, {len(self._inverted)} tokens"  # noqa: E501
+            )
             return True
         except Exception as e:
             log.warning(f"Failed to load search index cache: {e}")
@@ -281,7 +298,9 @@ class SearchIndexer:
             log.warning(
                 "Search index at capacity (%d docs). Skipping doc_id=%s type=%s. "
                 "Consider running a reindex after pruning old data.",
-                MAX_INDEX_DOCS, doc_id, doc_type,
+                MAX_INDEX_DOCS,
+                doc_id,
+                doc_type,
             )
             return
 
@@ -312,7 +331,11 @@ class SearchIndexer:
         ts_str = raw.get("timestamp", "")
 
         try:
-            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00")) if ts_str else datetime.now(timezone.utc)
+            ts = (
+                datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                if ts_str
+                else datetime.now(timezone.utc)
+            )
         except (ValueError, AttributeError):
             ts = datetime.now(timezone.utc)
 
@@ -359,7 +382,11 @@ class SearchIndexer:
         ts_str = raw.get("created_at", "")
 
         try:
-            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00")) if ts_str else datetime.now(timezone.utc)
+            ts = (
+                datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                if ts_str
+                else datetime.now(timezone.utc)
+            )
         except (ValueError, AttributeError):
             ts = datetime.now(timezone.utc)
 
@@ -378,7 +405,11 @@ class SearchIndexer:
         ts_str = raw.get("created_at", "")
 
         try:
-            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00")) if ts_str else datetime.now(timezone.utc)
+            ts = (
+                datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                if ts_str
+                else datetime.now(timezone.utc)
+            )
         except (ValueError, AttributeError):
             ts = datetime.now(timezone.utc)
 
@@ -392,7 +423,9 @@ class SearchIndexer:
             raw = json.loads(event.to_ndjson())
             self._index_event_dict(raw)
         except Exception as e:
-            log.warning("index_event failed for event_id=%s: %s", getattr(event, "event_id", "?"), e)
+            log.warning(
+                "index_event failed for event_id=%s: %s", getattr(event, "event_id", "?"), e
+            )
 
     async def index_memory(self, unit: MemUnit) -> None:
         """Index a new MemUnit."""
@@ -459,14 +492,16 @@ class SearchIndexer:
                 continue
 
             snippet = doc["text"][:200]
-            results.append(SearchResult(
-                doc_id=doc_id,
-                doc_type=doc["type"],
-                score=score,
-                snippet=snippet,
-                timestamp=doc["timestamp"],
-                data=doc["data"],
-            ))
+            results.append(
+                SearchResult(
+                    doc_id=doc_id,
+                    doc_type=doc["type"],
+                    score=score,
+                    snippet=snippet,
+                    timestamp=doc["timestamp"],
+                    data=doc["data"],
+                )
+            )
 
         results.sort(key=lambda r: r.score, reverse=True)
         return results[:limit]
@@ -516,14 +551,16 @@ class SearchIndexer:
                 continue
             if cutoff and doc["timestamp"] < cutoff:
                 continue
-            results.append(SearchResult(
-                doc_id=doc_id,
-                doc_type="event",
-                score=1.0,
-                snippet=doc["text"][:200],
-                timestamp=doc["timestamp"],
-                data=doc["data"],
-            ))
+            results.append(
+                SearchResult(
+                    doc_id=doc_id,
+                    doc_type="event",
+                    score=1.0,
+                    snippet=doc["text"][:200],
+                    timestamp=doc["timestamp"],
+                    data=doc["data"],
+                )
+            )
 
         results.sort(key=lambda r: r.timestamp, reverse=True)
         return results[:limit]

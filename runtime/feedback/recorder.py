@@ -2,13 +2,14 @@
 
 Lightweight append-only JSONL stream. Distinct from the pillar-feedback
 synthesis pipeline (scanner.py / models.py) which consumes structured reports
-from NCC/BRS/AAC. This recorder is for *user behavior* telemetry — what NATRIX
+from NCC (BRS/AAC retired 2026-05-23). This recorder is for *user behavior* telemetry — what NATRIX
 pinned, dismissed, paper-traded, councilled, etc. on the FirstStrike iOS app.
 
 Output: data_dir/feedback/events.jsonl, rotated at 50MB to
 events.jsonl.<UTC-stamp>.gz-not-actually-gz (kept plain for grep-ability;
 rotation just renames so cold reads still work via scanning).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -19,7 +20,8 @@ import uuid
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
+
 
 log = logging.getLogger("ncl.feedback.recorder")
 
@@ -35,9 +37,17 @@ class FeedbackRecorder:
     """
 
     EVENT_TYPES = {
-        "view", "expand", "pin", "unpin", "dismiss",
-        "council_request", "paper_trade", "share",
-        "outcome_correct", "outcome_wrong", "outcome_partial",
+        "view",
+        "expand",
+        "pin",
+        "unpin",
+        "dismiss",
+        "council_request",
+        "paper_trade",
+        "share",
+        "outcome_correct",
+        "outcome_wrong",
+        "outcome_partial",
     }
 
     def __init__(self, data_dir: Path):
@@ -87,8 +97,7 @@ class FeedbackRecorder:
         """Append a feedback event. Returns the persisted event dict."""
         if event_type not in self.EVENT_TYPES:
             raise ValueError(
-                f"unknown event_type '{event_type}'; "
-                f"allowed: {sorted(self.EVENT_TYPES)}"
+                f"unknown event_type '{event_type}'; " f"allowed: {sorted(self.EVENT_TYPES)}"
             )
         if not signal_id or not isinstance(signal_id, str):
             raise ValueError("signal_id is required and must be a string")
@@ -241,11 +250,13 @@ class FeedbackRecorder:
             "pin_unpin_ratio": pin_unpin_ratio if pin_unpin_ratio != float("inf") else None,
             "earliest_ts": (
                 datetime.fromtimestamp(earliest, tz=timezone.utc).isoformat()
-                if earliest is not None else None
+                if earliest is not None
+                else None
             ),
             "latest_ts": (
                 datetime.fromtimestamp(latest, tz=timezone.utc).isoformat()
-                if latest is not None else None
+                if latest is not None
+                else None
             ),
             "log_files": [p.name for p in files],
         }

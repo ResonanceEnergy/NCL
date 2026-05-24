@@ -1,16 +1,15 @@
 """Tests for NCL review queue manager."""
-import asyncio
+
 import tempfile
-from pathlib import Path
 
 import pytest
 
 from runtime.review_queue.manager import (
-    ReviewQueueManager,
     ReviewItem,
     ReviewItemType,
-    UrgencyLevel,
+    ReviewQueueManager,
     Suggestion,
+    UrgencyLevel,
 )
 
 
@@ -53,7 +52,7 @@ def test_review_item_creation():
         description="A test pump prompt",
         urgency=UrgencyLevel.HIGH,
         source_agent="First Strike",
-        source_id="pump-123"
+        source_id="pump-123",
     )
 
     assert item.item_id is not None
@@ -73,7 +72,7 @@ async def test_ingest_pump(review_queue):
         "urgency": "high",
         "source_agent": "Strike Point",
         "signal": "volatility_spike",
-        "market": "equities"
+        "market": "equities",
     }
 
     item = await review_queue.ingest_pump(pump_data)
@@ -91,10 +90,10 @@ async def test_ingest_action(review_queue):
         "action_id": "action-001",
         "title": "Execute Mandate",
         "description": "Dispatch mandate for market hedge",
-        "urgency": "critical"
+        "urgency": "critical",
     }
 
-    item = await review_queue.ingest_action(action_data)
+    item = await review_queue.ingest_action(action_data)  # noqa: F841
 
     items = review_queue.get_items()
     assert any(i.source_agent == "Governance" for i in items)
@@ -110,7 +109,7 @@ async def test_get_items_filtered(review_queue):
             "intent": f"Item {i}",
             "description": f"Description {i}",
             "urgency": "critical" if i == 0 else "normal",
-            "source_agent": "Test"
+            "source_agent": "Test",
         }
         await review_queue.ingest_pump(pump_data)
 
@@ -133,7 +132,7 @@ async def test_batch_tag(review_queue):
             "pump_id": f"item-{i}",
             "intent": f"Item {i}",
             "description": f"Description {i}",
-            "source_agent": "Test"
+            "source_agent": "Test",
         }
         item = await review_queue.ingest_pump(pump_data)
         items.append(item)
@@ -158,16 +157,12 @@ async def test_batch_link(review_queue):
         "pump_id": "item-0",
         "intent": "Item 0",
         "description": "Description 0",
-        "source_agent": "Test"
+        "source_agent": "Test",
     }
     pump_item = await review_queue.ingest_pump(pump_data)
     items.append(pump_item)
 
-    action_data = {
-        "action_id": "item-1",
-        "title": "Item 1",
-        "description": "Description 1"
-    }
+    action_data = {"action_id": "item-1", "title": "Item 1", "description": "Description 1"}
     action_item = await review_queue.ingest_action(action_data)
     items.append(action_item)
 
@@ -192,7 +187,7 @@ async def test_batch_archive(review_queue):
             "pump_id": f"item-{i}",
             "intent": f"Item {i}",
             "description": f"Description {i}",
-            "source_agent": "Test"
+            "source_agent": "Test",
         }
         item = await review_queue.ingest_pump(pump_data)
         items.append(item)
@@ -215,7 +210,7 @@ async def test_suggestions_generated(review_queue):
         "intent": "Market Alert",
         "description": "Unusual trading volume detected",
         "urgency": "high",
-        "source_agent": "Market Monitor"
+        "source_agent": "Market Monitor",
     }
 
     item = await review_queue.ingest_pump(pump_data)
@@ -237,7 +232,7 @@ async def test_stats(review_queue):
                 "intent": f"Item {i}",
                 "description": f"Description {i}",
                 "urgency": "critical" if i < 2 else "normal",
-                "source_agent": "Test"
+                "source_agent": "Test",
             }
             await review_queue.ingest_pump(pump_data)
         else:
@@ -245,7 +240,7 @@ async def test_stats(review_queue):
                 "action_id": f"item-{i}",
                 "title": f"Item {i}",
                 "description": f"Description {i}",
-                "urgency": "critical" if i < 2 else "normal"
+                "urgency": "critical" if i < 2 else "normal",
             }
             await review_queue.ingest_action(action_data)
 
@@ -264,7 +259,7 @@ def test_suggestion_creation():
         action_text="Approve request",
         action_type="approve",
         confidence=0.92,
-        reasoning="Meets all criteria and passes review"
+        reasoning="Meets all criteria and passes review",
     )
 
     assert suggestion.suggestion_id is not None

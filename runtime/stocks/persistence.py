@@ -15,13 +15,13 @@ Callers pass the already-enriched result rows. We never enrich here.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
+
 
 log = logging.getLogger("ncl.stocks.persistence")
 
@@ -136,23 +136,56 @@ def _build_content(scanner_name: str, row: dict[str, Any]) -> str:
 def _build_metadata(row: dict[str, Any]) -> dict[str, Any]:
     """Whitelist of numeric/string fields safe to drop into MemoryStore metadata."""
     keep = {
-        "ticker", "symbol", "price", "change_pct",
-        "goat_score", "bravo_score",
-        "stop_loss", "target_1", "target_2", "target_3", "risk_reward",
-        "atr", "volume_ratio", "rsi", "support",
-        "vix", "vix_risk",
-        "sma9", "ema20", "sma180", "sma200",
-        "ma_aligned", "all_sloping_up", "entry_signal", "exit_signal",
-        "caution_signal", "is_green_candle", "gogo_juice", "bollinger_squeeze",
-        "signal_label", "risk_pct",
+        "ticker",
+        "symbol",
+        "price",
+        "change_pct",
+        "goat_score",
+        "bravo_score",
+        "stop_loss",
+        "target_1",
+        "target_2",
+        "target_3",
+        "risk_reward",
+        "atr",
+        "volume_ratio",
+        "rsi",
+        "support",
+        "vix",
+        "vix_risk",
+        "sma9",
+        "ema20",
+        "sma180",
+        "sma200",
+        "ma_aligned",
+        "all_sloping_up",
+        "entry_signal",
+        "exit_signal",
+        "caution_signal",
+        "is_green_candle",
+        "gogo_juice",
+        "bollinger_squeeze",
+        "signal_label",
+        "risk_pct",
         # Enrichment fields (Features 4/5/6)
-        "liquidity_pass", "avg_daily_volume", "market_cap_usd",
-        "option_oi_total", "days_to_earnings", "ivr",
-        "flow_confirms", "net_call_premium_24h", "call_put_ratio",
+        "liquidity_pass",
+        "avg_daily_volume",
+        "market_cap_usd",
+        "option_oi_total",
+        "days_to_earnings",
+        "ivr",
+        "flow_confirms",
+        "net_call_premium_24h",
+        "call_put_ratio",
         "squeeze_candidate",
-        "dark_pool_support", "dark_pool_volume", "dark_pool_date",
-        "held_in_portfolio", "position_value_usd", "position_account",
-        "sector", "name",
+        "dark_pool_support",
+        "dark_pool_volume",
+        "dark_pool_date",
+        "held_in_portfolio",
+        "position_value_usd",
+        "position_account",
+        "sector",
+        "name",
     }
     return {k: row[k] for k in keep if k in row}
 
@@ -181,15 +214,17 @@ async def enqueue_to_memory(
         try:
             md = _build_metadata(row)
             md["scan_at"] = scan_at
-            await async_writer.enqueue(WriteRequest(
-                content=_build_content(scanner_name, row),
-                source=scanner_name,
-                importance=float(importance),
-                memory_type="signal",
-                tags=_build_tags(scanner_name, row),
-                entities=[(row.get("ticker") or "").upper()] if row.get("ticker") else [],
-                metadata=md,
-            ))
+            await async_writer.enqueue(
+                WriteRequest(
+                    content=_build_content(scanner_name, row),
+                    source=scanner_name,
+                    importance=float(importance),
+                    memory_type="signal",
+                    tags=_build_tags(scanner_name, row),
+                    entities=[(row.get("ticker") or "").upper()] if row.get("ticker") else [],
+                    metadata=md,
+                )
+            )
             enqueued += 1
         except Exception as e:
             log.debug("enqueue failed for %s: %s", row.get("ticker"), e)

@@ -47,14 +47,14 @@ import json
 import logging
 import os
 import tempfile
-import time
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
 import aiofiles
+
 
 log = logging.getLogger("ncl.memory.budget_tracker")
 
@@ -67,30 +67,29 @@ SUMMARY_FILE = MEMORY_DIR / "budget_summary.json"
 # Tuned for the current swarm (May 2026). Most assume Claude Sonnet/Haiku
 # context windows of 200K. Caps trip an alert at 100 %; 80 % warns in logs.
 DEFAULT_BUDGETS: dict[str, int] = {
-    "chat_injection":           500_000,   # /chat prepended context, all turns/day
-    "council_context":          300_000,   # Delphi-MAD session shared context
-    "working_context_assembly": 200_000,   # 6am / noon / 11pm context builds
-    "retrieval_rerank":         100_000,   # Haiku reranker on /memory/search/fused
-    "reflection":               150_000,   # journal + memory reflection prompts
-    "procedural_distill":       100_000,   # Loop 7 — chain → skill abstraction
-    "narrative_summary":         50_000,   # Loop 9 — Sonnet thread summaries
+    "chat_injection": 500_000,  # /chat prepended context, all turns/day
+    "council_context": 300_000,  # Delphi-MAD session shared context
+    "working_context_assembly": 200_000,  # 6am / noon / 11pm context builds
+    "retrieval_rerank": 100_000,  # Haiku reranker on /memory/search/fused
+    "reflection": 150_000,  # journal + memory reflection prompts
+    "procedural_distill": 100_000,  # Loop 7 — chain → skill abstraction
+    "narrative_summary": 50_000,  # Loop 9 — Sonnet thread summaries
 }
 
 # Platform-wide ceiling across all categories. Trips a separate alert.
-PLATFORM_DAILY_CAP_TOKENS: int = int(
-    os.getenv("NCL_MEMORY_BUDGET_PLATFORM_CAP", "2000000")
-)
+PLATFORM_DAILY_CAP_TOKENS: int = int(os.getenv("NCL_MEMORY_BUDGET_PLATFORM_CAP", "2000000"))
 
 
 @dataclass
 class BudgetEntry:
     """One row in the JSONL ledger."""
+
     timestamp: str
     date: str
-    category: str          # one of DEFAULT_BUDGETS keys (or arbitrary if extended)
+    category: str  # one of DEFAULT_BUDGETS keys (or arbitrary if extended)
     tokens_in: int
     tokens_out: int = 0
-    source: str = ""       # subsystem id, e.g. "chat:session-abc", "council:tsla"
+    source: str = ""  # subsystem id, e.g. "chat:session-abc", "council:tsla"
     metadata: dict = field(default_factory=dict)
 
     def to_json(self) -> str:
@@ -132,7 +131,9 @@ class MemoryBudgetTracker:
                     budgets[cat] = int(v)
                     log.info(
                         "[MEM-BUDGET] override %s = %s tokens/day (from %s)",
-                        cat, f"{int(v):,}", env_key,
+                        cat,
+                        f"{int(v):,}",
+                        env_key,
                     )
                 except ValueError:
                     log.warning("[MEM-BUDGET] invalid override %s=%r", env_key, v)
@@ -151,9 +152,9 @@ class MemoryBudgetTracker:
             self._initialized = True
             total = sum(s["tokens_in"] for s in self._daily_summary.values())
             log.info(
-                "[MEM-BUDGET] initialized — %d categories, today=%d tokens "
-                "across %d calls",
-                len(self._budgets), total,
+                "[MEM-BUDGET] initialized — %d categories, today=%d tokens " "across %d calls",
+                len(self._budgets),
+                total,
                 sum(s["calls"] for s in self._daily_summary.values()),
             )
 
@@ -190,9 +191,9 @@ class MemoryBudgetTracker:
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         if today != self._current_date:
             log.info(
-                "[MEM-BUDGET] date rollover %s -> %s. Yesterday: %d tokens "
-                "across %d calls.",
-                self._current_date, today,
+                "[MEM-BUDGET] date rollover %s -> %s. Yesterday: %d tokens " "across %d calls.",
+                self._current_date,
+                today,
                 sum(s["tokens_in"] for s in self._daily_summary.values()),
                 sum(s["calls"] for s in self._daily_summary.values()),
             )
@@ -248,7 +249,8 @@ class MemoryBudgetTracker:
                     "[MEM-BUDGET] %s at %d%% of daily cap (%s / %s tokens)",
                     category,
                     int(bucket["tokens_in"] / cap * 100),
-                    f"{bucket['tokens_in']:,}", f"{cap:,}",
+                    f"{bucket['tokens_in']:,}",
+                    f"{cap:,}",
                 )
 
             try:
@@ -259,7 +261,10 @@ class MemoryBudgetTracker:
 
         log.debug(
             "[MEM-BUDGET] %s in=%d out=%d source=%s",
-            category, entry.tokens_in, entry.tokens_out, source,
+            category,
+            entry.tokens_in,
+            entry.tokens_out,
+            source,
         )
 
     # ── public: check ────────────────────────────────────────────────
@@ -288,9 +293,7 @@ class MemoryBudgetTracker:
             return True, "rollover-pending"
 
         est = int(max(0, est_tokens))
-        bucket = self._daily_summary.get(
-            category, {"tokens_in": 0, "tokens_out": 0, "calls": 0}
-        )
+        bucket = self._daily_summary.get(category, {"tokens_in": 0, "tokens_out": 0, "calls": 0})
 
         # Platform-wide check
         platform_total = sum(s["tokens_in"] for s in self._daily_summary.values())
@@ -307,13 +310,9 @@ class MemoryBudgetTracker:
 
         projected = bucket["tokens_in"] + est
         if projected > cap:
-            return False, (
-                f"{category} cap exceeded: {projected:,} > {cap:,} tokens"
-            )
+            return False, (f"{category} cap exceeded: {projected:,} > {cap:,} tokens")
         if projected >= int(cap * 0.8):
-            return True, (
-                f"{category} at {int(projected / cap * 100)}% of cap"
-            )
+            return True, (f"{category} at {int(projected / cap * 100)}% of cap")
         return True, "ok"
 
     # ── public: summary ──────────────────────────────────────────────
@@ -343,14 +342,15 @@ class MemoryBudgetTracker:
             for cat, cap in self._budgets.items():
                 if cat not in by_category:
                     by_category[cat] = {
-                        "tokens_in": 0, "tokens_out": 0, "calls": 0,
-                        "cap": cap, "pct_of_cap": 0.0, "blocked": False,
+                        "tokens_in": 0,
+                        "tokens_out": 0,
+                        "calls": 0,
+                        "cap": cap,
+                        "pct_of_cap": 0.0,
+                        "blocked": False,
                     }
 
-            platform_pct = (
-                (total_in / self._platform_cap * 100)
-                if self._platform_cap > 0 else 0.0
-            )
+            platform_pct = (total_in / self._platform_cap * 100) if self._platform_cap > 0 else 0.0
 
             return {
                 "date": self._current_date,
@@ -370,9 +370,9 @@ class MemoryBudgetTracker:
         prefer that path.
         """
         await self.initialize()
-        cutoff_date = (
-            datetime.now(timezone.utc) - timedelta(days=max(0, days - 1))
-        ).strftime("%Y-%m-%d")
+        cutoff_date = (datetime.now(timezone.utc) - timedelta(days=max(0, days - 1))).strftime(
+            "%Y-%m-%d"
+        )
 
         rollup: dict[str, dict] = {}
         if not self.ledger_path.exists():
@@ -422,7 +422,8 @@ class MemoryBudgetTracker:
         # block on the durable move.
         tmp_fd, tmp_path = tempfile.mkstemp(
             dir=str(self.summary_path.parent),
-            prefix=".budget_summary_", suffix=".tmp",
+            prefix=".budget_summary_",
+            suffix=".tmp",
         )
         try:
             with os.fdopen(tmp_fd, "w") as f:
@@ -467,6 +468,7 @@ def get_tracker_sync() -> Optional[MemoryBudgetTracker]:
 
 # ── Convenience helpers ───────────────────────────────────────────────
 
+
 def estimate_tokens(text: str) -> int:
     """Cheap token estimator: ~4 chars/token. Good enough for budget
     gating; never use for billing math."""
@@ -498,6 +500,7 @@ async def check_budget(category: str, est_tokens: int) -> tuple[bool, str]:
 # class so it can touch `self._stats`. The canonical body is documented
 # in the integration spec; this module exposes the worker function so
 # tests can exercise it without spinning up the scheduler.
+
 
 async def run_budget_cycle(stats: Optional[dict] = None) -> dict:
     """One full budget-check tick. Returns the persisted summary.

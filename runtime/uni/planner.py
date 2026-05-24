@@ -9,6 +9,7 @@ from typing import Any
 
 from .models import ResearchDepth, SourceType
 
+
 log = logging.getLogger("uni.planner")
 
 
@@ -48,14 +49,10 @@ class ResearchPlanner:
         sub_questions = self._decompose_query(query, depth)
 
         # Determine source strategy
-        source_strategy = self._determine_source_strategy(
-            sub_questions, sources_requested
-        )
+        source_strategy = self._determine_source_strategy(sub_questions, sources_requested)
 
         # Create execution plan
-        execution_steps = self._create_execution_steps(
-            sub_questions, source_strategy, depth
-        )
+        execution_steps = self._create_execution_steps(sub_questions, source_strategy, depth)
 
         # Estimate duration based on depth
         estimated_duration = self._estimate_duration(depth, len(sub_questions))
@@ -163,7 +160,6 @@ class ResearchPlanner:
 
     def _extract_key_terms(self, query: str) -> list[str]:
         """Extract key nouns/terms from query."""
-        import re
 
         # Simple heuristic: extract capitalized words or technical terms
         words = query.split()

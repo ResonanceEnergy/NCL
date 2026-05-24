@@ -37,16 +37,19 @@ import time
 import uuid
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
 import aiofiles
 import httpx
 
+from ..awarebot.predictor import FuturePredictor, PredictionOutput
+
 # ── Existing imports from NCL runtime ────────────────────────────────────
 from ..awarebot.scanner import Scanner
-from ..awarebot.predictor import FuturePredictor, PredictionOutput
+from ..governance.emergency_stop import EMERGENCY_STOP_EVENT
+
 # Collector classes accessed via intelligence_engine instance, not directly
 # from ..intelligence.collectors import (...)
 from ..intelligence.engine import IntelligenceEngine, SignalCorrelator
@@ -55,11 +58,11 @@ from ..intelligence.models import (
     SignalDirection,
     SourceType,
 )
-from ..ncl_brain.models import InsightSignal
+from ..journal.store import JournalStore
 from ..memory.store import MemoryStore
 from ..memory.working_context import DailyContextWindow
-from ..journal.store import JournalStore
-from ..governance.emergency_stop import EMERGENCY_STOP_EVENT
+from ..ncl_brain.models import InsightSignal
+
 
 log = logging.getLogger("ncl.awarebot.agent")
 
@@ -68,12 +71,12 @@ log = logging.getLogger("ncl.awarebot.agent")
 # ═══════════════════════════════════════════════════════════════════════════
 
 # Scoring weights — 6 factors (must sum to 1.0)
-W_CONTEXT_RELEVANCE = 0.30   # Mandate + watch query + working context match
-W_FRESHNESS = 0.20           # How recent
-W_CROSS_SOURCE = 0.15        # Multi-source confirmation
-W_SOURCE_CONFIDENCE = 0.15   # Source authority
-W_ACTIONABILITY = 0.10       # Can NATRIX act on this
-W_NOVELTY = 0.10             # New information vs seen before
+W_CONTEXT_RELEVANCE = 0.30  # Mandate + watch query + working context match
+W_FRESHNESS = 0.20  # How recent
+W_CROSS_SOURCE = 0.15  # Multi-source confirmation
+W_SOURCE_CONFIDENCE = 0.15  # Source authority
+W_ACTIONABILITY = 0.10  # Can NATRIX act on this
+W_NOVELTY = 0.10  # New information vs seen before
 
 # Routing thresholds (step-function)
 THRESHOLD_CRITICAL = 0.75
@@ -103,11 +106,11 @@ CONTEXT_24H_MAX = 200
 CONTEXT_7D_MAX = 500
 
 # Default intervals (seconds) — overridable via config
-DEFAULT_SCAN_INTERVAL = 300         # 5 min
-DEFAULT_BRIEF_INTERVAL = 14400     # 4 hours
+DEFAULT_SCAN_INTERVAL = 300  # 5 min
+DEFAULT_BRIEF_INTERVAL = 14400  # 4 hours
 DEFAULT_PREDICTION_INTERVAL = 1800  # 30 min
-DEFAULT_CONTEXT_INTERVAL = 600      # 10 min
-DEFAULT_JOURNAL_INTERVAL = 3600     # 1 hour
+DEFAULT_CONTEXT_INTERVAL = 600  # 10 min
+DEFAULT_JOURNAL_INTERVAL = 3600  # 1 hour
 
 # Rate limits per source (requests per minute)
 RATE_LIMITS = {
@@ -123,6 +126,33 @@ RATE_LIMITS = {
 }
 
 
+# ─── agent_signals.jsonl rotation guard (W10C-11) ─────────────────────────
+# Pattern mirrors runtime/memory/conflict_resolver.py::_maybe_rotate.
+# When the append-only archive exceeds the cap (default 50 MB), rename to
+# ``<name>.1`` (dropping any existing ``.1``) so disk + RSS stay bounded.
+# Default 50 MB matches the legacy SignalProcessor rotation policy.
+_AGENT_SIGNALS_ROTATE_BYTES = int(
+    os.environ.get("NCL_AGENT_SIGNALS_ROTATE_BYTES", 50 * 1024 * 1024)
+)
+
+
+def _maybe_rotate_agent_signals(path: Path) -> None:
+    try:
+        if path.exists() and path.stat().st_size > _AGENT_SIGNALS_ROTATE_BYTES:
+            backup = path.with_suffix(path.suffix + ".1")
+            if backup.exists():
+                backup.unlink()
+            path.rename(backup)
+            log.info(
+                "[AGENT:PERSIST] Rotated %s → %s (exceeded %d bytes)",
+                path.name,
+                backup.name,
+                _AGENT_SIGNALS_ROTATE_BYTES,
+            )
+    except OSError as e:
+        log.warning("[AGENT:PERSIST] %s rotation failed: %s", path, e)
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # SIGNAL DATA MODEL
 # ═══════════════════════════════════════════════════════════════════════════
@@ -133,7 +163,7 @@ class Signal:
     """Unified signal representation flowing through the agent pipeline."""
 
     signal_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    source: str = ""              # x, youtube, reddit, google_trends, polymarket, etc.
+    source: str = ""  # x, youtube, reddit, google_trends, polymarket, etc.
     title: str = ""
     content: str = ""
     url: Optional[str] = None
@@ -149,7 +179,7 @@ class Signal:
     composite_score: float = 0.0
 
     # Routing outcome
-    route_level: str = ""         # CRITICAL, HIGH, MEDIUM, LOW
+    route_level: str = ""  # CRITICAL, HIGH, MEDIUM, LOW
     routed: bool = False
 
     # Metadata
@@ -205,11 +235,15 @@ class Signal:
             url=sig.url,
             timestamp=sig.timestamp,
             relevance=min(1.0, normalized * 1.1),
-            actionability=min(1.0, sig.confidence * 0.7) if sig.direction != SignalDirection.NEUTRAL else sig.confidence * 0.4,
+            actionability=min(1.0, sig.confidence * 0.7)
+            if sig.direction != SignalDirection.NEUTRAL
+            else sig.confidence * 0.4,
             novelty=0.8 if sig.direction == SignalDirection.EMERGING else 0.3,
             authority=sig.confidence * 0.9,
             tags=sig.tags,
-            direction=sig.direction.value if hasattr(sig.direction, "value") else str(sig.direction),
+            direction=sig.direction.value
+            if hasattr(sig.direction, "value")
+            else str(sig.direction),
             category=sig.category,
             confidence=sig.confidence,
             change_pct=sig.change_pct,
@@ -326,15 +360,20 @@ def is_ambiguous(composite_score: float) -> bool:
 
 # ── BM25 Relevance Scoring ──────────────────────────────────────────────
 
+
 def _tokenize(text: str) -> list[str]:
     """Word-boundary tokenizer for BM25. Strips punctuation, lowercases."""
     import re
-    return re.findall(r'\b[a-z0-9]{2,}\b', text.lower())
+
+    return re.findall(r"\b[a-z0-9]{2,}\b", text.lower())
 
 
 def compute_relevance_bm25(
-    content: str, watch_queries: list[str],
-    k1: float = 1.5, b: float = 0.5, avg_dl: float = 30.0,
+    content: str,
+    watch_queries: list[str],
+    k1: float = 1.5,
+    b: float = 0.5,
+    avg_dl: float = 30.0,
 ) -> float:
     """
     BM25 text relevance scoring against watch queries.
@@ -375,7 +414,7 @@ def compute_relevance_bm25(
 
     # Approximate IDF: treat each query term as appearing in ~30% of docs
     # (conservative estimate since we don't have a corpus)
-    N = max(len(watch_queries), 10)  # pseudo document count
+    N = max(len(watch_queries), 10)  # pseudo document count  # noqa: N806
     n_containing = max(1, int(N * 0.3))
     idf = math.log((N - n_containing + 0.5) / (n_containing + 0.5) + 1.0)
 
@@ -393,6 +432,7 @@ def compute_relevance_bm25(
 
 
 # ── SimHash Near-Duplicate Detection ────────────────────────────────────
+
 
 def _simhash64(text: str) -> int:
     """Compute 64-bit SimHash fingerprint for near-duplicate detection.
@@ -420,13 +460,13 @@ def _simhash64(text: str) -> int:
     fingerprint = 0
     for i in range(64):
         if v[i] > 0:
-            fingerprint |= (1 << i)
+            fingerprint |= 1 << i
     return fingerprint
 
 
 def _hamming_distance(a: int, b: int) -> int:
     """Count differing bits between two 64-bit integers."""
-    return bin(a ^ b).count('1')
+    return bin(a ^ b).count("1")
 
 
 def compute_novelty_decay(
@@ -495,16 +535,54 @@ def compute_freshness(signal: Signal) -> float:
 
 
 # Direction keyword sets — kept small + lowercase for cheap match.
-_BULL_TERMS = frozenset({
-    "bullish", "rally", "surge", "uptrend", "gain", "rise", "rises", "rose",
-    "increase", "increases", "increased", "upside", "higher", "outperform",
-    "beat", "beating", "exceed", "moon", "breakout",
-})
-_BEAR_TERMS = frozenset({
-    "bearish", "crash", "drop", "drops", "dropped", "fall", "falls", "fell",
-    "decline", "declines", "declined", "downside", "lower", "underperform",
-    "miss", "missed", "downturn", "pullback", "breakdown", "sell-off", "selloff",
-})
+_BULL_TERMS = frozenset(
+    {
+        "bullish",
+        "rally",
+        "surge",
+        "uptrend",
+        "gain",
+        "rise",
+        "rises",
+        "rose",
+        "increase",
+        "increases",
+        "increased",
+        "upside",
+        "higher",
+        "outperform",
+        "beat",
+        "beating",
+        "exceed",
+        "moon",
+        "breakout",
+    }
+)
+_BEAR_TERMS = frozenset(
+    {
+        "bearish",
+        "crash",
+        "drop",
+        "drops",
+        "dropped",
+        "fall",
+        "falls",
+        "fell",
+        "decline",
+        "declines",
+        "declined",
+        "downside",
+        "lower",
+        "underperform",
+        "miss",
+        "missed",
+        "downturn",
+        "pullback",
+        "breakdown",
+        "sell-off",
+        "selloff",
+    }
+)
 
 
 def _prediction_fingerprint(topic: str, consensus: str) -> str:
@@ -517,6 +595,7 @@ def _prediction_fingerprint(topic: str, consensus: str) -> str:
     rate on disk (EOD 2026-05-22 audit).
     """
     import hashlib as _hashlib
+
     norm_consensus = " ".join((consensus or "").lower().split())[:200]
     raw = f"{(topic or '').lower().strip()}|{norm_consensus}"
     return _hashlib.sha1(raw.encode("utf-8")).hexdigest()
@@ -648,14 +727,14 @@ class Awarebot:
         self.push_callback = push_callback
 
         # ── Configuration from ncl.yaml ──────────────────────────────
-        self._data_dir = Path(
-            getattr(config, "data_dir", "~/dev/NCL/data")
-        ).expanduser()
+        self._data_dir = Path(getattr(config, "data_dir", "~/dev/NCL/data")).expanduser()
         self._data_dir.mkdir(parents=True, exist_ok=True)
 
         self._scan_interval = getattr(config, "x_scan_interval", DEFAULT_SCAN_INTERVAL)
         self._brief_interval = getattr(config, "strategic_review_interval", DEFAULT_BRIEF_INTERVAL)
-        self._prediction_interval = getattr(config, "prediction_interval", DEFAULT_PREDICTION_INTERVAL)
+        self._prediction_interval = getattr(
+            config, "prediction_interval", DEFAULT_PREDICTION_INTERVAL
+        )
         self._context_interval = DEFAULT_CONTEXT_INTERVAL
         self._journal_interval = DEFAULT_JOURNAL_INTERVAL
 
@@ -736,20 +815,21 @@ class Awarebot:
         self._authority_learner = None
         try:
             from .minhash_dedup import MinHashDedup
+
             self._minhash_dedup = MinHashDedup(threshold=0.85, num_perm=128, ttl_hours=24)
             log.info("[AWAREBOT] MinHash+LSH dedup enabled (item 9)")
         except Exception as e:
             log.warning(f"[AWAREBOT] MinHash dedup unavailable: {e} — keeping SimHash fallback")
         try:
             from .entity_clusterer import EntityStreamingClusterer
-            self._entity_clusterer = EntityStreamingClusterer(
-                window_hours=6.0, max_clusters=500
-            )
+
+            self._entity_clusterer = EntityStreamingClusterer(window_hours=6.0, max_clusters=500)
             log.info("[AWAREBOT] Entity-streaming clusterer enabled (item 19)")
         except Exception as e:
             log.warning(f"[AWAREBOT] Entity clusterer unavailable: {e}")
         try:
             from .authority_learner import AuthorityLearner
+
             self._authority_learner = AuthorityLearner(
                 data_dir=self._data_dir / "awarebot",
                 prior_strength=10.0,
@@ -923,17 +1003,12 @@ class Awarebot:
         restart_counts: dict[str, int] = {name: 0 for _, name in task_defs}
         max_restarts = 3
 
-        self._tasks = [
-            asyncio.create_task(factory(), name=name)
-            for factory, name in task_defs
-        ]
+        self._tasks = [asyncio.create_task(factory(), name=name) for factory, name in task_defs]
 
         try:
             while self._running:
                 # Wait for any task to complete
-                done, _ = await asyncio.wait(
-                    self._tasks, return_when=asyncio.FIRST_COMPLETED
-                )
+                done, _ = await asyncio.wait(self._tasks, return_when=asyncio.FIRST_COMPLETED)
                 for task in done:
                     name = task.get_name()
                     if task.cancelled():
@@ -958,9 +1033,7 @@ class Awarebot:
                             for factory, tname in task_defs:
                                 if tname == name:
                                     new_task = asyncio.create_task(factory(), name=name)
-                                    self._tasks = [
-                                        t for t in self._tasks if t is not task
-                                    ]
+                                    self._tasks = [t for t in self._tasks if t is not task]
                                     self._tasks.append(new_task)
                                     break
                         else:
@@ -1039,20 +1112,28 @@ class Awarebot:
         # actionability, novelty) and tier routing. Low-value signals are filtered
         # by the scoring thresholds, not by disabling sources.
         tasks = [
-            self._collect_social(),             # X + Reddit + YouTube
-            self._collect_google_trends(),      # Google Trends
-            self._collect_polymarket(),         # Prediction markets
-            self._collect_news(),               # NewsAPI / GNews / RSS
+            self._collect_social(),  # X + Reddit + YouTube
+            self._collect_google_trends(),  # Google Trends
+            self._collect_polymarket(),  # Prediction markets
+            self._collect_news(),  # NewsAPI / GNews / RSS
             # self._collect_crypto(),           # DISABLED — CoinGecko rate limiting
-            self._collect_unusual_whales(),     # Options flow / dark pool / congress
-            self._collect_council_reports(),     # council report ingestion
-            self._collect_city_events(),         # Per-city fun-finder (1h throttle)
+            self._collect_unusual_whales(),  # Options flow / dark pool / congress
+            self._collect_council_reports(),  # council report ingestion
+            self._collect_city_events(),  # Per-city fun-finder (1h throttle)
         ]
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         for i, result in enumerate(results):
-            source_names = ["social", "google_trends", "polymarket", "news", "unusual_whales", "council", "city_events"]
+            source_names = [
+                "social",
+                "google_trends",
+                "polymarket",
+                "news",
+                "unusual_whales",
+                "council",
+                "city_events",
+            ]
             if isinstance(result, Exception):
                 source_name = source_names[i] if i < len(source_names) else f"source_{i}"
                 log.warning(f"[AGENT:SCAN] Source '{source_name}' failed: {result}")
@@ -1112,7 +1193,7 @@ class Awarebot:
                 log.warning(f"[AGENT:SCAN:YT] Query '{query}' failed: {e}")
                 self._stats["source_errors"]["youtube"] += 1
 
-        # NOTE: Awarebot uses lightweight Reddit collection (no sentiment/flair) for speed. Full analysis is in councils/reddit/.
+        # NOTE: Awarebot uses lightweight Reddit collection (no sentiment/flair) for speed. Full analysis is in councils/reddit/.  # noqa: E501
         # Reddit search via RSS (no API credentials needed)
         for query in self._watch_queries.get("reddit", []):
             try:
@@ -1185,7 +1266,9 @@ class Awarebot:
                     log.warning(f"[AGENT:SCAN:REDDIT:T3] r/{sub} failed: {e}")
                     self._stats["source_errors"]["reddit"] += 1
 
-            log.info(f"[AGENT:SCAN:REDDIT] Tier scan: T1={len(tier1)} T2={len(tier2)} T3={len(batch)}/{len(tier3)} (offset {self._tier3_offset})")
+            log.info(
+                f"[AGENT:SCAN:REDDIT] Tier scan: T1={len(tier1)} T2={len(tier2)} T3={len(batch)}/{len(tier3)} (offset {self._tier3_offset})"  # noqa: E501
+            )
 
         return signals
 
@@ -1317,7 +1400,10 @@ class Awarebot:
                 continue
             try:
                 json_files = await loop.run_in_executor(
-                    None, lambda d=report_dir: sorted(d.glob("*.json"), key=lambda f: f.stat().st_mtime, reverse=True)[:10]
+                    None,
+                    lambda d=report_dir: sorted(
+                        d.glob("*.json"), key=lambda f: f.stat().st_mtime, reverse=True
+                    )[:10],
                 )
             except Exception:
                 json_files = []
@@ -1336,7 +1422,11 @@ class Awarebot:
                     raw_text = await loop.run_in_executor(None, json_file.read_text)
                     data = json.loads(raw_text)
                     # Determine source from filename
-                    source = "youtube" if "youtube" in json_file.name.lower() or "ytc" in json_file.name.lower() else "x"
+                    source = (
+                        "youtube"
+                        if "youtube" in json_file.name.lower() or "ytc" in json_file.name.lower()
+                        else "x"
+                    )
 
                     # Extract insights from report
                     insights = data.get("insights", [])
@@ -1353,20 +1443,27 @@ class Awarebot:
                                     "title": v.get("title", "") or "",
                                     "channel": v.get("channel", "") or "",
                                     "channel_id": v.get("channel_id", "") or "",
-                                    "url": v.get("url") or (f"https://www.youtube.com/watch?v={vid}" if vid else ""),
+                                    "url": v.get("url")
+                                    or (f"https://www.youtube.com/watch?v={vid}" if vid else ""),
                                     "duration_seconds": v.get("duration_seconds", 0) or 0,
                                 }
 
                     # Pretty top-level title for the report signal
                     if source == "youtube":
-                        channels = sorted({m["channel"] for m in video_map.values() if m.get("channel")})
+                        channels = sorted(
+                            {m["channel"] for m in video_map.values() if m.get("channel")}
+                        )
                         channel_blurb = ", ".join(channels[:3]) if channels else "YouTube Council"
-                        n_vids = len(videos_list) if videos_list else (data.get("sources_processed") or 0)
+                        n_vids = (
+                            len(videos_list)
+                            if videos_list
+                            else (data.get("sources_processed") or 0)
+                        )
                         report_title = f"YTC Rollup — {n_vids} video{'s' if n_vids != 1 else ''}"
                         if channels:
                             report_title += f" · {channel_blurb}"
                     else:
-                        report_title = f"Council Report — {data.get('topic') or data.get('title') or json_file.stem}"
+                        report_title = f"Council Report — {data.get('topic') or data.get('title') or json_file.stem}"  # noqa: E501
 
                     if summary:
                         s = Signal(
@@ -1414,7 +1511,9 @@ class Awarebot:
                             insight_tags: list[str] = []
                             source_refs: list[str] = []
                         else:
-                            insight_title = (insight.get("title") or insight.get("headline") or "").strip()
+                            insight_title = (
+                                insight.get("title") or insight.get("headline") or ""
+                            ).strip()
                             insight_desc = (
                                 insight.get("description")
                                 or insight.get("text")
@@ -1444,8 +1543,12 @@ class Awarebot:
                             else:
                                 composed_title = insight_title
                         else:
-                            # Fallback when insight has no title — use first ~80 chars of description
-                            composed_title = (insight_desc[:80] + "…") if insight_desc else f"Council Insight ({source.upper()})"
+                            # Fallback when insight has no title — use first ~80 chars of description  # noqa: E501
+                            composed_title = (
+                                (insight_desc[:80] + "…")
+                                if insight_desc
+                                else f"Council Insight ({source.upper()})"
+                            )
 
                         # Content: description first, then action suggestion if present
                         content_parts = []
@@ -1502,7 +1605,9 @@ class Awarebot:
                             "insight_category": insight_category,
                             "insight_confidence": confidence,
                             "action_suggestion": action_suggestion[:300],
-                            "actionable": bool(insight.get("actionable", False)) if isinstance(insight, dict) else False,
+                            "actionable": bool(insight.get("actionable", False))
+                            if isinstance(insight, dict)
+                            else False,
                             "video_id": (source_refs[0] if source_refs else ""),
                             "video_title": vid_meta.get("title", ""),
                             "channel": vid_meta.get("channel", ""),
@@ -1541,7 +1646,9 @@ class Awarebot:
                             url=entry.get("url", ""),
                             composite_score=0.0,
                             route_level="",
-                            timestamp=report_ts if "report_ts" in dir() else datetime.now(timezone.utc),  # P0-1
+                            timestamp=report_ts
+                            if "report_ts" in dir()
+                            else datetime.now(timezone.utc),  # P0-1
                             tags=[f"council:{source}", "council_signal"],
                         )
                         s.relevance = 0.6
@@ -1576,12 +1683,13 @@ class Awarebot:
         if not hasattr(self, "_city_events_last_scan"):
             self._city_events_last_scan: dict[str, float] = {}
 
-        THROTTLE_S = 3600  # 1 hour per city
+        THROTTLE_S = 3600  # 1 hour per city  # noqa: N806
         now = time.time()
 
         # Wire async_writer via the global singleton (Awarebot doesn't hold a ref directly)
         try:
             from ..memory.async_writer import get_async_writer
+
             _aw = get_async_writer()
         except Exception:
             _aw = None
@@ -1592,7 +1700,10 @@ class Awarebot:
                 continue  # still inside the per-city cooldown
             try:
                 payload = await scanner.scan_city(
-                    city_id, lookback_days=0, lookahead_days=14, bypass_cache=False,
+                    city_id,
+                    lookback_days=0,
+                    lookahead_days=14,
+                    bypass_cache=False,
                 )
                 self._city_events_last_scan[city_id] = now
                 events = payload.get("events", []) or []
@@ -1616,7 +1727,9 @@ class Awarebot:
                     )
                     # Gentle baseline scores — proximity-aware
                     s.relevance = 0.5
-                    s.authority = 0.6 if ev.get("source") in ("ticketmaster", "notable_date") else 0.4
+                    s.authority = (
+                        0.6 if ev.get("source") in ("ticketmaster", "notable_date") else 0.4
+                    )
                     s.actionability = 0.5
                     signals.append(s)
                     self._stats["signals_by_source"]["city_events"] += 1
@@ -1663,7 +1776,7 @@ class Awarebot:
         context_keywords = self._get_context_keywords()
         if context_keywords:
             signal_text = f"{signal.title} {signal.content} {' '.join(signal.tags)}"
-            signal_tokens = set(t.lower() for t in re.findall(r'\b[a-zA-Z0-9]{3,}\b', signal_text))
+            signal_tokens = set(t.lower() for t in re.findall(r"\b[a-zA-Z0-9]{3,}\b", signal_text))
             matches = len(signal_tokens & context_keywords)
             keyword_score = min(matches / 5.0, 1.0)  # 0=0, 1=0.2, 2=0.4, 3=0.6, 4=0.8, 5+=1.0
             relevance = 0.5 * relevance + 0.5 * keyword_score  # Blend BM25 with keyword match
@@ -1685,8 +1798,7 @@ class Awarebot:
         if len(self._simhash_index) > DEDUP_WINDOW_SIZE:
             prune_count = len(self._simhash_index) // 5  # 20%
             oldest_keys = sorted(
-                self._simhash_index.keys(),
-                key=lambda k: self._simhash_index[k][1]
+                self._simhash_index.keys(), key=lambda k: self._simhash_index[k][1]
             )[:prune_count]
             for k in oldest_keys:
                 del self._simhash_index[k]
@@ -1805,7 +1917,9 @@ class Awarebot:
                 f"  - [{s.source}] {s.title[:60]} (score={s.composite_score:.2f})"
                 for s in recent_items
             ]
-            recent_context = "\nRecent HIGH/CRITICAL signals for comparison:\n" + "\n".join(context_lines)
+            recent_context = "\nRecent HIGH/CRITICAL signals for comparison:\n" + "\n".join(
+                context_lines
+            )
 
         prompt = f"""Analyze this intelligence signal and decide if it warrants HIGH priority routing.
 
@@ -1825,7 +1939,7 @@ Consider: Is there actionable intelligence here that NATRIX should see immediate
 Compare against recent signals above — is this MORE or LESS important?
 
 Respond with ONLY a JSON object:
-{{"promote": true/false, "adjusted_score": 0.0-1.0, "reasoning": "one sentence"}}"""
+{{"promote": true/false, "adjusted_score": 0.0-1.0, "reasoning": "one sentence"}}"""  # noqa: E501
 
         try:
             response = await self._http_client.post(
@@ -1845,7 +1959,9 @@ Respond with ONLY a JSON object:
                 return signal
             data = response.json()
             if "response" not in data or not data["response"]:
-                log.warning(f"[AGENT:REASON] Empty response from Ollama: {data.get('error', 'unknown')}")
+                log.warning(
+                    f"[AGENT:REASON] Empty response from Ollama: {data.get('error', 'unknown')}"
+                )
                 return signal
             text = data["response"]
 
@@ -1902,7 +2018,9 @@ Respond with ONLY a JSON object:
             await self._route_medium(signal)
         else:
             # LOW — log only
-            log.debug(f"[AGENT:ROUTE:LOW] Skipping: {signal.title[:60]} ({signal.composite_score:.3f})")
+            log.debug(
+                f"[AGENT:ROUTE:LOW] Skipping: {signal.title[:60]} ({signal.composite_score:.3f})"
+            )
 
         # Always add to prediction buffer regardless of level
         self._prediction_buffer.append(signal)
@@ -1960,8 +2078,12 @@ Respond with ONLY a JSON object:
                     "url": signal.url or "",
                     "composite_score": float(signal.composite_score or 0),
                     "tags": list(signal.tags),
-                    "sectors": (signal.metadata or {}).get("sectors", []) if hasattr(signal, "metadata") else [],
-                    "tickers": (signal.metadata or {}).get("tickers", []) if hasattr(signal, "metadata") else [],
+                    "sectors": (signal.metadata or {}).get("sectors", [])
+                    if hasattr(signal, "metadata")
+                    else [],
+                    "tickers": (signal.metadata or {}).get("tickers", [])
+                    if hasattr(signal, "metadata")
+                    else [],
                 },
             }
             loop_ = asyncio.get_running_loop()
@@ -2053,26 +2175,30 @@ Respond with ONLY a JSON object:
             entities: list[str] = []
             try:
                 from ..memory.entity_extractor import fast_extract_entities
+
                 entities = fast_extract_entities(content)
             except Exception:
                 pass  # Entity extraction is optional
 
             # Fire-and-forget — the drainer handles Sonnet enrichment + persist
             try:
-                from ..memory.async_writer import get_async_writer, WriteRequest
-                await get_async_writer().enqueue(WriteRequest(
-                    content=content,
-                    source=f"awarebot:{signal.source}",
-                    importance=importance,
-                    memory_type=memory_type,
-                    tags=signal.tags[:10],
-                    entities=entities,
-                    metadata={
-                        "composite_score": signal.composite_score,
-                        "route_level": signal.route_level,
-                        "signal_id": signal.signal_id,
-                    },
-                ))
+                from ..memory.async_writer import WriteRequest, get_async_writer
+
+                await get_async_writer().enqueue(
+                    WriteRequest(
+                        content=content,
+                        source=f"awarebot:{signal.source}",
+                        importance=importance,
+                        memory_type=memory_type,
+                        tags=signal.tags[:10],
+                        entities=entities,
+                        metadata={
+                            "composite_score": signal.composite_score,
+                            "route_level": signal.route_level,
+                            "signal_id": signal.signal_id,
+                        },
+                    )
+                )
             except RuntimeError:
                 # AsyncMemoryWriter not initialized — fall back to direct write
                 unit = await self.memory_store.create_unit(
@@ -2086,8 +2212,8 @@ Respond with ONLY a JSON object:
                     try:
                         unit.entities = entities
                         asyncio.create_task(self.memory_store.index_unit(unit))
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        log.warning("[AGENT:MEMORY] entity reindex swallowed: %s", e)
 
         except Exception as e:
             log.warning(f"[AGENT:MEMORY] Failed to enqueue signal: {e}")
@@ -2126,18 +2252,18 @@ Respond with ONLY a JSON object:
         """Cross-source confirmation score (0-1). Checks if other sources report similar content."""
         if not signal_text or len(signal_text) < 20:
             return 0.0
-        tokens = set(t.lower() for t in re.findall(r'\b[a-zA-Z0-9]{3,}\b', signal_text))
+        tokens = set(t.lower() for t in re.findall(r"\b[a-zA-Z0-9]{3,}\b", signal_text))
         if len(tokens) < 3:
             return 0.0
         confirming_sources = set()
         for other in self._context_7d:
-            other_source = getattr(other, 'source', '') or ''
+            other_source = getattr(other, "source", "") or ""
             if other_source == signal_source:
                 continue
-            other_text = getattr(other, 'content', '') or getattr(other, 'title', '') or ''
+            other_text = getattr(other, "content", "") or getattr(other, "title", "") or ""
             if not other_text:
                 continue
-            other_tokens = set(t.lower() for t in re.findall(r'\b[a-zA-Z0-9]{3,}\b', other_text))
+            other_tokens = set(t.lower() for t in re.findall(r"\b[a-zA-Z0-9]{3,}\b", other_text))
             if not other_tokens:
                 continue
             overlap = len(tokens & other_tokens) / min(len(tokens), len(other_tokens))
@@ -2168,13 +2294,17 @@ Respond with ONLY a JSON object:
                     if isinstance(source_queries, list):
                         for q in source_queries:
                             if isinstance(q, str):
-                                keywords.update(t.lower() for t in re.findall(r'\b[a-zA-Z0-9]{3,}\b', q))
+                                keywords.update(
+                                    t.lower() for t in re.findall(r"\b[a-zA-Z0-9]{3,}\b", q)
+                                )
                             elif isinstance(q, dict):
                                 for v in q.values():
                                     if isinstance(v, str):
-                                        keywords.update(t.lower() for t in re.findall(r'\b[a-zA-Z0-9]{3,}\b', v))
-            except Exception:
-                pass
+                                        keywords.update(
+                                            t.lower() for t in re.findall(r"\b[a-zA-Z0-9]{3,}\b", v)
+                                        )
+            except Exception as e:
+                log.warning("[AGENT:KEYWORDS] watch_queries load swallowed: %s", e)
 
         # Mandates
         mandates_file = base / "data" / "mandates.json"
@@ -2195,12 +2325,14 @@ Respond with ONLY a JSON object:
                         for field in ("title", "description", "objective"):
                             val = m.get(field, "")
                             if isinstance(val, str):
-                                keywords.update(t.lower() for t in re.findall(r'\b[a-zA-Z0-9]{3,}\b', val))
+                                keywords.update(
+                                    t.lower() for t in re.findall(r"\b[a-zA-Z0-9]{3,}\b", val)
+                                )
                         for tag in m.get("tags", []):
                             if isinstance(tag, str) and len(tag) >= 3:
                                 keywords.add(tag.lower())
-            except Exception:
-                pass
+            except Exception as e:
+                log.warning("[AGENT:KEYWORDS] mandates load swallowed: %s", e)
 
         # Working context themes
         wc_file = base / "data" / "working_context" / "today.json"
@@ -2215,9 +2347,11 @@ Respond with ONLY a JSON object:
                 elif isinstance(themes, dict):
                     for v in themes.values():
                         if isinstance(v, str):
-                            keywords.update(t.lower() for t in re.findall(r'\b[a-zA-Z0-9]{3,}\b', v))
-            except Exception:
-                pass
+                            keywords.update(
+                                t.lower() for t in re.findall(r"\b[a-zA-Z0-9]{3,}\b", v)
+                            )
+            except Exception as e:
+                log.warning("[AGENT:KEYWORDS] working_context load swallowed: %s", e)
 
         return keywords
 
@@ -2234,15 +2368,16 @@ Respond with ONLY a JSON object:
     # ═══════════════════════════════════════════════════════════════════
 
     def route_to_tiers(self) -> dict:
-        """Route buffered signals into Focused/Micro/Macro tiers. Single-pass, exclusive assignment."""
+        """Route buffered signals into Focused/Micro/Macro tiers. Single-pass, exclusive assignment."""  # noqa: E501
         import datetime
+
         now = datetime.datetime.now(datetime.timezone.utc)
 
         # Gather all signals from deques, deduplicate
         seen_ids = set()
         all_signals = []
         for sig in itertools.chain(self._context_top10, self._context_24h, self._context_7d):
-            sig_id = getattr(sig, 'signal_id', None) or getattr(sig, 'id', id(sig))
+            sig_id = getattr(sig, "signal_id", None) or getattr(sig, "id", id(sig))
             if sig_id in seen_ids:
                 continue
             seen_ids.add(sig_id)
@@ -2254,17 +2389,20 @@ Respond with ONLY a JSON object:
         if self._mmr_enabled:
             try:
                 from .mmr import apply_mmr_with_min_per_source
+
                 mmr_seen = set()
                 all_signals_dedup = []
-                for sig in itertools.chain(self._context_top10, self._context_24h, self._context_7d):
-                    sid = getattr(sig, 'signal_id', None) or id(sig)
+                for sig in itertools.chain(
+                    self._context_top10, self._context_24h, self._context_7d
+                ):
+                    sid = getattr(sig, "signal_id", None) or id(sig)
                     if sid in mmr_seen:
                         continue
                     mmr_seen.add(sid)
                     all_signals_dedup.append(sig)
 
                 def _src_mmr(s):
-                    raw = (getattr(s, 'source', '') or '').lower()
+                    raw = (getattr(s, "source", "") or "").lower()
                     if "youtube" in raw or "ytc" in raw:
                         return "youtube"
                     return raw or "unknown"
@@ -2273,33 +2411,59 @@ Respond with ONLY a JSON object:
                     return f"{getattr(s, 'title', '')} {(getattr(s, 'content', '') or '')[:300]}"
 
                 def _scr(s):
-                    return getattr(s, 'composite_score', 0.0)
+                    return getattr(s, "composite_score", 0.0)
 
                 def _age_h(s):
-                    if hasattr(s, 'timestamp') and s.timestamp:
+                    if hasattr(s, "timestamp") and s.timestamp:
                         return (now - s.timestamp).total_seconds() / 3600
                     return 999
 
-                mmr_focused_pool = [s for s in all_signals_dedup if _scr(s) >= 0.75 and _age_h(s) < 4]
-                mmr_micro_pool = [s for s in all_signals_dedup if _scr(s) >= 0.50 and _age_h(s) < 24]
+                mmr_focused_pool = [
+                    s for s in all_signals_dedup if _scr(s) >= 0.75 and _age_h(s) < 4
+                ]
+                mmr_micro_pool = [
+                    s for s in all_signals_dedup if _scr(s) >= 0.50 and _age_h(s) < 24
+                ]
                 mmr_macro_pool = [s for s in all_signals_dedup if _scr(s) >= 0.30]
 
-                mmr_focused_pre = apply_mmr_with_min_per_source(
-                    mmr_focused_pool, key_score=_scr, key_text=_txt, key_source=_src_mmr,
-                    lambda_=0.7, top_k=10,
-                ) if mmr_focused_pool else []
+                mmr_focused_pre = (
+                    apply_mmr_with_min_per_source(
+                        mmr_focused_pool,
+                        key_score=_scr,
+                        key_text=_txt,
+                        key_source=_src_mmr,
+                        lambda_=0.7,
+                        top_k=10,
+                    )
+                    if mmr_focused_pool
+                    else []
+                )
                 used = set(id(s) for s in mmr_focused_pre)
-                mmr_micro_pre = apply_mmr_with_min_per_source(
-                    [s for s in mmr_micro_pool if id(s) not in used],
-                    key_score=_scr, key_text=_txt, key_source=_src_mmr,
-                    lambda_=0.6, top_k=10,
-                ) if mmr_micro_pool else []
+                mmr_micro_pre = (
+                    apply_mmr_with_min_per_source(
+                        [s for s in mmr_micro_pool if id(s) not in used],
+                        key_score=_scr,
+                        key_text=_txt,
+                        key_source=_src_mmr,
+                        lambda_=0.6,
+                        top_k=10,
+                    )
+                    if mmr_micro_pool
+                    else []
+                )
                 used.update(id(s) for s in mmr_micro_pre)
-                mmr_macro_pre = apply_mmr_with_min_per_source(
-                    [s for s in mmr_macro_pool if id(s) not in used],
-                    key_score=_scr, key_text=_txt, key_source=_src_mmr,
-                    lambda_=0.5, top_k=10,
-                ) if mmr_macro_pool else []
+                mmr_macro_pre = (
+                    apply_mmr_with_min_per_source(
+                        [s for s in mmr_macro_pool if id(s) not in used],
+                        key_score=_scr,
+                        key_text=_txt,
+                        key_source=_src_mmr,
+                        lambda_=0.5,
+                        top_k=10,
+                    )
+                    if mmr_macro_pool
+                    else []
+                )
                 log.debug(
                     f"[ROUTE_TIERS:MMR] pre={len(mmr_focused_pre)}/"
                     f"{len(mmr_micro_pre)}/{len(mmr_macro_pre)}"
@@ -2309,7 +2473,11 @@ Respond with ONLY a JSON object:
                 focused = list(mmr_focused_pre)
                 micro = list(mmr_micro_pre)
                 macro = list(mmr_macro_pre)
-                claimed = set(id(s) for s in focused) | set(id(s) for s in micro) | set(id(s) for s in macro)
+                claimed = (
+                    set(id(s) for s in focused)
+                    | set(id(s) for s in micro)
+                    | set(id(s) for s in macro)
+                )
                 # Skip the rest of the legacy "build lists" block below
                 # by jumping past it via the local control flag
                 _mmr_applied = True
@@ -2328,14 +2496,14 @@ Respond with ONLY a JSON object:
         # 10 slots in every tier. The cap lets each source contribute
         # its top N before yielding the remaining slots to overflow
         # (sources with fewer signals still get their full quota).
-        MAX_PER_SOURCE_FOCUSED = 4
-        MAX_PER_SOURCE_MICRO = 4
-        MAX_PER_SOURCE_MACRO = 4
+        MAX_PER_SOURCE_FOCUSED = 4  # noqa: N806
+        MAX_PER_SOURCE_MICRO = 4  # noqa: N806
+        MAX_PER_SOURCE_MACRO = 4  # noqa: N806
 
         def _src(s) -> str:
             # Normalize source — youtube + council_youtube are both
             # YouTube council monoculture risk.
-            raw = (getattr(s, 'source', '') or '').lower()
+            raw = (getattr(s, "source", "") or "").lower()
             if "youtube" in raw or "ytc" in raw:
                 return "youtube"
             return raw or "unknown"
@@ -2351,13 +2519,20 @@ Respond with ONLY a JSON object:
 
         # Pass 1: FOCUSED — score >= 0.75, age < 4h, max 4 per source
         focused_src_counts: dict[str, int] = {}
-        for sig in sorted(all_signals, key=lambda s: (
-            -(s.metadata.get("score_factors", {}).get("cross_source", 0)),
-            -s.composite_score
-        )):
+        for sig in sorted(
+            all_signals,
+            key=lambda s: (
+                -(s.metadata.get("score_factors", {}).get("cross_source", 0)),
+                -s.composite_score,
+            ),
+        ):
             if len(focused) >= 10:
                 break
-            age_h = (now - sig.timestamp).total_seconds() / 3600 if hasattr(sig, 'timestamp') and sig.timestamp else 999
+            age_h = (
+                (now - sig.timestamp).total_seconds() / 3600
+                if hasattr(sig, "timestamp") and sig.timestamp
+                else 999
+            )
             if sig.composite_score >= 0.75 and age_h < 4:
                 _add_with_cap(sig, focused, MAX_PER_SOURCE_FOCUSED, focused_src_counts)
         # Overflow: if Focused still has slots left after all sources
@@ -2372,7 +2547,11 @@ Respond with ONLY a JSON object:
                     continue
                 if focused_src_counts.get(_src(sig), 0) >= overflow_cap:
                     continue
-                age_h = (now - sig.timestamp).total_seconds() / 3600 if hasattr(sig, 'timestamp') and sig.timestamp else 999
+                age_h = (
+                    (now - sig.timestamp).total_seconds() / 3600
+                    if hasattr(sig, "timestamp") and sig.timestamp
+                    else 999
+                )
                 if sig.composite_score >= 0.75 and age_h < 4:
                     focused.append(sig)
                     focused_src_counts[_src(sig)] = focused_src_counts.get(_src(sig), 0) + 1
@@ -2385,7 +2564,11 @@ Respond with ONLY a JSON object:
                 break
             if id(sig) in claimed:
                 continue
-            age_h = (now - sig.timestamp).total_seconds() / 3600 if hasattr(sig, 'timestamp') and sig.timestamp else 999
+            age_h = (
+                (now - sig.timestamp).total_seconds() / 3600
+                if hasattr(sig, "timestamp") and sig.timestamp
+                else 999
+            )
             if sig.composite_score >= 0.50 and age_h < 24:
                 _add_with_cap(sig, micro, MAX_PER_SOURCE_MICRO, micro_src_counts)
         if len(micro) < 10:
@@ -2397,7 +2580,11 @@ Respond with ONLY a JSON object:
                     continue
                 if micro_src_counts.get(_src(sig), 0) >= overflow_cap:
                     continue
-                age_h = (now - sig.timestamp).total_seconds() / 3600 if hasattr(sig, 'timestamp') and sig.timestamp else 999
+                age_h = (
+                    (now - sig.timestamp).total_seconds() / 3600
+                    if hasattr(sig, "timestamp") and sig.timestamp
+                    else 999
+                )
                 if sig.composite_score >= 0.50 and age_h < 24:
                     micro.append(sig)
                     micro_src_counts[_src(sig)] = micro_src_counts.get(_src(sig), 0) + 1
@@ -2410,8 +2597,12 @@ Respond with ONLY a JSON object:
         def _macro_eligible(sig) -> bool:
             if sig.composite_score < 0.30:
                 return False
-            age_h = (now - sig.timestamp).total_seconds() / 3600 if hasattr(sig, 'timestamp') and sig.timestamp else 999
-            source_lower = (getattr(sig, 'source', '') or '').lower()
+            age_h = (
+                (now - sig.timestamp).total_seconds() / 3600
+                if hasattr(sig, "timestamp") and sig.timestamp
+                else 999
+            )
+            source_lower = (getattr(sig, "source", "") or "").lower()
             is_narrative = any(ns in source_lower for ns in narrative_sources)
             return age_h > 24 or is_narrative or sig.composite_score >= 0.60
 
@@ -2443,6 +2634,7 @@ Respond with ONLY a JSON object:
         # so we don't add any new scoring pass.
         try:
             from ..intelligence.engine import SignalCorrelator  # type: ignore
+
             _sector_keywords = SignalCorrelator.SECTOR_KEYWORDS
         except Exception:
             _sector_keywords = {}
@@ -2457,11 +2649,51 @@ Respond with ONLY a JSON object:
         _ticker_dollar_re = re.compile(r"\$([A-Z]{1,5})\b")
         _ticker_bare_re = re.compile(r"\b([A-Z]{2,5})\b")
         _ticker_stopwords = {
-            "AI", "API", "CEO", "CFO", "COO", "CTO", "EU", "US", "USA",
-            "UK", "URL", "ETF", "ETFs", "FED", "GDP", "CPI", "PMI", "IPO",
-            "PR", "PSA", "PDF", "JSON", "HTTP", "HTTPS", "OK", "YES", "NO",
-            "AM", "PM", "ET", "PT", "UTC", "GMT", "DM", "TV", "TBA", "TBD",
-            "VIP", "FYI", "RIP", "WTF", "WHO", "NYSE", "NASDAQ", "SEC",
+            "AI",
+            "API",
+            "CEO",
+            "CFO",
+            "COO",
+            "CTO",
+            "EU",
+            "US",
+            "USA",
+            "UK",
+            "URL",
+            "ETF",
+            "ETFs",
+            "FED",
+            "GDP",
+            "CPI",
+            "PMI",
+            "IPO",
+            "PR",
+            "PSA",
+            "PDF",
+            "JSON",
+            "HTTP",
+            "HTTPS",
+            "OK",
+            "YES",
+            "NO",
+            "AM",
+            "PM",
+            "ET",
+            "PT",
+            "UTC",
+            "GMT",
+            "DM",
+            "TV",
+            "TBA",
+            "TBD",
+            "VIP",
+            "FYI",
+            "RIP",
+            "WTF",
+            "WHO",
+            "NYSE",
+            "NASDAQ",
+            "SEC",
         }
 
         def _extract_tickers(text: str) -> list[str]:
@@ -2493,9 +2725,12 @@ Respond with ONLY a JSON object:
 
         # cross_source 0–100 → confirming-source count 0/1/2/3+
         def _cross_count(cs: float) -> int:
-            if cs >= 100: return 3
-            if cs >= 70: return 2
-            if cs >= 40: return 1
+            if cs >= 100:
+                return 3
+            if cs >= 70:
+                return 2
+            if cs >= 40:
+                return 1
             return 0
 
         def _suggested_action(direction: str, tickers: list[str], sectors: list[str]) -> str | None:
@@ -2512,30 +2747,30 @@ Respond with ONLY a JSON object:
             return None
 
         def sig_to_dict(s):
-            title = getattr(s, 'title', '') or ''
-            content = getattr(s, 'content', '') or ''
-            direction = getattr(s, 'direction', 'neutral')
-            tags = getattr(s, 'tags', []) or []
+            title = getattr(s, "title", "") or ""
+            content = getattr(s, "content", "") or ""
+            direction = getattr(s, "direction", "neutral")
+            tags = getattr(s, "tags", []) or []
             text_for_extract = f"{title} {content}"
 
             d = {
-                "signal_id": getattr(s, 'signal_id', None) or str(id(s)),
+                "signal_id": getattr(s, "signal_id", None) or str(id(s)),
                 "title": title,
                 "content": content,
-                "source": getattr(s, 'source', '') or '',
+                "source": getattr(s, "source", "") or "",
                 "tags": tags,
-                "composite_score": getattr(s, 'composite_score', 0),
-                "unified_score": round(getattr(s, 'composite_score', 0) * 100, 1),
-                "route_level": getattr(s, 'route_level', ''),
+                "composite_score": getattr(s, "composite_score", 0),
+                "unified_score": round(getattr(s, "composite_score", 0) * 100, 1),
+                "route_level": getattr(s, "route_level", ""),
                 "direction": direction,
-                "url": getattr(s, 'url', ''),
+                "url": getattr(s, "url", ""),
             }
-            if hasattr(s, 'timestamp') and s.timestamp:
+            if hasattr(s, "timestamp") and s.timestamp:
                 d["timestamp"] = s.timestamp.isoformat()
 
             score_factors: dict = {}
             meta: dict = {}
-            if hasattr(s, 'metadata') and isinstance(s.metadata, dict):
+            if hasattr(s, "metadata") and isinstance(s.metadata, dict):
                 meta = s.metadata
                 score_factors = meta.get("score_factors", {}) or {}
                 d["score_factors"] = score_factors
@@ -2585,9 +2820,21 @@ Respond with ONLY a JSON object:
             return d
 
         return {
-            "focused": {"signals": [sig_to_dict(s) for s in focused], "count": len(focused), "tier": "focused"},
-            "micro": {"signals": [sig_to_dict(s) for s in micro], "count": len(micro), "tier": "micro"},
-            "macro": {"signals": [sig_to_dict(s) for s in macro], "count": len(macro), "tier": "macro"},
+            "focused": {
+                "signals": [sig_to_dict(s) for s in focused],
+                "count": len(focused),
+                "tier": "focused",
+            },
+            "micro": {
+                "signals": [sig_to_dict(s) for s in micro],
+                "count": len(micro),
+                "tier": "micro",
+            },
+            "macro": {
+                "signals": [sig_to_dict(s) for s in macro],
+                "count": len(macro),
+                "tier": "macro",
+            },
         }
 
     async def _push_alert(self, signal: Signal):
@@ -2603,8 +2850,9 @@ Respond with ONLY a JSON object:
         # Throttle check: max N alerts per window
         now = time.monotonic()
         # Purge old timestamps outside window
-        while (self._alert_timestamps and
-               now - self._alert_timestamps[0] > self._alert_window_seconds):
+        while (
+            self._alert_timestamps and now - self._alert_timestamps[0] > self._alert_window_seconds
+        ):
             self._alert_timestamps.popleft()
 
         if len(self._alert_timestamps) >= self._max_alerts_per_window:
@@ -2615,14 +2863,16 @@ Respond with ONLY a JSON object:
             return
 
         try:
-            await self.push_callback({
-                "type": "critical_signal",
-                "source": signal.source,
-                "title": signal.title[:100],
-                "score": signal.composite_score,
-                "url": signal.url,
-                "timestamp": signal.timestamp.isoformat(),
-            })
+            await self.push_callback(
+                {
+                    "type": "critical_signal",
+                    "source": signal.source,
+                    "title": signal.title[:100],
+                    "score": signal.composite_score,
+                    "url": signal.url,
+                    "timestamp": signal.timestamp.isoformat(),
+                }
+            )
             self._alert_timestamps.append(now)
             log.info(f"[AGENT:PUSH] Alert sent: {signal.title[:60]}")
         except Exception as e:
@@ -2794,13 +3044,17 @@ Respond with ONLY a JSON object:
         # Build sector summaries
         sector_summaries = []
         for sector in sectors[:8]:  # Top 8 sectors
-            sector_summaries.append({
-                "sector": sector.sector,
-                "signal_count": sector.signal_count,
-                "avg_confidence": sector.avg_confidence,
-                "direction": sector.direction.value if hasattr(sector.direction, "value") else str(sector.direction),
-                "summary": sector.summary,
-            })
+            sector_summaries.append(
+                {
+                    "sector": sector.sector,
+                    "signal_count": sector.signal_count,
+                    "avg_confidence": sector.avg_confidence,
+                    "direction": sector.direction.value
+                    if hasattr(sector.direction, "value")
+                    else str(sector.direction),
+                    "summary": sector.summary,
+                }
+            )
 
         # Top signals across all sources
         top_signals = sorted(signals_24h, key=lambda s: s.composite_score, reverse=True)[:10]
@@ -2859,7 +3113,9 @@ Focus on what requires attention or action."""
             response = await self._http_client.post(
                 "https://api.anthropic.com/v1/messages",
                 headers={
-                    "x-api-key": getattr(self.config, "claude_api_key", os.getenv("ANTHROPIC_API_KEY", "")),
+                    "x-api-key": getattr(
+                        self.config, "claude_api_key", os.getenv("ANTHROPIC_API_KEY", "")
+                    ),
                     "anthropic-version": "2023-06-01",
                 },
                 json={
@@ -2875,12 +3131,17 @@ Focus on what requires attention or action."""
             # Track cost
             try:
                 from ..cost_tracker import record_cost
+
                 usage = data.get("usage", {})
                 input_t = usage.get("input_tokens", 0)
                 output_t = usage.get("output_tokens", 0)
                 cost_usd = (input_t * 3.0 + output_t * 15.0) / 1_000_000
-                await record_cost("anthropic", cost_usd, "awarebot_brief",
-                                  f"executive summary in={input_t} out={output_t}")
+                await record_cost(
+                    "anthropic",
+                    cost_usd,
+                    "awarebot_brief",
+                    f"executive summary in={input_t} out={output_t}",
+                )
             except Exception:
                 pass  # Cost tracking should never break the primary flow
 
@@ -2928,8 +3189,7 @@ Focus on what requires attention or action."""
                 if pred_dir.exists():
                     cutoff_ts = time.time() - 6 * 3600
                     recent = [
-                        p for p in pred_dir.glob("pred-*.json")
-                        if p.stat().st_mtime >= cutoff_ts
+                        p for p in pred_dir.glob("pred-*.json") if p.stat().st_mtime >= cutoff_ts
                     ]
                     for p in sorted(recent, key=lambda f: f.stat().st_mtime):
                         try:
@@ -2939,8 +3199,10 @@ Focus on what requires attention or action."""
                                 d.get("consensus", ""),
                             )
                             self._seen_pred_fingerprints.append(fp)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            log.warning(
+                                "[AGENT:PREDICT] dedup-seed parse swallowed for %s: %s", p.name, e
+                            )
                     log.info(
                         f"[AGENT:PREDICT] Seeded dedup with "
                         f"{len(self._seen_pred_fingerprints)} fingerprints "
@@ -2962,8 +3224,10 @@ Focus on what requires attention or action."""
         if os.getenv("NCL_BERTOPIC_ENABLED", "true").lower() == "true":
             try:
                 from .topic_clusterer import TopicClusterer
+
                 try:
                     from ..intelligence.engine import SignalCorrelator  # type: ignore
+
                     sector_kw = SignalCorrelator.SECTOR_KEYWORDS
                 except Exception:
                     sector_kw = {}
@@ -2975,7 +3239,9 @@ Focus on what requires attention or action."""
                 bertopic_clusters = await tc.cluster(buffer)
                 if bertopic_clusters:
                     for tc_cluster in bertopic_clusters:
-                        label = (tc_cluster.topic_label or "").strip().lower() or f"topic-{tc_cluster.cluster_id}"
+                        label = (
+                            tc_cluster.topic_label or ""
+                        ).strip().lower() or f"topic-{tc_cluster.cluster_id}"
                         clusters[label] = list(tc_cluster.signals)
                     bertopic_used = True
                     log.info(
@@ -2984,7 +3250,9 @@ Focus on what requires attention or action."""
                         f"{', '.join(list(clusters.keys())[:5])}"
                     )
             except Exception as bert_err:
-                log.warning(f"[AGENT:PREDICT] BERTopic clustering failed, falling back to category: {bert_err}")
+                log.warning(
+                    f"[AGENT:PREDICT] BERTopic clustering failed, falling back to category: {bert_err}"  # noqa: E501
+                )
 
         if not bertopic_used:
             for s in buffer:
@@ -3011,14 +3279,14 @@ Focus on what requires attention or action."""
                 # the write entirely. These accounted for ~9% of disk
                 # files and just polluted the feed.
                 consensus_text = (output.consensus_prediction or "").strip()
-                if not consensus_text or "inconclusive" in consensus_text.lower()[:40] \
-                        or "unable to generate" in consensus_text.lower()[:40] \
-                        or "all models failed" in consensus_text.lower():
+                if (
+                    not consensus_text
+                    or "inconclusive" in consensus_text.lower()[:40]
+                    or "unable to generate" in consensus_text.lower()[:40]
+                    or "all models failed" in consensus_text.lower()
+                ):
                     self._stats["predictions_inconclusive_skipped"] += 1
-                    log.info(
-                        f"[AGENT:PREDICT] Skipping inconclusive prediction "
-                        f"for '{topic}'"
-                    )
+                    log.info(f"[AGENT:PREDICT] Skipping inconclusive prediction " f"for '{topic}'")
                     continue
 
                 # ── Fingerprint dedup (EOD 2026-05-22) ───────────────
@@ -3067,7 +3335,10 @@ Focus on what requires attention or action."""
                 try:
                     pred_dir = self._data_dir / "predictions"
                     pred_dir.mkdir(parents=True, exist_ok=True)
-                    pred_file = pred_dir / f"pred-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.json"
+                    pred_file = (
+                        pred_dir
+                        / f"pred-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.json"
+                    )
                     # New fields (2026-05-22) — iOS PredictionDetailView
                     # requires direction/linked_signals/models. Derive
                     # them at write time so /predictions doesn't have to
@@ -3079,19 +3350,40 @@ Focus on what requires attention or action."""
                         and "Unable to generate" not in str(v.get("prediction", ""))
                     ]
                     direction = _classify_direction(output.consensus_prediction or "")
-                    linked_signals = [
-                        getattr(s, "signal_id", None) for s in cluster_signals
-                    ]
+                    linked_signals = [getattr(s, "signal_id", None) for s in cluster_signals]
                     linked_signals = [s for s in linked_signals if s]
+                    # Cited sources — used by the outcome → authority feedback
+                    # loop in /prediction/{id}/outcome. Captured at write time
+                    # so the endpoint doesn't have to re-scan memory at
+                    # resolution time. Two parallel lists kept: the bare
+                    # Awarebot platform name (for AuthorityLearner) and the
+                    # full unit-source string (for the general feedback learner).
+                    cited_sources_platform = sorted(
+                        {
+                            (getattr(s, "source_platform", "") or "").strip().lower()
+                            for s in cluster_signals
+                            if getattr(s, "source_platform", None)
+                        }
+                    )
+                    cited_sources_full = sorted(
+                        {
+                            f"intelligence:{(getattr(s, 'source_platform', '') or 'unknown').strip().lower()}"  # noqa: E501
+                            for s in cluster_signals
+                        }
+                    )
                     pred_data = {
                         "prediction_id": output.prediction_id,
                         "topic": topic,
                         "consensus": output.consensus_prediction,
                         "confidence": output.confidence,
-                        "convergence": output.convergence_signals if output.convergence_signals else [],
+                        "convergence": output.convergence_signals
+                        if output.convergence_signals
+                        else [],
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                         "signal_count": len(cluster_signals),
                         "linked_signals": linked_signals,
+                        "cited_sources_platform": cited_sources_platform,
+                        "cited_sources_full": cited_sources_full,
                         "models": models,
                         "direction": direction,
                     }
@@ -3099,17 +3391,37 @@ Focus on what requires attention or action."""
                 except Exception as disk_err:
                     log.warning(f"[AGENT:PREDICT] Disk persistence failed: {disk_err}")
 
+                # ── Side effect 2b: SQLite mirror (W10A-14) ────────
+                # Gated by NCL_PREDICTIONS_SQLITE (default OFF). Must
+                # live OUTSIDE the JSON write try/except so a SQLite
+                # outage can't break the on-disk source of truth.
+                # mirror_prediction_to_sqlite() catches its own
+                # exceptions and never raises.
+                try:
+                    from ..persistence.predictions_writer import (
+                        mirror_prediction_to_sqlite,
+                    )
+                    await mirror_prediction_to_sqlite(
+                        pred_data, fallback_id=pred_file.stem
+                    )
+                except Exception as sql_err:
+                    log.warning(
+                        f"[AGENT:PREDICT] SQLite mirror import failed: {sql_err}"
+                    )
+
                 # ── Side effect 3: Push notification for high-confidence ──
                 if output.confidence >= 0.6 and self.push_callback:
                     try:
-                        await self.push_callback({
-                            "type": "prediction_alert",
-                            "title": f"Prediction [{topic}]",
-                            "consensus": output.consensus_prediction or "inconclusive",
-                            "confidence": output.confidence,
-                            "signal_count": len(cluster_signals),
-                            "timestamp": output.timestamp.isoformat(),
-                        })
+                        await self.push_callback(
+                            {
+                                "type": "prediction_alert",
+                                "title": f"Prediction [{topic}]",
+                                "consensus": output.consensus_prediction or "inconclusive",
+                                "confidence": output.confidence,
+                                "signal_count": len(cluster_signals),
+                                "timestamp": output.timestamp.isoformat(),
+                            }
+                        )
                     except Exception:
                         pass  # Don't crash loop on push failure
 
@@ -3120,7 +3432,7 @@ Focus on what requires attention or action."""
                         if self.memory_store:
                             await self.memory_store.create_unit(
                                 content=(
-                                    f"[COUNCIL FLAG] High-confidence convergent prediction on '{topic}': "
+                                    f"[COUNCIL FLAG] High-confidence convergent prediction on '{topic}': "  # noqa: E501
                                     f"{output.consensus_prediction or 'inconclusive'} "
                                     f"(confidence={output.confidence:.0%}, "
                                     f"convergence_signals={output.convergence_signals})"
@@ -3151,7 +3463,9 @@ Focus on what requires attention or action."""
                     break
             log.debug(f"[AGENT:PREDICT] Drained {drain_count} signals from prediction buffer")
 
-        log.info(f"[AGENT:PREDICT] Generated {len(predictions)} predictions from {len(clusters)} clusters")
+        log.info(
+            f"[AGENT:PREDICT] Generated {len(predictions)} predictions from {len(clusters)} clusters"  # noqa: E501
+        )
 
         return {
             "status": "completed",
@@ -3243,7 +3557,7 @@ Focus on what requires attention or action."""
                 if len(ambiguous) > llm_budget:
                     log.info(
                         f"[AGENT:REASON] {len(ambiguous)} ambiguous signals, "
-                        f"budget={llm_budget} — routing {len(ambiguous) - llm_budget} deterministically"
+                        f"budget={llm_budget} — routing {len(ambiguous) - llm_budget} deterministically"  # noqa: E501
                     )
                 for signal in ambiguous[:llm_budget]:
                     await self.reason_about_signal(signal)
@@ -3380,6 +3694,7 @@ Focus on what requires attention or action."""
                 log.info(f"[AGENT:YTC] Starting automatic YouTube Council run: {session_id}")
 
                 from ..councils.runner import run_youtube_council
+
                 report = await run_youtube_council(session_id)
 
                 if report:
@@ -3395,12 +3710,14 @@ Focus on what requires attention or action."""
                     per_video = getattr(report, "_per_video_reports", [])
                     for vid_report in per_video:
                         vid_data = vid_report.to_dict()
-                        vid_data.update({
-                            "status": "complete",
-                            "completed_at": datetime.now(timezone.utc).isoformat(),
-                            "auto_triggered": True,
-                            "report_type": "per_video",
-                        })
+                        vid_data.update(
+                            {
+                                "status": "complete",
+                                "completed_at": datetime.now(timezone.utc).isoformat(),
+                                "auto_triggered": True,
+                                "report_type": "per_video",
+                            }
+                        )
                         vid_path = json_dir / f"{vid_report.session_id}.json"
                         vid_json = json.dumps(vid_data, default=str, indent=2)
                         async with aiofiles.open(vid_path, "w") as f:
@@ -3409,14 +3726,16 @@ Focus on what requires attention or action."""
                     # Save rollup report
                     out_path = json_dir / f"{session_id}.json"
                     report_data = report.to_dict()
-                    report_data.update({
-                        "session_id": session_id,
-                        "status": "complete",
-                        "completed_at": datetime.now(timezone.utc).isoformat(),
-                        "auto_triggered": True,
-                        "report_type": "rollup",
-                        "per_video_count": len(per_video),
-                    })
+                    report_data.update(
+                        {
+                            "session_id": session_id,
+                            "status": "complete",
+                            "completed_at": datetime.now(timezone.utc).isoformat(),
+                            "auto_triggered": True,
+                            "report_type": "rollup",
+                            "per_video_count": len(per_video),
+                        }
+                    )
                     report_json = json.dumps(report_data, default=str, indent=2)
                     async with aiofiles.open(out_path, "w") as f:
                         await f.write(report_json)
@@ -3454,9 +3773,10 @@ Focus on what requires attention or action."""
                 # Try loading from saved tokens
                 try:
                     from ..councils.xai.x_oauth import load_access_token
+
                     token = load_access_token()
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.warning("[AGENT:X-LIKED] load_access_token swallowed: %s", e)
 
             if not token:
                 log.debug("[AGENT:X-LIKED] No X_USER_ACCESS_TOKEN — skipping liked-video scan")
@@ -3468,13 +3788,14 @@ Focus on what requires attention or action."""
                 log.info(f"[AGENT:X-LIKED] Starting automatic liked-video scan: {session_id}")
 
                 from ..councils.xai.liked_scanner import run_liked_video_scan
+
                 reports = await run_liked_video_scan(session_id=session_id)
 
                 if reports:
                     log.info(f"[AGENT:X-LIKED] Scan complete: {len(reports)} video reports")
                     self._stats["x_liked_scans"] = self._stats.get("x_liked_scans", 0) + 1
                 else:
-                    log.info(f"[AGENT:X-LIKED] Scan produced no new reports")
+                    log.info("[AGENT:X-LIKED] Scan produced no new reports")
 
             except asyncio.CancelledError:
                 break
@@ -3519,7 +3840,8 @@ Focus on what requires attention or action."""
         """
         # Try multiple paths
         candidates = [
-            Path(getattr(self.config, "config_dir", "~/dev/NCL/config")).expanduser() / "watch_queries.json",
+            Path(getattr(self.config, "config_dir", "~/dev/NCL/config")).expanduser()
+            / "watch_queries.json",
             Path("~/dev/NCL/runtime/autonomous/watch_queries.json").expanduser(),
             Path("~/dev/NCL/config/watch_queries.json").expanduser(),
         ]
@@ -3534,7 +3856,9 @@ Focus on what requires attention or action."""
                     t1 = len(subs.get("tier1", []))
                     t2 = len(subs.get("tier2", []))
                     t3 = len(subs.get("tier3", []))
-                    log.info(f"[AGENT] Loaded watch queries from {path} — subreddits T1={t1} T2={t2} T3={t3}")
+                    log.info(
+                        f"[AGENT] Loaded watch queries from {path} — subreddits T1={t1} T2={t2} T3={t3}"  # noqa: E501
+                    )
                     return queries
                 except Exception as e:
                     log.warning(f"[AGENT] Failed to load watch_queries from {path}: {e}")
@@ -3546,62 +3870,88 @@ Focus on what requires attention or action."""
         """Hot-reload watch queries from disk without restarting."""
         self._watch_queries = self._load_watch_queries()
         query_count = sum(len(v) for v in self._watch_queries.values() if isinstance(v, list))
-        log.info(f"[AGENT] Watch queries reloaded: {query_count} queries across {len(self._watch_queries)} sources")
+        log.info(
+            f"[AGENT] Watch queries reloaded: {query_count} queries across {len(self._watch_queries)} sources"  # noqa: E501
+        )
 
     def _signals_to_intel(self, signals: list[Signal]) -> list[IntelSignal]:
         """Convert unified Signals to IntelSignal for correlator compatibility."""
         intel_signals = []
         for s in signals:
             try:
-                source_type = SourceType(s.source) if s.source in [e.value for e in SourceType] else SourceType.NEWS
+                source_type = (
+                    SourceType(s.source)
+                    if s.source in [e.value for e in SourceType]
+                    else SourceType.NEWS
+                )
             except (ValueError, KeyError):
                 source_type = SourceType.NEWS
 
             try:
-                direction = SignalDirection(s.direction) if s.direction in [e.value for e in SignalDirection] else SignalDirection.NEUTRAL
+                direction = (
+                    SignalDirection(s.direction)
+                    if s.direction in [e.value for e in SignalDirection]
+                    else SignalDirection.NEUTRAL
+                )
             except (ValueError, KeyError):
                 direction = SignalDirection.NEUTRAL
 
-            intel_signals.append(IntelSignal(
-                signal_id=s.signal_id,
-                source=source_type,
-                category=s.category,
-                title=s.title,
-                content=s.content[:500],
-                direction=direction,
-                value=s.volume,
-                change_pct=s.change_pct,
-                volume=s.volume,
-                confidence=s.confidence,
-                url=s.url,
-                tags=s.tags,
-                metadata=s.metadata,
-                timestamp=s.timestamp,
-            ))
+            intel_signals.append(
+                IntelSignal(
+                    signal_id=s.signal_id,
+                    source=source_type,
+                    category=s.category,
+                    title=s.title,
+                    content=s.content[:500],
+                    direction=direction,
+                    value=s.volume,
+                    change_pct=s.change_pct,
+                    volume=s.volume,
+                    confidence=s.confidence,
+                    url=s.url,
+                    tags=s.tags,
+                    metadata=s.metadata,
+                    timestamp=s.timestamp,
+                )
+            )
         return intel_signals
 
     def _signals_to_insight(self, signals: list[Signal]) -> list[InsightSignal]:
         """Convert unified Signals to InsightSignal for predictor compatibility."""
         insight_signals = []
         for s in signals:
-            insight_signals.append(InsightSignal(
-                signal_id=s.signal_id,
-                source_platform=s.source,
-                content=s.content[:500],
-                url=s.url,
-                importance_score=s.composite_score * 100,
-                relevance=s.relevance,
-                novelty=s.novelty,
-                actionability=s.actionability,
-                source_authority=s.authority,
-                time_sensitivity=min(1.0, s.composite_score),
-                timestamp=s.timestamp,
-                tags=s.tags,
-            ))
+            insight_signals.append(
+                InsightSignal(
+                    signal_id=s.signal_id,
+                    source_platform=s.source,
+                    content=s.content[:500],
+                    url=s.url,
+                    importance_score=s.composite_score * 100,
+                    relevance=s.relevance,
+                    novelty=s.novelty,
+                    actionability=s.actionability,
+                    source_authority=s.authority,
+                    time_sensitivity=min(1.0, s.composite_score),
+                    timestamp=s.timestamp,
+                    tags=s.tags,
+                )
+            )
         return insight_signals
 
     async def _persist_signal(self, signal: Signal):
-        """Append signal to JSONL file for persistence."""
+        """Append signal to JSONL file for persistence.
+
+        Includes soft rotation guard mirroring
+        ``runtime/memory/conflict_resolver.py:_maybe_rotate`` — when the
+        append-only archive exceeds ``NCL_AGENT_SIGNALS_ROTATE_BYTES``
+        (default 50 MB) it is renamed to ``agent_signals.jsonl.1`` (oldest
+        ``.1`` dropped), preventing unbounded growth that previously pushed
+        the file past 65 MB.
+        """
+        try:
+            _maybe_rotate_agent_signals(self._signals_file)
+        except Exception as e:
+            log.debug(f"[AGENT:PERSIST] Rotation check failed: {e}")
         try:
             line = json.dumps(signal.to_dict(), default=str) + "\n"
             async with aiofiles.open(self._signals_file, "a") as f:
@@ -3629,7 +3979,7 @@ Focus on what requires attention or action."""
 
         # ── Memory bridge (fire-and-forget) ──
         try:
-            from ..memory.async_writer import get_async_writer, WriteRequest
+            from ..memory.async_writer import WriteRequest, get_async_writer
 
             exec_summary = brief.get("executive_summary", "") or ""
             # Build a memory-friendly content blob: summary first, then short
@@ -3645,12 +3995,8 @@ Focus on what requires attention or action."""
                         direction = s.get("direction", "")
                         if name:
                             sector_names.append(name)
-                            sector_lines.append(
-                                f"- {name}: {cnt} signals, direction={direction}"
-                            )
-            sectors_block = (
-                "\n\nSectors:\n" + "\n".join(sector_lines) if sector_lines else ""
-            )
+                            sector_lines.append(f"- {name}: {cnt} signals, direction={direction}")
+            sectors_block = "\n\nSectors:\n" + "\n".join(sector_lines) if sector_lines else ""
             content = (exec_summary + sectors_block).strip() or "Intelligence brief generated."
 
             tags = list(sector_names) + ["brief", "intel"]
@@ -3664,17 +4010,20 @@ Focus on what requires attention or action."""
             }
 
             aw = get_async_writer()
-            await aw.enqueue(WriteRequest(
-                content=content,
-                source="agent-brief",
-                memory_type="semantic",
-                importance=80,
-                tags=tags,
-                metadata=metadata,
-            ))
+            await aw.enqueue(
+                WriteRequest(
+                    content=content,
+                    source="agent-brief",
+                    memory_type="semantic",
+                    importance=80,
+                    tags=tags,
+                    metadata=metadata,
+                )
+            )
             log.debug(
                 "[AGENT:PERSIST] Brief %s bridged to memory (%d sectors)",
-                brief.get("brief_id", "?"), len(sector_names),
+                brief.get("brief_id", "?"),
+                len(sector_names),
             )
         except Exception as e:
             log.warning(f"Brief memory bridge failed: {e}")
@@ -3705,9 +4054,7 @@ Focus on what requires attention or action."""
         ambiguous.sort(key=lambda s: abs(s.composite_score - THRESHOLD_HIGH))
         llm_budget = min(MAX_LLM_CALLS_PER_CYCLE, len(ambiguous))
         if len(ambiguous) > llm_budget:
-            log.info(
-                f"[AGENT:ON_DEMAND] {len(ambiguous)} ambiguous, budget={llm_budget}"
-            )
+            log.info(f"[AGENT:ON_DEMAND] {len(ambiguous)} ambiguous, budget={llm_budget}")
         for signal in ambiguous[:llm_budget]:
             await self.reason_about_signal(signal)
 
@@ -3785,9 +4132,7 @@ Focus on what requires attention or action."""
             health[source] = {
                 "signals_collected": signals,
                 "errors": errors,
-                "status": "healthy" if errors == 0 else (
-                    "degraded" if errors < 5 else "failing"
-                ),
+                "status": "healthy" if errors == 0 else ("degraded" if errors < 5 else "failing"),
             }
 
         # Add intel engine health if available

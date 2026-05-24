@@ -17,10 +17,10 @@ Depth Modes:
   EXHAUSTIVE (10+) → Exhaustive coverage (60+ min)
 """
 
+import uuid as _uuid
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
-import uuid as _uuid
 
 from pydantic import BaseModel, Field
 
@@ -33,20 +33,20 @@ from pydantic import BaseModel, Field
 class SourceType(str, Enum):
     """Source type for research gathering."""
 
-    WEB = "web"                    # General web search results
-    ACADEMIC = "academic"          # Peer-reviewed papers, scholarly sources
-    NEWS = "news"                  # News articles, journalistic sources
-    SOCIAL = "social"              # Social media, forums, discussions
-    INTERNAL = "internal"          # NCL memory, internal documents
-    MARKET_DATA = "market_data"    # Market research, financial data
+    WEB = "web"  # General web search results
+    ACADEMIC = "academic"  # Peer-reviewed papers, scholarly sources
+    NEWS = "news"  # News articles, journalistic sources
+    SOCIAL = "social"  # Social media, forums, discussions
+    INTERNAL = "internal"  # NCL memory, internal documents
+    MARKET_DATA = "market_data"  # Market research, financial data
 
 
 class ResearchDepth(str, Enum):
     """Research depth/scope level."""
 
-    QUICK = "quick"            # 1-2 sources, minimal analysis
-    STANDARD = "standard"      # 3-5 sources, balanced coverage
-    DEEP = "deep"              # 5-10 sources, comprehensive analysis
+    QUICK = "quick"  # 1-2 sources, minimal analysis
+    STANDARD = "standard"  # 3-5 sources, balanced coverage
+    DEEP = "deep"  # 5-10 sources, comprehensive analysis
     EXHAUSTIVE = "exhaustive"  # 10+ sources, exhaustive coverage
 
 
@@ -89,14 +89,16 @@ class ResearchTask(BaseModel):
     )
     constraints: list[str] = Field(
         default_factory=list,
-        description="Research constraints (e.g., 'exclude opinion pieces', 'focus on 2024+', 'US market only')",
+        description="Research constraints (e.g., 'exclude opinion pieces', 'focus on 2024+', 'US market only')",  # noqa: E501
     )
     deadline: Optional[datetime] = Field(
         default=None,
         description="Optional deadline for research completion",
     )
     priority: int = Field(
-        default=5, ge=1, le=10,
+        default=5,
+        ge=1,
+        le=10,
         description="Priority level 1-10 (10 = urgent)",
     )
     created_at: datetime = Field(
@@ -129,11 +131,15 @@ class SourceResult(BaseModel):
     title: str = Field(..., description="Source title")
     content: str = Field(..., description="Source content / summary")
     relevance_score: float = Field(
-        default=0.5, ge=0.0, le=1.0,
+        default=0.5,
+        ge=0.0,
+        le=1.0,
         description="Relevance to query (0-1, higher = more relevant)",
     )
     credibility_score: float = Field(
-        default=0.5, ge=0.0, le=1.0,
+        default=0.5,
+        ge=0.0,
+        le=1.0,
         description="Source credibility (0-1, higher = more trustworthy)",
     )
     extracted_at: datetime = Field(
@@ -155,7 +161,9 @@ class Finding(BaseModel):
         description="Supporting evidence snippets from sources",
     )
     confidence: float = Field(
-        default=0.5, ge=0.0, le=1.0,
+        default=0.5,
+        ge=0.0,
+        le=1.0,
         description="Confidence in this finding (0-1)",
     )
     sources: list[str] = Field(
@@ -200,7 +208,9 @@ class ResearchResult(BaseModel):
         description="All sources gathered and analyzed",
     )
     confidence_score: float = Field(
-        default=0.5, ge=0.0, le=1.0,
+        default=0.5,
+        ge=0.0,
+        le=1.0,
         description="Overall confidence in research (0-1)",
     )
     research_plan: dict[str, Any] = Field(
@@ -208,7 +218,8 @@ class ResearchResult(BaseModel):
         description="Execution plan used (sub_questions, source_strategy, etc.)",
     )
     duration_ms: int = Field(
-        default=0, ge=0,
+        default=0,
+        ge=0,
         description="Total research duration in milliseconds",
     )
     model_used: str = Field(
@@ -234,7 +245,8 @@ class ResearchBrief(BaseModel):
     )
     title: str = Field(..., description="Brief title")
     executive_summary: str = Field(
-        ..., description="1-paragraph executive summary",
+        ...,
+        description="1-paragraph executive summary",
     )
     findings: list[Finding] = Field(
         default_factory=list,
@@ -249,11 +261,14 @@ class ResearchBrief(BaseModel):
         description="Key risks and uncertainties",
     )
     confidence: float = Field(
-        default=0.5, ge=0.0, le=1.0,
+        default=0.5,
+        ge=0.0,
+        le=1.0,
         description="Overall confidence level",
     )
     sources_count: int = Field(
-        default=0, ge=0,
+        default=0,
+        ge=0,
         description="Number of sources consulted",
     )
     created_at: datetime = Field(

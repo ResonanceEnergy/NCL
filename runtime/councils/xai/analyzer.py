@@ -14,18 +14,23 @@ import asyncio
 import json
 import logging
 import os
-from datetime import datetime, timezone
-from typing import Optional
 
 from ..shared.models import (
-    CouncilReport, CouncilSource, Insight, SignalCategory, XPost,
+    CouncilReport,
+    CouncilSource,
+    Insight,
+    SignalCategory,
+    XPost,
 )
 
+
 log = logging.getLogger("ncl.councils.xai.analyzer")
+
 
 def _get_anthropic_key() -> str:
     """Lazy-read Anthropic API key so keys set after import are picked up."""
     return os.getenv("ANTHROPIC_API_KEY", "")
+
 
 def _get_xai_key() -> str:
     """Lazy-read xAI API key so keys set after import are picked up."""
@@ -47,6 +52,7 @@ def _normalize_ollama_host(raw: str) -> str:
 
 def _get_ollama_host() -> str:
     return _normalize_ollama_host(os.getenv("OLLAMA_HOST", "http://localhost:11434"))
+
 
 ANALYSIS_MODEL = os.getenv("X_COUNCIL_MODEL", "claude-sonnet-4")
 
@@ -91,7 +97,7 @@ Output as JSON:
   "sentiment_landscape": "string",
   "convergence_signals": "string",
   "risk_alerts": "string"
-}"""
+}"""  # noqa: E501
 
 
 async def analyze_posts(
@@ -142,7 +148,9 @@ async def analyze_posts(
             prompt_parts.append(f"\n### @{handle} ({len(posts)} posts)")
             for p in posts[:10]:
                 engagement = p.like_count + p.retweet_count
-                prompt_parts.append(f"- [{p.created_at[:16]}] {p.text[:300]} (engagement: {engagement})")
+                prompt_parts.append(
+                    f"- [{p.created_at[:16]}] {p.text[:300]} (engagement: {engagement})"
+                )
 
     # Vector 2: Keyword search results
     keyword_posts = sweep_results.get("keywords", [])
@@ -175,7 +183,9 @@ async def analyze_posts(
         confidence_penalty = 1.0 - (0.4 * synthetic_ratio)  # 0.6 at 100% synthetic
         for insight in insights:
             original = insight.confidence
-            insight.confidence = round(min(insight.confidence, insight.confidence * confidence_penalty), 2)
+            insight.confidence = round(
+                min(insight.confidence, insight.confidence * confidence_penalty), 2
+            )
             if insight.confidence != original:
                 if "synthetic_data" not in insight.tags:
                     insight.tags.append("synthetic_data")
@@ -198,7 +208,7 @@ async def analyze_posts(
     return report
 
 
-_analyzer_client: "httpx.AsyncClient | None" = None
+_analyzer_client: "httpx.AsyncClient | None" = None  # noqa: F821
 _analyzer_client_lock: "asyncio.Lock | None" = None
 
 
@@ -206,6 +216,7 @@ def _get_analyzer_lock():
     global _analyzer_client_lock
     if _analyzer_client_lock is None:
         import asyncio
+
         _analyzer_client_lock = asyncio.Lock()
     return _analyzer_client_lock
 
@@ -213,8 +224,9 @@ def _get_analyzer_lock():
 async def _get_analyzer_client():
     """Shared HTTP client for X analyzer — avoids connection pool exhaustion."""
     global _analyzer_client
+
     import httpx
-    import asyncio
+
     if _analyzer_client is None or _analyzer_client.is_closed:
         async with _get_analyzer_lock():
             if _analyzer_client is None or _analyzer_client.is_closed:
@@ -223,45 +235,36 @@ async def _get_analyzer_client():
 
 
 async def _call_model(user_prompt: str) -> str:
-    """Call configured AI model for X analysis."""
+    """Call configured AI model for X analysis.
+
+    Anthropic path now flows through ``runtime.llm.chat`` (Wave-2 facade)
+    which owns budget gating, retry/backoff, and cost recording. The xAI
+    Grok + Ollama fallbacks remain on raw httpx until those providers
+    ship in the facade.
+    """
     client = await _get_analyzer_client()
 
-    # Anthropic Claude
+    # Anthropic Claude — routed through the LLM facade
     anthropic_key = _get_anthropic_key()
     xai_key = _get_xai_key()
     if anthropic_key and "claude" in ANALYSIS_MODEL.lower():
         try:
-            resp = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": anthropic_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": ANALYSIS_MODEL,
-                    "max_tokens": 4096,
-                    "system": X_ANALYSIS_SYSTEM_PROMPT,
-                    "messages": [{"role": "user", "content": user_prompt}],
-                },
-                timeout=120.0,
+            from runtime.llm import chat
+
+            # Default config uses bare model id "claude-sonnet-4" which is
+            # NOT in MODEL_REGISTRY. Map known aliases to the canonical id.
+            model_id = ANALYSIS_MODEL
+            if model_id in {"claude-sonnet-4", "claude-sonnet-4.6"}:
+                model_id = "claude-sonnet-4-20250514"
+            result = await chat(
+                model=model_id,
+                messages=[{"role": "user", "content": user_prompt}],
+                system=X_ANALYSIS_SYSTEM_PROMPT,
+                max_tokens=4096,
+                budget_key="anthropic",
+                timeout_s=120.0,
             )
-            resp.raise_for_status()
-            data = resp.json()
-
-            # Track cost
-            try:
-                from ...cost_tracker import record_cost
-                usage = data.get("usage", {})
-                input_t = usage.get("input_tokens", 0)
-                output_t = usage.get("output_tokens", 0)
-                cost_usd = (input_t * 3.0 + output_t * 15.0) / 1_000_000
-                await record_cost("anthropic", cost_usd, "x_analysis",
-                                  f"x council analysis in={input_t} out={output_t}")
-            except Exception:
-                pass
-
-            return data["content"][0]["text"]
+            return result.text
         except Exception as e:
             log.warning(f"Anthropic failed: {e}")
 
@@ -291,12 +294,17 @@ async def _call_model(user_prompt: str) -> str:
             # Track cost
             try:
                 from ...cost_tracker import record_cost
+
                 usage = data.get("usage", {})
                 input_t = usage.get("prompt_tokens", 0)
                 output_t = usage.get("completion_tokens", 0)
                 cost_usd = (input_t * 2.0 + output_t * 10.0) / 1_000_000
-                await record_cost("xai", cost_usd, "x_analysis",
-                                  f"grok x council analysis in={input_t} out={output_t}")
+                await record_cost(
+                    "xai",
+                    cost_usd,
+                    "x_analysis",
+                    f"grok x council analysis in={input_t} out={output_t}",
+                )
             except Exception:
                 pass
 
@@ -350,15 +358,17 @@ def _parse_analysis(raw: str) -> tuple[list[Insight], str, str]:
             cat = SignalCategory.CONTENT
 
         raw_conf = float(item.get("confidence", 0.5))
-        insights.append(Insight(
-            title=item.get("title", "Untitled"),
-            description=item.get("description", ""),
-            category=cat,
-            confidence=max(0.0, min(1.0, raw_conf)),
-            tags=item.get("tags", []),
-            actionable=bool(item.get("actionable", False)),
-            action_suggestion=item.get("action_suggestion", ""),
-        ))
+        insights.append(
+            Insight(
+                title=item.get("title", "Untitled"),
+                description=item.get("description", ""),
+                category=cat,
+                confidence=max(0.0, min(1.0, raw_conf)),
+                tags=item.get("tags", []),
+                actionable=bool(item.get("actionable", False)),
+                action_suggestion=item.get("action_suggestion", ""),
+            )
+        )
 
     summary = data.get("summary", "")
     raw_analysis = ""

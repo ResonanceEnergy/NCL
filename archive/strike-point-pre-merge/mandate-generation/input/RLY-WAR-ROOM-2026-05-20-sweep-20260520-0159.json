@@ -1,0 +1,10 @@
+{
+  "source": "war_room_council",
+  "type": "directive_relay",
+  "session_id": "sweep-20260520-0159",
+  "date": "2026-05-20",
+  "directives": "**DIRECTIVE 1**: Technical Operations Lead must complete full diagnostic of X scraping pipeline by 2026-05-21 1200h. Success metric: >90% post collection rate restored.\n\n**DIRECTIVE 2**: Intelligence Analyst must establish manual verification protocols for all geopolitical and tech industry signals by 2026-05-21 1800h. Success metric: Source authenticity confidence scores implemented.\n\n**DIRECTIVE 3**: War Room Commander must implement emergency intelligence protocols for reduced-capacity operations by 2026-05-21 0900h. Success metric: Alternative intelligence collection methods activated.\n\n**DIRECTIVE 4**: Data Engineering must create automated alerts for collection failure rates >20% by 2026-05-21 1500h. Success metric: Real-time monitoring dashboard operational.\n\n**DIRECTIVE 5**: All operational decisions requiring external intelligence must receive manual War Room Commander approval until collection restoration. Success metric: Zero decisions made on compromised data.",
+  "priority": "P2",
+  "requires_approval": true,
+  "created_at": "2026-05-20T08:02:57.816255+00:00"
+}

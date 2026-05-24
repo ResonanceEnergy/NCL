@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+
 # ---------------------------------------------------------------------------
 # Load .env from NCL root (two levels up from this file)
 # ---------------------------------------------------------------------------
@@ -117,9 +118,7 @@ class SnapTradeAdapter:
 
             self._connected = True
             self._last_sync = datetime.now(timezone.utc).isoformat()
-            logger.info(
-                "SnapTrade adapter connected — %d account(s) linked", acct_count
-            )
+            logger.info("SnapTrade adapter connected — %d account(s) linked", acct_count)
             return True
 
         except Exception as exc:
@@ -190,12 +189,16 @@ class SnapTradeAdapter:
                 if not isinstance(bal_list, list):
                     bal_list = [bal_list] if bal_list else []
                 for bal_item in bal_list:
-                    b = bal_item if isinstance(bal_item, dict) else (bal_item.__dict__ if hasattr(bal_item, "__dict__") else {})
+                    b = (
+                        bal_item
+                        if isinstance(bal_item, dict)
+                        else (bal_item.__dict__ if hasattr(bal_item, "__dict__") else {})
+                    )
                     cur = b.get("currency", {})
                     if isinstance(cur, dict):
                         cur_code = cur.get("code", "CAD")
                     else:
-                        cur_code = str(getattr(cur, "code", "CAD"))
+                        cur_code = str(getattr(cur, "code", "CAD"))  # noqa: F841
                     amt = float(b.get("cash", 0) or 0)
                     cash_balance += amt
                     net_liq += amt
@@ -297,15 +300,24 @@ class SnapTradeAdapter:
 
                 # Safety: SnapTrade SDK may return nested objects instead of strings
                 if not isinstance(symbol, str):
-                    symbol = str(getattr(symbol, "symbol", None) or getattr(symbol, "raw_symbol", None) or symbol)
+                    symbol = str(
+                        getattr(symbol, "symbol", None)
+                        or getattr(symbol, "raw_symbol", None)
+                        or symbol
+                    )
                 if len(symbol) > 20:
                     # Still got an object repr — try to extract ticker
                     import re
+
                     m = re.search(r"'symbol':\s*'([^']+)'", symbol)
                     symbol = m.group(1) if m else symbol[:10]
 
                 # Derive current price — prefer raw price field, fall back to mkt_val / units
-                current_price = current_price_raw if current_price_raw > 0 else (round(mkt_val / units, 4) if units else 0)
+                current_price = (
+                    current_price_raw
+                    if current_price_raw > 0
+                    else (round(mkt_val / units, 4) if units else 0)
+                )
                 cost_basis = avg_cost * units
                 unrealized_pl = round(mkt_val - cost_basis, 2)
                 unrealized_pl_pct = (
@@ -313,7 +325,11 @@ class SnapTradeAdapter:
                 )
 
                 # Currency may be a nested object, not a plain string
-                pos_currency = pos.get("currency", "CAD") if isinstance(pos, dict) else getattr(pos, "currency", "CAD")
+                pos_currency = (
+                    pos.get("currency", "CAD")
+                    if isinstance(pos, dict)
+                    else getattr(pos, "currency", "CAD")
+                )
                 if isinstance(pos_currency, dict):
                     pos_currency = pos_currency.get("code", "CAD")
                 elif not isinstance(pos_currency, str):
@@ -380,10 +396,16 @@ class SnapTradeAdapter:
             units                                           -> number of contracts
             average_purchase_price                          -> total cost basis
         """
-        d = opt if isinstance(opt, dict) else (
-            opt.to_dict() if hasattr(opt, "to_dict") else
-            {k: v for k, v in opt.__dict__.items() if not k.startswith("_")}
-            if hasattr(opt, "__dict__") else {}
+        d = (
+            opt
+            if isinstance(opt, dict)
+            else (
+                opt.to_dict()
+                if hasattr(opt, "to_dict")
+                else {k: v for k, v in opt.__dict__.items() if not k.startswith("_")}
+                if hasattr(opt, "__dict__")
+                else {}
+            )
         )
 
         sym_info = d.get("symbol", {}) or {}
@@ -398,7 +420,11 @@ class SnapTradeAdapter:
 
         # Currency from underlying symbol
         cur_obj = underlying.get("currency", {}) or {}
-        currency = cur_obj.get("code", "USD") if isinstance(cur_obj, dict) else str(getattr(cur_obj, "code", "USD"))
+        currency = (
+            cur_obj.get("code", "USD")
+            if isinstance(cur_obj, dict)
+            else str(getattr(cur_obj, "code", "USD"))
+        )
 
         # Build display symbol: "GLD $515C 03/19/27"
         type_letter = "C" if "CALL" in opt_type else "P" if "PUT" in opt_type else "?"

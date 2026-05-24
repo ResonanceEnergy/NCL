@@ -24,10 +24,11 @@ import logging
 import math
 import re
 from collections import defaultdict
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
+
 
 log = logging.getLogger("ncl.councils.vector_store")
 
@@ -41,6 +42,7 @@ _STOP = frozenset(
 @dataclass
 class VectorDocument:
     """A document indexed in the vector store."""
+
     doc_id: str
     text: str
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -50,6 +52,7 @@ class VectorDocument:
 @dataclass
 class VectorResult:
     """A search result from the vector store."""
+
     doc_id: str
     text: str
     score: float
@@ -111,6 +114,7 @@ class CouncilVectorStore:
         """Attempt to initialize ChromaDB."""
         try:
             import chromadb
+
             client = chromadb.PersistentClient(path=str(self.vector_dir / "chroma"))
             self._chroma_collection = client.get_or_create_collection(
                 name="council_knowledge",
@@ -129,6 +133,7 @@ class CouncilVectorStore:
         """Attempt to initialize LanceDB."""
         try:
             import lancedb
+
             db = lancedb.connect(str(self.vector_dir / "lance"))
             try:
                 self._lance_table = db.open_table("council_knowledge")
@@ -147,10 +152,12 @@ class CouncilVectorStore:
     async def _load_tfidf_from_disk(self) -> None:
         """Load persisted TF-IDF documents from JSONL backup."""
         import asyncio
+
         backup = self.vector_dir / "tfidf_docs.jsonl"
         if not backup.exists():
             return
         try:
+
             def _read_lines():
                 entries = []
                 with open(backup, "r") as f:
@@ -159,6 +166,7 @@ class CouncilVectorStore:
                             continue
                         entries.append(json.loads(line))
                 return entries
+
             entries = await asyncio.to_thread(_read_lines)
             for raw in entries:
                 self._add_tfidf_doc(
@@ -181,11 +189,14 @@ class CouncilVectorStore:
     async def _persist_tfidf_doc(self, doc_id: str, text: str, metadata: dict) -> None:
         """Append document to JSONL backup (sync I/O delegated to thread pool)."""
         import asyncio
+
         backup = self.vector_dir / "tfidf_docs.jsonl"
         line = json.dumps({"doc_id": doc_id, "text": text, "metadata": metadata}) + "\n"
+
         def _write():
             with open(backup, "a") as f:
                 f.write(line)
+
         await asyncio.to_thread(_write)
 
     # ── Public API ─────────────────────────────────────────────────────
@@ -230,15 +241,19 @@ class CouncilVectorStore:
         if tags:
             text += " " + " ".join(tags)
 
-        await self.index_document(doc_id, text, metadata={
-            "type": "insight",
-            "source": source,
-            "session_id": session_id,
-            "category": category,
-            "confidence": confidence,
-            "tags": tags or [],
-            "indexed_at": datetime.now(timezone.utc).isoformat(),
-        })
+        await self.index_document(
+            doc_id,
+            text,
+            metadata={
+                "type": "insight",
+                "source": source,
+                "session_id": session_id,
+                "category": category,
+                "confidence": confidence,
+                "tags": tags or [],
+                "indexed_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
 
     async def index_transcript_chunk(
         self,
@@ -252,14 +267,18 @@ class CouncilVectorStore:
         doc_id = f"transcript-{video_id}-{chunk_index:04d}"
         text = f"{video_title}. {chunk_text}" if video_title else chunk_text
 
-        await self.index_document(doc_id, text, metadata={
-            "type": "transcript",
-            "video_id": video_id,
-            "video_title": video_title,
-            "channel": channel,
-            "chunk_index": chunk_index,
-            "indexed_at": datetime.now(timezone.utc).isoformat(),
-        })
+        await self.index_document(
+            doc_id,
+            text,
+            metadata={
+                "type": "transcript",
+                "video_id": video_id,
+                "video_title": video_title,
+                "channel": channel,
+                "chunk_index": chunk_index,
+                "indexed_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
 
     async def index_report_summary(
         self,
@@ -270,13 +289,17 @@ class CouncilVectorStore:
     ) -> None:
         """Index a full council report summary."""
         doc_id = f"report-{source}-{session_id}"
-        await self.index_document(doc_id, summary, metadata={
-            "type": "report_summary",
-            "source": source,
-            "session_id": session_id,
-            "insight_count": insight_count,
-            "indexed_at": datetime.now(timezone.utc).isoformat(),
-        })
+        await self.index_document(
+            doc_id,
+            summary,
+            metadata={
+                "type": "report_summary",
+                "source": source,
+                "session_id": session_id,
+                "insight_count": insight_count,
+                "indexed_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
 
     async def query(
         self,
@@ -307,8 +330,11 @@ class CouncilVectorStore:
     # ── ChromaDB backend ───────────────────────────────────────────────
 
     def _query_chromadb(
-        self, query: str, top_k: int,
-        filter_type: str | None, filter_source: str | None,
+        self,
+        query: str,
+        top_k: int,
+        filter_type: str | None,
+        filter_source: str | None,
     ) -> list[VectorResult]:
         """Query ChromaDB with optional filters."""
         where = {}
@@ -330,12 +356,14 @@ class CouncilVectorStore:
         for i in range(len(results["ids"][0])):
             distance = results["distances"][0][i] if results.get("distances") else 0
             score = 1.0 - distance  # cosine distance → similarity
-            out.append(VectorResult(
-                doc_id=results["ids"][0][i],
-                text=results["documents"][0][i] if results.get("documents") else "",
-                score=score,
-                metadata=results["metadatas"][0][i] if results.get("metadatas") else {},
-            ))
+            out.append(
+                VectorResult(
+                    doc_id=results["ids"][0][i],
+                    text=results["documents"][0][i] if results.get("documents") else "",
+                    score=score,
+                    metadata=results["metadatas"][0][i] if results.get("metadatas") else {},
+                )
+            )
         return out
 
     # ── LanceDB backend ────────────────────────────────────────────────
@@ -343,7 +371,6 @@ class CouncilVectorStore:
     async def _lance_upsert(self, doc_id: str, text: str, meta: dict) -> None:
         """Upsert into LanceDB (create table if needed)."""
         try:
-            import lancedb
             data = [{"doc_id": doc_id, "text": text, **meta}]
             if self._lance_table is None:
                 self._lance_table = self._lance_db.create_table(
@@ -357,8 +384,11 @@ class CouncilVectorStore:
             self._add_tfidf_doc(doc_id, text, meta)
 
     async def _query_lancedb(
-        self, query: str, top_k: int,
-        filter_type: str | None, filter_source: str | None,
+        self,
+        query: str,
+        top_k: int,
+        filter_type: str | None,
+        filter_source: str | None,
     ) -> list[VectorResult]:
         """Query LanceDB."""
         if self._lance_table is None:
@@ -367,12 +397,16 @@ class CouncilVectorStore:
             results = self._lance_table.search(query).limit(top_k).to_list()
             out = []
             for row in results:
-                out.append(VectorResult(
-                    doc_id=row.get("doc_id", ""),
-                    text=row.get("text", ""),
-                    score=1.0 - row.get("_distance", 0),
-                    metadata={k: v for k, v in row.items() if k not in ("doc_id", "text", "_distance")},
-                ))
+                out.append(
+                    VectorResult(
+                        doc_id=row.get("doc_id", ""),
+                        text=row.get("text", ""),
+                        score=1.0 - row.get("_distance", 0),
+                        metadata={
+                            k: v for k, v in row.items() if k not in ("doc_id", "text", "_distance")
+                        },
+                    )
+                )
             return out
         except Exception as e:
             log.warning(f"LanceDB query failed: {e}")
@@ -381,8 +415,11 @@ class CouncilVectorStore:
     # ── TF-IDF fallback ────────────────────────────────────────────────
 
     def _query_tfidf(
-        self, query: str, top_k: int,
-        filter_type: str | None, filter_source: str | None,
+        self,
+        query: str,
+        top_k: int,
+        filter_type: str | None,
+        filter_source: str | None,
     ) -> list[VectorResult]:
         """TF-IDF scoring as zero-dependency fallback."""
         tokens = _tokenize(query)
@@ -401,18 +438,20 @@ class CouncilVectorStore:
                 scores[doc_id] += tf * idf
 
         results: list[VectorResult] = []
-        for doc_id, score in sorted(scores.items(), key=lambda x: -x[1])[:top_k * 3]:
+        for doc_id, score in sorted(scores.items(), key=lambda x: -x[1])[: top_k * 3]:
             doc = self._docs[doc_id]
             if filter_type and doc.metadata.get("type") != filter_type:
                 continue
             if filter_source and doc.metadata.get("source") != filter_source:
                 continue
-            results.append(VectorResult(
-                doc_id=doc_id,
-                text=doc.text[:300],
-                score=score,
-                metadata=doc.metadata,
-            ))
+            results.append(
+                VectorResult(
+                    doc_id=doc_id,
+                    text=doc.text[:300],
+                    score=score,
+                    metadata=doc.metadata,
+                )
+            )
             if len(results) >= top_k:
                 break
         return results

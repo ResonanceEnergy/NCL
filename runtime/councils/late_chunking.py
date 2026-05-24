@@ -76,11 +76,13 @@ import os
 import re
 from typing import Any, Callable, Optional
 
+
 logger = logging.getLogger(__name__)
 
 # ── Optional deps ──────────────────────────────────────────────────────
 try:
     import httpx  # type: ignore
+
     _HTTPX_OK = True
 except ImportError:  # pragma: no cover
     _HTTPX_OK = False
@@ -88,6 +90,7 @@ except ImportError:  # pragma: no cover
 
 try:
     from sentence_transformers import SentenceTransformer  # type: ignore
+
     _ST_OK = True
 except ImportError:  # pragma: no cover
     _ST_OK = False
@@ -98,10 +101,7 @@ except ImportError:  # pragma: no cover
 # Conservative regex-based splitter. Avoids the nltk download dance and
 # handles the punctuation classes we see in YTC transcripts & council
 # briefs (URLs, abbreviations, list markers).
-_SENT_SPLIT_RE = re.compile(
-    r"(?<=[.!?])\s+(?=[A-Z\"'(\[])"
-    r"|\n{2,}"
-)
+_SENT_SPLIT_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z\"'(\[])" r"|\n{2,}")
 # Rough token estimator — ~4 chars/token for English; we use this only
 # to bound chunk sizes when we don't have the model's real tokenizer.
 _CHARS_PER_TOKEN = 4
@@ -226,8 +226,9 @@ def late_chunk(
                 if isinstance(tvs, list) and tvs and isinstance(tvs[0], list):
                     token_vecs = tvs
         except Exception as e:
-            logger.warning(f"late_chunk: embed_full_callable failed ({e}); "
-                           f"returning text-only chunks")
+            logger.warning(
+                f"late_chunk: embed_full_callable failed ({e}); " f"returning text-only chunks"
+            )
             full_embed = None
             token_vecs = None
 
@@ -247,20 +248,24 @@ def late_chunk(
             if tok_end <= tok_start:
                 tok_end = min(n_toks, tok_start + 1)
             pooled = _mean_pool(token_vecs[tok_start:tok_end])
-            out.append({
-                "chunk_text": chunk_text,
-                "embedding": pooled or None,
-                "span": (tok_start, tok_end),
-                "position": pos,
-            })
+            out.append(
+                {
+                    "chunk_text": chunk_text,
+                    "embedding": pooled or None,
+                    "span": (tok_start, tok_end),
+                    "position": pos,
+                }
+            )
     else:
         for pos, (chunk_text, est_start, est_end) in enumerate(spans):
-            out.append({
-                "chunk_text": chunk_text,
-                "embedding": None,
-                "span": (est_start, est_end),
-                "position": pos,
-            })
+            out.append(
+                {
+                    "chunk_text": chunk_text,
+                    "embedding": None,
+                    "span": (est_start, est_end),
+                    "position": pos,
+                }
+            )
 
     return out
 
@@ -338,8 +343,10 @@ class LateChunker:
             try:
                 return await self._embed_jina(text, max_tokens=max_tokens)
             except Exception as e:
-                logger.warning(f"LateChunker: Jina embed failed ({e}); "
-                               f"falling back to sentence-transformers")
+                logger.warning(
+                    f"LateChunker: Jina embed failed ({e}); "
+                    f"falling back to sentence-transformers"
+                )
                 # Fall through to ST path below.
 
         if _ST_OK:
@@ -390,11 +397,7 @@ class LateChunker:
         first = items[0] or {}
         return {
             "embedding": first.get("embedding") or [],
-            "token_embeddings": (
-                first.get("embeddings")
-                or first.get("token_embeddings")
-                or []
-            ),
+            "token_embeddings": (first.get("embeddings") or first.get("token_embeddings") or []),
         }
 
     async def _embed_st_single(self, text: str) -> list[float]:
@@ -403,9 +406,7 @@ class LateChunker:
             if self._st_model is None:
                 # Model load is sync + heavy (~80MB download first time).
                 # Hop to a thread so we don't stall the event loop.
-                self._st_model = await asyncio.to_thread(
-                    SentenceTransformer, self.st_model_id
-                )
+                self._st_model = await asyncio.to_thread(SentenceTransformer, self.st_model_id)
         vec = await asyncio.to_thread(self._st_model.encode, text)  # type: ignore[union-attr]
         try:
             return [float(x) for x in vec.tolist()]
@@ -416,11 +417,10 @@ class LateChunker:
         """Batch ST embedding for the fallback per-chunk path."""
         async with self._lock:
             if self._st_model is None:
-                self._st_model = await asyncio.to_thread(
-                    SentenceTransformer, self.st_model_id
-                )
+                self._st_model = await asyncio.to_thread(SentenceTransformer, self.st_model_id)
         vecs = await asyncio.to_thread(
-            self._st_model.encode, texts  # type: ignore[union-attr]
+            self._st_model.encode,
+            texts,  # type: ignore[union-attr]
         )
         out: list[list[float]] = []
         for v in vecs:
@@ -470,8 +470,10 @@ class LateChunker:
                     )
                 # Jina returned only a pooled vector — fall through to
                 # per-chunk embedding so callers still get vectors.
-                logger.info("LateChunker: Jina returned no token_embeddings; "
-                            "falling back to per-chunk embed")
+                logger.info(
+                    "LateChunker: Jina returned no token_embeddings; "
+                    "falling back to per-chunk embed"
+                )
             except Exception as e:
                 logger.warning(f"LateChunker: Jina path failed ({e}); falling back")
 
@@ -488,15 +490,15 @@ class LateChunker:
                 logger.warning(f"LateChunker: ST chunk embed failed ({e})")
 
         out: list[dict] = []
-        for pos, ((chunk_text, est_start, est_end), emb) in enumerate(
-            zip(spans, embeddings)
-        ):
-            out.append({
-                "chunk_text": chunk_text,
-                "embedding": emb,
-                "span": (est_start, est_end),
-                "position": pos,
-            })
+        for pos, ((chunk_text, est_start, est_end), emb) in enumerate(zip(spans, embeddings)):
+            out.append(
+                {
+                    "chunk_text": chunk_text,
+                    "embedding": emb,
+                    "span": (est_start, est_end),
+                    "position": pos,
+                }
+            )
         return out
 
 

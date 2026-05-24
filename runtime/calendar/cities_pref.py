@@ -8,6 +8,7 @@ Edmonton, Alberta is the wired-in default. Persistent state lives in:
 All file I/O is defensive: corrupt JSON falls back to defaults, never raises.
 Writes are atomic (write to .tmp, then os.replace).
 """
+
 from __future__ import annotations
 
 import json
@@ -20,6 +21,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from . import local_events
+
 
 log = logging.getLogger("ncl.calendar.cities_pref")
 
@@ -113,9 +115,7 @@ def set_preferred_city(city_id: str) -> dict:
     Raises ValueError if `city_id` is not in local_events.CITIES.
     """
     if not _is_known_city(city_id):
-        raise ValueError(
-            f"unknown city_id: {city_id!r}. Known: {sorted(local_events.CITIES)}"
-        )
+        raise ValueError(f"unknown city_id: {city_id!r}. Known: {sorted(local_events.CITIES)}")
     payload = {"default": city_id, "set_at": _iso_now()}
     _atomic_write_json(CITY_PREF_PATH, payload)
     return get_city_meta(city_id)
@@ -149,9 +149,7 @@ def get_all_active_cities() -> list[str]:
 def add_active_city(city_id: str) -> list[str]:
     """Add a city to the active list. Returns the updated list."""
     if not _is_known_city(city_id):
-        raise ValueError(
-            f"unknown city_id: {city_id!r}. Known: {sorted(local_events.CITIES)}"
-        )
+        raise ValueError(f"unknown city_id: {city_id!r}. Known: {sorted(local_events.CITIES)}")
     current = _load_active_list()
     if city_id not in current:
         current.append(city_id)
@@ -179,9 +177,7 @@ def get_city_meta(city_id: str) -> dict:
     Raises ValueError if `city_id` is unknown.
     """
     if not _is_known_city(city_id):
-        raise ValueError(
-            f"unknown city_id: {city_id!r}. Known: {sorted(local_events.CITIES)}"
-        )
+        raise ValueError(f"unknown city_id: {city_id!r}. Known: {sorted(local_events.CITIES)}")
     meta = dict(local_events.CITIES[city_id])
     meta["id"] = city_id
     meta["is_default"] = city_id == get_default_city()
@@ -198,7 +194,10 @@ def _city_tz(city_id: str) -> ZoneInfo:
     except Exception as e:
         log.warning(
             "ZoneInfo failed for %s (%s); falling back to %s: %s",
-            city_id, tz_name, DEFAULT_TIMEZONE, e,
+            city_id,
+            tz_name,
+            DEFAULT_TIMEZONE,
+            e,
         )
         return ZoneInfo(DEFAULT_TIMEZONE)
 

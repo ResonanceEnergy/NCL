@@ -15,6 +15,7 @@ import httpx
 
 from ..ncl_brain.models import InsightSignal
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -64,15 +65,13 @@ def _compute_model_confidence(
 
     # Signal quality bonus: average importance (0-100 scale assumed)
     if signals:
-        avg_importance = sum(
-            getattr(s, "importance_score", 0)
-            for s in signals
-        ) / len(signals)
+        avg_importance = sum(getattr(s, "importance_score", 0) for s in signals) / len(signals)
         # Normalise to 0-0.10 bonus
         score += min(0.10, avg_importance / 100)
 
     # Explicitness bonus: response contains a numeric probability
     import re
+
     if re.search(r"\b(\d{1,3})\s*(?:–|-|to)\s*(\d{1,3})\s*%", response_text):
         score += 0.05  # Model gave a probability range
     elif re.search(r"\b\d{1,3}\s*%", response_text):
@@ -87,7 +86,7 @@ class FuturePredictor:
 
     Ingests signals from Awarebot scanner and runs multi-model predictions.
     Detects convergence when multiple sources agree.
-    Integrates with AAC War Room for geopolitical signals.
+    (AAC War Room hook retired 2026-05-23 — pillar orphaned per NATRIX directive.)
     """
 
     # Rolling accuracy window: last N prediction outcomes
@@ -108,7 +107,7 @@ class FuturePredictor:
             claude_api_key: Anthropic API key for Claude
             anthropic_base_url: Anthropic API base URL
             ollama_host: Ollama server host:port for local models
-            aac_war_room_url: AAC War Room API URL for geopolitical data
+            aac_war_room_url: RETIRED 2026-05-23 — accepted for back-compat, ignored
             accuracy_file: Optional path to persist prediction outcomes (JSON lines)
         """
         self.claude_api_key = claude_api_key
@@ -116,9 +115,9 @@ class FuturePredictor:
         # Normalize: strip scheme + trailing slash so f"http://{host}/..." stays valid
         _h = (ollama_host or "localhost:11434").strip().rstrip("/")
         if _h.startswith("http://"):
-            _h = _h[len("http://"):]
+            _h = _h[len("http://") :]
         elif _h.startswith("https://"):
-            _h = _h[len("https://"):]
+            _h = _h[len("https://") :]
         self.ollama_host = _h or "localhost:11434"
         self.aac_war_room_url = aac_war_room_url
         self.http_client = httpx.AsyncClient(timeout=12.0)
@@ -131,14 +130,12 @@ class FuturePredictor:
         if self._accuracy_file and self._accuracy_file.exists():
             try:
                 lines = self._accuracy_file.read_text().strip().splitlines()
-                for line in lines[-self._ACCURACY_WINDOW:]:
+                for line in lines[-self._ACCURACY_WINDOW :]:
                     self._outcomes.append(json.loads(line))
             except Exception:
                 pass  # Start fresh on any parse error
 
-    async def predict(
-        self, signals: list[InsightSignal], topic: str
-    ) -> PredictionOutput:
+    async def predict(self, signals: list[InsightSignal], topic: str) -> PredictionOutput:
         """
         Run ensemble prediction on signals.
 
@@ -166,7 +163,9 @@ class FuturePredictor:
         deepseek_task = self._predict_ollama(high_importance, topic, deepseek_model)
 
         results = await asyncio.gather(
-            claude_task, qwen_task, deepseek_task,
+            claude_task,
+            qwen_task,
+            deepseek_task,
             return_exceptions=True,
         )
 
@@ -193,11 +192,7 @@ class FuturePredictor:
         output.consensus_prediction = self._synthesize_consensus(predictions)
         output.confidence = self._compute_confidence(predictions, convergence)
 
-        # Query AAC War Room if geopolitical signals present
-        if any("geopolitical" in s.tags or "conflict" in s.tags for s in high_importance):
-            war_room_data = await self._query_war_room(high_importance, topic)
-            if war_room_data:
-                output.warnings.append(f"War Room signal: {war_room_data}")
+        # AAC War Room hook retired 2026-05-23 — no longer queried.
 
         return output
 
@@ -205,7 +200,10 @@ class FuturePredictor:
         self, signals: list[InsightSignal], topic: str
     ) -> dict[str, str | float | None]:
         """
-        Get strategic prediction from Claude.
+        Get strategic prediction from Claude (via runtime.llm facade).
+
+        Migrated to ``runtime.llm.chat`` in Wave 5: the facade now owns
+        retry/jitter, circuit breaker, budget gate, and cost recording.
 
         Args:
             signals: List of signals
@@ -227,33 +225,16 @@ Be specific about probability ranges (e.g., 60-70% likely).
 Format your response as JSON with keys: prediction, confidence (0-1), reasoning."""
 
         try:
-            response = await self.http_client.post(
-                f"{self.anthropic_base_url}/v1/messages",
-                headers={
-                    "x-api-key": self.claude_api_key,
-                    "anthropic-version": "2023-06-01",
-                },
-                json={
-                    "model": os.getenv("NCL_PREDICTOR_SUMMARY_MODEL", "claude-sonnet-4-20250514"),
-                    "max_tokens": 512,
-                    "messages": [{"role": "user", "content": prompt}],
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
-            text = data["content"][0]["text"]
+            from ..llm import chat  # lazy import — avoids circular ref
 
-            # Track cost
-            try:
-                from ..cost_tracker import record_cost
-                usage = data.get("usage", {})
-                input_t = usage.get("input_tokens", 0)
-                output_t = usage.get("output_tokens", 0)
-                cost_usd = (input_t * 3.0 + output_t * 15.0) / 1_000_000
-                await record_cost("anthropic", cost_usd, "prediction",
-                                  f"claude prediction for '{topic}' in={input_t} out={output_t}")
-            except Exception:
-                pass  # Cost tracking should never break the primary flow
+            llm_result = await chat(
+                model=os.getenv("NCL_PREDICTOR_SUMMARY_MODEL", "claude-sonnet-4-20250514"),
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=512,
+                budget_key="anthropic",
+                timeout_s=12.0,
+            )
+            text = llm_result.text
 
             # Try to parse structured JSON from Claude's response
             parsed_prediction = text
@@ -278,10 +259,14 @@ Format your response as JSON with keys: prediction, confidence (0-1), reasoning.
 
             # Compute confidence from data quality: signal count, avg importance,
             # and whether the model returned structured probability ranges.
-            confidence = parsed_confidence if isinstance(parsed_confidence, (int, float)) and 0 <= parsed_confidence <= 1 else _compute_model_confidence(
-                signals=signals,
-                response_text=text,
-                base=0.6,
+            confidence = (
+                parsed_confidence
+                if isinstance(parsed_confidence, (int, float)) and 0 <= parsed_confidence <= 1
+                else _compute_model_confidence(
+                    signals=signals,
+                    response_text=text,
+                    base=0.6,
+                )
             )
             result = {
                 "model": "claude",
@@ -314,9 +299,7 @@ Format your response as JSON with keys: prediction, confidence (0-1), reasoning.
         Returns:
             Prediction with confidence
         """
-        signals_text = "\n".join(
-            [f"- {s.content[:100]}" for s in signals[:5]]
-        )
+        signals_text = "\n".join([f"- {s.content[:100]}" for s in signals[:5]])
 
         prompt = f"""Analyze these signals about {topic}:
 {signals_text}
@@ -347,7 +330,9 @@ What is the most likely outcome? Provide 1-2 sentences."""
                 "confidence": confidence,
             }
         except Exception as e:
-            logger.warning(f"Ollama prediction failed with model '{model}' for topic '{topic}': {e}")
+            logger.warning(
+                f"Ollama prediction failed with model '{model}' for topic '{topic}': {e}"
+            )
             return {
                 "model": model,
                 "prediction": "Unable to generate prediction",
@@ -372,9 +357,12 @@ What is the most likely outcome? Provide 1-2 sentences."""
         convergence_signals = []
 
         valid_preds = {
-            k: v for k, v in predictions.items()
-            if v.get("prediction") and "Unable to generate" not in str(v.get("prediction", ""))
-            and isinstance(v.get("confidence"), (int, float)) and v.get("confidence", 0) > 0
+            k: v
+            for k, v in predictions.items()
+            if v.get("prediction")
+            and "Unable to generate" not in str(v.get("prediction", ""))
+            and isinstance(v.get("confidence"), (int, float))
+            and v.get("confidence", 0) > 0
         }
 
         if len(valid_preds) < 2:
@@ -392,8 +380,28 @@ What is the most likely outcome? Provide 1-2 sentences."""
                 )
 
         # 2. Directional agreement via sentiment keywords
-        bullish_words = {"increase", "rise", "grow", "bull", "up", "gain", "positive", "higher", "surge"}
-        bearish_words = {"decrease", "fall", "drop", "bear", "down", "loss", "negative", "lower", "decline"}
+        bullish_words = {
+            "increase",
+            "rise",
+            "grow",
+            "bull",
+            "up",
+            "gain",
+            "positive",
+            "higher",
+            "surge",
+        }
+        bearish_words = {
+            "decrease",
+            "fall",
+            "drop",
+            "bear",
+            "down",
+            "loss",
+            "negative",
+            "lower",
+            "decline",
+        }
 
         directions = {}
         for name, pred in valid_preds.items():
@@ -411,11 +419,12 @@ What is the most likely outcome? Provide 1-2 sentences."""
             direction_values = list(directions.values())
             # Check if majority agree on direction
             from collections import Counter
+
             dir_counts = Counter(direction_values)
             majority_dir, majority_count = dir_counts.most_common(1)[0]
             if majority_count >= 2 and majority_dir != "neutral":
                 convergence_signals.append(
-                    f"Directional agreement: {majority_count}/{len(directions)} models say {majority_dir}"
+                    f"Directional agreement: {majority_count}/{len(directions)} models say {majority_dir}"  # noqa: E501
                 )
 
         # 3. Shared key terms (>4 chars, appearing in 2+ predictions)
@@ -429,15 +438,11 @@ What is the most likely outcome? Provide 1-2 sentences."""
                     seen.add(word)
         shared = [w for w, c in word_counts.items() if c >= 2]
         if len(shared) >= 3:
-            convergence_signals.append(
-                f"Thematic convergence: {len(shared)} shared terms"
-            )
+            convergence_signals.append(f"Thematic convergence: {len(shared)} shared terms")
 
         return convergence_signals
 
-    def _synthesize_consensus(
-        self, predictions: dict[str, dict[str, str | float]]
-    ) -> str:
+    def _synthesize_consensus(self, predictions: dict[str, dict[str, str | float]]) -> str:
         """
         Synthesize consensus from multiple predictions using weighted voting.
 
@@ -453,8 +458,10 @@ What is the most likely outcome? Provide 1-2 sentences."""
         """
         # Filter out failed predictions
         valid = {
-            k: v for k, v in predictions.items()
-            if v.get("prediction") and v.get("confidence", 0) > 0
+            k: v
+            for k, v in predictions.items()
+            if v.get("prediction")
+            and v.get("confidence", 0) > 0
             and "Unable to generate" not in str(v.get("prediction", ""))
         }
 
@@ -475,18 +482,20 @@ What is the most likely outcome? Provide 1-2 sentences."""
             conf = pred.get("confidence", 0.5)
             weight = conf / total_confidence if total_confidence > 0 else 1.0 / len(valid)
             model_weights[model_name] = weight
-            parts.append({
-                "model": model_name,
-                "prediction": str(pred.get("prediction", "")),
-                "weight": weight,
-                "confidence": conf,
-            })
+            parts.append(
+                {
+                    "model": model_name,
+                    "prediction": str(pred.get("prediction", "")),
+                    "weight": weight,
+                    "confidence": conf,
+                }
+            )
 
         # Sort by weight descending — lead with highest-confidence model
         parts.sort(key=lambda x: x["weight"], reverse=True)
 
         # Extract key terms from all predictions for convergence detection
-        all_text = " ".join(p["prediction"].lower() for p in parts)
+        all_text = " ".join(p["prediction"].lower() for p in parts)  # noqa: F841
         # Simple keyword extraction: words that appear in multiple predictions
         word_counts: dict[str, int] = {}
         for part in parts:
@@ -555,7 +564,7 @@ What is the most likely outcome? Provide 1-2 sentences."""
         # p_ext = p^a / (p^a + (1-p)^a), a = 2.5
         a = 2.5
         p = max(0.01, min(0.99, avg))  # Avoid division by zero
-        p_a = p ** a
+        p_a = p**a
         q_a = (1.0 - p) ** a
         extremized = p_a / (p_a + q_a)
 
@@ -567,45 +576,13 @@ What is the most likely outcome? Provide 1-2 sentences."""
 
         return round(extremized, 4)
 
-    async def _query_war_room(
-        self, signals: list[InsightSignal], topic: str
-    ) -> Optional[str]:
+    async def _query_war_room(self, signals: list[InsightSignal], topic: str) -> Optional[str]:
+        """RETIRED 2026-05-23 — AAC War Room hook orphaned per NATRIX directive.
+
+        Kept as a permanent ``None``-returning stub so legacy callers do not
+        crash.
         """
-        Query AAC War Room for geopolitical signals.
-
-        Args:
-            signals: List of signals
-            topic: Prediction topic
-
-        Returns:
-            War room data or None
-        """
-        if not self.aac_war_room_url:
-            return None
-
-        try:
-            # Serialize signals to a compact form the War Room endpoint can consume
-            signals_payload = [
-                {
-                    "content": s.content[:200],
-                    "importance": getattr(s, "importance_score", 0),
-                    "tags": list(getattr(s, "tags", [])),
-                }
-                for s in signals[:20]  # Cap at 20 to keep payload reasonable
-            ]
-            response = await self.http_client.post(
-                f"{self.aac_war_room_url}/geopolitical/signals",
-                json={
-                    "topic": topic,
-                    "signals": signals_payload,
-                },
-            )
-            response.raise_for_status()
-            data = response.json()
-            return data.get("summary", None)
-        except Exception as e:
-            logger.warning(f"War room query failed for topic '{topic}': {e}")
-            return None
+        return None
 
     # ── Accuracy Tracking ────────────────────────────────────────────────
 

@@ -21,18 +21,19 @@ import logging
 import os
 import re
 import tempfile
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from ..shared.models import CouncilReport, CouncilSource, XPost, VideoMeta
+from ..shared.models import CouncilReport
+
 
 log = logging.getLogger("ncl.councils.xai.liked_scanner")
 
 NCL_BASE = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
 LIKED_VIDEOS_DIR = NCL_BASE / "intelligence-scan" / "x-liked-videos"
 PROCESSED_LOG = LIKED_VIDEOS_DIR / "processed_ids.json"
+
 
 # OAuth 2.0 user token — set by x_oauth.py after auth flow
 def _get_user_access_token() -> str:
@@ -41,13 +42,14 @@ def _get_user_access_token() -> str:
 
 # Shared HTTP client — reused across liked-scanner calls to avoid
 # creating a new connection pool per request.
-_shared_liked_client: Optional["httpx.AsyncClient"] = None
+_shared_liked_client: Optional["httpx.AsyncClient"] = None  # noqa: F821
 
 
-async def _get_shared_liked_client() -> "httpx.AsyncClient":
+async def _get_shared_liked_client() -> "httpx.AsyncClient":  # noqa: F821
     """Return (and lazily create) the module-level shared httpx client."""
     global _shared_liked_client
     import httpx
+
     if _shared_liked_client is None or _shared_liked_client.is_closed:
         _shared_liked_client = httpx.AsyncClient(timeout=30.0)
     return _shared_liked_client
@@ -77,13 +79,17 @@ def _save_processed_ids(ids: set[str]) -> None:
     LIKED_VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
     # Sort numerically — higher tweet IDs are more recent on Twitter
     trimmed = sorted(ids, key=lambda x: int(x) if x.isdigit() else 0)[-5000:]
-    PROCESSED_LOG.write_text(json.dumps({"processed": trimmed, "updated": datetime.now(timezone.utc).isoformat()}, indent=2))
+    PROCESSED_LOG.write_text(
+        json.dumps(
+            {"processed": trimmed, "updated": datetime.now(timezone.utc).isoformat()}, indent=2
+        )
+    )
 
 
 async def fetch_liked_tweets(
     max_results: int = 100,
     user_id: Optional[str] = None,
-    client: Optional["httpx.AsyncClient"] = None,
+    client: Optional["httpx.AsyncClient"] = None,  # noqa: F821
 ) -> list[dict]:
     """
     Fetch the authenticated user's recent liked tweets from X API v2.
@@ -166,10 +172,9 @@ async def fetch_liked_tweets(
 
 async def _get_authenticated_user_id(
     token: str,
-    client: Optional["httpx.AsyncClient"] = None,
+    client: Optional["httpx.AsyncClient"] = None,  # noqa: F821
 ) -> Optional[str]:
     """Get the authenticated user's ID from the token."""
-    import httpx
 
     http = client or await _get_shared_liked_client()
     try:
@@ -195,7 +200,7 @@ def filter_video_tweets(tweets: list[dict]) -> list[dict]:
         has_video = any(m.get("type") == "video" for m in media_list)
 
         # Also check for embedded video URLs (YouTube, etc.)
-        text = tweet.get("text", "")
+        text = tweet.get("text", "")  # noqa: F841
         entities = tweet.get("entities", {})
         urls = entities.get("urls", [])
         has_video_url = False
@@ -216,9 +221,16 @@ def filter_video_tweets(tweets: list[dict]) -> list[dict]:
 def _is_video_url(url: str) -> bool:
     """Check if a URL points to a video platform supported by yt-dlp."""
     video_domains = [
-        "youtube.com", "youtu.be", "x.com", "twitter.com",
-        "vimeo.com", "twitch.tv", "dailymotion.com",
-        "rumble.com", "bitchute.com", "odysee.com",
+        "youtube.com",
+        "youtu.be",
+        "x.com",
+        "twitter.com",
+        "vimeo.com",
+        "twitch.tv",
+        "dailymotion.com",
+        "rumble.com",
+        "bitchute.com",
+        "odysee.com",
     ]
     return any(domain in url.lower() for domain in video_domains)
 
@@ -263,11 +275,15 @@ async def download_video(url: str, output_dir: Path) -> Optional[Path]:
     cmd = [
         "yt-dlp",
         "--extract-audio",
-        "--audio-format", "mp3",
-        "--audio-quality", "3",
+        "--audio-format",
+        "mp3",
+        "--audio-quality",
+        "3",
         "--no-playlist",
-        "--max-filesize", "100M",
-        "--output", output_template,
+        "--max-filesize",
+        "100M",
+        "--output",
+        output_template,
         "--quiet",
         "--no-warnings",
         url,
@@ -307,6 +323,7 @@ async def transcribe_audio_file(audio_path: Path) -> Optional[str]:
     """Transcribe audio file using the existing YTC transcriber."""
     try:
         from ..youtube.transcriber import transcribe_audio as _transcribe
+
         transcript = await asyncio.to_thread(_transcribe, audio_path, video_id=audio_path.stem)
         if transcript and transcript.full_text:
             log.info(f"[LIKED] Transcribed {audio_path.name}: {len(transcript.full_text)} chars")
@@ -323,8 +340,8 @@ async def analyze_liked_video(
     session_id: str,
 ) -> CouncilReport:
     """Analyze a single liked video using the YouTube analyzer infrastructure."""
+    from ..shared.models import Transcript, TranscriptSegment
     from ..youtube.analyzer import analyze_single_video
-    from ..shared.models import TranscriptSegment, Transcript
 
     author = tweet.get("_author", {})
     tweet_text = tweet.get("text", "")
@@ -350,7 +367,7 @@ async def analyze_liked_video(
     # Build a Transcript object from the text
     segments = []
     for line in transcript_text.split("\n"):
-        match = re.match(r'\[(\d+):(\d+)\]\s*(.*)', line)
+        match = re.match(r"\[(\d+):(\d+)\]\s*(.*)", line)
         if match:
             mins, secs = int(match.group(1)), int(match.group(2))
             start = mins * 60 + secs
@@ -446,14 +463,16 @@ async def run_liked_video_scan(
             # Save report
             LIKED_VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
             report_data = report.to_dict()
-            report_data.update({
-                "status": "complete",
-                "completed_at": datetime.now(timezone.utc).isoformat(),
-                "source_type": "x_liked_video",
-                "tweet_id": tweet_id,
-                "tweet_text": tweet.get("text", ""),
-                "transcript": transcript_text[:5000],  # Save first 5K chars of transcript
-            })
+            report_data.update(
+                {
+                    "status": "complete",
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                    "source_type": "x_liked_video",
+                    "tweet_id": tweet_id,
+                    "tweet_text": tweet.get("text", ""),
+                    "transcript": transcript_text[:5000],  # Save first 5K chars of transcript
+                }
+            )
             report_path = LIKED_VIDEOS_DIR / f"{vid_session}.json"
             report_path.write_text(json.dumps(report_data, default=str, indent=2))
 
@@ -484,6 +503,7 @@ async def run_liked_video_scan(
     # Clean up temp dir
     try:
         import shutil
+
         shutil.rmtree(work_dir, ignore_errors=True)
     except Exception:
         pass

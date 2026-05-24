@@ -1,0 +1,66 @@
+{
+  "pump_id": "PUMP-20260403-001",
+  "mandate_id": "MANDATE-2026-008",
+  "raw_intent": "Build, test, and deploy the complete STRIKE-POINT pipeline so that a pump prompt sent from NATRIX's iPhone via FirstStrike app arrives in NCL/mandate-generation/input/ as a structured JSON file, triggering mandate generation. Three-phase rollout: working \u2192 reliable \u2192 fast.",
+  "target_pillar": "NCC",
+  "priority": "P1",
+  "aac_context": {
+    "market_signals": [
+      {
+        "source": "x",
+        "title": "Federal Reserve Leadership Transition Creates Policy Uncertainty",
+        "description": "Jerome Powell officially steps down after 8 years as Fed Chair, with Kevin Warsh incoming. Market showing 32% chance of rate hikes in 2026 per Polymarket, suggesting significant policy shift expectations under new leadership.",
+        "category": "market",
+        "confidence": 0.95,
+        "actionable": true,
+        "action": "Monitor incoming Fed policy signals and position for potential rate environment changes affecting energy/commodities exposure",
+        "tags": [
+          "federal-reserve",
+          "monetary-policy",
+          "kevin-warsh",
+          "jerome-powell",
+          "interest-rates"
+        ]
+      },
+      {
+        "source": "x",
+        "title": "US-Iran Conflict Escalation Driving Energy Price Surge",
+        "description": "Oil hits $105.50/bbl on renewed US-Iran combat fears. Defense officials preparing target banks for possible resumption of combat operations as early as next week. Energy Secretary Wright claims US could easily double natural gas exports.",
+        "category": "geopolitical",
+        "confidence": 0.9,
+        "actionable": true,
+        "action": "Consider energy sector positioning and supply chain risk assessment for NARTIX operations",
+        "tags": [
+          "iran",
+          "oil-prices",
+          "energy",
+          "geopolitical-risk",
+          "strait-hormuz"
+        ]
+      },
+      {
+        "source": "x",
+        "title": "Major Market Volatility with $900B Equity Wipeout",
+        "description": "Massive market selloff removes $900B from US stock market in single day. Treasury yields climbing (10Y to 4.58%, 5Y to 4.25%) as geopolitical tensions create risk-off sentiment despite Trump claiming deals with China.",
+        "category": "market",
+        "confidence": 0.92,
+        "actionable": true,
+        "action": "Review portfolio risk exposure and consider volatility hedging strategies",
+        "tags": [
+          "market-crash",
+          "treasury-yields",
+          "volatility",
+          "risk-off"
+        ]
+      }
+    ],
+    "risk_level": "NORMAL",
+    "positions": []
+  },
+  "brs_context": {
+    "revenue_signals": [],
+    "active_leads": 0,
+    "monthly_revenue": 0
+  },
+  "created_at": "2026-05-22T20:28:45.560018+00:00"
+}

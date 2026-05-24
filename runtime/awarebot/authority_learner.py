@@ -44,10 +44,11 @@ import math
 import os
 import tempfile
 import threading
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
+
 
 try:  # scipy is preferred for exact Beta intervals
     from scipy.stats import beta as _scipy_beta  # type: ignore
@@ -238,9 +239,7 @@ class AuthorityLearner:
                     "beta": round(st.beta, 3),
                     "prior_mean": round(st.prior_mean, 4),
                     "prior_strength": st.prior_strength,
-                    "last_updated": (
-                        st.last_updated.isoformat() if st.last_updated else None
-                    ),
+                    "last_updated": (st.last_updated.isoformat() if st.last_updated else None),
                 }
         return out
 
@@ -330,9 +329,7 @@ class AuthorityLearner:
             try:
                 self._states[src] = SourceAuthorityState.from_dict(d)
             except (KeyError, ValueError, TypeError) as e:
-                logger.warning(
-                    "AuthorityLearner: skipping corrupt entry for %s: %s", src, e
-                )
+                logger.warning("AuthorityLearner: skipping corrupt entry for %s: %s", src, e)
 
     def _persist_unlocked(self) -> None:
         payload = {

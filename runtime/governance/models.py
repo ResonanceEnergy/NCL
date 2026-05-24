@@ -4,33 +4,37 @@ Every action in the NCL pipeline declares its tier. Execute-tier actions
 require explicit NATRIX consent before proceeding. PolicyKernel enforces
 this boundary at runtime.
 """
+
+import uuid as _uuid
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
-import uuid as _uuid
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class ActionTier(str, Enum):
     """Action permission tiers — escalating authority levels."""
-    SUGGEST = "suggest"   # Informational only — no side effects
-    DRAFT = "draft"       # Creates artifacts but doesn't dispatch/execute
-    EXECUTE = "execute"   # Side effects: dispatches mandates, triggers pipelines, spends budget
+
+    SUGGEST = "suggest"  # Informational only — no side effects
+    DRAFT = "draft"  # Creates artifacts but doesn't dispatch/execute
+    EXECUTE = "execute"  # Side effects: dispatches mandates, triggers pipelines, spends budget
 
 
 class ConsentStatus(str, Enum):
     """Consent tracking for Execute-tier actions."""
+
     NOT_REQUIRED = "not_required"  # Suggest/Draft tier
-    PENDING = "pending"            # Awaiting NATRIX approval
-    GRANTED = "granted"            # NATRIX approved
-    DENIED = "denied"              # NATRIX rejected
-    EXPIRED = "expired"            # Consent window elapsed (default 1 hour)
-    REVOKED = "revoked"            # Previously granted, then revoked
+    PENDING = "pending"  # Awaiting NATRIX approval
+    GRANTED = "granted"  # NATRIX approved
+    DENIED = "denied"  # NATRIX rejected
+    EXPIRED = "expired"  # Consent window elapsed (default 1 hour)
+    REVOKED = "revoked"  # Previously granted, then revoked
 
 
 class PolicyVerdict(str, Enum):
     """PolicyKernel enforcement verdict."""
+
     ALLOW = "allow"
     BLOCK = "block"
     REQUIRE_CONSENT = "require_consent"

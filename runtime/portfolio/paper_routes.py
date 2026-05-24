@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from .paper_trading import PaperTradingEngine
 
+
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/paper", tags=["paper-trading"])
@@ -32,6 +33,7 @@ def set_paper_engine(engine: PaperTradingEngine) -> None:
 def _get_strike_token() -> str:
     try:
         from runtime.api.routes import STRIKE_TOKEN
+
         return STRIKE_TOKEN
     except ImportError:
         return os.getenv("STRIKE_AUTH_TOKEN", "")
@@ -57,6 +59,7 @@ def _require_engine() -> PaperTradingEngine:
 
 class CreateTradeRequest(BaseModel):
     """Trade ticket — stop and target REQUIRED (no plan = no trade)."""
+
     symbol: str = Field(..., description="Ticker symbol (e.g. AAPL, BTC-USD)")
     entry_price: float = Field(..., gt=0, description="Entry price")
     stop_loss: float = Field(..., gt=0, description="Stop loss price (REQUIRED)")
@@ -147,8 +150,11 @@ async def close_trade(
 
     try:
         trade = engine.close_trade(
-            trade_id, req.exit_price, req.reason,
-            grade=req.trade_grade, notes=req.notes,
+            trade_id,
+            req.exit_price,
+            req.reason,
+            grade=req.trade_grade,
+            notes=req.notes,
         )
         if trade is None:
             raise HTTPException(status_code=404, detail=f"Trade {trade_id} not found")

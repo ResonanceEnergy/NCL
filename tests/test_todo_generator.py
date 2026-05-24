@@ -1,15 +1,15 @@
 """Tests for runtime.calendar.todo_generator."""
+
 from __future__ import annotations
 
-import asyncio
 import json
-import os
 import sys
 from datetime import date, timedelta
 from pathlib import Path
-from unittest.mock import patch, AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
+
 
 # Ensure the NCL repo root is on sys.path.
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -20,6 +20,7 @@ from runtime.calendar import todo_generator  # noqa: E402
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────
+
 
 @pytest.fixture
 def tmp_todo_dir(tmp_path, monkeypatch):
@@ -131,8 +132,16 @@ class _FakeAsyncClient:
 # ── Schema validation ────────────────────────────────────────────────
 
 REQUIRED_KEYS = {
-    "id", "priority", "action", "context", "due_date", "urgency",
-    "category", "related_event_ids", "energy_aligned", "estimated_minutes",
+    "id",
+    "priority",
+    "action",
+    "context",
+    "due_date",
+    "urgency",
+    "category",
+    "related_event_ids",
+    "energy_aligned",
+    "estimated_minutes",
 }
 
 
@@ -156,9 +165,13 @@ def _assert_valid_todo(item):
 
 # ── Tests ────────────────────────────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_rule_based_fallback_runs_when_no_api_key(
-    tmp_todo_dir, sample_events, moon_initiate, monkeypatch,
+    tmp_todo_dir,
+    sample_events,
+    moon_initiate,
+    monkeypatch,
 ):
     """If ANTHROPIC_API_KEY is missing, we fall back to rule-based."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -180,11 +193,13 @@ async def test_rule_based_fallback_runs_when_no_api_key(
 
 @pytest.mark.asyncio
 async def test_rule_based_fallback_when_budget_exceeded(
-    tmp_todo_dir, sample_events, moon_initiate, monkeypatch,
+    tmp_todo_dir,
+    sample_events,
+    moon_initiate,
+    monkeypatch,
 ):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-    with patch.object(todo_generator, "_can_spend_anthropic",
-                      new=AsyncMock(return_value=False)):
+    with patch.object(todo_generator, "_can_spend_anthropic", new=AsyncMock(return_value=False)):
         todos = await todo_generator.generate_todos_for_window(
             city_id="edmonton",
             window_days=7,
@@ -194,14 +209,16 @@ async def test_rule_based_fallback_when_budget_exceeded(
     assert todos
     for t in todos:
         _assert_valid_todo(t)
-    payload = json.loads(
-        todo_generator._cache_path("edmonton", 7).read_text())
+    payload = json.loads(todo_generator._cache_path("edmonton", 7).read_text())
     assert payload["meta"]["fallback_used"] is True
 
 
 @pytest.mark.asyncio
 async def test_llm_path_with_mocked_response(
-    tmp_todo_dir, sample_events, moon_initiate, monkeypatch,
+    tmp_todo_dir,
+    sample_events,
+    moon_initiate,
+    monkeypatch,
 ):
     today = date.today()
     fake_items = [
@@ -232,14 +249,28 @@ async def test_llm_path_with_mocked_response(
     ]
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
 
-    import httpx
-    with patch.object(httpx, "AsyncClient",
-                      lambda *a, **kw: _FakeAsyncClient(
-                          _fake_llm_response(fake_items))), \
-         patch.object(todo_generator, "_can_spend_anthropic",
-                      new=AsyncMock(return_value=True)), \
-         patch.object(todo_generator, "_record_anthropic_cost",
-                      new=AsyncMock(return_value=None)):
+    # Migrated to runtime.llm.chat — patch the facade directly.
+    # _llm_generate_todos does `from ..llm import chat` at call time, which
+    # resolves through `runtime.llm.__init__`, so we patch the symbol there.
+    import runtime.llm as llm_pkg
+    from runtime.llm.client import ChatResult
+
+    async def _fake_chat(**kwargs):
+        return ChatResult(
+            text=json.dumps(fake_items),
+            citations=[],
+            usage_input_tokens=800,
+            usage_output_tokens=400,
+            cost_usd=0.0,
+            model=kwargs.get("model", "claude-haiku-4-5-20251001"),
+            latency_ms=1,
+            raw={},
+        )
+
+    with (
+        patch.object(llm_pkg, "chat", new=_fake_chat),
+        patch.object(todo_generator, "_can_spend_anthropic", new=AsyncMock(return_value=True)),
+    ):
         todos = await todo_generator.generate_todos_for_window(
             city_id="edmonton",
             window_days=7,
@@ -252,23 +283,31 @@ async def test_llm_path_with_mocked_response(
         _assert_valid_todo(t)
     # Sorted by priority desc.
     assert todos[0]["priority"] >= todos[1]["priority"]
-    payload = json.loads(
-        todo_generator._cache_path("edmonton", 7).read_text())
+    payload = json.loads(todo_generator._cache_path("edmonton", 7).read_text())
     assert payload["meta"]["fallback_used"] is False
 
 
 @pytest.mark.asyncio
 async def test_llm_failure_falls_back(
-    tmp_todo_dir, sample_events, moon_initiate, monkeypatch,
+    tmp_todo_dir,
+    sample_events,
+    moon_initiate,
+    monkeypatch,
 ):
-    """A 500 from Anthropic should not crash; fallback kicks in."""
+    """A failure from the LLM facade should not crash; fallback kicks in."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-    import httpx
-    with patch.object(httpx, "AsyncClient",
-                      lambda *a, **kw: _FakeAsyncClient(
-                          {"error": "boom"}, status=500)), \
-         patch.object(todo_generator, "_can_spend_anthropic",
-                      new=AsyncMock(return_value=True)):
+
+    # Migrated to runtime.llm.chat — simulate an LLM-facade failure by
+    # raising from the patched chat function.
+    import runtime.llm as llm_pkg
+
+    async def _failing_chat(**kwargs):
+        raise RuntimeError("Anthropic HTTP 500: boom")
+
+    with (
+        patch.object(llm_pkg, "chat", new=_failing_chat),
+        patch.object(todo_generator, "_can_spend_anthropic", new=AsyncMock(return_value=True)),
+    ):
         todos = await todo_generator.generate_todos_for_window(
             city_id="edmonton",
             window_days=7,
@@ -278,58 +317,77 @@ async def test_llm_failure_falls_back(
     assert todos
     for t in todos:
         _assert_valid_todo(t)
-    payload = json.loads(
-        todo_generator._cache_path("edmonton", 7).read_text())
+    payload = json.loads(todo_generator._cache_path("edmonton", 7).read_text())
     assert payload["meta"]["fallback_used"] is True
     assert payload["meta"]["llm_error"]
 
 
 @pytest.mark.asyncio
 async def test_energy_alignment_initiate(
-    tmp_todo_dir, sample_events, moon_initiate, monkeypatch,
+    tmp_todo_dir,
+    sample_events,
+    moon_initiate,
+    monkeypatch,
 ):
     """Actions containing 'open' / 'start' align with `initiate`."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     # Inject events whose rule-based phrasing won't include initiate keywords,
     # then manually run post_process with crafted todos.
     crafted = [
-        {"id": "x1", "priority": 4, "action": "Open new GLD position",
-         "context": "test", "due_date": date.today().isoformat(),
-         "urgency": "today", "category": "portfolio",
-         "related_event_ids": [], "energy_aligned": False,
-         "estimated_minutes": 15},
-        {"id": "x2", "priority": 4, "action": "Exit stale TSLA position",
-         "context": "test", "due_date": date.today().isoformat(),
-         "urgency": "today", "category": "portfolio",
-         "related_event_ids": [], "energy_aligned": False,
-         "estimated_minutes": 15},
+        {
+            "id": "x1",
+            "priority": 4,
+            "action": "Open new GLD position",
+            "context": "test",
+            "due_date": date.today().isoformat(),
+            "urgency": "today",
+            "category": "portfolio",
+            "related_event_ids": [],
+            "energy_aligned": False,
+            "estimated_minutes": 15,
+        },
+        {
+            "id": "x2",
+            "priority": 4,
+            "action": "Exit stale TSLA position",
+            "context": "test",
+            "due_date": date.today().isoformat(),
+            "urgency": "today",
+            "category": "portfolio",
+            "related_event_ids": [],
+            "energy_aligned": False,
+            "estimated_minutes": 15,
+        },
     ]
-    out = todo_generator._post_process(crafted, energy_mode="initiate",
-                                       window_days=7)
+    out = todo_generator._post_process(crafted, energy_mode="initiate", window_days=7)
     by_id = {t["id"]: t for t in out}
-    assert by_id["x1"]["energy_aligned"] is True   # "Open" aligns
+    assert by_id["x1"]["energy_aligned"] is True  # "Open" aligns
     assert by_id["x2"]["energy_aligned"] is False  # "Exit" does not
 
 
 def test_energy_alignment_release_releases_exits():
     crafted = [
-        {"id": "y1", "priority": 4, "action": "Exit TSLA before close",
-         "context": "", "due_date": date.today().isoformat(),
-         "urgency": "today", "category": "portfolio",
-         "related_event_ids": [], "energy_aligned": False,
-         "estimated_minutes": 10},
+        {
+            "id": "y1",
+            "priority": 4,
+            "action": "Exit TSLA before close",
+            "context": "",
+            "due_date": date.today().isoformat(),
+            "urgency": "today",
+            "category": "portfolio",
+            "related_event_ids": [],
+            "energy_aligned": False,
+            "estimated_minutes": 10,
+        },
     ]
-    out = todo_generator._post_process(crafted, energy_mode="release",
-                                       window_days=7)
+    out = todo_generator._post_process(crafted, energy_mode="release", window_days=7)
     assert out[0]["energy_aligned"] is True
 
 
 def test_specificity_30_day_uses_fewer_todos(sample_events):
     """Rule-based 30-day mode caps at 8 event-derived todos."""
-    todos_7 = todo_generator._rule_based_todos(
-        "edmonton", 7, sample_events, None)
-    todos_30 = todo_generator._rule_based_todos(
-        "edmonton", 30, sample_events, None)
+    todos_7 = todo_generator._rule_based_todos("edmonton", 7, sample_events, None)
+    todos_30 = todo_generator._rule_based_todos("edmonton", 30, sample_events, None)
     # Both should be valid lists.
     assert isinstance(todos_7, list)
     assert isinstance(todos_30, list)
@@ -344,14 +402,15 @@ def test_coerce_clamps_priority_and_dates():
     horizon = today + timedelta(days=7)
     item = todo_generator._coerce_item(
         {"action": "Test", "priority": 99, "due_date": "1999-01-01"},
-        today=today, horizon=horizon,
+        today=today,
+        horizon=horizon,
     )
     assert item["priority"] == 5
     assert item["due_date"] == today.isoformat()
     item2 = todo_generator._coerce_item(
-        {"action": "Test", "priority": -5,
-         "due_date": (today + timedelta(days=999)).isoformat()},
-        today=today, horizon=horizon,
+        {"action": "Test", "priority": -5, "due_date": (today + timedelta(days=999)).isoformat()},
+        today=today,
+        horizon=horizon,
     )
     assert item2["priority"] == 1
     assert item2["due_date"] == horizon.isoformat()
@@ -361,7 +420,8 @@ def test_coerce_invalid_category_falls_back_to_intel():
     today = date.today()
     item = todo_generator._coerce_item(
         {"action": "Test", "category": "blargh"},
-        today=today, horizon=today + timedelta(days=7),
+        today=today,
+        horizon=today + timedelta(days=7),
     )
     assert item["category"] == "intel"
 
@@ -376,11 +436,12 @@ def test_normalize_category_aliases():
 
 
 @pytest.mark.asyncio
-async def test_get_cached_todos_roundtrip(tmp_todo_dir, sample_events,
-                                          monkeypatch):
+async def test_get_cached_todos_roundtrip(tmp_todo_dir, sample_events, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     await todo_generator.generate_todos_for_window(
-        city_id="calgary", window_days=30, events=sample_events,
+        city_id="calgary",
+        window_days=30,
+        events=sample_events,
     )
     cached = await todo_generator.get_cached_todos("calgary", 30)
     assert cached is not None
@@ -396,8 +457,7 @@ async def test_get_cached_todos_missing_returns_none(tmp_todo_dir):
 def test_parse_event_date_handles_multiple_formats():
     today_iso = date.today().isoformat()
     assert todo_generator._parse_event_date({"date": today_iso}) == date.today()
-    assert todo_generator._parse_event_date(
-        {"datetime": f"{today_iso}T15:30:00Z"}) == date.today()
+    assert todo_generator._parse_event_date({"datetime": f"{today_iso}T15:30:00Z"}) == date.today()
     assert todo_generator._parse_event_date({}) is None
     assert todo_generator._parse_event_date({"date": "garbage"}) is None
 
@@ -424,12 +484,17 @@ async def test_parse_json_array_tolerates_fences():
 
 @pytest.mark.asyncio
 async def test_window_30_uses_strategic_phrasing(
-    tmp_todo_dir, sample_events, moon_harvest, monkeypatch,
+    tmp_todo_dir,
+    sample_events,
+    moon_harvest,
+    monkeypatch,
 ):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     todos = await todo_generator.generate_todos_for_window(
-        city_id="edmonton", window_days=30,
-        events=sample_events, moon_phase=moon_harvest,
+        city_id="edmonton",
+        window_days=30,
+        events=sample_events,
+        moon_phase=moon_harvest,
     )
     for t in todos:
         _assert_valid_todo(t)

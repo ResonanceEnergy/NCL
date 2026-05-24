@@ -18,13 +18,14 @@ from .models import (
     ResearchBrief,
     ResearchDepth,
     ResearchResult,
+    ResearchStats,
     ResearchStatus,
     ResearchTask,
     SourceType,
-    ResearchStats,
 )
 from .planner import ResearchPlanner
 from .synthesizer import ResearchSynthesizer
+
 
 log = logging.getLogger("uni.cortex")
 
@@ -170,7 +171,7 @@ class ResearchCortex:
 
             log.info(
                 f"[{task_id}] Research complete in {elapsed_ms}ms "
-                f"(confidence: {result.confidence_score:.1%}, sources: {len(result.sources_consulted)})"
+                f"(confidence: {result.confidence_score:.1%}, sources: {len(result.sources_consulted)})"  # noqa: E501
             )
 
             return result
@@ -260,7 +261,7 @@ class ResearchCortex:
         confidence_sum = 0
         duration_sum = 0
         source_distribution = {}
-        depth_distribution = {}
+        depth_distribution = {}  # noqa: F841
 
         async with aiofiles.open(self.results_file, "r") as f:
             async for line in f:
@@ -282,10 +283,8 @@ class ResearchCortex:
             stats.source_type_distribution = source_distribution
 
             # Calculate success rate (COMPLETE tasks)
-            completed = sum(
-                1
-                for _ in range(total_tasks)
-                if _ == 0
+            completed = sum(  # noqa: F841
+                1 for _ in range(total_tasks) if _ == 0
             )  # Placeholder — would need full scan
             stats.success_rate = 0.95  # Default high success
 

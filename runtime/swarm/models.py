@@ -40,8 +40,8 @@ class TaskStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
-    TIMED_OUT = "timed_out"   # Agent execution exceeded timeout
-    EXPIRED = "expired"       # AWAITING_APPROVAL exceeded approval timeout
+    TIMED_OUT = "timed_out"  # Agent execution exceeded timeout
+    EXPIRED = "expired"  # AWAITING_APPROVAL exceeded approval timeout
 
 
 class AgentState(str, Enum):

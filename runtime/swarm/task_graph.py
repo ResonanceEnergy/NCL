@@ -14,8 +14,9 @@ import logging
 from collections import deque
 from typing import Any
 
-from .llm_router import LLMRouter
+from .llm_adapter import LLMClientAdapter
 from .models import SubtaskNode, TaskGraph, TaskStatus
+
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,7 @@ Objective: {objective}
 Context (if any): {context}
 
 Decompose this into subtasks. Return JSON in exactly this format:
-{{"subtasks": [{{"id": "st_1", "title": "...", "agent_type": "scholar|scout|architect|coder|analyst|scribe|sentinel", "description": "...", "depends_on": []}}]}}"""
+{{"subtasks": [{{"id": "st_1", "title": "...", "agent_type": "scholar|scout|architect|coder|analyst|scribe|sentinel", "description": "...", "depends_on": []}}]}}"""  # noqa: E501
 
 
 # ---------------------------------------------------------------------------
@@ -68,7 +69,7 @@ class TaskGraphBuilder:
         graph = await builder.build(task_id="abc123", objective="Build a REST API...")
     """
 
-    def __init__(self, llm_router: LLMRouter, decompose_backend: str = "claude") -> None:
+    def __init__(self, llm_router: LLMClientAdapter, decompose_backend: str = "claude") -> None:
         """
         Args:
             llm_router: Router for LLM calls.
@@ -159,7 +160,7 @@ class TaskGraphBuilder:
         if cleaned.startswith("```"):
             lines = cleaned.split("\n")
             # Remove first and last fence lines
-            lines = [l for l in lines if not l.strip().startswith("```")]
+            lines = [l for l in lines if not l.strip().startswith("```")]  # noqa: E741
             cleaned = "\n".join(lines)
 
         try:
@@ -241,9 +242,7 @@ class TaskGraphBuilder:
                 in_degree[dst] += 1
 
         # Kahn's algorithm
-        queue: deque[str] = deque(
-            nid for nid, deg in in_degree.items() if deg == 0
-        )
+        queue: deque[str] = deque(nid for nid, deg in in_degree.items() if deg == 0)
         visited_count = 0
 
         while queue:
@@ -302,9 +301,7 @@ class TaskGraphEngine:
                 adjacency[src].append(dst)
                 in_degree[dst] += 1
 
-        queue: deque[str] = deque(
-            nid for nid, deg in in_degree.items() if deg == 0
-        )
+        queue: deque[str] = deque(nid for nid, deg in in_degree.items() if deg == 0)
         result: list[str] = []
 
         while queue:
@@ -377,17 +374,13 @@ class TaskGraphEngine:
             # Check which downstream nodes are now ready
             newly_ready: list[str] = []
             completed_ids = {
-                nid
-                for nid, n in self._graph.nodes.items()
-                if n.status == TaskStatus.COMPLETED
+                nid for nid, n in self._graph.nodes.items() if n.status == TaskStatus.COMPLETED
             }
 
             for nid, n in self._graph.nodes.items():
                 if n.status != TaskStatus.PENDING:
                     continue
-                if subtask_id in n.depends_on and all(
-                    dep in completed_ids for dep in n.depends_on
-                ):
+                if subtask_id in n.depends_on and all(dep in completed_ids for dep in n.depends_on):
                     newly_ready.append(nid)
 
             return newly_ready
@@ -429,9 +422,7 @@ class TaskGraphEngine:
                 for nid, n in self._graph.nodes.items():
                     if n.status == TaskStatus.PENDING and current in n.depends_on:
                         n.status = TaskStatus.FAILED
-                        n.output_data = {
-                            "error": f"Upstream dependency '{current}' failed"
-                        }
+                        n.output_data = {"error": f"Upstream dependency '{current}' failed"}
                         failed_downstream.append(nid)
                         queue.append(nid)
                     elif n.status == TaskStatus.IN_PROGRESS and current in n.depends_on:
@@ -459,16 +450,11 @@ class TaskGraphEngine:
         (COMPLETED, FAILED, or CANCELLED).
         """
         terminal = {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.CANCELLED}
-        return all(
-            node.status in terminal for node in self._graph.nodes.values()
-        )
+        return all(node.status in terminal for node in self._graph.nodes.values())
 
     def all_succeeded(self) -> bool:
         """True if every node is in COMPLETED status."""
-        return all(
-            node.status == TaskStatus.COMPLETED
-            for node in self._graph.nodes.values()
-        )
+        return all(node.status == TaskStatus.COMPLETED for node in self._graph.nodes.values())
 
     def get_critical_path(self) -> list[str]:
         """

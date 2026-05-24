@@ -7,12 +7,36 @@ import os
 import re
 import uuid
 from collections import OrderedDict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 import aiofiles
 import httpx
+
+from ..config import flags
+
+
+# ── SQLite units-index fast path (W6-A) ───────────────────────────────────
+#
+# When ``NCL_UNITS_INDEX_SQLITE=true``, try the SQLite ``units_index`` table
+# first (W4-14, store.py:_search_units_via_sqlite_index) so we don't have to
+# full-scan the 200MB units.jsonl. Falls back to the canonical
+# ``search_units`` path on flag-off or ANY failure — flag-off behavior is
+# bit-identical to before this retrofit.
+async def _maybe_indexed_search(memory_store, **kwargs):
+    """Drop-in replacement for ``memory_store.search_units(**kwargs)``."""
+    if flags.units_index_sqlite():
+        try:
+            unit_ids = await memory_store._search_units_via_sqlite_index(**kwargs)
+            if unit_ids:
+                units_by_id = await memory_store._load_units_batch(set(unit_ids))
+                return [units_by_id[uid] for uid in unit_ids if uid in units_by_id]
+        except Exception as e:
+            logging.getLogger(__name__).debug(
+                "[BRAIN] sqlite index search failed (%s) — falling back", e
+            )
+    return await memory_store.search_units(**kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -62,24 +86,35 @@ _validate_config()
 
 log = logging.getLogger("ncl.brain")
 
-from .models import (
-    PumpPrompt,
+# ---------------------------------------------------------------------------
+# SQLite double-write hook for mandates
+# ---------------------------------------------------------------------------
+# OFF by default. NATRIX flips this after a 1-2 week burn-in once
+# scripts/migrate_mandates_to_sqlite.py has back-filled the SQLite table.
+# When True, _persist_mandates_unlocked also INSERT OR REPLACEs each
+# mandate into the SQLite `mandates` table. The JSONL/JSON write remains
+# the source of truth — SQLite failures NEVER block the JSON path.
+SQLITE_DOUBLE_WRITE = flags.mandates_sqlite()
+
+from ..awarebot import FuturePredictor, Scanner  # noqa: E402
+from ..governance.emergency_stop import EMERGENCY_STOP_EVENT  # noqa: E402
+from ..memory import MemoryStore  # noqa: E402
+from ..swarm.blackboard import Blackboard  # noqa: E402
+from ..swarm.llm_adapter import LLMClientAdapter  # noqa: E402
+from ..swarm.orchestrator import SwarmOrchestrator  # noqa: E402
+from .council import CouncilEngine  # noqa: E402
+from .models import (  # noqa: E402
+    CouncilMember,
+    CouncilSession,
+    CouncilStatus,
+    FeedbackReport,
+    InsightSignal,
     Mandate,
     MandateStatus,
-    CouncilSession,
-    CouncilMember,
-    FeedbackReport,
-    PillarType,
-    InsightSignal,
     NCLEvent,
+    PillarType,
+    PumpPrompt,
 )
-from .council import CouncilEngine
-from ..memory import MemoryStore
-from ..awarebot import Scanner, FuturePredictor
-from ..swarm.orchestrator import SwarmOrchestrator
-from ..swarm.llm_router import LLMRouter
-from ..swarm.blackboard import Blackboard
-from ..governance.emergency_stop import EMERGENCY_STOP_EVENT
 
 
 # Keys/values redacted from log payloads and persisted events.
@@ -251,15 +286,23 @@ class NCLBrain:
         )
 
         # MWP output directories for stage handoffs (Jake Van Clief protocol)
-        self.mwp_base = Path(data_dir).expanduser().parent / "workspaces" / "mandate-generation" / "stages"
+        self.mwp_base = (
+            Path(data_dir).expanduser().parent / "workspaces" / "mandate-generation" / "stages"
+        )
 
         # In-memory state (bounded collections to prevent unbounded growth)
         self.mandates: dict[str, Mandate] = {}
         self._mandates_lock = asyncio.Lock()
+        # SQLite double-write — lazy-acquired SqliteStore singleton + flap
+        # suppression flag so we don't spam logs if the table is unavailable.
+        self._mandates_sqlite = None
+        self._sqlite_warned = False
         self.council_sessions: OrderedDict[str, CouncilSession] = OrderedDict()
         self._council_sessions_lock = asyncio.Lock()  # Guards council_sessions dict
         self._COUNCIL_SESSIONS_MAX = 50  # Evict oldest completed sessions when full
-        self._pending_dispatches: OrderedDict[str, dict] = OrderedDict()  # pump_id → pending approval data
+        self._pending_dispatches: OrderedDict[str, dict] = (
+            OrderedDict()
+        )  # pump_id → pending approval data
         self._PENDING_DISPATCHES_MAX = 200
         self._pending_dispatches_lock = asyncio.Lock()  # Guards _pending_dispatches reads/writes
 
@@ -276,8 +319,12 @@ class NCLBrain:
             "perplexity_api_key": perplexity_api_key or "",
             "ollama_host": ollama_host,
         }
-        self._swarm_llm_router = LLMRouter(config=_swarm_config)
-        self._swarm_blackboard = Blackboard(persist_path=self.data_dir / "swarm" / "blackboard.json")
+        # W10C-15: LLMRouter retired — every swarm call now goes through
+        # the runtime.llm facade via LLMClientAdapter (duck-typed shim).
+        self._swarm_llm_router = LLMClientAdapter(config=_swarm_config)
+        self._swarm_blackboard = Blackboard(
+            persist_path=self.data_dir / "swarm" / "blackboard.json"
+        )
         self.swarm = SwarmOrchestrator(
             config=_swarm_config,
             llm_router=self._swarm_llm_router,
@@ -308,6 +355,125 @@ class NCLBrain:
         self._paperclip_connected = False
         log.info("NCL brain initialized (Paperclip adapter removed — degraded mode)")
         await self._log_event("startup", "NCL brain initialized (Paperclip adapter removed)")
+
+    async def _run_council_with_pack_or_fallback(
+        self,
+        *,
+        topic: str,
+        prompt: str,
+        trigger: str,
+        members: Optional[list[str]] = None,
+        session_id: Optional[str] = None,
+    ) -> CouncilSession:
+        """Try the universal council_pack path; fall back to ``spawn_council_session``
+        on any failure.
+
+        The pack path provides the 12 council improvements (MMR diversity,
+        temporal split, contradiction surfacing, calibration preamble, peer
+        review, 3-tier write-back, etc.). If anything in that chain throws
+        — missing async-writer singleton, retriever crash, import error —
+        we log and fall back to the legacy ``spawn_council_session`` so the
+        pump pipeline NEVER regresses.
+
+        Pattern mirrors ``scheduler._run_council_with_pack_or_fallback``.
+        """
+        try:
+            from ..council_pack import run_council_with_pack
+            from ..memory.retrieval import BM25Index, FusedRetriever
+
+            store = self.memory_store
+            if not getattr(store, "_bm25_index", None):
+                store._bm25_index = BM25Index(store)
+            fused = FusedRetriever(
+                store,
+                store._bm25_index,
+                knowledge_graph=getattr(store, "_knowledge_graph", None),
+            )
+
+            # Best-effort acquire the async writer singleton (initialized in
+            # scheduler.start()). If the scheduler hasn't started yet, the
+            # singleton accessor raises — we treat that as "no write-back".
+            async_writer = None
+            try:
+                from ..memory.async_writer import get_async_writer
+
+                async_writer = get_async_writer()
+            except Exception:
+                async_writer = None
+
+            # Source-authority learner singleton — None is acceptable, the
+            # assembler treats it as a 1.0 multiplier (no adjustment).
+            learner = None
+            try:
+                from ..feedback.source_authority_learner import get_learner
+
+                learner = get_learner()
+            except Exception:
+                learner = None
+
+            # Working context — owned by the scheduler. Stash it on the
+            # brain via ``brain._working_context_ref`` if the caller wants
+            # it; otherwise None (assembler degrades gracefully).
+            working_context = getattr(self, "_working_context_ref", None)
+
+            # Convert string members to enums same way spawn_council_session does.
+            member_enums: Optional[list[CouncilMember]] = None
+            if members:
+                member_enums = []
+                for m in members:
+                    try:
+                        member_enums.append(CouncilMember(m.lower()))
+                    except ValueError:
+                        log.warning(f"Unknown council member '{m}', skipping")
+
+            result = await run_council_with_pack(
+                council_engine=self.council_engine,
+                topic=topic,
+                base_prompt=prompt,
+                fused_retriever=fused,
+                working_context=working_context,
+                learner=learner,
+                async_writer=async_writer,
+                members=member_enums,
+                session_id=session_id,
+                council_type=f"brain:{trigger}",
+                peer_review=True,
+            )
+            session = result["session"]
+
+            # Mirror spawn_council_session bookkeeping: persist + log + insights.
+            async with self._council_sessions_lock:
+                if len(self.council_sessions) >= self._COUNCIL_SESSIONS_MAX:
+                    self._evict_oldest_council_sessions()
+                self.council_sessions[session.session_id] = session
+                await self._persist_council_sessions_unlocked()
+
+            log.info(
+                "[BRAIN-COUNCIL:PACK] %s session=%s pack_items=%d conflicts=%d "
+                "cal_blocks=%d peer_reviews=%d writeback_gist_chars=%d",
+                trigger,
+                session.session_id,
+                result["pack"].get("pack_size_items", 0),
+                len(result["pack"].get("surfaced_conflicts", []) or []),
+                len(result.get("calibrations") or []),
+                len(result.get("peer_review") or []),
+                len((result.get("writeback") or {}).get("gist") or ""),
+            )
+            return session
+        except Exception as pack_err:
+            log.warning(
+                "[BRAIN-COUNCIL:PACK] pack path failed (%s) — falling back to "
+                "legacy spawn_council_session",
+                pack_err,
+            )
+
+        # Fallback — original behavior, unchanged.
+        return await self.spawn_council_session(
+            topic=topic,
+            prompt=prompt,
+            members=members,
+            session_id=session_id,
+        )
 
     async def receive_pump_prompt(self, prompt: PumpPrompt, auto_flow: bool = True) -> dict:
         """
@@ -364,11 +530,15 @@ class NCLBrain:
         # MWP Stage 02 — Analysis: write council prompt + context
         await self._mwp_analysis(prompt, council_prompt)
 
-        # Step 2: Spawn council session
+        # Step 2: Spawn council session via the universal council_pack pipeline
+        # (MMR diversity, temporal split, contradiction surfacing, calibration,
+        # peer review, 3-tier write-back). Falls back to legacy
+        # ``spawn_council_session`` on any pack-path failure.
         try:
-            session = await self.spawn_council_session(
+            session = await self._run_council_with_pack_or_fallback(
                 topic=f"Pump: {prompt.intent}",
                 prompt=council_prompt,
+                trigger=f"pump:{prompt.urgency}",
                 members=None,  # Full council
             )
             result["council"] = {
@@ -409,14 +579,16 @@ class NCLBrain:
                     source_pump_id=prompt.prompt_id,
                     status=MandateStatus.PENDING_APPROVAL,
                 )
-                result["mandates"].append({
-                    "mandate_id": mandate.mandate_id,
-                    "pillar": mandate.pillar.value,
-                    "title": mandate.title,
-                    "priority": mandate.priority,
-                    "objective": mandate.objective,
-                    "success_criteria": mandate.success_criteria,
-                })
+                result["mandates"].append(
+                    {
+                        "mandate_id": mandate.mandate_id,
+                        "pillar": mandate.pillar.value,
+                        "title": mandate.title,
+                        "priority": mandate.priority,
+                        "objective": mandate.objective,
+                        "success_criteria": mandate.success_criteria,
+                    }
+                )
             except Exception as e:
                 log.error(f"Mandate creation failed: {e}")
                 result["mandates"].append({"error": str(e), "title": md.get("title", "?")})
@@ -518,9 +690,7 @@ class NCLBrain:
                         try:
                             allowed = await self._policy_allows_dispatch(mandate)
                         except Exception as exc:
-                            log.error(
-                                f"Policy evaluation failed — fail-closed: {exc}"
-                            )
+                            log.error(f"Policy evaluation failed — fail-closed: {exc}")
                             allowed = False
                         if not allowed:
                             log.warning(
@@ -543,17 +713,17 @@ class NCLBrain:
                             reason=f"NATRIX approved pump {pump_id}",
                         )
                     except ValueError as e:
-                        log.warning(
-                            f"[approve] Invalid mandate transition for {mandate_id}: {e}"
-                        )
+                        log.warning(f"[approve] Invalid mandate transition for {mandate_id}: {e}")
                         mandate.updated_at = datetime.now(timezone.utc)
 
-                    mandates_to_dispatch.append({
-                        "mandate_id": mandate.mandate_id,
-                        "pillar": mandate.pillar.value,
-                        "title": mandate.title,
-                        "priority": mandate.priority,
-                    })
+                    mandates_to_dispatch.append(
+                        {
+                            "mandate_id": mandate.mandate_id,
+                            "pillar": mandate.pillar.value,
+                            "title": mandate.title,
+                            "priority": mandate.priority,
+                        }
+                    )
 
             await self._persist_mandates_unlocked()
 
@@ -566,9 +736,7 @@ class NCLBrain:
 
         # Emergency-stop gate — refuse dispatch if engaged
         if await self._emergency_stop_engaged():
-            log.warning(
-                f"[approve] Emergency stop engaged — refusing dispatch for pump {pump_id}"
-            )
+            log.warning(f"[approve] Emergency stop engaged — refusing dispatch for pump {pump_id}")
             async with self._mandates_lock:
                 for entry in mandates_to_dispatch:
                     blocked = self.mandates.get(entry["mandate_id"])
@@ -587,8 +755,10 @@ class NCLBrain:
                 "mandates_blocked": [m["mandate_id"] for m in mandates_to_dispatch],
             }
 
-        # NOW dispatch to NCC — only after NATRIX approval and policy clearance
-        dispatch_result = await self._dispatch_to_ncc(mandates_to_dispatch)
+        # NCC dispatch retired 2026-05-23 (W8-A5); NCL is standalone. Mandates
+        # remain persisted in-process via MandateStatus.ACTIVE. No external POST.
+        # dispatch_result = await self._dispatch_to_ncc(mandates_to_dispatch)
+        dispatch_result = None
 
         # Clean up pending
         async with self._pending_dispatches_lock:
@@ -636,9 +806,7 @@ class NCLBrain:
                             reason=f"NATRIX rejected pump {pump_id}: {reason}",
                         )
                     except ValueError as e:
-                        log.warning(
-                            f"[reject] Invalid mandate transition for {mandate_id}: {e}"
-                        )
+                        log.warning(f"[reject] Invalid mandate transition for {mandate_id}: {e}")
                         mandate.updated_at = datetime.now(timezone.utc)
 
             await self._persist_mandates_unlocked()
@@ -691,90 +859,124 @@ class NCLBrain:
 
     async def _mwp_intake(self, prompt: PumpPrompt) -> None:
         """Stage 01 — Write raw pump prompt to intake output."""
-        await self._mwp_write_stage("01-intake", f"pump-{prompt.prompt_id}.json", {
-            "pump_id": prompt.prompt_id,
-            "intent": prompt.intent,
-            "source": prompt.source,
-            "urgency": prompt.urgency,
-            "context": prompt.context or {},
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        })
+        await self._mwp_write_stage(
+            "01-intake",
+            f"pump-{prompt.prompt_id}.json",
+            {
+                "pump_id": prompt.prompt_id,
+                "intent": prompt.intent,
+                "source": prompt.source,
+                "urgency": prompt.urgency,
+                "context": prompt.context or {},
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        )
 
     async def _mwp_analysis(self, prompt: PumpPrompt, council_prompt: str) -> None:
         """Stage 02 — Write analysis artifacts (council prompt + context)."""
-        await self._mwp_write_stage("02-analysis", f"analysis-{prompt.prompt_id}.json", {
-            "pump_id": prompt.prompt_id,
-            "council_prompt": council_prompt,
-            "intent": prompt.intent,
-            "urgency": prompt.urgency,
-            "analysis_timestamp": datetime.now(timezone.utc).isoformat(),
-        })
+        await self._mwp_write_stage(
+            "02-analysis",
+            f"analysis-{prompt.prompt_id}.json",
+            {
+                "pump_id": prompt.prompt_id,
+                "council_prompt": council_prompt,
+                "intent": prompt.intent,
+                "urgency": prompt.urgency,
+                "analysis_timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        )
 
     async def _mwp_synthesis(self, session: CouncilSession) -> None:
         """Stage 03 — Write council transcript + synthesis + consensus score."""
         rounds_data = []
         for rnd in session.rounds:
-            rounds_data.append({
-                "round_number": rnd.round_number,
-                "round_type": rnd.round_type,
-                "responses": rnd.responses,
-                "scores": rnd.scores,
-            })
+            rounds_data.append(
+                {
+                    "round_number": rnd.round_number,
+                    "round_type": rnd.round_type,
+                    "responses": rnd.responses,
+                    "scores": rnd.scores,
+                }
+            )
 
-        await self._mwp_write_stage("03-synthesis", f"synthesis-{session.session_id}.json", {
-            "session_id": session.session_id,
-            "topic": session.topic,
-            "protocol": session.protocol,
-            "role_assignments": session.role_assignments,
-            "rounds": rounds_data,
-            "synthesis": session.synthesis,
-            "consensus": session.consensus,
-            "consensus_score": {
-                "agreement_pct": session.consensus_score.agreement_pct,
-                "convergence_delta": session.consensus_score.convergence_delta,
-                "confidence_weighted": session.consensus_score.confidence_weighted,
-                "unanimous": session.consensus_score.unanimous,
-                "threshold_met": session.consensus_score.threshold_met,
-                "dissent_strength": session.consensus_score.dissent_strength,
-            } if session.consensus_score else None,
-            "recommendations": session.recommendations,
-            "dissents": session.dissents,
-            "completed_at": session.completed_at.isoformat() if session.completed_at else None,
-        })
+        await self._mwp_write_stage(
+            "03-synthesis",
+            f"synthesis-{session.session_id}.json",
+            {
+                "session_id": session.session_id,
+                "topic": session.topic,
+                "protocol": session.protocol,
+                "role_assignments": session.role_assignments,
+                "rounds": rounds_data,
+                "synthesis": session.synthesis,
+                "consensus": session.consensus,
+                "consensus_score": {
+                    "agreement_pct": session.consensus_score.agreement_pct,
+                    "convergence_delta": session.consensus_score.convergence_delta,
+                    "confidence_weighted": session.consensus_score.confidence_weighted,
+                    "unanimous": session.consensus_score.unanimous,
+                    "threshold_met": session.consensus_score.threshold_met,
+                    "dissent_strength": session.consensus_score.dissent_strength,
+                }
+                if session.consensus_score
+                else None,
+                "recommendations": session.recommendations,
+                "dissents": session.dissents,
+                "completed_at": session.completed_at.isoformat() if session.completed_at else None,
+            },
+        )
 
     async def _mwp_mandate_draft(self, mandates_data: list[dict], pump_id: str) -> None:
         """Stage 04 — Write extracted mandate drafts."""
-        await self._mwp_write_stage("04-mandate-draft", f"mandates-{pump_id}.json", {
-            "pump_id": pump_id,
-            "mandate_count": len(mandates_data),
-            "mandates": [
-                {
-                    "pillar": m["pillar"].value if hasattr(m["pillar"], "value") else str(m["pillar"]),
-                    "title": m["title"],
-                    "objective": m["objective"],
-                    "priority": m["priority"],
-                    "success_criteria": m.get("success_criteria", []),
-                }
-                for m in mandates_data
-            ],
-            "drafted_at": datetime.now(timezone.utc).isoformat(),
-        })
+        await self._mwp_write_stage(
+            "04-mandate-draft",
+            f"mandates-{pump_id}.json",
+            {
+                "pump_id": pump_id,
+                "mandate_count": len(mandates_data),
+                "mandates": [
+                    {
+                        "pillar": m["pillar"].value
+                        if hasattr(m["pillar"], "value")
+                        else str(m["pillar"]),
+                        "title": m["title"],
+                        "objective": m["objective"],
+                        "priority": m["priority"],
+                        "success_criteria": m.get("success_criteria", []),
+                    }
+                    for m in mandates_data
+                ],
+                "drafted_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
 
-    async def _mwp_review(self, prompt: PumpPrompt, session: CouncilSession, mandates: list[dict]) -> None:
+    async def _mwp_review(
+        self, prompt: PumpPrompt, session: CouncilSession, mandates: list[dict]
+    ) -> None:
         """Stage 05 — Write final approval/review package."""
-        await self._mwp_write_stage("05-review", f"review-{prompt.prompt_id}.json", {
-            "pump_id": prompt.prompt_id,
-            "intent": prompt.intent,
-            "urgency": prompt.urgency,
-            "council_session_id": session.session_id,
-            "consensus_met": session.consensus_score.threshold_met if session.consensus_score else False,
-            "consensus_pct": session.consensus_score.agreement_pct if session.consensus_score else 0,
-            "mandates_generated": len(mandates),
-            "mandates": mandates,
-            "dissents": session.dissents,
-            "review_status": "auto_approved" if (session.consensus_score and session.consensus_score.threshold_met) else "needs_natrix_review",
-            "completed_at": datetime.now(timezone.utc).isoformat(),
-        })
+        await self._mwp_write_stage(
+            "05-review",
+            f"review-{prompt.prompt_id}.json",
+            {
+                "pump_id": prompt.prompt_id,
+                "intent": prompt.intent,
+                "urgency": prompt.urgency,
+                "council_session_id": session.session_id,
+                "consensus_met": session.consensus_score.threshold_met
+                if session.consensus_score
+                else False,
+                "consensus_pct": session.consensus_score.agreement_pct
+                if session.consensus_score
+                else 0,
+                "mandates_generated": len(mandates),
+                "mandates": mandates,
+                "dissents": session.dissents,
+                "review_status": "auto_approved"
+                if (session.consensus_score and session.consensus_score.threshold_met)
+                else "needs_natrix_review",
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
 
     def _build_council_prompt(self, prompt: PumpPrompt) -> str:
         """Build a council debate prompt from pump prompt context."""
@@ -790,7 +992,8 @@ class NCLBrain:
             f"SOURCE: {prompt.source}\n"
             f"CONTEXT:{context_str if context_str else ' (none provided)'}\n\n"
             f"As the council, debate and determine:\n"
-            f"1. Which pillar(s) should receive mandates (NCC, BRS, AAC)?\n"
+            f"1. Which mandate(s) should NCL pursue in-process? "
+            f"(BRS/AAC/NCC pillars retired 2026-05-23 — NCL is standalone.)\n"
             f"2. What is the strategic objective for each mandate?\n"
             f"3. What are the success criteria?\n"
             f"4. Priority level (1-10)?\n"
@@ -805,143 +1008,87 @@ class NCLBrain:
         """Extract structured mandates from council consensus/recommendations."""
         mandates = []
         text = (session.consensus or "") + "\n" + "\n".join(session.recommendations)
-        text_lower = text.lower()
+        text_lower = text.lower()  # noqa: F841
 
         # Try to parse structured mandate blocks from council output
 
         # Look for PILLAR: mentions
+        # BRS/AAC retired 2026-05-23; NCC repo also removed from this
+        # machine. NCL is standalone — every mandate targets NCL itself
+        # (in-process persistence + Brain-internal loops). Legacy
+        # "ncc"/"brs"/"aac" tags in council output are folded to NCL so
+        # we don't silently drop council-proposed mandates.
         pillar_map = {
-            "ncc": PillarType.NCC,
-            "brs": PillarType.BRS,
-            "aac": PillarType.AAC,
+            "ncl": PillarType.NCL,
+            "ncc": PillarType.NCL,
+            "brs": PillarType.NCL,
+            "aac": PillarType.NCL,
         }
 
-        # Pattern: PILLAR: NCC ... TITLE: ... OBJECTIVE: ... PRIORITY: N
-        blocks = re.split(r'(?:^|\n)(?=(?:PILLAR|Pillar|pillar)\s*:)', text)
+        # Pattern: PILLAR: NCL ... TITLE: ... OBJECTIVE: ... PRIORITY: N
+        blocks = re.split(r"(?:^|\n)(?=(?:PILLAR|Pillar|pillar)\s*:)", text)
         for block in blocks:
             if not block.strip():
                 continue
-            pillar_match = re.search(r'(?:PILLAR|Pillar|pillar)\s*:\s*(\w+)', block)
-            title_match = re.search(r'(?:TITLE|Title|title)\s*:\s*(.+?)(?:\n|$)', block)
-            obj_match = re.search(r'(?:OBJECTIVE|Objective|objective)\s*:\s*(.+?)(?:\n|$)', block)
-            pri_match = re.search(r'(?:PRIORITY|Priority|priority)\s*:\s*(\d+)', block)
-            criteria_matches = re.findall(r'(?:SUCCESS_CRITERIA|criteria)\s*:\s*(.+?)(?:\n|$)', block, re.IGNORECASE)
+            pillar_match = re.search(r"(?:PILLAR|Pillar|pillar)\s*:\s*(\w+)", block)
+            title_match = re.search(r"(?:TITLE|Title|title)\s*:\s*(.+?)(?:\n|$)", block)
+            obj_match = re.search(r"(?:OBJECTIVE|Objective|objective)\s*:\s*(.+?)(?:\n|$)", block)
+            pri_match = re.search(r"(?:PRIORITY|Priority|priority)\s*:\s*(\d+)", block)
+            criteria_matches = re.findall(
+                r"(?:SUCCESS_CRITERIA|criteria)\s*:\s*(.+?)(?:\n|$)", block, re.IGNORECASE
+            )
 
             if pillar_match:
                 pillar_key = pillar_match.group(1).lower().strip()
                 if pillar_key in pillar_map:
-                    mandates.append({
-                        "pillar": pillar_map[pillar_key],
-                        "title": title_match.group(1).strip() if title_match else f"Mandate from pump {prompt.prompt_id}",
-                        "objective": obj_match.group(1).strip() if obj_match else prompt.intent,
-                        "priority": min(10, max(1, int(pri_match.group(1)))) if pri_match else (8 if prompt.urgency == "critical" else 5),
-                        "success_criteria": [c.strip() for c in criteria_matches] if criteria_matches else [],
-                    })
+                    mandates.append(
+                        {
+                            "pillar": pillar_map[pillar_key],
+                            "title": title_match.group(1).strip()
+                            if title_match
+                            else f"Mandate from pump {prompt.prompt_id}",
+                            "objective": obj_match.group(1).strip() if obj_match else prompt.intent,
+                            "priority": min(10, max(1, int(pri_match.group(1))))
+                            if pri_match
+                            else (8 if prompt.urgency == "critical" else 5),
+                            "success_criteria": [c.strip() for c in criteria_matches]
+                            if criteria_matches
+                            else [],
+                        }
+                    )
 
         # Fallback: if no structured mandates found, create one from intent
         if not mandates:
-            # Determine target pillar from intent keywords
-            target = PillarType.NCC  # Default to NCC
-            if any(w in text_lower for w in ["revenue", "ship", "product", "earn", "freelance"]):
-                target = PillarType.BRS
-            elif any(w in text_lower for w in ["invest", "capital", "trade", "war room", "portfolio"]):
-                target = PillarType.AAC
+            # All mandates target NCL itself. BRS/AAC retired 2026-05-23
+            # and the NCC repo is no longer on this machine — there is no
+            # downstream pillar to route to. Mandates persist in-process.
+            target = PillarType.NCL
 
-            mandates.append({
-                "pillar": target,
-                "title": f"Directive: {prompt.intent[:80]}",
-                "objective": prompt.intent,
-                "priority": 8 if prompt.urgency == "critical" else 6 if prompt.urgency == "high" else 5,
-                "success_criteria": session.recommendations[:5] if session.recommendations else [],
-            })
+            mandates.append(
+                {
+                    "pillar": target,
+                    "title": f"Directive: {prompt.intent[:80]}",
+                    "objective": prompt.intent,
+                    "priority": 8
+                    if prompt.urgency == "critical"
+                    else 6
+                    if prompt.urgency == "high"
+                    else 5,
+                    "success_criteria": session.recommendations[:5]
+                    if session.recommendations
+                    else [],
+                }
+            )
 
         return mandates
 
-    async def _dispatch_to_ncc(self, mandates: list[dict]) -> dict:
-        """Dispatch mandates to NCC for execution."""
-        ncc_host = os.getenv("NCC_HOST", "http://localhost")
-        ncc_port = int(os.getenv("NCC_PORT", "8787"))
-        url = f"{ncc_host}:{ncc_port}/mandate/intake"
-
-        dispatched = []
-        failed = []
-
-        try:
-            client = await _get_brain_http_client()
-            for m in mandates:
-                if "error" in m:
-                    continue
-                mandate_id = m.get("mandate_id", "")
-                try:
-                    # Build NCC-compatible MandateRequest payload
-                    pillar_val = m.get("pillar", "ncc")
-                    if hasattr(pillar_val, "value"):
-                        pillar_val = pillar_val.value.upper()
-                    else:
-                        pillar_val = str(pillar_val).upper()
-                    # Map pillar to NCC TargetPillar enum (BRS or AAC)
-                    target_list = []
-                    if pillar_val in ("BRS", "AAC"):
-                        target_list = [pillar_val]
-                    else:
-                        target_list = ["BRS"]  # Default: NCC dispatches to BRS
-
-                    # Map priority int (1-10) to NCC PriorityLevel
-                    pri = m.get("priority", 5)
-                    if pri >= 8:
-                        priority_level = "P0"
-                    elif pri >= 6:
-                        priority_level = "P1"
-                    elif pri >= 4:
-                        priority_level = "P2"
-                    else:
-                        priority_level = "P3"
-
-                    # Only set a deadline if the mandate doesn't already have one
-                    mandate_obj = self.mandates.get(mandate_id)
-                    existing_deadline = getattr(mandate_obj, "deadline", None) if mandate_obj else None
-                    deadline_val = (
-                        existing_deadline.isoformat()
-                        if existing_deadline is not None
-                        else (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
-                    )
-                    resp = await client.post(url, json={
-                        "mandate_id": mandate_id,
-                        "title": m.get("title", "Untitled mandate"),
-                        "description": m.get("objective", m.get("title", "Mandate from NCL")),
-                        "deadline": deadline_val,
-                        "priority": priority_level,
-                        "target_pillar": target_list,
-                        "success_criteria": m.get("success_criteria", ["Complete as directed"]),
-                        "tags": ["ncl-generated", "strike-point"],
-                    }, timeout=15.0)
-                    if resp.status_code < 400:
-                        dispatched.append(mandate_id or m.get("title"))
-                    else:
-                        err_msg = f"HTTP {resp.status_code}: {resp.text[:200]}"
-                        log.error(f"[dispatch] NCC rejected mandate {mandate_id}: {err_msg}")
-                        failed.append({"mandate": m.get("title"), "mandate_id": mandate_id, "error": err_msg})
-                        # Mark mandate as failed
-                        await self._mark_dispatch_failed(mandate_id, err_msg)
-                except Exception as e:
-                    log.error(f"[dispatch] Failed to dispatch mandate {mandate_id}: {e}")
-                    failed.append({"mandate": m.get("title"), "mandate_id": mandate_id, "error": str(e)})
-                    # Mark mandate as failed
-                    await self._mark_dispatch_failed(mandate_id, str(e))
-        except Exception as e:
-            log.error(f"[dispatch] NCC unreachable at {url}: {e}")
-            # Mark all mandates in this batch as failed
-            for m in mandates:
-                mid = m.get("mandate_id", "")
-                if mid and "error" not in m:
-                    await self._mark_dispatch_failed(mid, f"NCC unreachable: {e}")
-            return {"status": "ncc_unreachable", "error": str(e)}
-
-        return {
-            "status": "dispatched",
-            "dispatched": dispatched,
-            "failed": failed,
-        }
+    async def _dispatch_to_ncc(self, mandates: list[dict]) -> dict | None:
+        """Vestigial no-op. NCC repo absent from this machine since
+        2026-05-23. Signature preserved for legacy callers (see
+        approve_and_dispatch). NCL is standalone — mandates persist
+        in-process via MandateStatus.ACTIVE."""
+        # NCC repo absent from this machine since 2026-05-23. No-op preserved for legacy callers.
+        return None
 
     async def _mark_dispatch_failed(self, mandate_id: str, reason: str) -> None:
         """Mark a mandate as FAILED after dispatch error."""
@@ -958,13 +1105,16 @@ class NCLBrain:
                 except ValueError as exc:
                     # Transition not allowed from current state — audit and bump timestamp
                     log.warning(
-                        f"[dispatch] Cannot transition {mandate_id} ({mandate.status.value}) → FAILED: {exc}"
+                        f"[dispatch] Cannot transition {mandate_id} ({mandate.status.value}) → FAILED: {exc}"  # noqa: E501
                     )
                     mandate.updated_at = datetime.now(timezone.utc)
                 await self._persist_mandates_unlocked()
 
     async def spawn_council_session(
-        self, topic: str, prompt: str, members: Optional[list[str]] = None,
+        self,
+        topic: str,
+        prompt: str,
+        members: Optional[list[str]] = None,
         session_id: Optional[str] = None,
     ) -> CouncilSession:
         """
@@ -990,7 +1140,9 @@ class NCLBrain:
                 except ValueError:
                     log.warning(f"Unknown council member '{m}', skipping")
 
-        session = await self.council_engine.spawn_session(topic, prompt, member_enums, session_id=session_id)
+        session = await self.council_engine.spawn_session(
+            topic, prompt, member_enums, session_id=session_id
+        )
         async with self._council_sessions_lock:
             # Evict oldest sessions when at capacity
             if len(self.council_sessions) >= self._COUNCIL_SESSIONS_MAX:
@@ -1069,7 +1221,7 @@ class NCLBrain:
         Create a new mandate for a pillar.
 
         Args:
-            pillar: Target pillar (NCC, BRS, AAC)
+            pillar: Target pillar (NCC only; BRS/AAC retired 2026-05-23)
             priority: Priority 1-10
             title: Mandate title
             objective: Strategic objective
@@ -1182,11 +1334,14 @@ class NCLBrain:
 
         try:
             from ..governance.models import Action, ActionTier
+
             action = Action(
                 name=f"dispatch_mandate:{mandate.mandate_id}",
                 tier=ActionTier.EXECUTE,
                 source_agent="NCL:brain",
-                target=mandate.pillar.value if hasattr(mandate.pillar, "value") else str(mandate.pillar),
+                target=mandate.pillar.value
+                if hasattr(mandate.pillar, "value")
+                else str(mandate.pillar),
                 description=f"Dispatch mandate: {mandate.title}",
                 payload={
                     "mandate_id": mandate.mandate_id,
@@ -1198,7 +1353,9 @@ class NCLBrain:
             )
             allowed, reason = self.policy_kernel.execute_if_allowed(action)
             if not allowed:
-                log.warning(f"[governance] PolicyKernel blocked mandate {mandate.mandate_id}: {reason}")
+                log.warning(
+                    f"[governance] PolicyKernel blocked mandate {mandate.mandate_id}: {reason}"
+                )
             return allowed
         except Exception as e:
             log.error(f"[governance] Policy check error; FAIL CLOSED: {e}")
@@ -1217,7 +1374,9 @@ class NCLBrain:
         try:
             return self.emergency_stop.is_active
         except Exception as e:
-            log.error(f"[governance] Emergency stop check error; FAIL CLOSED (treat as engaged): {e}")
+            log.error(
+                f"[governance] Emergency stop check error; FAIL CLOSED (treat as engaged): {e}"
+            )
             return True  # Fail-closed on errors (audit 2026-05-15)
 
     async def complete_mandate(self, mandate_id: str, notes: Optional[str] = None) -> None:
@@ -1239,9 +1398,7 @@ class NCLBrain:
                     reason=notes or "Mandate completed",
                 )
             except ValueError as e:
-                log.warning(
-                    f"[complete] Invalid mandate transition for {mandate_id}: {e}"
-                )
+                log.warning(f"[complete] Invalid mandate transition for {mandate_id}: {e}")
                 mandate.updated_at = datetime.now(timezone.utc)
             await self._persist_mandates_unlocked()
 
@@ -1298,7 +1455,8 @@ class NCLBrain:
         Returns:
             Dict with results
         """
-        units = await self.memory_store.search_units(
+        units = await _maybe_indexed_search(
+            self.memory_store,
             tags=tags,
             importance_threshold=importance_threshold,
             days_back=days_back,
@@ -1424,15 +1582,17 @@ class NCLBrain:
             )
 
         # Fallback: if no tag-matched signals, try semantic search
-        if not signals and hasattr(self.memory_store, 'semantic_search'):
+        if not signals and hasattr(self.memory_store, "semantic_search"):
             try:
                 semantic_results = await self.memory_store.semantic_search(
                     query=topic,
                     limit=10,
                 )
-                for unit in (semantic_results if isinstance(semantic_results, list) else []):
+                for unit in semantic_results if isinstance(semantic_results, list) else []:
                     content = unit.get("content", "") if isinstance(unit, dict) else ""
-                    importance = float(unit.get("importance", 40.0)) if isinstance(unit, dict) else 40.0
+                    importance = (
+                        float(unit.get("importance", 40.0)) if isinstance(unit, dict) else 40.0
+                    )
                     if not content:
                         continue
                     signals.append(
@@ -1451,7 +1611,9 @@ class NCLBrain:
                         )
                     )
                 if signals:
-                    log.info(f"[prediction] Tag search empty, semantic fallback found {len(signals)} signals for '{topic}'")
+                    log.info(
+                        f"[prediction] Tag search empty, semantic fallback found {len(signals)} signals for '{topic}'"  # noqa: E501
+                    )
             except Exception as e:
                 log.warning(f"[prediction] Semantic search fallback failed: {e}")
 
@@ -1459,12 +1621,12 @@ class NCLBrain:
             return {
                 "prediction_id": str(uuid.uuid4()),
                 "topic": topic,
-                "consensus": "no data — no memory signals found for this topic. Run an intelligence brief first to populate signals.",
+                "consensus": "no data — no memory signals found for this topic. Run an intelligence brief first to populate signals.",  # noqa: E501
                 "confidence": 0.0,
                 "convergence": [],
                 "warnings": [
                     f"No memory units found for topic '{topic}' in the past 14 days",
-                    "Tip: Run POST /v1/intelligence/brief to collect signals, then retry prediction",
+                    "Tip: Run POST /v1/intelligence/brief to collect signals, then retry prediction",  # noqa: E501
                 ],
             }
 
@@ -1488,7 +1650,9 @@ class NCLBrain:
             "warnings": prediction_output.warnings,
         }
 
-    async def dispatch_research(self, query: str, depth: str = "standard", priority: int = 5) -> dict:
+    async def dispatch_research(
+        self, query: str, depth: str = "standard", priority: int = 5
+    ) -> dict:
         """
         Dispatch a research task to UNI Research Cortex.
 
@@ -1582,9 +1746,17 @@ class NCLBrain:
         Returns:
             Health status dict with all data MATRIX MONITOR needs
         """
-        active_mandates = [m for m in self.mandates.values() if m.status in (MandateStatus.ACTIVE, MandateStatus.IN_PROGRESS)]
-        pending_approval = [m for m in self.mandates.values() if m.status == MandateStatus.PENDING_APPROVAL]
-        memory_stats = await self.memory_store.get_stats() if hasattr(self.memory_store, "get_stats") else {}
+        active_mandates = [
+            m
+            for m in self.mandates.values()
+            if m.status in (MandateStatus.ACTIVE, MandateStatus.IN_PROGRESS)
+        ]
+        pending_approval = [
+            m for m in self.mandates.values() if m.status == MandateStatus.PENDING_APPROVAL
+        ]
+        memory_stats = (
+            await self.memory_store.get_stats() if hasattr(self.memory_store, "get_stats") else {}
+        )
 
         # Degraded-state thresholds. The May 2026 corruption hit 22,388
         # mandates before discovery; flagging at 1000 / 50 catches similar
@@ -1623,7 +1795,11 @@ class NCLBrain:
             # Auto-reset so the next degradation re-alarms
             self._health_alarm_sent = False
 
-        uptime_seconds = (datetime.now(timezone.utc) - self._started_at).total_seconds() if self._started_at else 0
+        uptime_seconds = (
+            (datetime.now(timezone.utc) - self._started_at).total_seconds()
+            if self._started_at
+            else 0
+        )
         return {
             "status": status,
             "service": "ncl-brain",
@@ -1764,7 +1940,9 @@ class NCLBrain:
         )
         for sid in sorted_ids[:evict_count]:
             del self.council_sessions[sid]
-        log.info(f"[council_sessions] Evicted {evict_count} oldest sessions (limit={self._COUNCIL_SESSIONS_MAX})")
+        log.info(
+            f"[council_sessions] Evicted {evict_count} oldest sessions (limit={self._COUNCIL_SESSIONS_MAX})"  # noqa: E501
+        )
 
     async def cleanup_council_sessions(self, max_age_hours: int = 1) -> int:
         """
@@ -1776,14 +1954,17 @@ class NCLBrain:
         removed = 0
         async with self._council_sessions_lock:
             stale = [
-                sid for sid, s in self.council_sessions.items()
+                sid
+                for sid, s in self.council_sessions.items()
                 if s.completed_at and s.completed_at.timestamp() < cutoff
             ]
             for sid in stale:
                 del self.council_sessions[sid]
                 removed += 1
         if removed:
-            log.info(f"[council_sessions] Cleaned up {removed} sessions older than {max_age_hours}h")
+            log.info(
+                f"[council_sessions] Cleaned up {removed} sessions older than {max_age_hours}h"
+            )
         return removed
 
     async def _load_state(self) -> None:
@@ -1826,6 +2007,121 @@ class NCLBrain:
         payload = json.dumps(snapshot, default=str, indent=2)
         await asyncio.to_thread(self._atomic_write_json, tmp_path, self.mandates_file, payload)
 
+        # SQLite double-write (flag-gated, never blocks the JSON write).
+        # W10B-1: routed through the unified DoubleWriteHook — the hook
+        # owns the env-flag check, lazy store acquisition, batch
+        # execute_many call, and warn-once flap suppression. The W10A-4
+        # pillar-enum guard now lives inside _build_mandate_row (returns
+        # None for invalid rows; the hook skips them).
+        await self._sqlite_persist_mandates(self.mandates)
+
+    async def _sqlite_persist_mandates(self, mandates_dict: dict) -> None:
+        """
+        Mirror the in-memory mandates dict into the SQLite `mandates` table.
+
+        W10B-1 (2026-05-24): this method now delegates to a shared
+        ``DoubleWriteHook`` instance. The row-building logic (incl. the
+        W10A-4 pillar-enum guard) lives in ``_build_mandate_row``;
+        ``DoubleWriteHook.try_write_many`` runs the env-flag check,
+        lazy-acquires the SqliteStore, calls ``execute_many`` with the
+        compiled-once INSERT OR REPLACE SQL, and swallows any backend
+        failure with a one-shot warning. The JSON file remains the
+        source of truth.
+
+        Kept as a method (not inlined into the caller) so the existing
+        test harness can call it directly via descriptor binding.
+        """
+        if not mandates_dict:
+            return
+        await self._mandates_hook().try_write_many(mandates_dict.values())
+
+    @staticmethod
+    def _build_mandate_row(m):
+        """Map one Mandate model to the mandates-table column tuple.
+
+        Returns ``None`` to skip (DoubleWriteHook convention) when:
+          * model_dump() raises, or
+          * the W10A-4 pillar-enum guard rejects the row.
+        """
+        try:
+            dump = m.model_dump()
+        except Exception:
+            return None
+
+        def _enum_value(v):
+            # Pydantic model_dump() returns the Enum instance for str-Enum
+            # fields; coerce to the underlying string so SQLite stores the
+            # value ("draft") not the repr ("MandateStatus.DRAFT").
+            return v.value if hasattr(v, "value") else v
+
+        status_v = _enum_value(dump.get("status"))
+        pillar_v = _enum_value(dump.get("pillar"))
+        mandate_id = dump.get("mandate_id")
+
+        # W10A-4: pillar enum guard. The JSON load path validates pillar
+        # against PillarType via Pydantic, but the SQLite write path
+        # historically wrote raw values without re-validation. If a
+        # forged mandate dict landed in self.mandates, an invalid pillar
+        # row could persist in SQLite and (after a read-flag flip)
+        # become authoritative. Skip such rows here.
+        valid_pillars = {p.value for p in PillarType}
+        if pillar_v not in valid_pillars:
+            log.warning(
+                "[mandates] skipping row with invalid pillar=%r mandate_id=%s",
+                pillar_v,
+                mandate_id,
+            )
+            return None
+
+        return (
+            str(mandate_id),
+            str(pillar_v) if pillar_v is not None else None,
+            int(dump["priority"]) if dump.get("priority") is not None else None,
+            dump.get("title"),
+            dump.get("objective"),
+            json.dumps(
+                dump.get("success_criteria") or [], default=str, separators=(",", ":")
+            ),
+            str(dump["deadline"]) if dump.get("deadline") else None,
+            json.dumps(dump.get("resources") or {}, default=str, separators=(",", ":")),
+            str(status_v) if status_v is not None else "draft",
+            int(dump.get("version", 0) or 0),
+            str(dump["created_at"])
+            if dump.get("created_at")
+            else datetime.now(timezone.utc).isoformat(),
+            str(dump["updated_at"])
+            if dump.get("updated_at")
+            else datetime.now(timezone.utc).isoformat(),
+            str(dump["source_pump_id"]) if dump.get("source_pump_id") else None,
+            json.dumps(
+                dump.get("status_history") or [], default=str, separators=(",", ":")
+            ),
+            json.dumps(dump, default=str, separators=(",", ":")),
+        )
+
+    def _mandates_hook(self):
+        """Lazily build (and cache) the DoubleWriteHook for mandates."""
+        hook = getattr(self, "_mandates_dw_hook", None)
+        if hook is not None:
+            return hook
+        from runtime.persistence import DoubleWriteHook
+
+        hook = DoubleWriteHook(
+            env_flag="NCL_MANDATES_SQLITE",
+            table="mandates",
+            columns=(
+                "mandate_id", "pillar", "priority", "title", "objective",
+                "success_criteria", "deadline", "resources", "status",
+                "version", "created_at", "updated_at", "source_pump_id",
+                "status_history", "payload",
+            ),
+            build_row=NCLBrain._build_mandate_row,
+            conflict_strategy="replace",
+            log_prefix="[mandates]",
+        )
+        self._mandates_dw_hook = hook
+        return hook
+
     # -------------------------------------------------------------------
     # Pending Dispatches Persistence
     # -------------------------------------------------------------------
@@ -1849,7 +2145,9 @@ class NCLBrain:
                     # Enforce max size
                     while len(self._pending_dispatches) > self._PENDING_DISPATCHES_MAX:
                         self._pending_dispatches.popitem(last=False)
-                    log.info(f"[load_state] Loaded {len(self._pending_dispatches)} pending dispatches")
+                    log.info(
+                        f"[load_state] Loaded {len(self._pending_dispatches)} pending dispatches"
+                    )
         except OSError as exc:
             log.error(f"[load_state] Could not read pending_dispatches file: {exc}")
 

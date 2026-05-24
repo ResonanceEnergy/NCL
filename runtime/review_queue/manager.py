@@ -11,19 +11,22 @@ import uuid
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel, Field
+
 
 log = logging.getLogger("ncl.review_queue")
 
 # Queue limits
-MAX_QUEUE_SIZE = 1_000          # Max active (non-archived) items
-MAX_ITEM_AGE_HOURS = 72         # Items older than this are auto-archived on refresh
-MAX_ARCHIVE_SIZE = 5_000        # Max archived items (oldest evicted when exceeded)
+MAX_QUEUE_SIZE = 1_000  # Max active (non-archived) items
+MAX_ITEM_AGE_HOURS = 72  # Items older than this are auto-archived on refresh
+MAX_ARCHIVE_SIZE = 5_000  # Max archived items (oldest evicted when exceeded)
 
 
 class ReviewItemType(str, Enum):
     """Types of items in the review queue."""
+
     PUMP = "PUMP"
     ACTION = "ACTION"
     COUNCIL = "COUNCIL"
@@ -32,6 +35,7 @@ class ReviewItemType(str, Enum):
 
 class UrgencyLevel(str, Enum):
     """Urgency levels for items."""
+
     CRITICAL = "critical"
     HIGH = "high"
     NORMAL = "normal"
@@ -40,6 +44,7 @@ class UrgencyLevel(str, Enum):
 
 class Suggestion(BaseModel):
     """AI-generated suggestion for an item."""
+
     suggestion_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     action_text: str
     action_type: str  # approve, reject, defer, escalate, tag
@@ -49,6 +54,7 @@ class Suggestion(BaseModel):
 
 class ReviewItem(BaseModel):
     """A single item in the review queue."""
+
     item_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     item_type: ReviewItemType
     title: str
@@ -67,10 +73,10 @@ class ReviewItem(BaseModel):
 
 class BatchOperation(BaseModel):
     """Batch operation on multiple items."""
+
     operation: str  # tag, link, archive, approve, reject
     item_ids: List[str]
     params: Dict[str, Any] = Field(default_factory=dict)
-
 
 
 def _safe_urgency(value: str) -> "UrgencyLevel":
@@ -119,7 +125,7 @@ class ReviewQueueManager:
         """Load items from jsonl file."""
         if self.items_path.exists():
             try:
-                with open(self.items_path, 'r') as f:
+                with open(self.items_path, "r") as f:
                     for line in f:
                         line = line.strip()
                         if not line:
@@ -137,7 +143,7 @@ class ReviewQueueManager:
         """Load tag assignments from json file."""
         if self.tags_path.exists():
             try:
-                with open(self.tags_path, 'r') as f:
+                with open(self.tags_path, "r") as f:
                     self.tag_assignments = json.load(f)
             except Exception as e:
                 log.error("Failed to load tag assignments: %s", e)
@@ -146,7 +152,7 @@ class ReviewQueueManager:
         """Load item links from json file."""
         if self.links_path.exists():
             try:
-                with open(self.links_path, 'r') as f:
+                with open(self.links_path, "r") as f:
                     self.item_links = json.load(f)
             except Exception as e:
                 log.error("Failed to load item links: %s", e)
@@ -155,7 +161,7 @@ class ReviewQueueManager:
         """Load archived items from jsonl file."""
         if self.archive_path.exists():
             try:
-                with open(self.archive_path, 'r') as f:
+                with open(self.archive_path, "r") as f:
                     for line in f:
                         line = line.strip()
                         if not line:
@@ -172,16 +178,16 @@ class ReviewQueueManager:
     def _save_items(self):
         """Save items to jsonl file."""
         try:
-            with open(self.items_path, 'w') as f:
+            with open(self.items_path, "w") as f:
                 for item in self.items.values():
-                    f.write(item.model_dump_json() + '\n')
+                    f.write(item.model_dump_json() + "\n")
         except OSError as e:
             log.error("Failed to save review queue items: %s", e)
 
     def _save_tags(self):
         """Save tag assignments to json file."""
         try:
-            with open(self.tags_path, 'w') as f:
+            with open(self.tags_path, "w") as f:
                 json.dump(self.tag_assignments, f, indent=2)
         except OSError as e:
             log.error("Failed to save tag assignments: %s", e)
@@ -189,7 +195,7 @@ class ReviewQueueManager:
     def _save_links(self):
         """Save item links to json file."""
         try:
-            with open(self.links_path, 'w') as f:
+            with open(self.links_path, "w") as f:
                 json.dump(self.item_links, f, indent=2)
         except OSError as e:
             log.error("Failed to save item links: %s", e)
@@ -208,9 +214,9 @@ class ReviewQueueManager:
             log.info("Archive evicted %d oldest entries (cap=%d)", excess, MAX_ARCHIVE_SIZE)
 
         try:
-            with open(self.archive_path, 'w') as f:
+            with open(self.archive_path, "w") as f:
                 for item in self.archived.values():
-                    f.write(item.model_dump_json() + '\n')
+                    f.write(item.model_dump_json() + "\n")
         except OSError as e:
             log.error("Failed to save review queue archive: %s", e)
 
@@ -223,7 +229,8 @@ class ReviewQueueManager:
             return
 
         evictable = [
-            item for item in self.items.values()
+            item
+            for item in self.items.values()
             if item.urgency in (UrgencyLevel.LOW, UrgencyLevel.NORMAL)
         ]
         evictable.sort(key=lambda i: i.created_at)
@@ -241,9 +248,7 @@ class ReviewQueueManager:
             item.archived_at = datetime.now(timezone.utc).isoformat()
             self.archived[item.item_id] = item
             del self.items[item.item_id]
-            log.info(
-                "Auto-archived item %s (queue limit %d reached)", item.item_id, MAX_QUEUE_SIZE
-            )
+            log.info("Auto-archived item %s (queue limit %d reached)", item.item_id, MAX_QUEUE_SIZE)
 
     def _auto_archive_stale(self) -> None:
         """Archive items older than MAX_ITEM_AGE_HOURS on refresh."""
@@ -270,7 +275,8 @@ class ReviewQueueManager:
         if stale:
             log.info(
                 "Auto-archived %d stale item(s) older than %dh",
-                len(stale), MAX_ITEM_AGE_HOURS,
+                len(stale),
+                MAX_ITEM_AGE_HOURS,
             )
 
     async def ingest_pump(self, pump_data: dict) -> ReviewItem:
@@ -282,16 +288,16 @@ class ReviewQueueManager:
         Returns:
             ReviewItem created from pump
         """
-        pump_id = pump_data.get('pump_id', str(uuid.uuid4()))
+        pump_id = pump_data.get("pump_id", str(uuid.uuid4()))
 
         item = ReviewItem(
             item_type=ReviewItemType.PUMP,
-            title=pump_data.get('intent', 'Pump Prompt'),
-            description=pump_data.get('description', '')
-                        or pump_data.get('payload', {}).get('description', '')
-                        or f"From {pump_data.get('source_agent', 'unknown')}",
-            urgency=_safe_urgency(pump_data.get('urgency', 'normal')),
-            source_agent=pump_data.get('source_agent', 'First Strike'),
+            title=pump_data.get("intent", "Pump Prompt"),
+            description=pump_data.get("description", "")
+            or pump_data.get("payload", {}).get("description", "")
+            or f"From {pump_data.get('source_agent', 'unknown')}",
+            urgency=_safe_urgency(pump_data.get("urgency", "normal")),
+            source_agent=pump_data.get("source_agent", "First Strike"),
             source_id=pump_id,
             payload=pump_data,
         )
@@ -312,14 +318,14 @@ class ReviewQueueManager:
         Returns:
             ReviewItem created from action
         """
-        action_id = action_data.get('action_id', str(uuid.uuid4()))
+        action_id = action_data.get("action_id", str(uuid.uuid4()))
 
         item = ReviewItem(
             item_type=ReviewItemType.ACTION,
-            title=action_data.get('title', 'Governance Action'),
-            description=action_data.get('description', ''),
-            urgency=_safe_urgency(action_data.get('urgency', 'normal')),
-            source_agent='Governance',
+            title=action_data.get("title", "Governance Action"),
+            description=action_data.get("description", ""),
+            urgency=_safe_urgency(action_data.get("urgency", "normal")),
+            source_agent="Governance",
             source_id=action_id,
             payload=action_data,
         )
@@ -340,15 +346,15 @@ class ReviewQueueManager:
         Returns:
             ReviewItem created from council session
         """
-        session_id = session_data.get('session_id', str(uuid.uuid4()))
+        session_id = session_data.get("session_id", str(uuid.uuid4()))
 
         item = ReviewItem(
             item_type=ReviewItemType.COUNCIL,
-            title=session_data.get('title', 'Council Session'),
-            description=session_data.get('synthesis', '')
-                        or f"Council: {session_data.get('type', 'unknown')}",
-            urgency=_safe_urgency(session_data.get('urgency', 'normal')),
-            source_agent='Council',
+            title=session_data.get("title", "Council Session"),
+            description=session_data.get("synthesis", "")
+            or f"Council: {session_data.get('type', 'unknown')}",
+            urgency=_safe_urgency(session_data.get("urgency", "normal")),
+            source_agent="Council",
             source_id=session_id,
             payload=session_data,
         )
@@ -421,12 +427,13 @@ class ReviewQueueManager:
         # Sort by urgency (critical first), then by creation time (newest first).
         # urgency_order assigns CRITICAL the highest value so that sorting
         # descending (reverse=True) places CRITICAL items at the front.
-        urgency_order = {UrgencyLevel.CRITICAL: 3, UrgencyLevel.HIGH: 2,
-                        UrgencyLevel.NORMAL: 1, UrgencyLevel.LOW: 0}
-        items.sort(key=lambda x: (
-            urgency_order.get(x.urgency, -1),
-            x.created_at
-        ), reverse=True)
+        urgency_order = {
+            UrgencyLevel.CRITICAL: 3,
+            UrgencyLevel.HIGH: 2,
+            UrgencyLevel.NORMAL: 1,
+            UrgencyLevel.LOW: 0,
+        }
+        items.sort(key=lambda x: (urgency_order.get(x.urgency, -1), x.created_at), reverse=True)
 
         return items
 
@@ -539,20 +546,22 @@ class ReviewQueueManager:
         for item_id in item_ids:
             item = self.items.get(item_id)
             if not item:
-                results.append({'item_id': item_id, 'success': False, 'error': 'Not found'})
+                results.append({"item_id": item_id, "success": False, "error": "Not found"})
                 continue
 
-            results.append({
-                'item_id': item_id,
-                'success': True,
-                'item_type': item.item_type,
-                'source_id': item.source_id,
-                'timestamp': datetime.now(timezone.utc).isoformat()
-            })
+            results.append(
+                {
+                    "item_id": item_id,
+                    "success": True,
+                    "item_type": item.item_type,
+                    "source_id": item.source_id,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
 
         return results
 
-    async def batch_reject(self, item_ids: List[str], reason: str = '') -> List[Dict[str, Any]]:
+    async def batch_reject(self, item_ids: List[str], reason: str = "") -> List[Dict[str, Any]]:
         """Reject multiple items.
 
         Args:
@@ -566,17 +575,19 @@ class ReviewQueueManager:
         for item_id in item_ids:
             item = self.items.get(item_id)
             if not item:
-                results.append({'item_id': item_id, 'success': False, 'error': 'Not found'})
+                results.append({"item_id": item_id, "success": False, "error": "Not found"})
                 continue
 
-            results.append({
-                'item_id': item_id,
-                'success': True,
-                'item_type': item.item_type,
-                'source_id': item.source_id,
-                'reason': reason,
-                'timestamp': datetime.now(timezone.utc).isoformat()
-            })
+            results.append(
+                {
+                    "item_id": item_id,
+                    "success": True,
+                    "item_type": item.item_type,
+                    "source_id": item.source_id,
+                    "reason": reason,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
 
         return results
 
@@ -595,38 +606,46 @@ class ReviewQueueManager:
 
         # Critical urgency
         if item.urgency == UrgencyLevel.CRITICAL:
-            suggestions.append(Suggestion(
-                action_text='Review immediately',
-                action_type='escalate',
-                confidence=0.95,
-                reasoning='Critical urgency detected - requires immediate attention'
-            ))
+            suggestions.append(
+                Suggestion(
+                    action_text="Review immediately",
+                    action_type="escalate",
+                    confidence=0.95,
+                    reasoning="Critical urgency detected - requires immediate attention",
+                )
+            )
 
         # PUMP-specific suggestions
         if item.item_type == ReviewItemType.PUMP:
-            suggestions.append(Suggestion(
-                action_text='Approve & dispatch to NCC',
-                action_type='approve',
-                confidence=0.75,
-                reasoning='Approve pump prompt and dispatch to NCC for mandate execution'
-            ))
-            suggestions.append(Suggestion(
-                action_text='Defer to next council',
-                action_type='defer',
-                confidence=0.6,
-                reasoning='Defer pump to next council session for debate and synthesis'
-            ))
+            suggestions.append(
+                Suggestion(
+                    action_text="Approve & dispatch to NCC",
+                    action_type="approve",
+                    confidence=0.75,
+                    reasoning="Approve pump prompt and dispatch to NCC for mandate execution",
+                )
+            )
+            suggestions.append(
+                Suggestion(
+                    action_text="Defer to next council",
+                    action_type="defer",
+                    confidence=0.6,
+                    reasoning="Defer pump to next council session for debate and synthesis",
+                )
+            )
 
         # ACTION-specific suggestions
         if item.item_type == ReviewItemType.ACTION:
             payload = item.payload or {}
-            if payload.get('tier') == 'EXECUTE':
-                suggestions.append(Suggestion(
-                    action_text='Verify consent requirements',
-                    action_type='escalate',
-                    confidence=0.8,
-                    reasoning='EXECUTE-tier action requires verification of consent before dispatch'
-                ))
+            if payload.get("tier") == "EXECUTE":
+                suggestions.append(
+                    Suggestion(
+                        action_text="Verify consent requirements",
+                        action_type="escalate",
+                        confidence=0.8,
+                        reasoning="EXECUTE-tier action requires verification of consent before dispatch",  # noqa: E501
+                    )
+                )
 
         # Old items (>24h)
         try:
@@ -635,12 +654,14 @@ class ReviewQueueManager:
             hours_old = (now - created).total_seconds() / 3600
 
             if hours_old > 24:
-                suggestions.append(Suggestion(
-                    action_text='Archive or escalate',
-                    action_type='escalate',
-                    confidence=0.7,
-                    reasoning=f'Item is {int(hours_old)}h old - archive if stale or escalate if critical'
-                ))
+                suggestions.append(
+                    Suggestion(
+                        action_text="Archive or escalate",
+                        action_type="escalate",
+                        confidence=0.7,
+                        reasoning=f"Item is {int(hours_old)}h old - archive if stale or escalate if critical",  # noqa: E501
+                    )
+                )
         except (ValueError, TypeError):
             pass
 
@@ -673,12 +694,12 @@ class ReviewQueueManager:
                 tag_counts[tag] = tag_counts.get(tag, 0) + 1
 
         return {
-            'total_items': len(items),
-            'archived_count': len(archived_items),
-            'type_counts': type_counts,
-            'urgency_counts': urgency_counts,
-            'tag_counts': tag_counts,
-            'critical_count': len([i for i in items if i.urgency == UrgencyLevel.CRITICAL]),
-            'high_count': len([i for i in items if i.urgency == UrgencyLevel.HIGH]),
-            'linked_pairs': sum(len(links) for links in self.item_links.values()) // 2,
+            "total_items": len(items),
+            "archived_count": len(archived_items),
+            "type_counts": type_counts,
+            "urgency_counts": urgency_counts,
+            "tag_counts": tag_counts,
+            "critical_count": len([i for i in items if i.urgency == UrgencyLevel.CRITICAL]),
+            "high_count": len([i for i in items if i.urgency == UrgencyLevel.HIGH]),
+            "linked_pairs": sum(len(links) for links in self.item_links.values()) // 2,
         }

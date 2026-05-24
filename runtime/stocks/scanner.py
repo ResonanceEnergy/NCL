@@ -27,11 +27,11 @@ Usage:
 import asyncio
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
+
 
 log = logging.getLogger("ncl.stocks.scanner")
 
@@ -44,13 +44,14 @@ _vix_cache: Dict[str, Any] = {"value": None, "ts": None}
 
 # ── Technical Indicator Helpers ────────────────────────────────────────────
 
+
 def sma(prices: np.ndarray, period: int) -> np.ndarray:
     """Simple Moving Average."""
     if len(prices) < period:
         return np.full_like(prices, np.nan)
     kernel = np.ones(period) / period
-    result = np.convolve(prices, kernel, mode="full")[:len(prices)]
-    result[:period - 1] = np.nan
+    result = np.convolve(prices, kernel, mode="full")[: len(prices)]
+    result[: period - 1] = np.nan
     return result
 
 
@@ -99,13 +100,14 @@ def rsi(prices: np.ndarray, period: int = 14) -> np.ndarray:
     return result
 
 
-def bollinger_bands(prices: np.ndarray, period: int = 20, num_std: float = 2.0
-                    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+def bollinger_bands(
+    prices: np.ndarray, period: int = 20, num_std: float = 2.0
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Returns (upper, middle, lower) Bollinger Bands."""
     middle = sma(prices, period)
     std = np.full_like(prices, np.nan)
     for i in range(period - 1, len(prices)):
-        std[i] = np.std(prices[i - period + 1:i + 1], ddof=0)
+        std[i] = np.std(prices[i - period + 1 : i + 1], ddof=0)
     upper = middle + num_std * std
     lower = middle - num_std * std
     return upper, middle, lower
@@ -117,8 +119,8 @@ def vwap(prices: np.ndarray, volumes: np.ndarray) -> np.ndarray:
     period = 20
     result = np.full_like(prices, np.nan)
     for i in range(period - 1, len(prices)):
-        window_p = prices[i - period + 1:i + 1]
-        window_v = volumes[i - period + 1:i + 1]
+        window_p = prices[i - period + 1 : i + 1]
+        window_v = volumes[i - period + 1 : i + 1]
         total_vol = np.sum(window_v)
         if total_vol > 0:
             result[i] = np.sum(window_p * window_v) / total_vol
@@ -152,7 +154,7 @@ def atr(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period: int = 1
             abs(lows[i] - closes[i - 1]),
         )
     result = np.full_like(closes, np.nan)
-    result[period] = np.mean(tr[1:period + 1])
+    result[period] = np.mean(tr[1 : period + 1])
     for i in range(period + 1, len(closes)):
         result[i] = (result[i - 1] * (period - 1) + tr[i]) / period
     return result
@@ -170,11 +172,15 @@ def find_recent_support(lows: np.ndarray, lookback: int = 20) -> float:
 def _fetch_vix() -> Optional[float]:
     """Fetch current VIX value. Cached for 15 minutes."""
     now = datetime.utcnow()
-    if (_vix_cache["value"] is not None and _vix_cache["ts"] is not None
-            and now - _vix_cache["ts"] < timedelta(minutes=15)):
+    if (
+        _vix_cache["value"] is not None
+        and _vix_cache["ts"] is not None
+        and now - _vix_cache["ts"] < timedelta(minutes=15)
+    ):
         return _vix_cache["value"]
     try:
         import yfinance as yf
+
         vix = yf.Ticker("^VIX")
         hist = vix.history(period="5d")
         if hist.empty:
@@ -201,12 +207,12 @@ def vix_risk_level(vix_value: Optional[float]) -> str:
     if vix_value is None:
         return "unknown"
     if vix_value < 15:
-        return "low"       # risk-on
+        return "low"  # risk-on
     if vix_value < 20:
-        return "normal"    # standard
+        return "normal"  # standard
     if vix_value < 30:
         return "elevated"  # reduce exposure
-    return "high"          # defensive
+    return "high"  # defensive
 
 
 def position_size_modifier(vix_level: str) -> float:
@@ -215,6 +221,7 @@ def position_size_modifier(vix_level: str) -> float:
 
 
 # ── Data Fetching ──────────────────────────────────────────────────────────
+
 
 def _fetch_yfinance_batch(tickers: List[str], period: str = "6mo") -> Dict[str, Any]:
     """Blocking call — runs in thread pool. Returns dict of ticker → DataFrame."""
@@ -273,13 +280,18 @@ def _fetch_yfinance_batch(tickers: List[str], period: str = "6mo") -> Dict[str, 
 class StockScanner:
     """Stateless scanner — create per request or cache for a few minutes."""
 
-    def __init__(self, alpaca_key: Optional[str] = None, alpaca_secret: Optional[str] = None,
-                 async_writer=None, portfolio_manager=None):
+    def __init__(
+        self,
+        alpaca_key: Optional[str] = None,
+        alpaca_secret: Optional[str] = None,
+        async_writer=None,
+        portfolio_manager=None,
+    ):
         self.alpaca_key = alpaca_key
         self.alpaca_secret = alpaca_secret
         # Cache keyed by period to avoid short-period data poisoning scanner lookbacks
         self._cache: Dict[str, Dict[str, Any]] = {}  # {period: {ticker: DataFrame}}
-        self._cache_ts: Dict[str, datetime] = {}      # {period: timestamp}
+        self._cache_ts: Dict[str, datetime] = {}  # {period: timestamp}
         self._cache_ttl = timedelta(minutes=5)
         # 2026-05-22 EOD: injected by Brain lifespan for persistence + dedup
         self.async_writer = async_writer
@@ -301,8 +313,7 @@ class StockScanner:
             and bool(self._cache.get(period))
         )
 
-    async def fetch_historical(self, tickers: List[str], period: str = "6mo"
-                               ) -> Dict[str, Any]:
+    async def fetch_historical(self, tickers: List[str], period: str = "6mo") -> Dict[str, Any]:
         """Fetch historical OHLCV data for tickers. Returns {ticker: DataFrame}."""
         period_cache = self._cache.get(period, {})
         if self._cache_valid(period):
@@ -318,7 +329,7 @@ class StockScanner:
         batch_size = 20
         all_results = {}
         for i in range(0, len(missing), batch_size):
-            batch = missing[i:i + batch_size]
+            batch = missing[i : i + batch_size]
             batch_results = await loop.run_in_executor(
                 _executor, _fetch_yfinance_batch, batch, period
             )
@@ -358,7 +369,9 @@ class StockScanner:
 
         Returns ``(filtered_results, _meta)``.
         """
-        from . import enrichments as enr  # local import — keeps scanner.py importable without enrichments
+        from . import (
+            enrichments as enr,  # local import — keeps scanner.py importable without enrichments
+        )
         from . import persistence as pers
 
         is_goat = "goat" in scanner_name
@@ -386,7 +399,9 @@ class StockScanner:
                     # Bias toward the largest matching position when a symbol
                     # is split across accounts.
                     cur = held_map.get(sym)
-                    if cur is None or float(pos.get("market_value", 0) or 0) > float(cur.get("market_value", 0) or 0):
+                    if cur is None or float(pos.get("market_value", 0) or 0) > float(
+                        cur.get("market_value", 0) or 0
+                    ):
                         held_map[sym] = pos
         except Exception as e:
             log.debug("portfolio dedup probe failed: %s", e)
@@ -441,7 +456,9 @@ class StockScanner:
             except (TypeError, ValueError):
                 adv_f = None
             liq = await enr.check_liquidity(
-                ticker, avg_daily_volume=adv_f, min_adv=min_adv,
+                ticker,
+                avg_daily_volume=adv_f,
+                min_adv=min_adv,
                 require_options_oi=True,
             )
             row.update(liq.to_dict())
@@ -462,7 +479,9 @@ class StockScanner:
 
             # 6B: options flow confirmation
             # Bullish-setup detection: GOAT is always long-bias; BRAVO entry signals are bullish.
-            bullish = True if is_goat else bool(row.get("entry_signal") and not row.get("exit_signal"))
+            bullish = (
+                True if is_goat else bool(row.get("entry_signal") and not row.get("exit_signal"))
+            )
             flow = enr.summarize_flow(ticker, flow_map, bullish_setup=bullish)
             row.update(flow.to_dict())
 
@@ -497,7 +516,9 @@ class StockScanner:
         if run_persistence and out:
             try:
                 persist_meta = await pers.persist_and_enqueue(
-                    scanner_name, out, async_writer=self.async_writer,
+                    scanner_name,
+                    out,
+                    async_writer=self.async_writer,
                 )
                 meta.update(persist_meta)
             except Exception as e:
@@ -527,13 +548,15 @@ class StockScanner:
                 change = close - prev_close
                 change_pct = (change / prev_close * 100) if prev_close != 0 else 0
                 vol = int(last.get("Volume", 0))
-                quotes.append({
-                    "ticker": ticker,
-                    "price": round(close, 2),
-                    "change": round(change, 2),
-                    "change_pct": round(change_pct, 2),
-                    "volume": vol,
-                })
+                quotes.append(
+                    {
+                        "ticker": ticker,
+                        "price": round(close, 2),
+                        "change": round(change, 2),
+                        "change_pct": round(change_pct, 2),
+                        "volume": vol,
+                    }
+                )
             except (IndexError, KeyError, TypeError) as e:
                 log.debug("Quote parse error for %s: %s", ticker, e)
         return quotes
@@ -614,10 +637,16 @@ class StockScanner:
                 rule_vol_surge = vol_ratio >= 1.5
                 rule_breakout = current_price > high_20
 
-                rules_hit = sum([
-                    rule_above_sma150, rule_above_sma50, rule_sma50_rising,
-                    rule_rsi_zone, rule_vol_surge, rule_breakout
-                ])
+                rules_hit = sum(
+                    [
+                        rule_above_sma150,
+                        rule_above_sma50,
+                        rule_sma50_rising,
+                        rule_rsi_zone,
+                        rule_vol_surge,
+                        rule_breakout,
+                    ]
+                )
 
                 # ── GOAT Score (weighted, 150 SMA is gate) ──
                 score = 0
@@ -642,13 +671,15 @@ class StockScanner:
                     score = min(100, score + 5)  # Strong volume bonus
 
                 # GATE PENALTY: if below 150 SMA, cap score at 30
-                # GOAT Academy: "The 150-day is your north star. If price is below it, you're fighting the trend."
+                # GOAT Academy: "The 150-day is your north star. If price is below it, you're fighting the trend."  # noqa: E501
                 if not rule_above_sma150:
                     score = min(score, 30)
 
                 # ── Risk Management ──
                 # Stop loss: 2× ATR below current price
-                stop_loss = round(float(current_price - 2 * current_atr), 2) if current_atr > 0 else 0.0
+                stop_loss = (
+                    round(float(current_price - 2 * current_atr), 2) if current_atr > 0 else 0.0
+                )
 
                 # Audit 2026-05-22 P0: Prior code used fixed +10/+15/+25%
                 # targets which produced R:R < 1.0 on every high-vol name
@@ -676,37 +707,41 @@ class StockScanner:
                 # Support level for context
                 support = round(float(find_recent_support(lows, 20)), 2)
 
-                change_pct = ((current_price - prev_price) / prev_price * 100) if prev_price != 0 else 0
+                change_pct = (
+                    ((current_price - prev_price) / prev_price * 100) if prev_price != 0 else 0
+                )
 
-                results.append({
-                    "ticker": ticker,
-                    "price": round(float(current_price), 2),
-                    "change_pct": round(float(change_pct), 2),
-                    "goat_score": int(min(100, score)),
-                    # Rule flags
-                    "above_sma50": bool(rule_above_sma50),
-                    "above_sma150": bool(rule_above_sma150),
-                    "sma50_rising": bool(rule_sma50_rising),
-                    "rsi_in_zone": bool(rule_rsi_zone),
-                    "rsi": round(float(current_rsi), 1) if not np.isnan(current_rsi) else 50.0,
-                    "volume_surge": bool(rule_vol_surge),
-                    "volume_ratio": round(float(vol_ratio), 2),
-                    "avg_daily_volume": int(vol_20_avg) if vol_20_avg > 0 else 0,
-                    "breakout": bool(rule_breakout),
-                    "rules_hit": int(rules_hit),
-                    # Risk management (new)
-                    "stop_loss": float(stop_loss),
-                    "target_1": float(target_1),
-                    "target_2": float(target_2),
-                    "target_3": float(target_3),
-                    "risk_reward": float(risk_reward),
-                    "atr": round(float(current_atr), 2),
-                    "position_size_pct": float(adjusted_position_pct),
-                    "support": float(support),
-                    # VIX overlay
-                    "vix": round(float(vix_value), 2) if vix_value else None,
-                    "vix_risk": vix_level,
-                })
+                results.append(
+                    {
+                        "ticker": ticker,
+                        "price": round(float(current_price), 2),
+                        "change_pct": round(float(change_pct), 2),
+                        "goat_score": int(min(100, score)),
+                        # Rule flags
+                        "above_sma50": bool(rule_above_sma50),
+                        "above_sma150": bool(rule_above_sma150),
+                        "sma50_rising": bool(rule_sma50_rising),
+                        "rsi_in_zone": bool(rule_rsi_zone),
+                        "rsi": round(float(current_rsi), 1) if not np.isnan(current_rsi) else 50.0,
+                        "volume_surge": bool(rule_vol_surge),
+                        "volume_ratio": round(float(vol_ratio), 2),
+                        "avg_daily_volume": int(vol_20_avg) if vol_20_avg > 0 else 0,
+                        "breakout": bool(rule_breakout),
+                        "rules_hit": int(rules_hit),
+                        # Risk management (new)
+                        "stop_loss": float(stop_loss),
+                        "target_1": float(target_1),
+                        "target_2": float(target_2),
+                        "target_3": float(target_3),
+                        "risk_reward": float(risk_reward),
+                        "atr": round(float(current_atr), 2),
+                        "position_size_pct": float(adjusted_position_pct),
+                        "support": float(support),
+                        # VIX overlay
+                        "vix": round(float(vix_value), 2) if vix_value else None,
+                        "vix_risk": vix_level,
+                    }
+                )
 
             except Exception as e:
                 log.warning("GOAT scan error for %s: %s", ticker, e)
@@ -780,9 +815,7 @@ class StockScanner:
                 prev_ema20 = ema20[-2] if len(ema20) >= 2 else np.nan
 
                 # Check NaN on essential MAs
-                any_nan = any(np.isnan(v) for v in [
-                    current_sma9, current_ema20, current_sma180
-                ])
+                any_nan = any(np.isnan(v) for v in [current_sma9, current_ema20, current_sma180])
                 if any_nan:
                     continue
 
@@ -796,7 +829,7 @@ class StockScanner:
                 above_sma200 = not np.isnan(current_sma200) and current_price > current_sma200
 
                 # MA Alignment: SMA 9 > EMA 20 > SMA 180
-                ma_aligned = (current_sma9 > current_ema20 > current_sma180)
+                ma_aligned = current_sma9 > current_ema20 > current_sma180
 
                 # All MAs sloping up
                 sma9_rising = is_rising(sma9, 5)
@@ -821,8 +854,12 @@ class StockScanner:
 
                 # GoGo Juice: VWAP crossed above EMA 20 recently
                 gogo_juice = False
-                if not np.isnan(current_vwap) and not np.isnan(prev_vwap) and not np.isnan(prev_ema20):
-                    gogo_juice = (prev_vwap <= prev_ema20 and current_vwap > current_ema20)
+                if (
+                    not np.isnan(current_vwap)
+                    and not np.isnan(prev_vwap)
+                    and not np.isnan(prev_ema20)
+                ):
+                    gogo_juice = prev_vwap <= prev_ema20 and current_vwap > current_ema20
                     # Also check if VWAP is above EMA 20 and was recently below (within 3 bars)
                     if not gogo_juice and current_vwap > current_ema20:
                         for lookback_i in range(2, min(5, len(vwap_values))):
@@ -833,12 +870,22 @@ class StockScanner:
                                 break
 
                 # Bollinger Squeeze: bandwidth contracting
-                bb_width_current = (bb_upper[-1] - bb_lower[-1]) / bb_middle[-1] if not np.isnan(bb_middle[-1]) and bb_middle[-1] != 0 else 0
-                bb_width_prev = np.nanmean([
-                    (bb_upper[i] - bb_lower[i]) / bb_middle[i]
-                    for i in range(-20, -1)
-                    if not np.isnan(bb_middle[i]) and bb_middle[i] != 0
-                ]) if len(closes) >= 40 else bb_width_current
+                bb_width_current = (
+                    (bb_upper[-1] - bb_lower[-1]) / bb_middle[-1]
+                    if not np.isnan(bb_middle[-1]) and bb_middle[-1] != 0
+                    else 0
+                )
+                bb_width_prev = (
+                    np.nanmean(
+                        [
+                            (bb_upper[i] - bb_lower[i]) / bb_middle[i]
+                            for i in range(-20, -1)
+                            if not np.isnan(bb_middle[i]) and bb_middle[i] != 0
+                        ]
+                    )
+                    if len(closes) >= 40
+                    else bb_width_current
+                )
                 bollinger_squeeze = bb_width_current < bb_width_prev * 0.8  # 20% contraction
 
                 # ── Bravo Score ──
@@ -874,13 +921,21 @@ class StockScanner:
 
                 # ── Risk Management ──
                 # Stop loss: 1.5× ATR below SMA 9 (Bravo uses tighter stops)
-                stop_loss = round(float(current_sma9 - 1.5 * current_atr), 2) if current_atr > 0 else 0.0
+                stop_loss = (
+                    round(float(current_sma9 - 1.5 * current_atr), 2) if current_atr > 0 else 0.0
+                )
 
                 # Risk per trade: 1-2% of portfolio
                 risk_per_share = current_price - stop_loss if stop_loss > 0 else current_atr * 1.5
-                risk_pct = round(float(risk_per_share / current_price * 100), 2) if current_price > 0 else 0.0
+                risk_pct = (
+                    round(float(risk_per_share / current_price * 100), 2)
+                    if current_price > 0
+                    else 0.0
+                )
 
-                change_pct = ((current_price - prev_price) / prev_price * 100) if prev_price != 0 else 0
+                change_pct = (
+                    ((current_price - prev_price) / prev_price * 100) if prev_price != 0 else 0
+                )
 
                 # Signal label with two-tier system
                 signal_label = self._bravo_signal_label(
@@ -893,32 +948,38 @@ class StockScanner:
                     green_candle=bool(is_green_candle),
                 )
 
-                results.append({
-                    "ticker": ticker,
-                    "price": round(float(current_price), 2),
-                    "change_pct": round(float(change_pct), 2),
-                    "bravo_score": int(min(100, score)),
-                    "sma9": round(float(current_sma9), 2),
-                    "ema20": round(float(current_ema20), 2),
-                    "sma180": round(float(current_sma180), 2),
-                    "sma200": round(float(current_sma200), 2) if not np.isnan(current_sma200) else None,
-                    "ma_aligned": bool(ma_aligned),
-                    "all_sloping_up": bool(all_sloping_up),
-                    "above_sma200": bool(above_sma200),
-                    "entry_signal": bool(entry_signal),
-                    "exit_signal": bool(exit_signal),
-                    "caution_signal": bool(caution_signal),
-                    "is_green_candle": bool(is_green_candle),
-                    "gogo_juice": bool(gogo_juice),
-                    "bollinger_squeeze": bool(bollinger_squeeze),
-                    "rsi": round(float(current_rsi), 1) if not np.isnan(current_rsi) else 50.0,
-                    "signal_label": signal_label,
-                    # Risk management (new)
-                    "stop_loss": float(stop_loss),
-                    "risk_pct": float(risk_pct),
-                    "atr": round(float(current_atr), 2),
-                    "avg_daily_volume": int(np.mean(volumes[-20:])) if len(volumes) >= 20 else 0,
-                })
+                results.append(
+                    {
+                        "ticker": ticker,
+                        "price": round(float(current_price), 2),
+                        "change_pct": round(float(change_pct), 2),
+                        "bravo_score": int(min(100, score)),
+                        "sma9": round(float(current_sma9), 2),
+                        "ema20": round(float(current_ema20), 2),
+                        "sma180": round(float(current_sma180), 2),
+                        "sma200": round(float(current_sma200), 2)
+                        if not np.isnan(current_sma200)
+                        else None,
+                        "ma_aligned": bool(ma_aligned),
+                        "all_sloping_up": bool(all_sloping_up),
+                        "above_sma200": bool(above_sma200),
+                        "entry_signal": bool(entry_signal),
+                        "exit_signal": bool(exit_signal),
+                        "caution_signal": bool(caution_signal),
+                        "is_green_candle": bool(is_green_candle),
+                        "gogo_juice": bool(gogo_juice),
+                        "bollinger_squeeze": bool(bollinger_squeeze),
+                        "rsi": round(float(current_rsi), 1) if not np.isnan(current_rsi) else 50.0,
+                        "signal_label": signal_label,
+                        # Risk management (new)
+                        "stop_loss": float(stop_loss),
+                        "risk_pct": float(risk_pct),
+                        "atr": round(float(current_atr), 2),
+                        "avg_daily_volume": int(np.mean(volumes[-20:]))
+                        if len(volumes) >= 20
+                        else 0,
+                    }
+                )
 
             except Exception as e:
                 log.warning("Bravo scan error for %s: %s", ticker, e)
@@ -939,7 +1000,8 @@ class StockScanner:
         """GOAT scan + portfolio dedup + earnings + liquidity + IVR + flow + dark pool + persist."""
         raw = await self.run_goat_scan(tickers)
         return await self._enrich_and_filter(
-            raw, "scanner:goat",
+            raw,
+            "scanner:goat",
             include_held=include_held,
             include_earnings_risk=include_earnings_risk,
         )
@@ -951,25 +1013,33 @@ class StockScanner:
         include_held: bool = False,
         include_earnings_risk: bool = False,
     ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
-        """BRAVO scan + portfolio dedup + earnings + liquidity + IVR + flow + dark pool + persist."""
+        """BRAVO scan + portfolio dedup + earnings + liquidity + IVR + flow + dark pool + persist."""  # noqa: E501
         raw = await self.run_bravo_scan(tickers)
         return await self._enrich_and_filter(
-            raw, "scanner:bravo",
+            raw,
+            "scanner:bravo",
             include_held=include_held,
             include_earnings_risk=include_earnings_risk,
         )
 
     @staticmethod
-    def _bravo_signal_label(entry: bool, exit_: bool, caution: bool, gogo: bool,
-                            aligned: bool, sloping: bool, green_candle: bool) -> str:
+    def _bravo_signal_label(
+        entry: bool,
+        exit_: bool,
+        caution: bool,
+        gogo: bool,
+        aligned: bool,
+        sloping: bool,
+        green_candle: bool,
+    ) -> str:
         """Two-tier signal labeling with candle color nuance."""
         if exit_:
             return "EXIT"
         if caution:
             # Below SMA 9 but above EMA 20
             if not green_candle:
-                return "SELL"      # Red candle below SMA 9 = sell
-            return "CAUTION"       # Green candle below SMA 9 = might bounce
+                return "SELL"  # Red candle below SMA 9 = sell
+            return "CAUTION"  # Green candle below SMA 9 = might bounce
         if entry and gogo:
             return "GOGO BUY"
         if entry:

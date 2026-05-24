@@ -9,17 +9,17 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional
 from statistics import mean, quantiles
+from typing import Optional
 
 from .schema import (
+    TelemetryCategory,
+    TelemetryConfig,
     TelemetryLevel,
     TelemetryRecord,
-    TelemetryConfig,
-    TelemetryCategory,
     WorkflowTelemetry,
-    RedactionRule,
 )
+
 
 logger = logging.getLogger(__name__)
 
@@ -190,9 +190,7 @@ class TelemetryCollector:
                     f.writelines(lines)
 
             await asyncio.to_thread(_write)
-            logger.debug(
-                f"Flushed {len(records)} telemetry records to {filepath}"
-            )
+            logger.debug(f"Flushed {len(records)} telemetry records to {filepath}")
         except Exception as e:
             logger.error(f"Failed to flush telemetry: {e}")
             # Re-buffer on failure
@@ -232,10 +230,7 @@ class TelemetryCollector:
         records = self._load_records_in_range(cutoff)
 
         # Filter by workflow
-        matching = [
-            r for r in records
-            if r.workflow == workflow and r.timestamp >= cutoff
-        ]
+        matching = [r for r in records if r.workflow == workflow and r.timestamp >= cutoff]
 
         if not matching:
             return None
@@ -272,9 +267,7 @@ class TelemetryCollector:
             error_distribution=error_dist,
         )
 
-    def get_all_workflow_stats(
-        self, hours_back: int = 24
-    ) -> list[WorkflowTelemetry]:
+    def get_all_workflow_stats(self, hours_back: int = 24) -> list[WorkflowTelemetry]:
         """Get stats for all workflows in the past N hours.
 
         Args:
@@ -312,9 +305,7 @@ class TelemetryCollector:
             error_dist = {}
             for r in matching:
                 if r.error_type:
-                    error_dist[r.error_type] = (
-                        error_dist.get(r.error_type, 0) + 1
-                    )
+                    error_dist[r.error_type] = error_dist.get(r.error_type, 0) + 1
 
             stats.append(
                 WorkflowTelemetry(
@@ -333,9 +324,7 @@ class TelemetryCollector:
 
         return stats
 
-    def _load_records_in_range(
-        self, start_time: datetime
-    ) -> list[TelemetryRecord]:
+    def _load_records_in_range(self, start_time: datetime) -> list[TelemetryRecord]:
         """Load all records from NDJSON files in date range.
 
         Note: This method performs synchronous file I/O.  It is called from
@@ -375,7 +364,9 @@ class TelemetryCollector:
                                     record = TelemetryRecord(**data)
                                     records.append(record)
                                 except (json.JSONDecodeError, ValueError) as e:
-                                    logger.warning(f"Skipping malformed telemetry record in {filepath}: {e}")
+                                    logger.warning(
+                                        f"Skipping malformed telemetry record in {filepath}: {e}"
+                                    )
                 except Exception as e:
                     logger.error(f"Error reading {filepath}: {e}")
             current += timedelta(days=1)

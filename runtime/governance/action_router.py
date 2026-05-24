@@ -8,12 +8,14 @@ All dispatched actions are logged for audit trail. Execution calls
 are wrapped with a configurable timeout so a stalled handler cannot
 block the system indefinitely.
 """
+
 import asyncio
 import logging
 from typing import Any, Callable, Coroutine, Optional
 
-from .models import Action, ActionTier, ConsentStatus, PolicyVerdict
+from .models import Action, ActionTier, PolicyVerdict
 from .policy_kernel import PolicyKernel
+
 
 log = logging.getLogger("ncl.action_router")
 
@@ -24,7 +26,9 @@ DEFAULT_EXECUTION_TIMEOUT = 30.0
 class ActionRouter:
     """High-level API for routing actions through PolicyKernel enforcement."""
 
-    def __init__(self, policy_kernel: PolicyKernel, execution_timeout: float = DEFAULT_EXECUTION_TIMEOUT):
+    def __init__(
+        self, policy_kernel: PolicyKernel, execution_timeout: float = DEFAULT_EXECUTION_TIMEOUT
+    ):
         """Initialize ActionRouter with a PolicyKernel instance.
 
         Args:
@@ -135,13 +139,18 @@ class ActionRouter:
                 )
                 log.info(
                     "[ROUTER] execute: %s from %s → PENDING_CONSENT (action_id=%s)",
-                    name, source_agent, action.action_id,
+                    name,
+                    source_agent,
+                    action.action_id,
                 )
             else:
                 self.kernel._log_audit(action, verdict, "Execute-tier action created")
                 log.info(
                     "[ROUTER] execute: %s from %s → %s (action_id=%s)",
-                    name, source_agent, verdict, action.action_id,
+                    name,
+                    source_agent,
+                    verdict,
+                    action.action_id,
                 )
 
             return action
@@ -159,13 +168,13 @@ class ActionRouter:
             self.kernel._log_audit(action, verdict, "Action routed through policy engine")
             log.debug(
                 "[ROUTER] route: %s (tier=%s) → %s",
-                action.name, action.tier, verdict,
+                action.name,
+                action.tier,
+                verdict,
             )
             return verdict
         except Exception as e:
-            log.error(
-                "[ROUTER] Error routing action '%s': %s", action.name, e, exc_info=True
-            )
+            log.error("[ROUTER] Error routing action '%s': %s", action.name, e, exc_info=True)
             raise
 
     async def dispatch(
@@ -191,20 +200,25 @@ class ActionRouter:
         if not allowed:
             log.warning(
                 "[ROUTER] dispatch BLOCKED: %s (action_id=%s) — %s",
-                action.name, action.action_id, reason,
+                action.name,
+                action.action_id,
+                reason,
             )
             return False, reason
 
         effective_timeout = timeout if timeout is not None else self.execution_timeout
         log.info(
             "[ROUTER] dispatching: %s (action_id=%s, timeout=%.1fs)",
-            action.name, action.action_id, effective_timeout,
+            action.name,
+            action.action_id,
+            effective_timeout,
         )
         try:
             await asyncio.wait_for(handler(action), timeout=effective_timeout)
             log.info(
                 "[ROUTER] dispatch complete: %s (action_id=%s)",
-                action.name, action.action_id,
+                action.name,
+                action.action_id,
             )
             return True, "Action dispatched successfully"
         except asyncio.TimeoutError:

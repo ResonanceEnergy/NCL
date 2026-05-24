@@ -9,6 +9,7 @@ Goals:
   - TODO regeneration runs when events change
   - get_status reports the expected keys
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -20,12 +21,11 @@ from unittest.mock import MagicMock
 import pytest
 
 # Reset the singleton between tests so state doesn't leak
-from runtime.calendar import calendar_agent as ca_mod
 from runtime.calendar.calendar_agent import (
-    CalendarAgent,
     DEFAULT_CITIES,
     DEFAULT_WINDOWS,
     TODO_CACHE_MIN_AGE_S,
+    CalendarAgent,
     get_calendar_agent,
     reset_calendar_agent_for_tests,
 )
@@ -60,10 +60,12 @@ def _make_stub_modules(event_ids: list[str] | None = None) -> dict[str, Any]:
 
     async def _get_full_solar_state(city_id):
         return {"city_id": city_id, "available": True, "sun_score": 0.7}
+
     solar.get_full_solar_state = _get_full_solar_state
 
     async def _snapshot_to_disk(city_id):
         return True
+
     solar.snapshot_to_disk = _snapshot_to_disk
 
     # Events compiler
@@ -71,6 +73,7 @@ def _make_stub_modules(event_ids: list[str] | None = None) -> dict[str, Any]:
 
     async def _compile_unified_events(city_id, window_days):
         return list(events)
+
     events_compiler.compile_unified_events = _compile_unified_events
 
     # Todo generator — record call counts so we can assert cost guard
@@ -80,6 +83,7 @@ def _make_stub_modules(event_ids: list[str] | None = None) -> dict[str, Any]:
     async def _generate_todos_for_window(city_id, window_days, events):
         todo_gen.call_count += 1
         return [{"id": f"todo-{i}", "text": f"Do {i}"} for i in range(len(events))]
+
     todo_gen.generate_todos_for_window = _generate_todos_for_window
 
     # Correlator — passes events through with a correlation tag
@@ -87,6 +91,7 @@ def _make_stub_modules(event_ids: list[str] | None = None) -> dict[str, Any]:
 
     async def _attach_correlations(events, moon, sun, city_id, window_days):
         return [{**e, "_correlated": True} for e in events]
+
     correlator.attach_correlations = _attach_correlations
 
     # Cities pref
@@ -94,10 +99,12 @@ def _make_stub_modules(event_ids: list[str] | None = None) -> dict[str, Any]:
 
     async def _get_default_city():
         return "edmonton"
+
     cities_pref.get_default_city = _get_default_city
 
     async def _get_all_active_cities():
         return ["edmonton"]
+
     cities_pref.get_all_active_cities = _get_all_active_cities
 
     # Lunar (sync, like the real module)
@@ -197,6 +204,7 @@ async def test_compile_events_cache_hit(tmp_data_dir):
     async def _counted(city_id, window_days):
         call_count["n"] += 1
         return await orig(city_id, window_days)
+
     stubs["events_compiler"].compile_unified_events = _counted
 
     a = await agent.compile_events("edmonton", 7)
@@ -217,6 +225,7 @@ async def test_sun_state_cache_hit(tmp_data_dir):
     async def _counted(city_id):
         call_count["n"] += 1
         return {"city_id": city_id, "available": True}
+
     stubs["solar"].get_full_solar_state = _counted
 
     a = await agent.get_sun_state("edmonton")
@@ -264,6 +273,7 @@ async def test_todo_regen_runs_when_events_change(tmp_data_dir):
 
     async def _new_compile(city_id, window_days):
         return list(new_events)
+
     stubs["events_compiler"].compile_unified_events = _new_compile
 
     await agent.scan_cycle()
@@ -349,6 +359,7 @@ async def test_scan_cycle_records_errors(tmp_data_dir):
 
     async def _boom(city_id, window_days):
         raise RuntimeError("compiler exploded")
+
     stubs["events_compiler"].compile_unified_events = _boom
 
     agent._modules = stubs

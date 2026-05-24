@@ -11,11 +11,10 @@ Covers:
                      due, council overdue, FOMC today, top-5 earnings)
   - attach_correlations: end-to-end pipeline order
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-
-import pytest
 
 from runtime.calendar.correlator import (
     attach_correlations,
@@ -67,12 +66,22 @@ def test_dedup_merges_on_shared_ticker_same_date():
 
 def test_dedup_merges_on_source_id():
     events = [
-        {"id": 11, "date": TODAY, "title": "FOMC",
-         "source": "finnhub", "source_id": "fomc-2026-05-21",
-         "impact": "critical"},
-        {"id": 12, "date": "2026-05-22", "title": "FOMC Day-2",
-         "source": "manual", "source_id": "fomc-2026-05-21",
-         "impact": "medium"},
+        {
+            "id": 11,
+            "date": TODAY,
+            "title": "FOMC",
+            "source": "finnhub",
+            "source_id": "fomc-2026-05-21",
+            "impact": "critical",
+        },
+        {
+            "id": 12,
+            "date": "2026-05-22",
+            "title": "FOMC Day-2",
+            "source": "manual",
+            "source_id": "fomc-2026-05-21",
+            "impact": "medium",
+        },
     ]
     merged = dedup_events(events)
     assert len(merged) == 1
@@ -82,12 +91,20 @@ def test_dedup_merges_on_source_id():
 
 def test_dedup_merges_on_fuzzy_title():
     events = [
-        {"id": 21, "date": TODAY,
-         "title": "Monthly Options Expiry", "source": "market",
-         "impact": "high"},
-        {"id": 22, "date": TODAY,
-         "title": "Monthly Options Expiry", "source": "broker",
-         "impact": "medium"},
+        {
+            "id": 21,
+            "date": TODAY,
+            "title": "Monthly Options Expiry",
+            "source": "market",
+            "impact": "high",
+        },
+        {
+            "id": 22,
+            "date": TODAY,
+            "title": "Monthly Options Expiry",
+            "source": "broker",
+            "impact": "medium",
+        },
     ]
     merged = dedup_events(events)
     assert len(merged) == 1
@@ -97,10 +114,14 @@ def test_dedup_merges_on_fuzzy_title():
 
 def test_dedup_no_merge_when_dates_differ():
     events = [
-        {"id": 31, "date": TODAY, "title": "AAPL Earnings",
-         "tickers": ["AAPL"], "source": "a"},
-        {"id": 32, "date": "2026-05-22", "title": "AAPL Earnings",
-         "tickers": ["AAPL"], "source": "b"},
+        {"id": 31, "date": TODAY, "title": "AAPL Earnings", "tickers": ["AAPL"], "source": "a"},
+        {
+            "id": 32,
+            "date": "2026-05-22",
+            "title": "AAPL Earnings",
+            "tickers": ["AAPL"],
+            "source": "b",
+        },
     ]
     merged = dedup_events(events)
     assert len(merged) == 2
@@ -111,10 +132,14 @@ def test_dedup_no_merge_when_dates_differ():
 
 def test_dedup_no_merge_when_unrelated():
     events = [
-        {"id": 41, "date": TODAY, "title": "CPI Release",
-         "tickers": [], "source": "econ"},
-        {"id": 42, "date": TODAY, "title": "Earnings: $TSLA",
-         "tickers": ["TSLA"], "source": "broker"},
+        {"id": 41, "date": TODAY, "title": "CPI Release", "tickers": [], "source": "econ"},
+        {
+            "id": 42,
+            "date": TODAY,
+            "title": "Earnings: $TSLA",
+            "tickers": ["TSLA"],
+            "source": "broker",
+        },
     ]
     merged = dedup_events(events)
     assert len(merged) == 2
@@ -124,13 +149,31 @@ def test_dedup_transitive_merge_via_different_rules():
     # A and B share a ticker; B and C share a source_id.
     # All three should end up in one group.
     events = [
-        {"id": 51, "date": TODAY, "title": "Apple call",
-         "tickers": ["AAPL"], "source": "x", "impact": "medium"},
-        {"id": 52, "date": TODAY, "title": "AAPL print",
-         "tickers": ["AAPL"], "source": "y", "source_id": "z-1",
-         "impact": "high"},
-        {"id": 53, "date": TODAY, "title": "Earnings report",
-         "source": "z", "source_id": "z-1", "impact": "low"},
+        {
+            "id": 51,
+            "date": TODAY,
+            "title": "Apple call",
+            "tickers": ["AAPL"],
+            "source": "x",
+            "impact": "medium",
+        },
+        {
+            "id": 52,
+            "date": TODAY,
+            "title": "AAPL print",
+            "tickers": ["AAPL"],
+            "source": "y",
+            "source_id": "z-1",
+            "impact": "high",
+        },
+        {
+            "id": 53,
+            "date": TODAY,
+            "title": "Earnings report",
+            "source": "z",
+            "source_id": "z-1",
+            "impact": "low",
+        },
     ]
     merged = dedup_events(events)
     assert len(merged) == 1
@@ -143,8 +186,7 @@ def test_dedup_transitive_merge_via_different_rules():
 
 
 def test_dedup_single_event_normalises_sources():
-    events = [{"id": 61, "date": TODAY, "title": "Solo",
-               "source": "lonely"}]
+    events = [{"id": 61, "date": TODAY, "title": "Solo", "source": "lonely"}]
     out = dedup_events(events)
     assert out[0]["sources"] == [{"source": "lonely"}]
 
@@ -160,8 +202,7 @@ def _solar(kp=None, flare="A", cme_alerts=0, days_until_seasonal=None):
     return {
         "kp_index": {"current_kp": kp},
         "xray_flux": {"flare_class": flare, "flux": 1e-7},
-        "cme_alerts": {"alert_count": cme_alerts,
-                       "alerts": [{}] * cme_alerts},
+        "cme_alerts": {"alert_count": cme_alerts, "alerts": [{}] * cme_alerts},
         "solar_calendar": {
             "next_solar_event": {
                 "name": "summer_solstice",
@@ -189,20 +230,17 @@ def test_convergence_full_moon_plus_geostorm():
 
 
 def test_convergence_new_moon_plus_xflare():
-    flags = correlate_sun_moon(_solar(flare="X1.5"),
-                               _moon(phase="New Moon"))
+    flags = correlate_sun_moon(_solar(flare="X1.5"), _moon(phase="New Moon"))
     assert any(f["flag_type"] == "new_moon_xflare" for f in flags)
 
 
 def test_convergence_seasonal_pivot_disturbed():
-    flags = correlate_sun_moon(_solar(kp=5.5, days_until_seasonal=0),
-                               _moon(phase="First Quarter"))
+    flags = correlate_sun_moon(_solar(kp=5.5, days_until_seasonal=0), _moon(phase="First Quarter"))
     assert any(f["flag_type"] == "seasonal_pivot_disturbed" for f in flags)
 
 
 def test_convergence_perigee_plus_cme():
-    flags = correlate_sun_moon(_solar(cme_alerts=2),
-                               _moon(synodic_day=27.5))
+    flags = correlate_sun_moon(_solar(cme_alerts=2), _moon(synodic_day=27.5))
     assert any(f["flag_type"] == "perigee_cme" for f in flags)
 
 
@@ -227,10 +265,8 @@ def test_convergence_handles_missing_inputs():
 
 def test_escalate_kp_storm():
     events = [
-        {"id": 1, "title": "Kp watch", "category": "solar",
-         "kp": 7.5, "impact": "medium"},
-        {"id": 2, "title": "Calm news", "category": "economic",
-         "impact": "low"},
+        {"id": 1, "title": "Kp watch", "category": "solar", "kp": 7.5, "impact": "medium"},
+        {"id": 2, "title": "Calm news", "category": "economic", "impact": "low"},
     ]
     out = escalate_alerts(events, NOW)
     assert out[0]["id"] == 1
@@ -244,8 +280,13 @@ def test_escalate_kp_storm():
 
 def test_escalate_x_flare():
     events = [
-        {"id": 1, "title": "Flare alert", "category": "solar",
-         "flare_class": "X2.1", "impact": "medium"},
+        {
+            "id": 1,
+            "title": "Flare alert",
+            "category": "solar",
+            "flare_class": "X2.1",
+            "impact": "medium",
+        },
     ]
     out = escalate_alerts(events, NOW)
     assert out[0]["impact"] == "critical"
@@ -255,8 +296,13 @@ def test_escalate_x_flare():
 def test_escalate_prediction_due_soon():
     due = (NOW + timedelta(hours=3)).isoformat()
     events = [
-        {"id": 1, "title": "BTC > $100k prediction",
-         "category": "prediction", "due_at": due, "impact": "medium"},
+        {
+            "id": 1,
+            "title": "BTC > $100k prediction",
+            "category": "prediction",
+            "due_at": due,
+            "impact": "medium",
+        },
     ]
     out = escalate_alerts(events, NOW)
     assert out[0]["impact"] == "critical"
@@ -265,8 +311,13 @@ def test_escalate_prediction_due_soon():
 def test_escalate_prediction_far_out_not_escalated():
     due = (NOW + timedelta(hours=24)).isoformat()
     events = [
-        {"id": 1, "title": "BTC > $100k prediction",
-         "category": "prediction", "due_at": due, "impact": "medium"},
+        {
+            "id": 1,
+            "title": "BTC > $100k prediction",
+            "category": "prediction",
+            "due_at": due,
+            "impact": "medium",
+        },
     ]
     out = escalate_alerts(events, NOW)
     assert out[0]["impact"] == "medium"
@@ -275,9 +326,13 @@ def test_escalate_prediction_far_out_not_escalated():
 def test_escalate_council_overdue():
     past = (NOW - timedelta(hours=2)).isoformat()
     events = [
-        {"id": 1, "title": "Council: AAPL position size",
-         "category": "council", "action_deadline": past,
-         "impact": "high"},
+        {
+            "id": 1,
+            "title": "Council: AAPL position size",
+            "category": "council",
+            "action_deadline": past,
+            "impact": "high",
+        },
     ]
     out = escalate_alerts(events, NOW)
     assert out[0]["impact"] == "critical"
@@ -286,10 +341,20 @@ def test_escalate_council_overdue():
 
 def test_escalate_fomc_today():
     events = [
-        {"id": 1, "title": "FOMC Decision Day",
-         "category": "fomc", "date": TODAY, "impact": "critical"},
-        {"id": 2, "title": "FOMC tomorrow",
-         "category": "fomc", "date": "2026-05-22", "impact": "critical"},
+        {
+            "id": 1,
+            "title": "FOMC Decision Day",
+            "category": "fomc",
+            "date": TODAY,
+            "impact": "critical",
+        },
+        {
+            "id": 2,
+            "title": "FOMC tomorrow",
+            "category": "fomc",
+            "date": "2026-05-22",
+            "impact": "critical",
+        },
     ]
     out = escalate_alerts(events, NOW)
     assert out[0]["id"] == 1
@@ -300,12 +365,22 @@ def test_escalate_fomc_today():
 
 def test_escalate_top5_earnings():
     events = [
-        {"id": 1, "title": "Apple earnings",
-         "category": "earnings", "date": TODAY,
-         "tickers": ["AAPL"], "impact": "medium"},
-        {"id": 2, "title": "Random small-cap",
-         "category": "earnings", "date": TODAY,
-         "tickers": ["XYZ"], "impact": "medium"},
+        {
+            "id": 1,
+            "title": "Apple earnings",
+            "category": "earnings",
+            "date": TODAY,
+            "tickers": ["AAPL"],
+            "impact": "medium",
+        },
+        {
+            "id": 2,
+            "title": "Random small-cap",
+            "category": "earnings",
+            "date": TODAY,
+            "tickers": ["XYZ"],
+            "impact": "medium",
+        },
     ]
     out = escalate_alerts(events, NOW)
     assert out[0]["id"] == 1
@@ -334,18 +409,29 @@ def test_escalate_empty():
 def test_pipeline_dedup_then_correlate_then_escalate():
     events = [
         # Duplicate pair (same ticker + date).
-        {"id": 1, "date": TODAY, "title": "AAPL Earnings",
-         "category": "earnings", "tickers": ["AAPL"],
-         "source": "portfolio", "impact": "high"},
-        {"id": 2, "date": TODAY, "title": "Apple Quarterly",
-         "category": "earnings", "tickers": ["AAPL"],
-         "source": "market", "impact": "medium"},
+        {
+            "id": 1,
+            "date": TODAY,
+            "title": "AAPL Earnings",
+            "category": "earnings",
+            "tickers": ["AAPL"],
+            "source": "portfolio",
+            "impact": "high",
+        },
+        {
+            "id": 2,
+            "date": TODAY,
+            "title": "Apple Quarterly",
+            "category": "earnings",
+            "tickers": ["AAPL"],
+            "source": "market",
+            "impact": "medium",
+        },
         # An unrelated quiet item.
-        {"id": 3, "date": TODAY, "title": "Random econ",
-         "category": "economic", "impact": "low"},
+        {"id": 3, "date": TODAY, "title": "Random econ", "category": "economic", "impact": "low"},
     ]
     solar = _solar(kp=7.5, flare="X1")  # triggers escalation when seen
-    moon = _moon(phase="New Moon")       # + new_moon_xflare convergence
+    moon = _moon(phase="New Moon")  # + new_moon_xflare convergence
 
     out = attach_correlations(events, solar, moon, NOW)
 

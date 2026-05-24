@@ -7,6 +7,7 @@ Verifies:
   - Cache miss returns fresh + writes file, cache hit returns same
   - Stale cache is returned with stale: true and background refresh fires
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -14,7 +15,6 @@ import json
 import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import patch, AsyncMock
 
 import pytest
 
@@ -116,9 +116,20 @@ def test_schema_keys():
         impact="high",
     )
     required = {
-        "id", "date", "time", "datetime_utc", "title", "description",
-        "source", "source_id", "category", "impact",
-        "tickers", "entities", "url", "raw",
+        "id",
+        "date",
+        "time",
+        "datetime_utc",
+        "title",
+        "description",
+        "source",
+        "source_id",
+        "category",
+        "impact",
+        "tickers",
+        "entities",
+        "url",
+        "raw",
     }
     assert required.issubset(out.keys())
     assert out["date"] == "2026-05-21"
@@ -181,8 +192,7 @@ async def test_pull_scanner_filters_by_importance(tmp_path):
         "importance_score": 10,
         "timestamp": today_ts,
     }
-    _write_scanner(ec._SCANNER_SIGNALS_DIR, f"signals-{today.isoformat()}.jsonl",
-                   high_sig)
+    _write_scanner(ec._SCANNER_SIGNALS_DIR, f"signals-{today.isoformat()}.jsonl", high_sig)
     with (ec._SCANNER_SIGNALS_DIR / f"signals-{today.isoformat()}.jsonl").open("a") as f:
         f.write(json.dumps(low_sig) + "\n")
 
@@ -212,21 +222,24 @@ async def test_pull_intel(tmp_path):
 
 @pytest.mark.asyncio
 async def test_pull_journal_due_date():
-    _write_journal(ec._JOURNAL_FILE, [
-        {
-            "entry_id": "j1",
-            "title": "Call broker about $TSLA",
-            "content": "Re-balance",
-            "due_date": "2026-05-23",
-            "importance": 0.8,
-            "tags": ["broker"],
-        },
-        {
-            "entry_id": "j2",
-            "title": "no due date",
-            "content": "ignored",
-        },
-    ])
+    _write_journal(
+        ec._JOURNAL_FILE,
+        [
+            {
+                "entry_id": "j1",
+                "title": "Call broker about $TSLA",
+                "content": "Re-balance",
+                "due_date": "2026-05-23",
+                "importance": 0.8,
+                "tags": ["broker"],
+            },
+            {
+                "entry_id": "j2",
+                "title": "no due date",
+                "content": "ignored",
+            },
+        ],
+    )
     out = await ec._pull_journal(date(2026, 5, 21), date(2026, 5, 28))
     assert len(out) == 1
     assert out[0]["source"] == "journal"
@@ -237,26 +250,21 @@ async def test_pull_journal_due_date():
 @pytest.mark.asyncio
 async def test_compile_brain_events_isolates_failures(monkeypatch):
     """If one source raises, the rest must still return data."""
+
     async def good():
-        return [ec._normalize(
-            source="prediction", source_id="p", event_date=date.today(), title="t"
-        )]
+        return [
+            ec._normalize(source="prediction", source_id="p", event_date=date.today(), title="t")
+        ]
 
     async def boom():
         raise RuntimeError("simulated source failure")
 
-    monkeypatch.setattr(ec, "_pull_predictions",
-                        lambda s, e: good())
-    monkeypatch.setattr(ec, "_pull_council",
-                        lambda s, e: boom())
-    monkeypatch.setattr(ec, "_pull_scanner",
-                        lambda s, e: good())
-    monkeypatch.setattr(ec, "_pull_portfolio",
-                        lambda s, e: good())
-    monkeypatch.setattr(ec, "_pull_intel",
-                        lambda s, e: good())
-    monkeypatch.setattr(ec, "_pull_journal",
-                        lambda s, e: good())
+    monkeypatch.setattr(ec, "_pull_predictions", lambda s, e: good())
+    monkeypatch.setattr(ec, "_pull_council", lambda s, e: boom())
+    monkeypatch.setattr(ec, "_pull_scanner", lambda s, e: good())
+    monkeypatch.setattr(ec, "_pull_portfolio", lambda s, e: good())
+    monkeypatch.setattr(ec, "_pull_intel", lambda s, e: good())
+    monkeypatch.setattr(ec, "_pull_journal", lambda s, e: good())
 
     out = await ec.compile_brain_events(date.today(), date.today())
     # 5 good + 1 failed = 5 events
@@ -270,12 +278,14 @@ async def test_compile_unified_cache_hit_miss(monkeypatch):
 
     async def fake_fresh(city_id, start, end):
         call_count["n"] += 1
-        return [ec._normalize(
-            source="prediction",
-            source_id="p-1",
-            event_date=start,
-            title="held",
-        )]
+        return [
+            ec._normalize(
+                source="prediction",
+                source_id="p-1",
+                event_date=start,
+                title="held",
+            )
+        ]
 
     monkeypatch.setattr(ec, "_compile_unified_fresh", fake_fresh)
 
@@ -299,18 +309,14 @@ async def test_stale_cache_marks_and_refreshes(monkeypatch):
     key = ec._cache_key("edmonton", today, today)
 
     # Plant an OLD record directly
-    old_event = ec._normalize(
-        source="prediction", source_id="old", event_date=today, title="old"
-    )
+    old_event = ec._normalize(source="prediction", source_id="old", event_date=today, title="old")
     ec._mem_cache[key] = (time.time() - (ec._CACHE_TTL_SECONDS + 60), [old_event])
 
     refreshed = {"n": 0}
 
     async def fake_fresh(city_id, start, end):
         refreshed["n"] += 1
-        return [ec._normalize(
-            source="prediction", source_id="new", event_date=start, title="new"
-        )]
+        return [ec._normalize(source="prediction", source_id="new", event_date=start, title="new")]
 
     monkeypatch.setattr(ec, "_compile_unified_fresh", fake_fresh)
 

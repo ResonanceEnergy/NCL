@@ -1,15 +1,17 @@
 """Tests for runtime/memory/async_writer.py — fire-and-forget queue."""
+
 from __future__ import annotations
 
 import asyncio
+
 import pytest
 
 from runtime.memory.async_writer import (
     AsyncMemoryWriter,
     WriteRequest,
-    init_async_writer,
-    get_async_writer,
     _reset_singleton_for_tests,
+    get_async_writer,
+    init_async_writer,
 )
 
 
@@ -17,8 +19,9 @@ from runtime.memory.async_writer import (
 
 
 class FakeUnit:
-    def __init__(self, content: str, source: str, importance: float,
-                 tags=None, memory_type="episodic"):
+    def __init__(
+        self, content: str, source: str, importance: float, tags=None, memory_type="episodic"
+    ):
         self.unit_id = f"unit-{id(self)}"
         self.content = content
         self.source = source
@@ -31,16 +34,16 @@ class FakeUnit:
 class FakeMemoryStore:
     """In-memory stand-in. Records every create_unit/index_unit call."""
 
-    def __init__(self, fail_on_source: str | None = None,
-                 sleep_s: float = 0.0):
+    def __init__(self, fail_on_source: str | None = None, sleep_s: float = 0.0):
         self.units: list[FakeUnit] = []
         self.indexed: list[FakeUnit] = []
         self._fail_on_source = fail_on_source
         self._sleep_s = sleep_s
         self.calls = 0
 
-    async def create_unit(self, content, source, importance=50.0,
-                          tags=None, memory_type="episodic"):
+    async def create_unit(
+        self, content, source, importance=50.0, tags=None, memory_type="episodic"
+    ):
         self.calls += 1
         if self._sleep_s:
             await asyncio.sleep(self._sleep_s)
@@ -77,11 +80,16 @@ async def test_enqueue_returns_instantly(store):
     await writer.start()
     try:
         import time
+
         t0 = time.monotonic()
         for i in range(20):
-            await writer.enqueue(WriteRequest(
-                content=f"signal {i}", source="awarebot:test", importance=60.0,
-            ))
+            await writer.enqueue(
+                WriteRequest(
+                    content=f"signal {i}",
+                    source="awarebot:test",
+                    importance=60.0,
+                )
+            )
         elapsed = time.monotonic() - t0
         # 20 enqueues should be well under the 500ms-per-write blocking cost
         assert elapsed < 0.2, f"enqueue blocked: {elapsed:.3f}s"
@@ -97,10 +105,14 @@ async def test_drainer_persists_to_store(store):
     await writer.start()
     try:
         for i in range(10):
-            await writer.enqueue(WriteRequest(
-                content=f"signal {i}", source="awarebot:test",
-                importance=60.0, tags=[f"tag{i}"],
-            ))
+            await writer.enqueue(
+                WriteRequest(
+                    content=f"signal {i}",
+                    source="awarebot:test",
+                    importance=60.0,
+                    tags=[f"tag{i}"],
+                )
+            )
         # Wait for drainer to catch up
         await asyncio.sleep(0.2)
         assert len(store.units) == 10
@@ -116,9 +128,12 @@ async def test_backpressure_drops_oldest(store):
     writer = AsyncMemoryWriter(store, max_queue=5, drainer_concurrency=0)
     # No drainers — queue fills permanently
     for i in range(8):
-        await writer.enqueue(WriteRequest(
-            content=f"signal {i}", source="test",
-        ))
+        await writer.enqueue(
+            WriteRequest(
+                content=f"signal {i}",
+                source="test",
+            )
+        )
     stats = writer.get_stats()
     assert stats["enqueued_total"] == 8
     assert stats["dropped_oldest_total"] >= 3
@@ -184,26 +199,41 @@ async def test_get_stats_shape(store):
     writer = AsyncMemoryWriter(store, drainer_concurrency=2)
     stats = writer.get_stats()
     for key in (
-        "enqueued_total", "drained_total", "failed_total",
-        "queue_size", "queue_max", "dlq_size", "dlq_cap",
-        "avg_drain_latency_s", "llm_scoring_calls", "llm_entity_calls",
-        "drainer_concurrency", "running", "model",
+        "enqueued_total",
+        "drained_total",
+        "failed_total",
+        "queue_size",
+        "queue_max",
+        "dlq_size",
+        "dlq_cap",
+        "avg_drain_latency_s",
+        "llm_scoring_calls",
+        "llm_entity_calls",
+        "drainer_concurrency",
+        "running",
+        "model",
     ):
         assert key in stats, f"missing stat: {key}"
-    assert stats["model"] == "claude-sonnet-4-6-20250514"
+    # W10A-6 (2026-05-24): model id reverted from "claude-sonnet-4-6-20250514"
+    # (which was returning HTTP 404) to "claude-sonnet-4-20250514" per the
+    # EOD 2026-05-22 P0 sweep. Asserting current production model.
+    assert stats["model"] == "claude-sonnet-4-20250514"
     assert stats["drainer_concurrency"] == 2
 
 
 @pytest.mark.asyncio
 async def test_model_kwarg_passthrough_score_memory(monkeypatch, store):
-    """Drainer must call score_memory with model=claude-sonnet-4-6-20250514."""
+    """Drainer must call score_memory with model=claude-sonnet-4-20250514.
+
+    W10A-6 (2026-05-24): was claude-sonnet-4-6-20250514 (HTTP 404), reverted
+    in EOD 2026-05-22 P0 sweep.
+    """
     captured = {}
 
     async def fake_score(content, source, tags, use_llm=True, model=None):
         captured["model"] = model
         captured["use_llm"] = use_llm
-        return {"final_score": 90.0, "memory_type": "decision",
-                "llm_score": 9.0, "rule_score": 9.0}
+        return {"final_score": 90.0, "memory_type": "decision", "llm_score": 9.0, "rule_score": 9.0}
 
     # Force rule_based_score high so the scorer is triggered
     monkeypatch.setattr(
@@ -214,22 +244,55 @@ async def test_model_kwarg_passthrough_score_memory(monkeypatch, store):
         "runtime.memory.importance_scorer.score_memory",
         fake_score,
     )
+
     # Stub budget check
     async def fake_budget(src, est):
         return True
+
     monkeypatch.setattr("runtime.cost_tracker.check_budget", fake_budget)
+
+    # W10A-6 (2026-05-24): with rule_score=9 the LLM scorer now returns
+    # importance=90, which crosses ENTITY_LLM_TRIGGER=85 and triggers the
+    # entity extractor. We don't care about entities in this test — stub the
+    # real LLM-backed extractor so the drainer can finish before sleep(0.2)
+    # expires. (Previously this test relied on the lower 70 threshold and
+    # the slow real-LLM call was masked.)
+    async def fake_extract(content, source, use_llm=True, model=None):
+        return {"entities": [], "relationships": []}
+
+    monkeypatch.setattr(
+        "runtime.memory.entity_extractor.extract_entities_and_relationships",
+        fake_extract,
+    )
+
+    # W10A-6 (2026-05-24): production .env has NCL_AB_HAIKU=true, and
+    # brain.py:_validate_config() force-loads that into os.environ on import
+    # (any auth/router test in the suite triggers it before us). When AB
+    # mode is on, async_writer routes through score_memory_ab — NOT the
+    # score_memory we monkeypatched — so the fake never runs. Disable AB
+    # here so the patched score_memory is reached.
+    monkeypatch.delenv("NCL_AB_HAIKU", raising=False)
+    monkeypatch.setenv("NCL_AB_HAIKU", "false")
 
     writer = AsyncMemoryWriter(store, drainer_concurrency=1)
     await writer.start()
     try:
         # importance=50.0 (default) triggers the scoring branch
-        await writer.enqueue(WriteRequest(
-            content="critical decision approved",
-            source="awarebot:test",
-            importance=50.0,
-        ))
-        await asyncio.sleep(0.2)
-        assert captured.get("model") == "claude-sonnet-4-6-20250514"
+        await writer.enqueue(
+            WriteRequest(
+                content="critical decision approved",
+                source="awarebot:test",
+                importance=50.0,
+            )
+        )
+        # W10A-6 (2026-05-24): poll for drainage instead of fixed sleep —
+        # full-suite ordering occasionally races a 200ms sleep against
+        # ChromaDB/asyncio loop scheduler.
+        for _ in range(50):
+            await asyncio.sleep(0.05)
+            if writer.get_stats()["drained_total"] >= 1:
+                break
+        assert captured.get("model") == "claude-sonnet-4-20250514"
         assert captured.get("use_llm") is True
         assert writer.get_stats()["llm_scoring_calls"] == 1
         # Persisted with LLM-derived importance
@@ -245,18 +308,22 @@ async def test_skip_scoring_when_caller_set_importance(monkeypatch, store):
 
     async def fake_score(*a, **kw):
         called["n"] += 1
-        return {"final_score": 99.0, "memory_type": "episodic",
-                "llm_score": 9, "rule_score": 9}
+        return {"final_score": 99.0, "memory_type": "episodic", "llm_score": 9, "rule_score": 9}
 
     monkeypatch.setattr(
-        "runtime.memory.importance_scorer.score_memory", fake_score,
+        "runtime.memory.importance_scorer.score_memory",
+        fake_score,
     )
     writer = AsyncMemoryWriter(store, drainer_concurrency=1)
     await writer.start()
     try:
-        await writer.enqueue(WriteRequest(
-            content="x", source="awarebot:test", importance=65.0,
-        ))
+        await writer.enqueue(
+            WriteRequest(
+                content="x",
+                source="awarebot:test",
+                importance=65.0,
+            )
+        )
         await asyncio.sleep(0.1)
         assert called["n"] == 0
         assert store.units[0].importance == 65.0
@@ -274,14 +341,19 @@ async def test_budget_exhaustion_skips_llm(monkeypatch, store):
 
     async def closed_budget(*a, **kw):
         return False
+
     monkeypatch.setattr("runtime.cost_tracker.check_budget", closed_budget)
 
     writer = AsyncMemoryWriter(store, drainer_concurrency=1)
     await writer.start()
     try:
-        await writer.enqueue(WriteRequest(
-            content="x", source="awarebot:test", importance=50.0,
-        ))
+        await writer.enqueue(
+            WriteRequest(
+                content="x",
+                source="awarebot:test",
+                importance=50.0,
+            )
+        )
         await asyncio.sleep(0.1)
         stats = writer.get_stats()
         assert stats["llm_scoring_budget_skips"] == 1

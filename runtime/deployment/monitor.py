@@ -2,16 +2,15 @@
 
 import asyncio
 import os
-from datetime import datetime, timedelta, timezone
-from typing import List, Dict, Optional
-import json
+from datetime import datetime, timezone
+from typing import Dict, List
 
 from .models import (
-    ServiceName,
-    ServiceStatus,
-    ServiceHealth,
     ServiceDefinition,
+    ServiceHealth,
+    ServiceName,
     ServiceState,
+    ServiceStatus,
 )
 
 
@@ -222,11 +221,13 @@ class ServiceMonitor:
                     for line in f:
                         # Look for error patterns or "started" messages
                         if "ERROR" in line or "Exception" in line or "Traceback" in line:
-                            restarts.append({
-                                "type": "error",
-                                "message": line.strip()[:100],
-                                "timestamp": datetime.now(timezone.utc).isoformat(),
-                            })
+                            restarts.append(
+                                {
+                                    "type": "error",
+                                    "message": line.strip()[:100],
+                                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                                }
+                            )
             except Exception:
                 pass
 
@@ -247,31 +248,35 @@ class ServiceMonitor:
         needing_attention = sum(1 for s in states if s.needs_attention())
 
         # Calculate total uptime
-        total_uptime_seconds = sum(
-            s.uptime_seconds or 0 for s in states if s.uptime_seconds
-        )
+        total_uptime_seconds = sum(s.uptime_seconds or 0 for s in states if s.uptime_seconds)  # noqa: F841
 
         # Generate alerts
         alerts = []
         for state in states:
             if state.status == ServiceStatus.ERROR:
-                alerts.append({
-                    "service": state.name.value,
-                    "level": "critical",
-                    "message": f"{state.name.value} is in error state",
-                })
+                alerts.append(
+                    {
+                        "service": state.name.value,
+                        "level": "critical",
+                        "message": f"{state.name.value} is in error state",
+                    }
+                )
             elif state.health == ServiceHealth.UNHEALTHY:
-                alerts.append({
-                    "service": state.name.value,
-                    "level": "warning",
-                    "message": f"{state.name.value} is unhealthy",
-                })
+                alerts.append(
+                    {
+                        "service": state.name.value,
+                        "level": "warning",
+                        "message": f"{state.name.value} is unhealthy",
+                    }
+                )
             elif state.health == ServiceHealth.DEGRADED:
-                alerts.append({
-                    "service": state.name.value,
-                    "level": "info",
-                    "message": f"{state.name.value} is degraded",
-                })
+                alerts.append(
+                    {
+                        "service": state.name.value,
+                        "level": "info",
+                        "message": f"{state.name.value} is degraded",
+                    }
+                )
 
         return {
             "timestamp": datetime.now(timezone.utc).isoformat(),

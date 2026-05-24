@@ -50,26 +50,120 @@ MIN_EDGE_CONTRARIAN = 0.02
 # "FIFA World Cup" doesn't fall through to crypto, and "Carolina Hurricanes"
 # (NHL) hits sports before weather.
 CATEGORY_KEYWORDS: dict[str, list[str]] = {
-    "sports": ["nba", "nfl", "mlb", "nhl", "soccer", "premier", "champion", "playoff",
-               "world cup", "fifa", "ufc", "tennis", "golf", "f1", "formula", "boxing",
-               "super bowl", "stanley cup", "hurricanes", "warriors", "celtics",
-               "valkyries", "fever", "knicks", "lakers", "yankees", "dodgers"],
-    "esports": ["esports", "valorant", "league of legends", "csgo", "dota",
-                "overwatch", "fortnite", "rocket league"],
-    "politics": ["election", "trump", "biden", "senate", "vote", "politics",
-                 "president", "primary", "congress", "governor", "republican",
-                 "democrat", "presidential nomination", "house seat"],
-    "economics": ["fed", "inflation", "cpi", "gdp", "fomc", "unemployment",
-                  "recession", "yield curve", "interest rate"],
-    "weather": ["weather", "rain", "snow", "temperature", "hurricane", "tornado",
-                "drought", "climate", "storm", "wind", "hail", "earthquake",
-                "tropical", "blizzard", "heat wave", "cold front", "wildfire",
-                "flood", "monsoon", "typhoon"],
-    "entertainment": ["movie", "oscar", "grammy", "emmy", "box office", "album",
-                      "spotify", "billboard", "netflix", "hbo"],
+    "sports": [
+        "nba",
+        "nfl",
+        "mlb",
+        "nhl",
+        "soccer",
+        "premier",
+        "champion",
+        "playoff",
+        "world cup",
+        "fifa",
+        "ufc",
+        "tennis",
+        "golf",
+        "f1",
+        "formula",
+        "boxing",
+        "super bowl",
+        "stanley cup",
+        "hurricanes",
+        "warriors",
+        "celtics",
+        "valkyries",
+        "fever",
+        "knicks",
+        "lakers",
+        "yankees",
+        "dodgers",
+    ],
+    "esports": [
+        "esports",
+        "valorant",
+        "league of legends",
+        "csgo",
+        "dota",
+        "overwatch",
+        "fortnite",
+        "rocket league",
+    ],
+    "politics": [
+        "election",
+        "trump",
+        "biden",
+        "senate",
+        "vote",
+        "politics",
+        "president",
+        "primary",
+        "congress",
+        "governor",
+        "republican",
+        "democrat",
+        "presidential nomination",
+        "house seat",
+    ],
+    "economics": [
+        "fed",
+        "inflation",
+        "cpi",
+        "gdp",
+        "fomc",
+        "unemployment",
+        "recession",
+        "yield curve",
+        "interest rate",
+    ],
+    "weather": [
+        "weather",
+        "rain",
+        "snow",
+        "temperature",
+        "hurricane",
+        "tornado",
+        "drought",
+        "climate",
+        "storm",
+        "wind",
+        "hail",
+        "earthquake",
+        "tropical",
+        "blizzard",
+        "heat wave",
+        "cold front",
+        "wildfire",
+        "flood",
+        "monsoon",
+        "typhoon",
+    ],
+    "entertainment": [
+        "movie",
+        "oscar",
+        "grammy",
+        "emmy",
+        "box office",
+        "album",
+        "spotify",
+        "billboard",
+        "netflix",
+        "hbo",
+    ],
     "science": ["spacex", "nasa", "openai", "anthropic", "vaccine", "fusion"],
-    "crypto": ["bitcoin", "ethereum", "btc", "eth", "sol", "doge", "crypto",
-               "xrp", "ada", "altcoin", "stablecoin"],
+    "crypto": [
+        "bitcoin",
+        "ethereum",
+        "btc",
+        "eth",
+        "sol",
+        "doge",
+        "crypto",
+        "xrp",
+        "ada",
+        "altcoin",
+        "stablecoin",
+    ],
 }
 
 
@@ -82,6 +176,7 @@ def classify_category(title: str, tags: Optional[list] = None) -> str:
     don't accidentally match inside words like "Canada" or "soldier".
     """
     import re
+
     t = (title or "").lower()
     tag_str = " ".join((tags or [])).lower() if tags else ""
     hay = f"{t} {tag_str}"
@@ -176,7 +271,7 @@ def suggested_bet_size(edge: float, bet_type: str = "deep_otm") -> float:
     """$5-$25 bet sized by edge magnitude. Mirrors AAC.calculate_bet_size."""
     base = MIN_BET_USD
     if bet_type == "deep_otm":
-        bet = base + edge * 200.0     # edge 0.05 → $15
+        bet = base + edge * 200.0  # edge 0.05 → $15
     elif bet_type == "contrarian":
         bet = base + edge * 300.0
     elif bet_type == "liquidity_snipe":
@@ -205,16 +300,16 @@ class ScoredMarket:
     no_price: float
     volume_24h: float
     end_date: str
-    bet_type: str               # deep_otm | contrarian | liquidity_snipe
-    outcome: str                # "Yes" | "No"
+    bet_type: str  # deep_otm | contrarian | liquidity_snipe
+    outcome: str  # "Yes" | "No"
     entry_price: float
-    edge: float                 # true_prob - entry_price
+    edge: float  # true_prob - entry_price
     implied_probability: float
     estimated_true_probability: float
-    implied_payoff_multiple: float   # 1 / entry_price, capped at 1000x display
+    implied_payoff_multiple: float  # 1 / entry_price, capped at 1000x display
     suggested_size_usd: float
-    confidence: float           # 0-1, capped at 1.0
-    edge_score: float           # composite ranking metric
+    confidence: float  # 0-1, capped at 1.0
+    edge_score: float  # composite ranking metric
     days_until_resolve: Optional[float]
 
 
@@ -223,6 +318,7 @@ def _days_until(end_date: str) -> Optional[float]:
         return None
     try:
         from datetime import datetime, timezone
+
         if end_date.endswith("Z"):
             end_date = end_date.replace("Z", "+00:00")
         dt = datetime.fromisoformat(end_date)
@@ -293,7 +389,8 @@ def score_market(
     # Higher edge, higher payoff, higher volume → better.
     # Volume floor at 1 so log doesn't blow up.
     import math
-    vol_factor = math.log10(max(volume_24h, 1.0))     # 0..7 range
+
+    vol_factor = math.log10(max(volume_24h, 1.0))  # 0..7 range
     edge_score = edge * payoff * (1.0 + vol_factor / 7.0)
 
     # Confidence: clamp edge*10 (mirrors AAC TradingSignal.confidence)

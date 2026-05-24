@@ -16,18 +16,19 @@ Output: /NCL/data/transcripts/<channel>/<video_id>.md
 
 import argparse
 import json
-import os
 import re
 import subprocess
 import sys
 import time
-import urllib.request
 import urllib.error
 import urllib.parse
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 
+
 # ── Dependency check + installer ──────────────────────────────────────────
+
 
 def check_and_install_deps():
     """Check for required packages and offer to install missing ones."""
@@ -45,9 +46,7 @@ def check_and_install_deps():
     if missing:
         print(f"Missing packages: {', '.join(missing)}")
         print(f"Installing: pip install {' '.join(missing)}")
-        subprocess.check_call([
-            sys.executable, "-m", "pip", "install", *missing
-        ])
+        subprocess.check_call([sys.executable, "-m", "pip", "install", *missing])
         print("Dependencies installed. Re-run the script.\n")
         # Re-import after install
         if "youtube-transcript-api" in missing:
@@ -58,8 +57,9 @@ def check_and_install_deps():
 
     # Optional: yt-dlp (not required, scrapetube is primary)
     try:
-        subprocess.run([sys.executable, "-m", "yt_dlp", "--version"],
-                       capture_output=True, timeout=10)
+        subprocess.run(
+            [sys.executable, "-m", "yt_dlp", "--version"], capture_output=True, timeout=10
+        )
     except Exception:
         print("NOTE: yt-dlp not installed (optional). Using scrapetube for enumeration.")
         print("      Install with: pip install yt-dlp\n")
@@ -70,8 +70,11 @@ check_and_install_deps()
 
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api._errors import (
-    NoTranscriptFound, TranscriptsDisabled, VideoUnavailable,
+    NoTranscriptFound,
+    TranscriptsDisabled,
+    VideoUnavailable,
 )
+
 
 # ── Configuration ──────────────────────────────────────────────────────────
 
@@ -82,9 +85,21 @@ CHANNELS = {
         "channel_id": "UCJtfma0mE_XrBAD9uakcjfA",
         "output_dir": "felix_friends",
         "search_terms": [
-            "strategy", "goat", "scanner", "moving average", "technical analysis",
-            "how to trade", "options", "breakout", "portfolio", "beginners",
-            "swing trade", "day trade", "momentum", "indicators", "entry exit",
+            "strategy",
+            "goat",
+            "scanner",
+            "moving average",
+            "technical analysis",
+            "how to trade",
+            "options",
+            "breakout",
+            "portfolio",
+            "beginners",
+            "swing trade",
+            "day trade",
+            "momentum",
+            "indicators",
+            "entry exit",
         ],
     },
     "bravo": {
@@ -94,9 +109,18 @@ CHANNELS = {
         "output_dir": "j_bravo",
         # Strategy search terms for playlist/search-based enumeration
         "search_terms": [
-            "bravo swing trade", "bravo kit", "gogo juice", "trading strategy",
-            "how to trade", "technical analysis", "stock setup", "entry exit",
-            "9 sma 20 ema", "ma alignment", "trading tutorial", "lesson",
+            "bravo swing trade",
+            "bravo kit",
+            "gogo juice",
+            "trading strategy",
+            "how to trade",
+            "technical analysis",
+            "stock setup",
+            "entry exit",
+            "9 sma 20 ema",
+            "ma alignment",
+            "trading tutorial",
+            "lesson",
         ],
     },
 }
@@ -104,47 +128,153 @@ CHANNELS = {
 # Keywords that indicate strategy/education content (case-insensitive)
 STRATEGY_KEYWORDS = [
     # GOAT Academy specific
-    "goat", "goat academy", "strategy", "scanner", "moving average",
-    "sma", "ema", "rsi", "macd", "bollinger", "technical analysis",
-    "how to trade", "trading strategy", "stock scanner", "screener",
-    "options strategy", "entry", "exit", "stop loss", "take profit",
-    "swing trade", "day trade", "momentum", "breakout", "volume",
-    "indicators", "chart pattern", "support", "resistance",
-    "risk management", "position size", "portfolio",
+    "goat",
+    "goat academy",
+    "strategy",
+    "scanner",
+    "moving average",
+    "sma",
+    "ema",
+    "rsi",
+    "macd",
+    "bollinger",
+    "technical analysis",
+    "how to trade",
+    "trading strategy",
+    "stock scanner",
+    "screener",
+    "options strategy",
+    "entry",
+    "exit",
+    "stop loss",
+    "take profit",
+    "swing trade",
+    "day trade",
+    "momentum",
+    "breakout",
+    "volume",
+    "indicators",
+    "chart pattern",
+    "support",
+    "resistance",
+    "risk management",
+    "position size",
+    "portfolio",
     # J Bravo / Bravo Swing specific
-    "bravo", "bravo swing", "gogo juice", "bravo kit",
-    "vwap", "squeeze", "setup", "9 sma", "20 ema", "180 sma",
-    "ma alignment", "sloping", "tutorial", "lesson", "course",
-    "how i trade", "my strategy", "step by step", "beginners",
-    "learn to trade", "trade like", "exact entries", "exact exits",
+    "bravo",
+    "bravo swing",
+    "gogo juice",
+    "bravo kit",
+    "vwap",
+    "squeeze",
+    "setup",
+    "9 sma",
+    "20 ema",
+    "180 sma",
+    "ma alignment",
+    "sloping",
+    "tutorial",
+    "lesson",
+    "course",
+    "how i trade",
+    "my strategy",
+    "step by step",
+    "beginners",
+    "learn to trade",
+    "trade like",
+    "exact entries",
+    "exact exits",
     # General education
-    "webinar", "masterclass", "workshop", "education", "teaching",
-    "explained", "guide", "walkthrough", "backtest", "investing",
-    "invest", "advice",
+    "webinar",
+    "masterclass",
+    "workshop",
+    "education",
+    "teaching",
+    "explained",
+    "guide",
+    "walkthrough",
+    "backtest",
+    "investing",
+    "invest",
+    "advice",
     # Broader catch — stock analysis patterns
-    "scan", "watchlist", "setup", "weekly plan",
-    "top stocks", "stocks to buy", "watch list",
-    "chart review", "market analysis", "trading plan",
+    "scan",
+    "watchlist",
+    "setup",
+    "weekly plan",
+    "top stocks",
+    "stocks to buy",
+    "watch list",
+    "chart review",
+    "market analysis",
+    "trading plan",
 ]
 
 # Keywords that indicate market commentary / clickbait (skip these)
 COMMENTARY_KEYWORDS = [
-    "crash", "collapse", "panic", "emergency", "urgent warning",
-    "run now", "get out", "it's happening", "holy sh", "protect your",
-    "too late", "about to happen", "catastroph", "distressing",
-    "unthinkable", "trap", "destroyed", "insolvency", "bank run",
-    "pissed off", "it's bad", "it's ugly", "unimaginable",
-    "we are screwed", "black swan", "it's begun", "much lower",
-    "chaos in", "final straw", "protect your family", "i'm sorry",
-    "i'm worried", "going lower", "worthless", "final chance",
-    "usd is worthless", "fall out of your chair", "must watch before",
-    "short squeeze", "great squeeze",
+    "crash",
+    "collapse",
+    "panic",
+    "emergency",
+    "urgent warning",
+    "run now",
+    "get out",
+    "it's happening",
+    "holy sh",
+    "protect your",
+    "too late",
+    "about to happen",
+    "catastroph",
+    "distressing",
+    "unthinkable",
+    "trap",
+    "destroyed",
+    "insolvency",
+    "bank run",
+    "pissed off",
+    "it's bad",
+    "it's ugly",
+    "unimaginable",
+    "we are screwed",
+    "black swan",
+    "it's begun",
+    "much lower",
+    "chaos in",
+    "final straw",
+    "protect your family",
+    "i'm sorry",
+    "i'm worried",
+    "going lower",
+    "worthless",
+    "final chance",
+    "usd is worthless",
+    "fall out of your chair",
+    "must watch before",
+    "short squeeze",
+    "great squeeze",
     # Non-stock content (Amazon FBA, make money online, etc.)
-    "amazon fba", "dropshipping", "sell on amazon", "amazon",
-    "ebay", "make money online", "passive income", "paypal",
-    "shopify", "credit score", "youtube money", "make $",
-    "earn $", "$1000", "$500", "$300", "$200", "$150", "$100",
-    "a day online", "a month online", "nut butter",
+    "amazon fba",
+    "dropshipping",
+    "sell on amazon",
+    "amazon",
+    "ebay",
+    "make money online",
+    "passive income",
+    "paypal",
+    "shopify",
+    "credit score",
+    "youtube money",
+    "make $",
+    "earn $",
+    "$1000",
+    "$500",
+    "$300",
+    "$200",
+    "$150",
+    "$100",
+    "a day online",
+    "a month online",
+    "nut butter",
 ]
 
 BASE_DIR = Path(__file__).resolve().parent.parent / "data" / "transcripts"
@@ -155,16 +285,28 @@ def _word_match(keyword: str, text: str) -> bool:
 
     e.g. 'ema' matches 'EMA crossover' but NOT 'email' or 'cinema'.
     """
-    pattern = r'(?<![a-z])' + re.escape(keyword) + r'(?![a-z])'
+    pattern = r"(?<![a-z])" + re.escape(keyword) + r"(?![a-z])"
     return bool(re.search(pattern, text))
 
 
 # Short keywords that need word-boundary matching to avoid false positives
 # (e.g. 'ema' in 'email', 'rsi' in 'surprise', 'course' in 'of course')
 _BOUNDARY_KEYWORDS = {
-    "ema", "sma", "rsi", "macd", "vwap", "scan", "exit", "entry",
-    "course", "setup", "volume", "guide", "explained",
-    "invest", "advice",
+    "ema",
+    "sma",
+    "rsi",
+    "macd",
+    "vwap",
+    "scan",
+    "exit",
+    "entry",
+    "course",
+    "setup",
+    "volume",
+    "guide",
+    "explained",
+    "invest",
+    "advice",
 }
 
 
@@ -191,6 +333,7 @@ def is_strategy_content(title: str) -> bool:
 
 
 # ── Channel Enumeration (multiple methods with fallback) ──────────────────
+
 
 def enumerate_channel(channel_key: str, limit: int = None) -> list:
     """Enumerate channel videos using multiple methods with auto-fallback.
@@ -221,7 +364,7 @@ def enumerate_channel(channel_key: str, limit: int = None) -> list:
 
     # Method 3: YouTube channel-scoped search (finds older strategy videos)
     if cfg.get("channel_id"):
-        print(f"[YT search] Searching within channel...")
+        print("[YT search] Searching within channel...")
         videos = _enumerate_yt_search(cfg, limit)
         if videos:
             return videos
@@ -244,8 +387,6 @@ def _enumerate_scrapetube(cfg: dict, limit: int = None) -> list:
         print("[scrapetube] Not installed, skipping...")
         return []
 
-    import concurrent.futures
-
     def _fetch():
         channel_url = cfg["channel_url"]
         channel_id = cfg.get("channel_id")
@@ -263,19 +404,26 @@ def _enumerate_scrapetube(cfg: dict, limit: int = None) -> list:
             title_runs = v.get("title", {}).get("runs", [{}])
             title = title_runs[0].get("text", "") if title_runs else ""
             if not title:
-                title = (v.get("title", {}).get("accessibility", {})
-                          .get("accessibilityData", {}).get("label", ""))
+                title = (
+                    v.get("title", {})
+                    .get("accessibility", {})
+                    .get("accessibilityData", {})
+                    .get("label", "")
+                )
             if vid_id:
-                videos.append({
-                    "id": vid_id,
-                    "title": title,
-                    "url": f"https://www.youtube.com/watch?v={vid_id}",
-                })
+                videos.append(
+                    {
+                        "id": vid_id,
+                        "title": title,
+                        "url": f"https://www.youtube.com/watch?v={vid_id}",
+                    }
+                )
         return videos
 
     try:
-        print(f"[scrapetube] Fetching videos (30s timeout)...")
+        print("[scrapetube] Fetching videos (30s timeout)...")
         import threading
+
         result_box = [None]
         error_box = [None]
 
@@ -290,7 +438,7 @@ def _enumerate_scrapetube(cfg: dict, limit: int = None) -> list:
         t.join(timeout=30)
 
         if t.is_alive():
-            print(f"[scrapetube] Timed out after 30s, skipping...")
+            print("[scrapetube] Timed out after 30s, skipping...")
             return []
         if error_box[0]:
             raise error_box[0]
@@ -307,7 +455,9 @@ def _enumerate_ytdlp(cfg: dict, limit: int = None) -> list:
         # Check if yt-dlp is available
         check = subprocess.run(
             [sys.executable, "-m", "yt_dlp", "--version"],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         if check.returncode != 0:
             print("[yt-dlp] Not available, skipping...")
@@ -333,11 +483,13 @@ def _enumerate_ytdlp(cfg: dict, limit: int = None) -> list:
                 continue
             try:
                 data = json.loads(line)
-                videos.append({
-                    "id": data.get("id", ""),
-                    "title": data.get("title", ""),
-                    "url": f"https://www.youtube.com/watch?v={data.get('id', '')}",
-                })
+                videos.append(
+                    {
+                        "id": data.get("id", ""),
+                        "title": data.get("title", ""),
+                        "url": f"https://www.youtube.com/watch?v={data.get('id', '')}",
+                    }
+                )
             except json.JSONDecodeError:
                 continue
 
@@ -368,9 +520,20 @@ def _enumerate_yt_search(cfg: dict, limit: int = None) -> list:
     if not search_terms:
         # Default search terms for stock/trading channels
         search_terms = [
-            "strategy", "tutorial", "how to", "indicator", "setup",
-            "lesson", "course", "step by step", "beginners", "swing",
-            "scan", "entry", "exit", "trade",
+            "strategy",
+            "tutorial",
+            "how to",
+            "indicator",
+            "setup",
+            "lesson",
+            "course",
+            "step by step",
+            "beginners",
+            "swing",
+            "scan",
+            "entry",
+            "exit",
+            "trade",
         ]
 
     seen_ids = set()
@@ -384,19 +547,20 @@ def _enumerate_yt_search(cfg: dict, limit: int = None) -> list:
         search_url = f"https://www.youtube.com/channel/{channel_id}/search?query={query}"
 
         try:
-            req = urllib.request.Request(search_url, headers={
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                              "AppleWebKit/537.36 (KHTML, like Gecko) "
-                              "Chrome/120.0.0.0 Safari/537.36",
-                "Accept-Language": "en-US,en;q=0.9",
-            })
+            req = urllib.request.Request(
+                search_url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36",
+                    "Accept-Language": "en-US,en;q=0.9",
+                },
+            )
             with urllib.request.urlopen(req, timeout=15) as resp:
                 html = resp.read().decode("utf-8", errors="ignore")
 
             # Extract from ytInitialData JSON blob
-            yt_match = re.search(
-                r'var ytInitialData = ({.*?});</script>', html, re.DOTALL
-            )
+            yt_match = re.search(r"var ytInitialData = ({.*?});</script>", html, re.DOTALL)
             if not yt_match:
                 continue
 
@@ -412,11 +576,13 @@ def _enumerate_yt_search(cfg: dict, limit: int = None) -> list:
                 if vid_id in seen_ids:
                     continue
                 seen_ids.add(vid_id)
-                videos.append({
-                    "id": vid_id,
-                    "title": title,
-                    "url": f"https://www.youtube.com/watch?v={vid_id}",
-                })
+                videos.append(
+                    {
+                        "id": vid_id,
+                        "title": title,
+                        "url": f"https://www.youtube.com/watch?v={vid_id}",
+                    }
+                )
                 new_count += 1
 
             if new_count:
@@ -457,16 +623,18 @@ def _enumerate_rss(cfg: dict, limit: int = None) -> list:
         videos = []
         entries = xml_data.split("<entry>")[1:]  # Skip feed header
         for entry in entries:
-            vid_match = re.search(r'<yt:videoId>([^<]+)</yt:videoId>', entry)
-            title_match = re.search(r'<title>([^<]+)</title>', entry)
+            vid_match = re.search(r"<yt:videoId>([^<]+)</yt:videoId>", entry)
+            title_match = re.search(r"<title>([^<]+)</title>", entry)
             if vid_match:
                 vid_id = vid_match.group(1)
                 title = title_match.group(1) if title_match else ""
-                videos.append({
-                    "id": vid_id,
-                    "title": title,
-                    "url": f"https://www.youtube.com/watch?v={vid_id}",
-                })
+                videos.append(
+                    {
+                        "id": vid_id,
+                        "title": title,
+                        "url": f"https://www.youtube.com/watch?v={vid_id}",
+                    }
+                )
 
         if limit:
             videos = videos[:limit]
@@ -478,6 +646,7 @@ def _enumerate_rss(cfg: dict, limit: int = None) -> list:
 
 
 # ── Transcription ─────────────────────────────────────────────────────────
+
 
 def fetch_transcript(video_id: str) -> str:
     """Fetch transcript for a single video. Returns formatted text."""
@@ -498,7 +667,7 @@ def fetch_transcript(video_id: str) -> str:
     except Exception as e:
         err_str = str(e)
         if "blocking" in err_str.lower() or "ip" in err_str.lower():
-            print(f"  RATE LIMITED — pausing 30s...")
+            print("  RATE LIMITED — pausing 30s...")
             time.sleep(30)
             # Retry once
             try:
@@ -523,8 +692,8 @@ def save_transcript(video: dict, transcript: str, channel_key: str):
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Sanitize title for filename
-    safe_title = re.sub(r'[^\w\s-]', '', video["title"])
-    safe_title = re.sub(r'\s+', '_', safe_title.strip())[:80]
+    safe_title = re.sub(r"[^\w\s-]", "", video["title"])
+    safe_title = re.sub(r"\s+", "_", safe_title.strip())[:80]
     filename = f"{video['id']}_{safe_title}.md"
 
     filepath = output_dir / filename
@@ -541,13 +710,14 @@ def save_transcript(video: dict, transcript: str, channel_key: str):
         words = transcript.split()
         para_size = 200
         for i in range(0, len(words), para_size):
-            chunk = " ".join(words[i:i + para_size])
+            chunk = " ".join(words[i : i + para_size])
             f.write(f"{chunk}\n\n")
 
     return filepath
 
 
 # ── Pipeline ──────────────────────────────────────────────────────────────
+
 
 def run_pipeline(channel_key: str, limit: int = None, force_all: bool = False):
     """Run the full transcription pipeline for a channel."""
@@ -593,7 +763,7 @@ def run_pipeline(channel_key: str, limit: int = None, force_all: bool = False):
 
         # Back off if we're getting rate limited
         if consecutive_fails >= 3:
-            print(f"  3 consecutive failures — pausing 60s before retry...")
+            print("  3 consecutive failures — pausing 60s before retry...")
             time.sleep(60)
             consecutive_fails = 0
 
@@ -607,7 +777,7 @@ def run_pipeline(channel_key: str, limit: int = None, force_all: bool = False):
             if i < len(new_videos):
                 time.sleep(1)
         else:
-            print(f"  SKIP: No transcript available")
+            print("  SKIP: No transcript available")
             failed += 1
             consecutive_fails += 1
 
@@ -626,16 +796,23 @@ def filter_strategy_videos(videos: list) -> list:
 
 def main():
     parser = argparse.ArgumentParser(description="YouTube Transcription Pipeline")
-    parser.add_argument("--channel", choices=["felix", "bravo", "both"], default="both",
-                       help="Which channel to transcribe")
+    parser.add_argument(
+        "--channel",
+        choices=["felix", "bravo", "both"],
+        default="both",
+        help="Which channel to transcribe",
+    )
     parser.add_argument("--video", type=str, help="Transcribe a single video by ID")
     parser.add_argument("--limit", type=int, help="Max videos to enumerate per channel")
-    parser.add_argument("--force-all", action="store_true",
-                       help="Transcribe ALL videos, not just strategy-filtered")
-    parser.add_argument("--install", action="store_true",
-                       help="Just install dependencies and exit")
-    parser.add_argument("--list-titles", action="store_true",
-                       help="List all video titles found (debug: see what filter catches)")
+    parser.add_argument(
+        "--force-all", action="store_true", help="Transcribe ALL videos, not just strategy-filtered"
+    )
+    parser.add_argument("--install", action="store_true", help="Just install dependencies and exit")
+    parser.add_argument(
+        "--list-titles",
+        action="store_true",
+        help="List all video titles found (debug: see what filter catches)",
+    )
     args = parser.parse_args()
 
     if args.install:

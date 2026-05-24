@@ -30,6 +30,7 @@ pyyaml~=6.0
 python-dotenv~=1.0.0
 numpy~=1.26.0
 networkx>=3.0
+datasketch>=1.6.0   # MinHash+LSH for memory consolidate clustering (W4-10)
 
 # ── Social Media APIs (light) ──────────────────────────────────────────────
 praw~=7.7.0

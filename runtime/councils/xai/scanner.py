@@ -23,6 +23,7 @@ from typing import Optional
 
 from ..shared.models import XPost
 
+
 log = logging.getLogger("ncl.councils.xai.scanner")
 
 # X API config — lazy-read functions so env vars set after import (e.g. by
@@ -30,13 +31,16 @@ log = logging.getLogger("ncl.councils.xai.scanner")
 # X_BEARER_TOKEN / XAI_API_KEY are kept as thin wrappers for any external
 # code that still references them, but internal callsites use the functions.
 
+
 def _get_x_bearer_token() -> str:
     """Return the current X bearer token (re-reads env on every call)."""
     return os.getenv("X_BEARER_TOKEN", "")
 
+
 def _get_xai_api_key() -> str:
     """Return the current xAI API key (re-reads env on every call)."""
     return os.getenv("XAI_API_KEY", "")
+
 
 # ── Rate limiters ─────────────────────────────────────────────────────────
 # X API v2 (app-level): 300 requests per 15-minute window for /tweets/search/recent
@@ -84,8 +88,8 @@ class _SlidingWindowLimiter:
 
 
 # Module-level rate limiters shared across all scanner functions
-_x_api_limiter = _SlidingWindowLimiter(calls=300, window_seconds=900)   # X: 300/15 min
-_grok_limiter = _SlidingWindowLimiter(calls=60, window_seconds=60)       # Grok: 60/min (conservative)
+_x_api_limiter = _SlidingWindowLimiter(calls=300, window_seconds=900)  # X: 300/15 min
+_grok_limiter = _SlidingWindowLimiter(calls=60, window_seconds=60)  # Grok: 60/min (conservative)
 
 
 class _CircuitBreaker:
@@ -141,7 +145,7 @@ _twscrape_breaker = _CircuitBreaker("twscrape", failure_threshold=5, cooldown_se
 
 # Shared HTTP client — reused across all scanner calls to avoid connection pool exhaustion.
 # Lazily created; call close_scanner_client() on shutdown.
-_shared_client: Optional["httpx.AsyncClient"] = None
+_shared_client: Optional["httpx.AsyncClient"] = None  # noqa: F821
 _client_lock: Optional[asyncio.Lock] = None
 _client_init_lock = threading.Lock()
 
@@ -155,10 +159,11 @@ def _get_scanner_lock() -> asyncio.Lock:
     return _client_lock
 
 
-async def _get_shared_client() -> "httpx.AsyncClient":
+async def _get_shared_client() -> "httpx.AsyncClient":  # noqa: F821
     """Return (and lazily create) the module-level shared httpx client."""
     global _shared_client
     import httpx
+
     if _shared_client is None or _shared_client.is_closed:
         async with _get_scanner_lock():
             if _shared_client is None or _shared_client.is_closed:
@@ -173,19 +178,20 @@ async def close_scanner_client() -> None:
         await _shared_client.aclose()
         _shared_client = None
 
+
 # Default tracked accounts
 DEFAULT_ACCOUNTS: list[str] = [
     "NathansMRE",
-    "agentbravo069",     # NATRIX primary X handle
-    "elikiingz",         # NATRIX personal
-    "DeItaone",          # Breaking news
-    "unusual_whales",    # Options flow
-    "WatcherGuru",       # Market news
-    "tier10k",           # Breaking intelligence
-    "MarioNawfal",       # News aggregation
+    "agentbravo069",  # NATRIX primary X handle
+    "elikiingz",  # NATRIX personal
+    "DeItaone",  # Breaking news
+    "unusual_whales",  # Options flow
+    "WatcherGuru",  # Market news
+    "tier10k",  # Breaking intelligence
+    "MarioNawfal",  # News aggregation
     "wallaborealissys",  # Alt-science
-    "ABOREALISSYS",      # Alt-research
-    "EndWokeness",       # Culture signal
+    "ABOREALISSYS",  # Alt-research
+    "EndWokeness",  # Culture signal
 ]
 
 # Default keyword searches
@@ -325,6 +331,7 @@ def _twscrape_available() -> bool:
     """Check if twscrape is installed."""
     try:
         import twscrape  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -339,6 +346,7 @@ def _get_twscrape_api():
     global _twscrape_api
     if _twscrape_api is None:
         from twscrape import API
+
         _twscrape_api = API()
     return _twscrape_api
 
@@ -468,6 +476,7 @@ async def scan_trending(since: datetime) -> list[XPost]:
 
 # ── X API v2 implementations ───────────────────────────────────────────
 
+
 async def _scan_account_api(
     handle: str,
     since: datetime,
@@ -475,7 +484,7 @@ async def _scan_account_api(
 ) -> list[XPost]:
     """Scan account using X API v2."""
     try:
-        import httpx
+        import httpx  # noqa: F401
     except ImportError:
         return []
 
@@ -517,24 +526,26 @@ async def _scan_account_api(
             entities = tweet.get("entities", {})
             refs = tweet.get("referenced_tweets", [])
 
-            posts.append(XPost(
-                post_id=tweet["id"],
-                author_handle=handle,
-                author_name=user_name,
-                text=tweet.get("text", ""),
-                created_at=tweet.get("created_at", ""),
-                url=f"https://x.com/{handle}/status/{tweet['id']}",
-                retweet_count=metrics.get("retweet_count", 0),
-                like_count=metrics.get("like_count", 0),
-                reply_count=metrics.get("reply_count", 0),
-                quote_count=metrics.get("quote_count", 0),
-                impression_count=metrics.get("impression_count", 0),
-                is_retweet=any(r.get("type") == "retweeted" for r in refs),
-                is_reply=any(r.get("type") == "replied_to" for r in refs),
-                hashtags=[h["tag"] for h in entities.get("hashtags", [])],
-                mentioned_users=[m["username"] for m in entities.get("mentions", [])],
-                verified=user_verified,
-            ))
+            posts.append(
+                XPost(
+                    post_id=tweet["id"],
+                    author_handle=handle,
+                    author_name=user_name,
+                    text=tweet.get("text", ""),
+                    created_at=tweet.get("created_at", ""),
+                    url=f"https://x.com/{handle}/status/{tweet['id']}",
+                    retweet_count=metrics.get("retweet_count", 0),
+                    like_count=metrics.get("like_count", 0),
+                    reply_count=metrics.get("reply_count", 0),
+                    quote_count=metrics.get("quote_count", 0),
+                    impression_count=metrics.get("impression_count", 0),
+                    is_retweet=any(r.get("type") == "retweeted" for r in refs),
+                    is_reply=any(r.get("type") == "replied_to" for r in refs),
+                    hashtags=[h["tag"] for h in entities.get("hashtags", [])],
+                    mentioned_users=[m["username"] for m in entities.get("mentions", [])],
+                    verified=user_verified,
+                )
+            )
 
         log.info(f"@{handle}: {len(posts)} posts via X API")
         return posts
@@ -551,7 +562,7 @@ async def _search_keyword_api(
 ) -> list[XPost]:
     """Search using X API v2 recent search."""
     try:
-        import httpx
+        import httpx  # noqa: F401
     except ImportError:
         return []
 
@@ -584,22 +595,24 @@ async def _search_keyword_api(
             metrics = tweet.get("public_metrics", {})
             entities = tweet.get("entities", {})
 
-            posts.append(XPost(
-                post_id=tweet["id"],
-                author_handle=handle,
-                author_name=author.get("name", handle),
-                text=tweet.get("text", ""),
-                created_at=tweet.get("created_at", ""),
-                url=f"https://x.com/{handle}/status/{tweet['id']}",
-                retweet_count=metrics.get("retweet_count", 0),
-                like_count=metrics.get("like_count", 0),
-                reply_count=metrics.get("reply_count", 0),
-                quote_count=metrics.get("quote_count", 0),
-                impression_count=metrics.get("impression_count", 0),
-                hashtags=[h["tag"] for h in entities.get("hashtags", [])],
-                mentioned_users=[m["username"] for m in entities.get("mentions", [])],
-                verified=author.get("verified", False),
-            ))
+            posts.append(
+                XPost(
+                    post_id=tweet["id"],
+                    author_handle=handle,
+                    author_name=author.get("name", handle),
+                    text=tweet.get("text", ""),
+                    created_at=tweet.get("created_at", ""),
+                    url=f"https://x.com/{handle}/status/{tweet['id']}",
+                    retweet_count=metrics.get("retweet_count", 0),
+                    like_count=metrics.get("like_count", 0),
+                    reply_count=metrics.get("reply_count", 0),
+                    quote_count=metrics.get("quote_count", 0),
+                    impression_count=metrics.get("impression_count", 0),
+                    hashtags=[h["tag"] for h in entities.get("hashtags", [])],
+                    mentioned_users=[m["username"] for m in entities.get("mentions", [])],
+                    verified=author.get("verified", False),
+                )
+            )
 
         log.info(f"Keyword '{keyword}': {len(posts)} posts via X API")
         return posts
@@ -650,6 +663,7 @@ async def _scan_trending_api(since: datetime) -> list[XPost]:
 
 # ── twscrape fallbacks ─────────────────────────────────────────────────
 
+
 async def _scan_account_twscrape(
     handle: str,
     since: datetime,
@@ -677,25 +691,29 @@ async def _scan_account_twscrape(
             if created and created.replace(tzinfo=timezone.utc) < since:
                 continue
 
-            posts.append(XPost(
-                post_id=str(tweet.id),
-                author_handle=handle,
-                author_name=getattr(tweet.user, "name", handle) if hasattr(tweet, "user") else handle,
-                text=tweet.rawContent if hasattr(tweet, "rawContent") else str(tweet),
-                created_at=str(created) if created else "",
-                url=f"https://x.com/{handle}/status/{tweet.id}",
-                like_count=getattr(tweet, "likeCount", 0) or 0,
-                retweet_count=getattr(tweet, "retweetCount", 0) or 0,
-                reply_count=getattr(tweet, "replyCount", 0) or 0,
-                quote_count=getattr(tweet, "quoteCount", 0) or 0,
-                impression_count=getattr(tweet, "viewCount", 0) or 0,
-                hashtags=[h.get("tag", "") for h in (getattr(tweet, "hashtags", []) or [])],
-                media_urls=[
-                    m.url or m.previewUrl
-                    for m in (getattr(tweet, "media", []) or [])
-                    if hasattr(m, "url")
-                ],
-            ))
+            posts.append(
+                XPost(
+                    post_id=str(tweet.id),
+                    author_handle=handle,
+                    author_name=getattr(tweet.user, "name", handle)
+                    if hasattr(tweet, "user")
+                    else handle,
+                    text=tweet.rawContent if hasattr(tweet, "rawContent") else str(tweet),
+                    created_at=str(created) if created else "",
+                    url=f"https://x.com/{handle}/status/{tweet.id}",
+                    like_count=getattr(tweet, "likeCount", 0) or 0,
+                    retweet_count=getattr(tweet, "retweetCount", 0) or 0,
+                    reply_count=getattr(tweet, "replyCount", 0) or 0,
+                    quote_count=getattr(tweet, "quoteCount", 0) or 0,
+                    impression_count=getattr(tweet, "viewCount", 0) or 0,
+                    hashtags=[h.get("tag", "") for h in (getattr(tweet, "hashtags", []) or [])],
+                    media_urls=[
+                        m.url or m.previewUrl
+                        for m in (getattr(tweet, "media", []) or [])
+                        if hasattr(m, "url")
+                    ],
+                )
+            )
 
         log.info(f"@{handle}: {len(posts)} posts via twscrape")
         return posts
@@ -724,20 +742,26 @@ async def _search_keyword_twscrape(
 
         posts = []
         for tweet in tweets:
-            handle = getattr(tweet.user, "username", "unknown") if hasattr(tweet, "user") else "unknown"
-            posts.append(XPost(
-                post_id=str(tweet.id),
-                author_handle=handle,
-                author_name=getattr(tweet.user, "name", handle) if hasattr(tweet, "user") else handle,
-                text=tweet.rawContent if hasattr(tweet, "rawContent") else str(tweet),
-                created_at=str(tweet.date) if hasattr(tweet, "date") else "",
-                url=f"https://x.com/{handle}/status/{tweet.id}",
-                like_count=getattr(tweet, "likeCount", 0) or 0,
-                retweet_count=getattr(tweet, "retweetCount", 0) or 0,
-                reply_count=getattr(tweet, "replyCount", 0) or 0,
-                impression_count=getattr(tweet, "viewCount", 0) or 0,
-                hashtags=[h.get("tag", "") for h in (getattr(tweet, "hashtags", []) or [])],
-            ))
+            handle = (
+                getattr(tweet.user, "username", "unknown") if hasattr(tweet, "user") else "unknown"
+            )
+            posts.append(
+                XPost(
+                    post_id=str(tweet.id),
+                    author_handle=handle,
+                    author_name=getattr(tweet.user, "name", handle)
+                    if hasattr(tweet, "user")
+                    else handle,
+                    text=tweet.rawContent if hasattr(tweet, "rawContent") else str(tweet),
+                    created_at=str(tweet.date) if hasattr(tweet, "date") else "",
+                    url=f"https://x.com/{handle}/status/{tweet.id}",
+                    like_count=getattr(tweet, "likeCount", 0) or 0,
+                    retweet_count=getattr(tweet, "retweetCount", 0) or 0,
+                    reply_count=getattr(tweet, "replyCount", 0) or 0,
+                    impression_count=getattr(tweet, "viewCount", 0) or 0,
+                    hashtags=[h.get("tag", "") for h in (getattr(tweet, "hashtags", []) or [])],
+                )
+            )
 
         log.info(f"Keyword '{keyword}': {len(posts)} posts via twscrape")
         return posts
@@ -748,6 +772,7 @@ async def _search_keyword_twscrape(
 
 
 # ── Grok-powered fallbacks ──────────────────────────────────────────────
+
 
 async def _scan_account_grok(
     handle: str,
@@ -783,12 +808,17 @@ async def _scan_account_grok(
         # Track cost
         try:
             from ...cost_tracker import record_cost
+
             usage = data.get("usage", {})
             input_t = usage.get("prompt_tokens", 0)
             output_t = usage.get("completion_tokens", 0)
             cost_usd = (input_t * 2.0 + output_t * 10.0) / 1_000_000
-            await record_cost("xai", cost_usd, "x_scan",
-                              f"grok account scan @{handle} in={input_t} out={output_t}")
+            await record_cost(
+                "xai",
+                cost_usd,
+                "x_scan",
+                f"grok account scan @{handle} in={input_t} out={output_t}",
+            )
         except Exception:
             pass
 
@@ -837,12 +867,17 @@ async def _search_keyword_grok(
         # Track cost
         try:
             from ...cost_tracker import record_cost
+
             usage = data.get("usage", {})
             input_t = usage.get("prompt_tokens", 0)
             output_t = usage.get("completion_tokens", 0)
             cost_usd = (input_t * 2.0 + output_t * 10.0) / 1_000_000
-            await record_cost("xai", cost_usd, "x_scan",
-                              f"grok keyword search '{keyword}' in={input_t} out={output_t}")
+            await record_cost(
+                "xai",
+                cost_usd,
+                "x_scan",
+                f"grok keyword search '{keyword}' in={input_t} out={output_t}",
+            )
         except Exception:
             pass
 
@@ -886,12 +921,14 @@ async def _scan_trending_grok(since: datetime) -> list[XPost]:
         # Track cost
         try:
             from ...cost_tracker import record_cost
+
             usage = data.get("usage", {})
             input_t = usage.get("prompt_tokens", 0)
             output_t = usage.get("completion_tokens", 0)
             cost_usd = (input_t * 2.0 + output_t * 10.0) / 1_000_000
-            await record_cost("xai", cost_usd, "x_scan",
-                              f"grok trending scan in={input_t} out={output_t}")
+            await record_cost(
+                "xai", cost_usd, "x_scan", f"grok trending scan in={input_t} out={output_t}"
+            )
         except Exception:
             pass
 
@@ -960,23 +997,25 @@ def _parse_grok_posts(text: str, default_handle: str) -> list[XPost]:
         content = line
         for prefix in ["POST:", "TREND:", f"@{handle}:"]:
             if content.startswith(prefix):
-                content = content[len(prefix):].strip()
+                content = content[len(prefix) :].strip()
                 break
         # Strip trailing engagement markers
         if "|" in content:
             content = content.split("|")[0].strip()
 
-        posts.append(XPost(
-            post_id=f"grok-{uuid.uuid4().hex[:12]}",
-            author_handle=handle,
-            author_name=handle,
-            text=content[:500],
-            created_at=now,
-            url="",  # Grok doesn't provide direct URLs
-            like_count=likes,
-            retweet_count=rts,
-            synthetic=True,  # Grok-generated data — engagement numbers are approximate
-        ))
+        posts.append(
+            XPost(
+                post_id=f"grok-{uuid.uuid4().hex[:12]}",
+                author_handle=handle,
+                author_name=handle,
+                text=content[:500],
+                created_at=now,
+                url="",  # Grok doesn't provide direct URLs
+                like_count=likes,
+                retweet_count=rts,
+                synthetic=True,  # Grok-generated data — engagement numbers are approximate
+            )
+        )
 
     return posts
 

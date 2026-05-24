@@ -3,26 +3,28 @@
 Tracks uptime, success rates, and latency per workflow. Fires alerts
 when availability regresses below defined thresholds.
 """
-from datetime import datetime, timezone, timedelta
-from enum import Enum
-from typing import Any, Optional, Callable
-from pathlib import Path
+
 import asyncio
 import json
 import logging
 import os
 import uuid as _uuid
+from datetime import datetime, timedelta, timezone
+from enum import Enum
+from pathlib import Path
+from typing import Callable, Optional
 
 from pydantic import BaseModel, Field
+
 
 log = logging.getLogger("ncl.availability")
 
 
 class AvailabilityStatus(str, Enum):
-    HEALTHY = "healthy"       # ≥99% success rate
-    DEGRADED = "degraded"     # 95-99% success rate
-    UNHEALTHY = "unhealthy"   # <95% success rate
-    DOWN = "down"             # No successful requests in window
+    HEALTHY = "healthy"  # ≥99% success rate
+    DEGRADED = "degraded"  # 95-99% success rate
+    UNHEALTHY = "unhealthy"  # <95% success rate
+    DOWN = "down"  # No successful requests in window
 
 
 class AlertSeverity(str, Enum):
@@ -53,6 +55,7 @@ class AvailabilityAlert(BaseModel):
 
 class WorkflowHealth(BaseModel):
     """Current health snapshot for a single workflow."""
+
     workflow: str
     status: AvailabilityStatus
     availability_pct: float = 100.0  # Success rate %
@@ -69,14 +72,15 @@ class WorkflowHealth(BaseModel):
 
 class AvailabilityConfig(BaseModel):
     """Configurable thresholds for availability alerts."""
-    healthy_threshold: float = 99.0      # ≥99% = healthy
-    degraded_threshold: float = 95.0     # ≥95% = degraded
-    latency_alert_ms: float = 5000.0     # Alert if avg latency exceeds 5s
+
+    healthy_threshold: float = 99.0  # ≥99% = healthy
+    degraded_threshold: float = 95.0  # ≥95% = degraded
+    latency_alert_ms: float = 5000.0  # Alert if avg latency exceeds 5s
     latency_p95_alert_ms: float = 10000.0
     error_spike_threshold: float = 10.0  # Alert if error rate jumps 10% in window
-    window_minutes: int = 60             # Rolling window size
-    down_after_minutes: int = 5          # Mark DOWN if no success in 5 min
-    alert_cooldown_minutes: int = 15     # Don't re-fire same alert within 15 min
+    window_minutes: int = 60  # Rolling window size
+    down_after_minutes: int = 5  # Mark DOWN if no success in 5 min
+    alert_cooldown_minutes: int = 15  # Don't re-fire same alert within 15 min
 
 
 class AvailabilityTracker:
@@ -101,7 +105,8 @@ class AvailabilityTracker:
         today_file = self.avail_dir / f"{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.jsonl"
         if today_file.exists():
             import aiofiles
-            async with aiofiles.open(today_file, 'r') as f:
+
+            async with aiofiles.open(today_file, "r") as f:
                 async for line in f:
                     line = line.strip()
                     if line:
@@ -115,7 +120,9 @@ class AvailabilityTracker:
         """Register alert callback."""
         self._alert_callbacks.append(callback)
 
-    async def record_request(self, workflow: str, success: bool, duration_ms: float, error_type: str = None):
+    async def record_request(
+        self, workflow: str, success: bool, duration_ms: float, error_type: str = None
+    ):
         """Record a single request outcome."""
         record = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -132,7 +139,8 @@ class AvailabilityTracker:
         # Persist
         today_file = self.avail_dir / f"{datetime.now(timezone.utc).strftime('%Y-%m-%d')}.jsonl"
         import aiofiles
-        async with aiofiles.open(today_file, 'a') as f:
+
+        async with aiofiles.open(today_file, "a") as f:
             await f.write(json.dumps(record) + "\n")
 
         # Check for alerts
@@ -145,7 +153,9 @@ class AvailabilityTracker:
         if not records:
             return WorkflowHealth(
                 workflow=workflow,
-                status=AvailabilityStatus.DOWN if workflow in self._requests else AvailabilityStatus.HEALTHY,
+                status=AvailabilityStatus.DOWN
+                if workflow in self._requests
+                else AvailabilityStatus.HEALTHY,
                 window_minutes=self.config.window_minutes,
             )
 
@@ -157,7 +167,11 @@ class AvailabilityTracker:
         durations = [r["duration_ms"] for r in records if r.get("duration_ms") is not None]
         avg_latency = sum(durations) / len(durations) if durations else 0.0
         sorted_durations = sorted(durations)
-        p95_latency = sorted_durations[int(len(sorted_durations) * 0.95)] if len(sorted_durations) >= 20 else (sorted_durations[-1] if sorted_durations else 0.0)
+        p95_latency = (
+            sorted_durations[int(len(sorted_durations) * 0.95)]
+            if len(sorted_durations) >= 20
+            else (sorted_durations[-1] if sorted_durations else 0.0)
+        )
 
         # Determine status
         if availability >= self.config.healthy_threshold:
@@ -170,7 +184,9 @@ class AvailabilityTracker:
         # Check if DOWN
         success_records = [r for r in records if r["success"]]
         if not success_records:
-            recent_cutoff = (datetime.now(timezone.utc) - timedelta(minutes=self.config.down_after_minutes)).isoformat()
+            recent_cutoff = (
+                datetime.now(timezone.utc) - timedelta(minutes=self.config.down_after_minutes)
+            ).isoformat()
             if all(r["timestamp"] > recent_cutoff for r in records):
                 status = AvailabilityStatus.DOWN
 
@@ -235,7 +251,9 @@ class AvailabilityTracker:
     def _get_window_records(self, workflow: str) -> list[dict]:
         """Get records for a workflow within the rolling time window."""
         records = self._requests.get(workflow, [])
-        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=self.config.window_minutes)).isoformat()
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(minutes=self.config.window_minutes)
+        ).isoformat()
         return [r for r in records if r["timestamp"] >= cutoff]
 
     async def _check_alerts(self, workflow: str):
@@ -244,39 +262,49 @@ class AvailabilityTracker:
 
         # Availability regression
         if health.status in (AvailabilityStatus.DEGRADED, AvailabilityStatus.UNHEALTHY):
-            severity = AlertSeverity.WARNING if health.status == AvailabilityStatus.DEGRADED else AlertSeverity.CRITICAL
-            await self._fire_alert(AvailabilityAlert(
-                alert_id=str(_uuid.uuid4()),
-                alert_type=AlertType.AVAILABILITY_REGRESSION,
-                severity=severity,
-                workflow=workflow,
-                message=f"Workflow '{workflow}' availability at {health.availability_pct}% ({health.status.value})",
-                current_value=health.availability_pct,
-                threshold=self.config.degraded_threshold,
-            ))
+            severity = (
+                AlertSeverity.WARNING
+                if health.status == AvailabilityStatus.DEGRADED
+                else AlertSeverity.CRITICAL
+            )
+            await self._fire_alert(
+                AvailabilityAlert(
+                    alert_id=str(_uuid.uuid4()),
+                    alert_type=AlertType.AVAILABILITY_REGRESSION,
+                    severity=severity,
+                    workflow=workflow,
+                    message=f"Workflow '{workflow}' availability at {health.availability_pct}% ({health.status.value})",  # noqa: E501
+                    current_value=health.availability_pct,
+                    threshold=self.config.degraded_threshold,
+                )
+            )
 
         if health.status == AvailabilityStatus.DOWN:
-            await self._fire_alert(AvailabilityAlert(
-                alert_id=str(_uuid.uuid4()),
-                alert_type=AlertType.WORKFLOW_DOWN,
-                severity=AlertSeverity.CRITICAL,
-                workflow=workflow,
-                message=f"Workflow '{workflow}' is DOWN — no successful requests in {self.config.down_after_minutes}min window",
-                current_value=0.0,
-                threshold=1.0,
-            ))
+            await self._fire_alert(
+                AvailabilityAlert(
+                    alert_id=str(_uuid.uuid4()),
+                    alert_type=AlertType.WORKFLOW_DOWN,
+                    severity=AlertSeverity.CRITICAL,
+                    workflow=workflow,
+                    message=f"Workflow '{workflow}' is DOWN — no successful requests in {self.config.down_after_minutes}min window",  # noqa: E501
+                    current_value=0.0,
+                    threshold=1.0,
+                )
+            )
 
         # Latency spike
         if health.avg_latency_ms > self.config.latency_alert_ms:
-            await self._fire_alert(AvailabilityAlert(
-                alert_id=str(_uuid.uuid4()),
-                alert_type=AlertType.LATENCY_SPIKE,
-                severity=AlertSeverity.WARNING,
-                workflow=workflow,
-                message=f"Workflow '{workflow}' avg latency {health.avg_latency_ms:.0f}ms exceeds {self.config.latency_alert_ms:.0f}ms",
-                current_value=health.avg_latency_ms,
-                threshold=self.config.latency_alert_ms,
-            ))
+            await self._fire_alert(
+                AvailabilityAlert(
+                    alert_id=str(_uuid.uuid4()),
+                    alert_type=AlertType.LATENCY_SPIKE,
+                    severity=AlertSeverity.WARNING,
+                    workflow=workflow,
+                    message=f"Workflow '{workflow}' avg latency {health.avg_latency_ms:.0f}ms exceeds {self.config.latency_alert_ms:.0f}ms",  # noqa: E501
+                    current_value=health.avg_latency_ms,
+                    threshold=self.config.latency_alert_ms,
+                )
+            )
 
     async def _fire_alert(self, alert: AvailabilityAlert):
         """Fire an alert with cooldown to prevent alert fatigue."""
@@ -317,12 +345,15 @@ _SEVERITY_TO_TAGS = {
 }
 
 
-async def _send_availability_ntfy(title: str, message: str, priority: str = "3", tags: str = "") -> None:
+async def _send_availability_ntfy(
+    title: str, message: str, priority: str = "3", tags: str = ""
+) -> None:
     """Send a push notification via ntfy.sh for availability alerts."""
     if not _NTFY_TOPIC:
         return
     try:
         import httpx
+
         async with httpx.AsyncClient(timeout=10.0) as client:
             safe_title = title.encode("ascii", "replace").decode("ascii")
             await client.post(

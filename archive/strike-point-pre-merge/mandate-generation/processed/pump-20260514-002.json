@@ -1,0 +1,32 @@
+{
+  "pump_id": "PUMP-20260514-002",
+  "relay_id": "RLY-20260514184138-7B941E4",
+  "received_at": "2026-05-15T00:41:38.808668+00:00",
+  "source": "first-strike-ios",
+  "pipeline": "STRIKE-POINT",
+  "mandate_ref": "MANDATE-2026-008",
+  "prompt": {
+    "id": "FINAL-1778805698",
+    "raw_intent": "hardening sweep done",
+    "formatted_prompt": "All four hardening tasks complete?",
+    "target_pillar": "NCL",
+    "priority": "P3",
+    "timestamp": "2026-05-15T00:41:38Z",
+    "metadata": {
+      "source": "copilot-final",
+      "app_version": "copilot-1.0",
+      "grok_formatted": false,
+      "session_id": "final-1778805698"
+    }
+  },
+  "_brain_ack": {
+    "timestamp": "2026-05-15T00:41:43.344086+00:00",
+    "brain_response": {
+      "pump_id": "FINAL-1778805698",
+      "intent": "hardening sweep done",
+      "urgency": "low",
+      "mode": "background",
+      "status": "accepted"
+    }
+  }
+}

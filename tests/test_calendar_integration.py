@@ -9,22 +9,22 @@ skipped with a clear reason rather than failing.
 Run:
     /opt/homebrew/bin/python3 -m pytest tests/test_calendar_integration.py -v
 """
+
 from __future__ import annotations
 
 import asyncio
 import importlib
 import json
-import os
 import sys
 import types
 from datetime import datetime, timezone
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 
 # ── Optional-module helpers ──────────────────────────────────────────
+
 
 def _try_import(name: str):
     """Return module or None if it cannot be imported."""
@@ -48,6 +48,7 @@ def _skip_if_missing(mod, name: str):
 
 # ── Common fixtures ──────────────────────────────────────────────────
 
+
 @pytest.fixture
 def isolated_data_dir(tmp_path, monkeypatch):
     """Redirect cities_pref data paths to a tmp dir so tests don't pollute prod."""
@@ -57,15 +58,14 @@ def isolated_data_dir(tmp_path, monkeypatch):
     data_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(cities_pref_mod, "DATA_DIR", data_dir)
     monkeypatch.setattr(cities_pref_mod, "CITY_PREF_PATH", data_dir / "city_pref.json")
-    monkeypatch.setattr(
-        cities_pref_mod, "ACTIVE_CITIES_PATH", data_dir / "active_cities.json"
-    )
+    monkeypatch.setattr(cities_pref_mod, "ACTIVE_CITIES_PATH", data_dir / "active_cities.json")
     return data_dir
 
 
 # ─────────────────────────────────────────────────────────────────────
 # 1. CalendarAgent.scan_cycle() smoke test
 # ─────────────────────────────────────────────────────────────────────
+
 
 async def test_calendar_agent_scan_cycle_runs():
     """CalendarAgent.scan_cycle() should return a summary dict with the
@@ -85,17 +85,23 @@ async def test_calendar_agent_scan_cycle_runs():
     patches = []
     if solar_service_mod is not None:
         if hasattr(solar_service_mod, "get_sun_dashboard"):
-            patches.append(patch.object(
-                solar_service_mod,
-                "get_sun_dashboard",
-                new=AsyncMock(return_value={"city_id": "edmonton", "solar": {}, "space_weather": {}}),
-            ))
+            patches.append(
+                patch.object(
+                    solar_service_mod,
+                    "get_sun_dashboard",
+                    new=AsyncMock(
+                        return_value={"city_id": "edmonton", "solar": {}, "space_weather": {}}
+                    ),
+                )
+            )
         if hasattr(solar_service_mod, "get_space_weather"):
-            patches.append(patch.object(
-                solar_service_mod,
-                "get_space_weather",
-                new=AsyncMock(return_value={"kp_index": {"current_kp": 2.0}}),
-            ))
+            patches.append(
+                patch.object(
+                    solar_service_mod,
+                    "get_space_weather",
+                    new=AsyncMock(return_value={"kp_index": {"current_kp": 2.0}}),
+                )
+            )
 
     for p in patches:
         p.start()
@@ -120,6 +126,7 @@ async def test_calendar_agent_scan_cycle_runs():
 # ─────────────────────────────────────────────────────────────────────
 # 2. compile -> correlate -> dedup chain
 # ─────────────────────────────────────────────────────────────────────
+
 
 def test_compile_then_correlate_then_dedup_chain():
     """3 fake events for the same earnings date should dedup into 1 with a
@@ -171,6 +178,7 @@ def test_compile_then_correlate_then_dedup_chain():
 # 3. Solar state caching
 # ─────────────────────────────────────────────────────────────────────
 
+
 async def test_solar_state_caching():
     """Calling get_full_solar_state / get_sun_dashboard twice should hit cache
     on the second call. We measure cache effectiveness by counting how many
@@ -178,9 +186,8 @@ async def test_solar_state_caching():
     _skip_if_missing(solar_service_mod, "runtime.calendar.solar_service")
 
     # Pick whichever entry-point the module exposes.
-    fn = (
-        getattr(solar_service_mod, "get_full_solar_state", None)
-        or getattr(solar_service_mod, "get_sun_dashboard", None)
+    fn = getattr(solar_service_mod, "get_full_solar_state", None) or getattr(
+        solar_service_mod, "get_sun_dashboard", None
     )
     if fn is None:
         pytest.skip("solar_service has no get_full_solar_state or get_sun_dashboard")
@@ -264,6 +271,7 @@ async def test_solar_state_caching():
 # 4. todo generation fallback when no LLM key
 # ─────────────────────────────────────────────────────────────────────
 
+
 async def test_todo_generation_fallback_when_no_llm(monkeypatch):
     """With ANTHROPIC_API_KEY unset, generate_7day_todos must return rule-based
     output (no crash)."""
@@ -307,6 +315,7 @@ async def test_todo_generation_fallback_when_no_llm(monkeypatch):
 # 5. city selection persists
 # ─────────────────────────────────────────────────────────────────────
 
+
 def test_city_selection_persists(isolated_data_dir):
     """set_preferred_city('calgary'), reload, get_default_city() == 'calgary',
     then set back to 'edmonton'."""
@@ -331,6 +340,7 @@ def test_city_selection_persists(isolated_data_dir):
 # 6. /calendar/dashboard endpoint shape via TestClient with mocked agent
 # ─────────────────────────────────────────────────────────────────────
 
+
 def test_calendar_dashboard_endpoint_shape(monkeypatch):
     """Mock the agent + cities_pref, then GET /calendar/dashboard. The
     response should contain all 8 documented keys."""
@@ -344,23 +354,29 @@ def test_calendar_dashboard_endpoint_shape(monkeypatch):
 
     # Build mock agent
     agent = MagicMock()
-    agent.get_sun_state = AsyncMock(return_value={
-        "sun_times": {"sunrise": "2026-05-21T05:30:00Z"},
-        "solar_energy_mode": "quiet",
-    })
-    agent.get_compiled_events = AsyncMock(side_effect=lambda city_id, window: {
-        "events": [{"id": f"e-{window}", "title": f"event {window}d"}],
-        "correlations": [],
-        "count": 1,
-        "generated_at": "2026-05-21T12:00:00Z",
-        "stale": False,
-    })
-    agent.get_todos = AsyncMock(side_effect=lambda city_id, window: {
-        "todos": [{"id": f"t-{window}", "action": "do x"}],
-        "count": 1,
-        "generated_at": "2026-05-21T12:00:00Z",
-        "stale": False,
-    })
+    agent.get_sun_state = AsyncMock(
+        return_value={
+            "sun_times": {"sunrise": "2026-05-21T05:30:00Z"},
+            "solar_energy_mode": "quiet",
+        }
+    )
+    agent.get_compiled_events = AsyncMock(
+        side_effect=lambda city_id, window: {
+            "events": [{"id": f"e-{window}", "title": f"event {window}d"}],
+            "correlations": [],
+            "count": 1,
+            "generated_at": "2026-05-21T12:00:00Z",
+            "stale": False,
+        }
+    )
+    agent.get_todos = AsyncMock(
+        side_effect=lambda city_id, window: {
+            "todos": [{"id": f"t-{window}", "action": "do x"}],
+            "count": 1,
+            "generated_at": "2026-05-21T12:00:00Z",
+            "stale": False,
+        }
+    )
     agent.get_status = MagicMock(return_value={"available": True})
     monkeypatch.setattr(calendar_routes_mod, "_get_calendar_agent_or_none", lambda: agent)
 
@@ -382,8 +398,16 @@ def test_calendar_dashboard_endpoint_shape(monkeypatch):
     assert r.status_code == 200, f"dashboard returned {r.status_code}: {r.text}"
     body = r.json()
 
-    documented = {"city", "moon", "sun", "events_7d", "events_30d",
-                  "todos_7d", "todos_30d", "agent_status"}
+    documented = {
+        "city",
+        "moon",
+        "sun",
+        "events_7d",
+        "events_30d",
+        "todos_7d",
+        "todos_30d",
+        "agent_status",
+    }
     missing = documented - set(body.keys())
     assert not missing, f"missing keys: {missing}; got: {set(body.keys())}"
 
@@ -395,6 +419,7 @@ def test_calendar_dashboard_endpoint_shape(monkeypatch):
 # ─────────────────────────────────────────────────────────────────────
 # 7. correlator escalates critical Kp
 # ─────────────────────────────────────────────────────────────────────
+
 
 def test_correlator_escalates_critical_kp():
     """An event with kp=8 in the solar source should be placed first by
@@ -408,9 +433,16 @@ def test_correlator_escalates_critical_kp():
     today = now.date().isoformat()
     events = [
         {"id": "low1", "date": today, "title": "low priority", "category": "info"},
-        {"id": "solar1", "date": today, "title": "Geomagnetic storm",
-         "category": "solar", "source": "swpc", "kp": 8,
-         "impact": "high", "priority": 2},
+        {
+            "id": "solar1",
+            "date": today,
+            "title": "Geomagnetic storm",
+            "category": "solar",
+            "source": "swpc",
+            "kp": 8,
+            "impact": "high",
+            "priority": 2,
+        },
         {"id": "low2", "date": today, "title": "another low", "category": "info"},
     ]
 
@@ -425,6 +457,7 @@ def test_correlator_escalates_critical_kp():
 # ─────────────────────────────────────────────────────────────────────
 # 8. CalendarAgent handles missing modules gracefully
 # ─────────────────────────────────────────────────────────────────────
+
 
 async def test_calendar_agent_handles_missing_modules(monkeypatch):
     """If a calendar submodule fails to import, scan_cycle should still
@@ -472,6 +505,7 @@ async def test_calendar_agent_handles_missing_modules(monkeypatch):
 # ─────────────────────────────────────────────────────────────────────
 # Live-network tests (manual only)
 # ─────────────────────────────────────────────────────────────────────
+
 
 @pytest.mark.skip(reason="live network — run manually")
 async def test_live_get_sun_dashboard_edmonton():

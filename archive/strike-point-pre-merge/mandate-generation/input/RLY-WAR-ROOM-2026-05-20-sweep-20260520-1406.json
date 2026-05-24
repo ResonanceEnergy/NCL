@@ -1,0 +1,10 @@
+{
+  "source": "war_room_council",
+  "type": "directive_relay",
+  "session_id": "sweep-20260520-1406",
+  "date": "2026-05-20",
+  "directives": "1. **CRITICAL SYSTEM REPAIR**: Technical team must diagnose and restore X Council Vector 1 & 2 data collection by 2026-05-22 0800. Verify pipeline health with test queries against @unusual_whales and @tier10k. Success metric: 90%+ data retrieval rate.\n\n2. **AI TOOLING ASSESSMENT**: Creative team must evaluate Grok-2 image generation and OpenAI o1 reasoning integration into current workflows by 2026-05-21 1700. Deliverable: Technical feasibility report with implementation timeline.\n\n3. **YOUTUBE INTELLIGENCE RESTORATION**: Intelligence team must deliver missing YouTube Council analysis for 2026-05-20 by 2026-05-21 1200 to enable proper cross-platform synthesis. Success metric: Full comparative analysis document.\n\n4. **GTA 6 OPPORTUNITY RESEARCH**: Business development must research Rockstar Games music licensing processes and submission windows by 2026-05-24 1700. Deliverable: Actionable entry strategy for GTA 6 soundtrack consideration.\n\n5. **CULTURAL TIMING ANALYSIS**: Marketing team must model Swift album release impact on music discovery algorithms by 2026-05-23 1200. Success metric: Quantified visibility suppression duration estimate.",
+  "priority": "P2",
+  "requires_approval": true,
+  "created_at": "2026-05-20T20:11:51.513546+00:00"
+}

@@ -1,0 +1,31 @@
+# NCL pre-commit hooks
+#
+# Install once per clone:
+#   pip install pre-commit && pre-commit install
+#
+# Run against all files (one-off):
+#   pre-commit run --all-files
+#
+# Pinned to recent stable rev tags as of 2026-05-24. Bump via:
+#   pre-commit autoupdate
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      # Lint Python — autofix where safe, exit non-zero on leftover issues.
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      # Format Python (replaces black).
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+        # Cap commits at 5 MB — keeps data/, models/, *.bsp out of git.
+        args: [--maxkb=5120]

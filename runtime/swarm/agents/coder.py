@@ -11,9 +11,10 @@ import logging
 import time
 import traceback
 
-from . import register_agent
 from ..agent_base import SwarmAgent
 from ..models import SubtaskNode, TaskResult, TaskStatus
+from . import register_agent
+
 
 logger = logging.getLogger("ncl.swarm.coder")
 
@@ -25,7 +26,9 @@ class CoderAgent(SwarmAgent):
     a local model for generation and Claude for quality review.
     """
 
-    DESCRIPTION = "Coder — code generation, refactoring, testing, bugfix (deepseek-coder + Claude review)"
+    DESCRIPTION = (
+        "Coder — code generation, refactoring, testing, bugfix (deepseek-coder + Claude review)"
+    )
 
     def __str__(self) -> str:
         return f"CoderAgent(id={self.agent_id}, state={self.state.value})"
@@ -40,14 +43,17 @@ class CoderAgent(SwarmAgent):
             spec = task.input_data.get("spec") or task.input_data.get("description", task.title)
             language = task.input_data.get("language", "python")
             context = task.input_data.get("context", "")
-            task_type = task.input_data.get("task_type", "generate")  # generate, refactor, test, bugfix
+            task_type = task.input_data.get(
+                "task_type", "generate"
+            )  # generate, refactor, test, bugfix
             existing_code = task.input_data.get("existing_code", "")
             max_revisions = task.input_data.get("max_revisions", 2)
 
             # Wrap task-supplied data in <task_data> tags to prevent prompt injection
             context_block = (
-                f"\n<task_data>\nExisting Code Context:\n```{language}\n{existing_code}\n```\n</task_data>"
-                if existing_code else ""
+                f"\n<task_data>\nExisting Code Context:\n```{language}\n{existing_code}\n```\n</task_data>"  # noqa: E501
+                if existing_code
+                else ""
             )
 
             # --- Phase 1: Generate with deepseek-coder ---
@@ -109,10 +115,12 @@ class CoderAgent(SwarmAgent):
 
             generated_code = gen_response.content
 
-            await self.checkpoint({
-                "phase": "generation_complete",
-                "task_type": task_type,
-            })
+            await self.checkpoint(
+                {
+                    "phase": "generation_complete",
+                    "task_type": task_type,
+                }
+            )
 
             # --- Phase 2: Claude review ---
             review_prompt = (
@@ -154,7 +162,9 @@ class CoderAgent(SwarmAgent):
                         if i % 2 == 1:  # Odd indices are code blocks
                             # Strip language identifier from first line
                             lines = part.strip().split("\n")
-                            if lines and not lines[0].strip().startswith(("def ", "class ", "import ", "from ", "#", "/", "{", "<")):
+                            if lines and not lines[0].strip().startswith(
+                                ("def ", "class ", "import ", "from ", "#", "/", "{", "<")
+                            ):
                                 lines = lines[1:]
                             final_code = "\n".join(lines)
                             break
@@ -183,7 +193,9 @@ class CoderAgent(SwarmAgent):
                             for i, part in enumerate(parts):
                                 if i % 2 == 1:
                                     lines = part.strip().split("\n")
-                                    if lines and not lines[0].strip().startswith(("def ", "class ", "import ", "from ", "#", "/", "{", "<")):
+                                    if lines and not lines[0].strip().startswith(
+                                        ("def ", "class ", "import ", "from ", "#", "/", "{", "<")
+                                    ):
                                         lines = lines[1:]
                                     final_code = "\n".join(lines)
                                     break

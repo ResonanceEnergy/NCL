@@ -1,8 +1,15 @@
 """Tests for NCL models."""
+
 import pytest
+
 from runtime.ncl_brain.models import (
-    PumpPrompt, Mandate, MandateStatus, PillarType,
-    CouncilSession, CouncilStatus, ConsensusScore,
+    ConsensusScore,
+    CouncilSession,
+    CouncilStatus,
+    Mandate,
+    MandateStatus,
+    PillarType,
+    PumpPrompt,
 )
 
 
@@ -13,15 +20,18 @@ def test_pump_prompt_creation():
 
 
 def test_mandate_creation():
+    # W10A-6 (2026-05-24): BRS/AAC pillars retired 2026-05-23 — enum now only
+    # exposes NCL + NCC. NCL is the standalone target; NCC kept for legacy
+    # back-compat. We assert with NCL since that's the current production target.
     m = Mandate(
         mandate_id="MND-001",
-        pillar=PillarType.BRS,
+        pillar=PillarType.NCL,
         priority=7,
         title="Test mandate",
         objective="Test objective",
     )
     assert m.status == MandateStatus.DRAFT
-    assert m.pillar == PillarType.BRS
+    assert m.pillar == PillarType.NCL
 
 
 def test_mandate_status_values():

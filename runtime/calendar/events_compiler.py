@@ -34,7 +34,8 @@ this dict so iOS only deals with one type:
     "url":           str | None,         # back to source
     "raw":           dict,               # original payload
   }
-"""
+"""  # noqa: E501
+
 from __future__ import annotations
 
 import asyncio
@@ -46,9 +47,10 @@ import re
 import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any, Optional
 
 import httpx
+
 
 log = logging.getLogger("ncl.calendar.events_compiler")
 
@@ -348,9 +350,7 @@ async def _pull_scanner(start: date, end: date) -> list[dict]:
                         continue
 
                     impact = (
-                        "critical" if importance >= 90 else
-                        "high" if importance >= 75 else
-                        "medium"
+                        "critical" if importance >= 90 else "high" if importance >= 75 else "medium"
                     )
                     sid = sig.get("signal_id") or sig.get("id") or fp.name
                     events.append(
@@ -383,6 +383,7 @@ async def _pull_portfolio(start: date, end: date) -> list[dict]:
     # Try to get held tickers from the injected PortfolioManager (Brain runtime).
     try:
         from runtime.portfolio import portfolio_routes  # type: ignore
+
         pm = getattr(portfolio_routes, "_portfolio_manager", None)
         if pm is not None:
             positions = pm.get_positions()
@@ -448,7 +449,10 @@ async def _pull_portfolio(start: date, end: date) -> list[dict]:
 
     log.info(
         "compiler: portfolio pulled=%d (tickers=%d, range %s..%s)",
-        len(events), len(tickers), start, end,
+        len(events),
+        len(tickers),
+        start,
+        end,
     )
     return events
 
@@ -467,10 +471,7 @@ async def _pull_intel(start: date, end: date) -> list[dict]:
             log.debug("intel: skip %s (%s)", fp.name, e)
             continue
 
-        ts = (
-            _coerce_date(data.get("timestamp"))
-            or _coerce_date(data.get("reference_date"))
-        )
+        ts = _coerce_date(data.get("timestamp")) or _coerce_date(data.get("reference_date"))
         if not ts:
             continue
         if ts < cutoff:
@@ -754,6 +755,7 @@ async def _compile_unified_fresh(
     async def _market() -> list[dict]:
         try:
             from runtime.calendar.events import get_all_events  # type: ignore
+
             raw = await get_all_events(start, end)
             out = []
             for ev in raw or []:
@@ -770,6 +772,7 @@ async def _compile_unified_fresh(
     async def _local() -> list[dict]:
         try:
             from runtime.calendar.local_events import get_local_events  # type: ignore
+
             raw = await get_local_events(city_id, start, end)
             out = []
             for ev in raw or []:
@@ -831,7 +834,7 @@ async def compile_unified_events(
 # A source can be filtered out below its threshold even if it survives global
 # `min_quality_score`. Scanner needs a higher bar than journal entries.
 _DEFAULT_SOURCE_QUALITY_THRESHOLD = {
-    "scanner": 0.75,    # importance_score >= 80 (see _IMPACT_TO_SCORE)
+    "scanner": 0.75,  # importance_score >= 80 (see _IMPACT_TO_SCORE)
     "intel": 0.40,
     "journal": 0.35,
     "council": 0.45,
@@ -891,22 +894,30 @@ def _dedup_scanner_by_ticker_date(events: list[dict]) -> list[dict]:
             out.append(ev)
             continue
         # Keep higher-impact one; merge entities/tickers metadata
-        if impact_rank.get(ev.get("impact", "low"), 9) < impact_rank.get(prior.get("impact", "low"), 9):
+        if impact_rank.get(ev.get("impact", "low"), 9) < impact_rank.get(
+            prior.get("impact", "low"), 9
+        ):
             # current ev wins — replace in-place in out list
             idx = out.index(prior)
-            merged_entities = sorted(set((prior.get("entities") or []) + (ev.get("entities") or [])))
+            merged_entities = sorted(
+                set((prior.get("entities") or []) + (ev.get("entities") or []))
+            )
             merged_tickers = sorted(set((prior.get("tickers") or []) + (ev.get("tickers") or [])))
             ev2 = dict(ev)
             ev2["entities"] = merged_entities
             ev2["tickers"] = merged_tickers
-            ev2.setdefault("raw", {})["dedup_collapsed"] = (ev2["raw"].get("dedup_collapsed", 0) + 1)
+            ev2.setdefault("raw", {})["dedup_collapsed"] = ev2["raw"].get("dedup_collapsed", 0) + 1
             out[idx] = ev2
             seen[key] = ev2
         else:
             # prior wins — fold this one's metadata into prior
-            prior["entities"] = sorted(set((prior.get("entities") or []) + (ev.get("entities") or [])))
+            prior["entities"] = sorted(
+                set((prior.get("entities") or []) + (ev.get("entities") or []))
+            )
             prior["tickers"] = sorted(set((prior.get("tickers") or []) + (ev.get("tickers") or [])))
-            prior.setdefault("raw", {})["dedup_collapsed"] = (prior["raw"].get("dedup_collapsed", 0) + 1)
+            prior.setdefault("raw", {})["dedup_collapsed"] = (
+                prior["raw"].get("dedup_collapsed", 0) + 1
+            )
     return out
 
 
@@ -935,9 +946,13 @@ def _dedup_same_title_24h(events: list[dict]) -> list[dict]:
         prior_sources = prior.setdefault("sources", [prior.get("source", "")])
         if ev.get("source") and ev.get("source") not in prior_sources:
             prior_sources.append(ev.get("source"))
-        if impact_rank.get(ev.get("impact", "low"), 9) < impact_rank.get(prior.get("impact", "low"), 9):
+        if impact_rank.get(ev.get("impact", "low"), 9) < impact_rank.get(
+            prior.get("impact", "low"), 9
+        ):
             prior["impact"] = ev.get("impact", prior.get("impact"))
-            if ev.get("description") and len(ev.get("description", "")) > len(prior.get("description", "")):
+            if ev.get("description") and len(ev.get("description", "")) > len(
+                prior.get("description", "")
+            ):
                 prior["description"] = ev["description"]
     return out
 
@@ -974,7 +989,9 @@ def _cap_scanner_share(events: list[dict], max_share: float = 0.30) -> list[dict
     return out
 
 
-def _exclude_first_n_days(events: list[dict], exclude_days: int, today: Optional[date] = None) -> list[dict]:
+def _exclude_first_n_days(
+    events: list[dict], exclude_days: int, today: Optional[date] = None
+) -> list[dict]:
     """Drop events with date < today + exclude_days. Used by 30-day view to
     skip the 7 days already shown in the 7-day tab.
     """

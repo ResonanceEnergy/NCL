@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Coroutine
 
+
 logger = logging.getLogger(__name__)
 
 SubscriptionCallback = Callable[[str, Any], Coroutine[Any, Any, None]]
@@ -78,9 +79,7 @@ class Blackboard:
         (Gap 12).
         """
         if self._persist_path and self._persist_path.exists():
-            await asyncio.get_running_loop().run_in_executor(
-                None, self._load_from_disk
-            )
+            await asyncio.get_running_loop().run_in_executor(None, self._load_from_disk)
 
     # ------------------------------------------------------------------
     # Public API
@@ -169,8 +168,7 @@ class Blackboard:
             keys = [
                 k
                 for k, entry in self._store.items()
-                if k.startswith(prefix)
-                and (entry.expires_at is None or now < entry.expires_at)
+                if k.startswith(prefix) and (entry.expires_at is None or now < entry.expires_at)
             ]
         return sorted(keys)
 
@@ -354,7 +352,9 @@ class Blackboard:
                 entry.expires_at = expires_at
                 self._store[key] = entry
 
-            logger.info("Blackboard loaded %d entries from %s", len(self._store), self._persist_path)
+            logger.info(
+                "Blackboard loaded %d entries from %s", len(self._store), self._persist_path
+            )
         except (json.JSONDecodeError, KeyError) as exc:
             logger.error("Failed to load blackboard from disk: %s", exc)
 

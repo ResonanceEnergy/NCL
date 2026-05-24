@@ -1,0 +1,42 @@
+-- ─────────────────────────────────────────────────────────────────
+-- indexes_w10.sql — composite descending-order index for Focus tab
+-- ─────────────────────────────────────────────────────────────────
+-- W10A-12 (2026-05-24): Wave 9 A6 EXPLAIN QUERY PLAN revealed that
+-- Q1 — `WHERE authority_tier >= 60 ORDER BY importance DESC LIMIT 10`
+-- (the Focus tab / working-context salience scan) was falling back to
+-- `idx_units_importance` and post-filtering by authority_tier instead
+-- of using the W8 composite `idx_units_authority_importance`.
+--
+-- Why the W8 index missed: it was declared as
+--   (authority_tier, importance DESC)
+-- with the leading column in ASC order. The planner can use a leading
+-- range scan there, but the ORDER BY importance DESC on the remaining
+-- rows still requires a sort within each authority_tier bucket and
+-- the planner abandons the composite when LIMIT is small.
+--
+-- The new index pins BOTH columns to DESC so the planner can stream
+-- the top-N rows straight off the b-tree without any sort step:
+--   WHERE authority_tier >= 60   → range scan on the leading column
+--   ORDER BY importance DESC     → satisfied by physical order
+--   LIMIT 10                     → 10 b-tree leaf reads, no sort
+--
+-- Idempotency: `IF NOT EXISTS` guard + `schema_migrations` table
+-- records this filename once. Lex order places it after
+-- `zz_indexes_w8.sql`, so on the next boot the migration loader
+-- (`runtime/persistence/sqlite_store.py::_apply_migrations_unlocked`)
+-- applies this file exactly once and stamps it.
+--
+-- Coexistence note: the W8 `idx_units_authority_importance`
+-- (ASC, DESC) is NOT dropped here. It still accelerates queries that
+-- ORDER BY authority_tier ASC (e.g. low-to-high authority sweeps).
+-- The two indexes serve different sort orders; SQLite's planner picks
+-- the cheaper one per query. If a future audit shows the ASC variant
+-- is unused, drop it in its own migration — do not bundle the drop
+-- here.
+-- ─────────────────────────────────────────────────────────────────
+
+-- units_index composite — DESCENDING authority + DESCENDING importance
+-- Used by: Focus tab (Q1), working_context salience scan, chat_context
+-- assembly, /memory/by-authority?min_tier=… top-N reads.
+CREATE INDEX IF NOT EXISTS idx_units_authority_importance_desc
+    ON units_index(authority_tier DESC, importance DESC);

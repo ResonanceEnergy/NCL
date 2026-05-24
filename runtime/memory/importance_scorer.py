@@ -17,12 +17,11 @@ Scoring criteria:
 Falls back to rule-based scoring if the LLM call fails or is unavailable.
 """
 
-import asyncio
 import json
 import logging
-import os
 import re
 from typing import Optional
+
 
 log = logging.getLogger("ncl.memory.importance_scorer")
 
@@ -80,25 +79,25 @@ async def llm_importance_score(
     content: str,
     source: str = "",
     tags: list[str] = None,
-    timeout: float = 5.0,
+    timeout: float = 30.0,
     model: str = "claude-sonnet-4-20250514",
 ) -> Optional[float]:
     """
-    Use Claude Haiku to evaluate memory importance on a 1-10 scale.
+    Use Claude Sonnet to evaluate memory importance on a 1-10 scale.
 
     Returns None if the LLM call fails (caller should fall back to rule-based).
+
+    Routed through ``runtime.llm.chat`` — the facade owns retry+jitter,
+    circuit-breaker, budget gating, and cost recording. This function
+    just builds the prompt and parses the JSON reply.
 
     Args:
         content: Memory content to evaluate
         source: Source label
         tags: Associated tags
         timeout: Max seconds to wait for LLM response
+        model: Model id (must be in ``runtime.llm.MODEL_REGISTRY``)
     """
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        log.debug("No ANTHROPIC_API_KEY — skipping LLM importance scoring")
-        return None
-
     tags = tags or []
 
     prompt = f"""Rate the importance of this memory on a scale of 1-10 for a business intelligence system.
@@ -116,56 +115,28 @@ Source: {source}
 Tags: {', '.join(tags[:5])}
 Content: {content[:500]}
 
-Respond with ONLY a JSON object: {{"score": N, "type": "episodic|semantic|decision|preference|signal|procedural"}}"""
+Respond with ONLY a JSON object: {{"score": N, "type": "episodic|semantic|decision|preference|signal|procedural"}}"""  # noqa: E501
 
     try:
-        import httpx
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(
-                "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": api_key,
-                    "anthropic-version": "2023-06-01",
-                    "content-type": "application/json",
-                },
-                json={
-                    "model": model,
-                    "max_tokens": 100,
-                    "messages": [{"role": "user", "content": prompt}],
-                },
-            )
-            if resp.status_code != 200:
-                log.debug(f"LLM importance scoring HTTP {resp.status_code}")
-                return None
+        from runtime.llm import chat
 
-            data = resp.json()
+        result = await chat(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=100,
+            budget_key="anthropic",
+            timeout_s=timeout,
+        )
+        text = result.text
 
-            # Track cost
-            try:
-                from ..cost_tracker import record_cost
-                usage = data.get("usage", {})
-                input_t = usage.get("input_tokens", 0)
-                output_t = usage.get("output_tokens", 0)
-                cost_usd = (input_t * 3.00 + output_t * 15.00) / 1_000_000  # Sonnet pricing
-                await record_cost("anthropic", cost_usd, "memory_scoring",
-                                  f"importance scoring in={input_t} out={output_t}")
-            except Exception:
-                pass  # Cost tracking should never break the primary flow
+        # Parse JSON response — strip markdown fences if present
+        text = re.sub(r"```json\s*", "", text)
+        text = re.sub(r"```\s*", "", text)
 
-            text = data.get("content", [{}])[0].get("text", "")
+        parsed = json.loads(text.strip())
+        score = float(parsed.get("score", 5))
+        return max(1.0, min(10.0, score))
 
-            # Parse JSON response
-            # Strip markdown fences if present
-            text = re.sub(r"```json\s*", "", text)
-            text = re.sub(r"```\s*", "", text)
-
-            parsed = json.loads(text.strip())
-            score = float(parsed.get("score", 5))
-            return max(1.0, min(10.0, score))
-
-    except asyncio.TimeoutError:
-        log.debug("LLM importance scoring timed out")
-        return None
     except Exception as e:
         log.debug(f"LLM importance scoring failed: {e}")
         return None

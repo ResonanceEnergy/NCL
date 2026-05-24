@@ -40,6 +40,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Iterable, Optional
 
+
 logger = logging.getLogger(__name__)
 
 # Lazy-imported heavy deps — kept optional so the module py_compiles
@@ -50,15 +51,81 @@ except ImportError:  # pragma: no cover
     np = None  # type: ignore[assignment]
 
 _STOPWORDS = {
-    "a", "an", "and", "are", "as", "at", "be", "but", "by", "for",
-    "from", "has", "have", "he", "her", "his", "how", "i", "in", "is",
-    "it", "its", "of", "on", "or", "she", "that", "the", "their", "they",
-    "this", "to", "was", "were", "what", "when", "where", "which", "who",
-    "will", "with", "you", "your", "we", "our", "us", "them", "those",
-    "these", "there", "than", "then", "into", "about", "after", "before",
-    "just", "more", "most", "some", "such", "only", "also", "would",
-    "could", "should", "been", "being", "via", "amp", "https", "http",
-    "com", "www", "rt",
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "but",
+    "by",
+    "for",
+    "from",
+    "has",
+    "have",
+    "he",
+    "her",
+    "his",
+    "how",
+    "i",
+    "in",
+    "is",
+    "it",
+    "its",
+    "of",
+    "on",
+    "or",
+    "she",
+    "that",
+    "the",
+    "their",
+    "they",
+    "this",
+    "to",
+    "was",
+    "were",
+    "what",
+    "when",
+    "where",
+    "which",
+    "who",
+    "will",
+    "with",
+    "you",
+    "your",
+    "we",
+    "our",
+    "us",
+    "them",
+    "those",
+    "these",
+    "there",
+    "than",
+    "then",
+    "into",
+    "about",
+    "after",
+    "before",
+    "just",
+    "more",
+    "most",
+    "some",
+    "such",
+    "only",
+    "also",
+    "would",
+    "could",
+    "should",
+    "been",
+    "being",
+    "via",
+    "amp",
+    "https",
+    "http",
+    "com",
+    "www",
+    "rt",
 }
 
 _WORD_RE = re.compile(r"[A-Za-z][A-Za-z0-9_\-]{2,}")
@@ -146,7 +213,8 @@ class TopicClusterer:
         """Cluster a signal buffer into topical groups."""
         if not signals:
             self._last_stats.update(
-                clusters_total=0, signals_clustered=0,
+                clusters_total=0,
+                signals_clustered=0,
                 noise_pct=0.0,
                 last_clustered_at=datetime.now(timezone.utc).isoformat(),
             )
@@ -179,10 +247,9 @@ class TopicClusterer:
             kws = cluster_keywords.get(cid, [])
             centroid = self._centroid(embeddings, member_idxs)
             sources = {getattr(s, "source", "") for s in members if getattr(s, "source", "")}
-            avg_score = (
-                sum(float(getattr(s, "composite_score", 0.0) or 0.0) for s in members)
-                / max(1, len(members))
-            )
+            avg_score = sum(
+                float(getattr(s, "composite_score", 0.0) or 0.0) for s in members
+            ) / max(1, len(members))
             sector = self._infer_sector(kws + [getattr(s, "title", "") for s in members])
 
             cluster = TopicCluster(
@@ -215,7 +282,9 @@ class TopicClusterer:
         }
         logger.info(
             "[TOPIC_CLUSTER] %d clusters from %d signals (%.1f%% noise)",
-            len(clusters), total, noise_pct,
+            len(clusters),
+            total,
+            noise_pct,
         )
         return clusters
 
@@ -326,10 +395,7 @@ class TopicClusterer:
 
     @staticmethod
     def _tokenize(text: str) -> list[str]:
-        return [
-            w.lower() for w in _WORD_RE.findall(text or "")
-            if w.lower() not in _STOPWORDS
-        ]
+        return [w.lower() for w in _WORD_RE.findall(text or "") if w.lower() not in _STOPWORDS]
 
     def _c_tf_idf(
         self,
@@ -407,13 +473,15 @@ class TopicClusterer:
                 except Exception as e:  # pragma: no cover
                     logger.warning(
                         "[TOPIC_CLUSTER] LLM label failed for cluster %d: %s",
-                        c.cluster_id, e,
+                        c.cluster_id,
+                        e,
                     )
 
         await asyncio.gather(*[_one(c) for c in clusters])
 
 
 # ── module-level helper ───────────────────────────────────────────────
+
 
 async def label_with_llm(
     cluster: TopicCluster,
@@ -442,4 +510,6 @@ async def label_with_llm(
     if asyncio.iscoroutine(res):
         res = await res
     label = (res or "").strip().strip("\"'").splitlines()[0] if res else ""
-    return label[:120] or (cluster.keywords[0] if cluster.keywords else f"cluster_{cluster.cluster_id}")
+    return label[:120] or (
+        cluster.keywords[0] if cluster.keywords else f"cluster_{cluster.cluster_id}"
+    )

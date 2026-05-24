@@ -19,6 +19,7 @@ from typing import Optional
 
 from ..shared.models import Transcript, TranscriptSegment
 
+
 log = logging.getLogger("ncl.councils.youtube.transcriber")
 
 # Model config
@@ -28,7 +29,9 @@ WHISPER_COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", "int8")  # int8 for spe
 WHISPER_BEAM_SIZE = int(os.getenv("WHISPER_BEAM_SIZE", "5"))
 
 # Transcript cache dir — same as audio cache, stores .transcript.json alongside .mp3
-_TRANSCRIPT_CACHE_DIR = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL"))) / ".cache" / "youtube-audio"
+_TRANSCRIPT_CACHE_DIR = (
+    Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL"))) / ".cache" / "youtube-audio"
+)
 
 # Audio cleanup: delete audio files older than this many days
 _AUDIO_MAX_AGE_DAYS = int(os.getenv("YTC_AUDIO_MAX_AGE_DAYS", "14"))
@@ -48,7 +51,9 @@ def _load_cached_transcript(video_id: str) -> Optional[Transcript]:
         data = json.loads(cache_file.read_text(encoding="utf-8"))
         segments = [
             TranscriptSegment(
-                start=s["start"], end=s["end"], text=s["text"],
+                start=s["start"],
+                end=s["end"],
+                text=s["text"],
             )
             for s in data.get("segments", [])
         ]
@@ -75,8 +80,7 @@ def _save_transcript_cache(video_id: str, transcript: Transcript) -> None:
             "language": transcript.language,
             "model_used": transcript.model_used,
             "segments": [
-                {"start": s.start, "end": s.end, "text": s.text}
-                for s in transcript.segments
+                {"start": s.start, "end": s.end, "text": s.text} for s in transcript.segments
             ],
             "cached_at": time.time(),
         }
@@ -165,12 +169,15 @@ def _get_faster_whisper_model():
     if _faster_whisper_model is not None:
         return _faster_whisper_model
     from faster_whisper import WhisperModel
+
     _faster_whisper_model = WhisperModel(
         WHISPER_MODEL,
         device=WHISPER_DEVICE,
         compute_type=WHISPER_COMPUTE_TYPE,
     )
-    log.info(f"faster-whisper model loaded: {WHISPER_MODEL} ({WHISPER_DEVICE}/{WHISPER_COMPUTE_TYPE})")
+    log.info(
+        f"faster-whisper model loaded: {WHISPER_MODEL} ({WHISPER_DEVICE}/{WHISPER_COMPUTE_TYPE})"
+    )
     return _faster_whisper_model
 
 
@@ -181,7 +188,7 @@ def _transcribe_faster_whisper(
 ) -> Optional[Transcript]:
     """Transcribe using faster-whisper (CTranslate2 backend)."""
     try:
-        from faster_whisper import WhisperModel
+        from faster_whisper import WhisperModel  # noqa: F401
     except ImportError:
         log.debug("faster-whisper not installed — skipping")
         return None
@@ -204,11 +211,13 @@ def _transcribe_faster_whisper(
 
         segments = []
         for seg in segments_iter:
-            segments.append(TranscriptSegment(
-                start=seg.start,
-                end=seg.end,
-                text=seg.text.strip(),
-            ))
+            segments.append(
+                TranscriptSegment(
+                    start=seg.start,
+                    end=seg.end,
+                    text=seg.text.strip(),
+                )
+            )
 
         elapsed = time.monotonic() - start
         duration = segments[-1].end if segments else 0
@@ -252,11 +261,13 @@ def _transcribe_mlx_whisper(
 
         segments = []
         for seg in result.get("segments", []):
-            segments.append(TranscriptSegment(
-                start=seg["start"],
-                end=seg["end"],
-                text=seg["text"].strip(),
-            ))
+            segments.append(
+                TranscriptSegment(
+                    start=seg["start"],
+                    end=seg["end"],
+                    text=seg["text"].strip(),
+                )
+            )
 
         elapsed = time.monotonic() - start
         log.info(f"mlx-whisper: {len(segments)} segments in {elapsed:.1f}s")
@@ -280,8 +291,8 @@ def _split_audio_for_api(audio_path: Path, max_size_mb: float = 24.0) -> list[Pa
     a chunk duration that keeps each piece under max_size_mb. Returns list of
     chunk file paths (caller should clean up after use).
     """
-    import subprocess
     import math
+    import subprocess
 
     file_size = audio_path.stat().st_size
     max_bytes = int(max_size_mb * 1024 * 1024)
@@ -294,9 +305,19 @@ def _split_audio_for_api(audio_path: Path, max_size_mb: float = 24.0) -> list[Pa
     # Get duration via ffprobe
     try:
         probe = subprocess.run(
-            [ffmpeg.replace("ffmpeg", "ffprobe"), "-v", "quiet", "-show_entries",
-             "format=duration", "-of", "csv=p=0", str(audio_path)],
-            capture_output=True, text=True, timeout=10,
+            [
+                ffmpeg.replace("ffmpeg", "ffprobe"),
+                "-v",
+                "quiet",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "csv=p=0",
+                str(audio_path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         duration = float(probe.stdout.strip())
     except Exception:
@@ -308,8 +329,10 @@ def _split_audio_for_api(audio_path: Path, max_size_mb: float = 24.0) -> list[Pa
     chunk_duration = max(chunk_duration, 60)  # At least 60 seconds
 
     num_chunks = math.ceil(duration / chunk_duration)
-    log.info(f"Splitting {audio_path.name} ({file_size / 1024 / 1024:.1f}MB, {duration:.0f}s) "
-             f"into ~{num_chunks} chunks of {chunk_duration}s each")
+    log.info(
+        f"Splitting {audio_path.name} ({file_size / 1024 / 1024:.1f}MB, {duration:.0f}s) "
+        f"into ~{num_chunks} chunks of {chunk_duration}s each"
+    )
 
     chunks: list[Path] = []
     chunk_dir = audio_path.parent / f"_chunks_{audio_path.stem}"
@@ -317,11 +340,24 @@ def _split_audio_for_api(audio_path: Path, max_size_mb: float = 24.0) -> list[Pa
 
     try:
         result = subprocess.run(
-            [ffmpeg, "-i", str(audio_path), "-f", "segment",
-             "-segment_time", str(chunk_duration), "-c", "copy",
-             "-reset_timestamps", "1", "-y",
-             str(chunk_dir / f"chunk_%03d{audio_path.suffix}")],
-            capture_output=True, text=True, timeout=120,
+            [
+                ffmpeg,
+                "-i",
+                str(audio_path),
+                "-f",
+                "segment",
+                "-segment_time",
+                str(chunk_duration),
+                "-c",
+                "copy",
+                "-reset_timestamps",
+                "1",
+                "-y",
+                str(chunk_dir / f"chunk_%03d{audio_path.suffix}"),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
         )
         if result.returncode != 0:
             log.warning(f"ffmpeg split failed: {result.stderr[:300]}")
@@ -365,14 +401,17 @@ def _transcribe_openai_api(
         if len(chunks) == 1 and chunks[0] == audio_path:
             # Split failed and file is still too large — can't proceed
             if file_size > 25 * 1024 * 1024:
-                log.warning(f"Audio file too large for OpenAI API ({file_size / 1024 / 1024:.1f}MB > 25MB) "
-                            f"and splitting failed")
+                log.warning(
+                    f"Audio file too large for OpenAI API ({file_size / 1024 / 1024:.1f}MB > 25MB) "
+                    f"and splitting failed"
+                )
                 return None
     else:
         chunks = [audio_path]
 
     try:
         import subprocess
+
         start = time.monotonic()
         all_segments: list[TranscriptSegment] = []
         time_offset = 0.0
@@ -383,16 +422,28 @@ def _transcribe_openai_api(
             chunk_duration = 0.0
             try:
                 probe = subprocess.run(
-                    ["/opt/homebrew/bin/ffprobe", "-v", "quiet", "-show_entries",
-                     "format=duration", "-of", "csv=p=0", str(chunk_path)],
-                    capture_output=True, text=True, timeout=10,
+                    [
+                        "/opt/homebrew/bin/ffprobe",
+                        "-v",
+                        "quiet",
+                        "-show_entries",
+                        "format=duration",
+                        "-of",
+                        "csv=p=0",
+                        str(chunk_path),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
                 )
                 chunk_duration = float(probe.stdout.strip())
             except Exception:
                 chunk_duration = 600.0  # 10 min fallback
 
-            log.info(f"Transcribing chunk {chunk_idx + 1}/{len(chunks)} "
-                     f"({chunk_path.stat().st_size / 1024 / 1024:.1f}MB, offset={time_offset:.0f}s)")
+            log.info(
+                f"Transcribing chunk {chunk_idx + 1}/{len(chunks)} "
+                f"({chunk_path.stat().st_size / 1024 / 1024:.1f}MB, offset={time_offset:.0f}s)"
+            )
 
             with open(chunk_path, "rb") as f:
                 response = httpx.post(
@@ -413,17 +464,21 @@ def _transcribe_openai_api(
             detected_language = data.get("language", detected_language)
 
             for seg in data.get("segments", []):
-                all_segments.append(TranscriptSegment(
-                    start=seg["start"] + time_offset,
-                    end=seg["end"] + time_offset,
-                    text=seg["text"].strip(),
-                ))
+                all_segments.append(
+                    TranscriptSegment(
+                        start=seg["start"] + time_offset,
+                        end=seg["end"] + time_offset,
+                        text=seg["text"].strip(),
+                    )
+                )
 
             time_offset += chunk_duration
 
         elapsed = time.monotonic() - start
-        log.info(f"OpenAI Whisper API: {len(all_segments)} segments in {elapsed:.1f}s "
-                 f"({len(chunks)} chunk{'s' if len(chunks) > 1 else ''})")
+        log.info(
+            f"OpenAI Whisper API: {len(all_segments)} segments in {elapsed:.1f}s "
+            f"({len(chunks)} chunk{'s' if len(chunks) > 1 else ''})"
+        )
 
         return Transcript(
             video_id=video_id,
@@ -441,6 +496,7 @@ def _transcribe_openai_api(
             chunk_dir = audio_path.parent / f"_chunks_{audio_path.stem}"
             if chunk_dir.exists():
                 import shutil
+
                 try:
                     shutil.rmtree(chunk_dir)
                 except Exception:

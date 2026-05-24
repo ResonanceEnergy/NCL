@@ -15,6 +15,7 @@ import httpx
 
 from .models import SourceResult, SourceType
 
+
 log = logging.getLogger("uni.gatherer")
 
 
@@ -86,7 +87,7 @@ class ResearchGatherer:
 
                 results.extend(sources)
                 log.info(
-                    f"Gathered {len(sources)} sources from {source_type.value} for: {sub_question[:50]}"
+                    f"Gathered {len(sources)} sources from {source_type.value} for: {sub_question[:50]}"  # noqa: E501
                 )
 
             except Exception as e:
@@ -98,9 +99,7 @@ class ResearchGatherer:
 
         return results
 
-    async def gather_all(
-        self, plan: dict[str, Any]
-    ) -> list[SourceResult]:
+    async def gather_all(self, plan: dict[str, Any]) -> list[SourceResult]:
         """
         Execute full gathering plan, running all sub-questions in parallel.
 
@@ -120,12 +119,16 @@ class ResearchGatherer:
             task = self.gather_sources(question, source_types)
             tasks.append(task)
 
-        # Run all in parallel
-        all_results = await asyncio.gather(*tasks, return_exceptions=False)
+        # Run all in parallel. One bad source must not kill the rest of the
+        # research sweep — failed sub-questions are logged and skipped.
+        all_results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Flatten results
         sources = []
         for result_list in all_results:
+            if isinstance(result_list, Exception):
+                log.warning("[GATHER] uni_research_subquestion task failed: %s", result_list)
+                continue
             sources.extend(result_list)
 
         log.info(f"Completed gathering phase: {len(sources)} sources collected")
@@ -159,12 +162,17 @@ class ResearchGatherer:
                 # Track cost
                 try:
                     from ..cost_tracker import record_cost
+
                     usage = data.get("usage", {})
                     input_t = usage.get("input_tokens", 0)
                     output_t = usage.get("output_tokens", 0)
                     cost_usd = (input_t * 3.0 + output_t * 15.0) / 1_000_000
-                    await record_cost("anthropic", cost_usd, "uni_gathering",
-                                      f"claude research in={input_t} out={output_t}")
+                    await record_cost(
+                        "anthropic",
+                        cost_usd,
+                        "uni_gathering",
+                        f"claude research in={input_t} out={output_t}",
+                    )
                 except Exception:
                     pass
 
@@ -190,12 +198,17 @@ class ResearchGatherer:
                 # Track cost
                 try:
                     from ..cost_tracker import record_cost
+
                     usage = data.get("usage", {})
                     input_t = usage.get("prompt_tokens", 0)
                     output_t = usage.get("completion_tokens", 0)
                     cost_usd = (input_t * 2.0 + output_t * 10.0) / 1_000_000
-                    await record_cost("xai", cost_usd, "uni_gathering",
-                                      f"grok-3-mini research in={input_t} out={output_t}")
+                    await record_cost(
+                        "xai",
+                        cost_usd,
+                        "uni_gathering",
+                        f"grok-3-mini research in={input_t} out={output_t}",
+                    )
                 except Exception:
                     pass
 
@@ -246,7 +259,8 @@ class ResearchGatherer:
             # Extract URLs if present
             url = None
             import re
-            url_match = re.search(r'https?://[^\s\)\]]+', section)
+
+            url_match = re.search(r"https?://[^\s\)\]]+", section)
             if url_match:
                 url = url_match.group(0)
 
@@ -273,9 +287,7 @@ class ResearchGatherer:
 
         return results
 
-    async def _gather_web(
-        self, query: str, max_results: int = 3
-    ) -> list[SourceResult]:
+    async def _gather_web(self, query: str, max_results: int = 3) -> list[SourceResult]:
         """
         Gather web sources using LLM-powered research synthesis.
 
@@ -292,9 +304,7 @@ class ResearchGatherer:
         text = await self._llm_research(prompt)
         return self._parse_research_results(text, SourceType.WEB, query, max_results)
 
-    async def _gather_academic(
-        self, query: str, max_results: int = 3
-    ) -> list[SourceResult]:
+    async def _gather_academic(self, query: str, max_results: int = 3) -> list[SourceResult]:
         """Gather academic sources using LLM-powered scholarly research."""
         prompt = (
             f"Provide {max_results} relevant academic or peer-reviewed research findings "
@@ -305,9 +315,7 @@ class ResearchGatherer:
         text = await self._llm_research(prompt)
         return self._parse_research_results(text, SourceType.ACADEMIC, query, max_results)
 
-    async def _gather_news(
-        self, query: str, max_results: int = 3
-    ) -> list[SourceResult]:
+    async def _gather_news(self, query: str, max_results: int = 3) -> list[SourceResult]:
         """Gather news sources using LLM-powered current events research."""
         prompt = (
             f"Provide {max_results} recent news developments related to: {query}\n\n"
@@ -317,9 +325,7 @@ class ResearchGatherer:
         text = await self._llm_research(prompt)
         return self._parse_research_results(text, SourceType.NEWS, query, max_results)
 
-    async def _gather_social(
-        self, query: str, max_results: int = 3
-    ) -> list[SourceResult]:
+    async def _gather_social(self, query: str, max_results: int = 3) -> list[SourceResult]:
         """Gather social media and community discussion insights."""
         prompt = (
             f"Summarize {max_results} notable community discussions, forum threads, "
@@ -330,9 +336,7 @@ class ResearchGatherer:
         text = await self._llm_research(prompt)
         return self._parse_research_results(text, SourceType.SOCIAL, query, max_results)
 
-    async def _gather_internal(
-        self, query: str, max_results: int = 3
-    ) -> list[SourceResult]:
+    async def _gather_internal(self, query: str, max_results: int = 3) -> list[SourceResult]:
         """
         Gather from internal NCL memory, event history, and past research.
 
@@ -408,42 +412,17 @@ class ResearchGatherer:
         results.sort(key=lambda r: r.relevance_score, reverse=True)
         return results[:max_results]
 
-    async def _gather_market(
-        self, query: str, max_results: int = 3
-    ) -> list[SourceResult]:
+    async def _gather_market(self, query: str, max_results: int = 3) -> list[SourceResult]:
         """
         Gather market research and financial data.
 
-        Queries AAC War Room data if available, falls back to LLM synthesis.
+        Used to query the AAC War Room on port 8080 — that hook was retired
+        2026-05-23 (AAC pillar orphaned). Now falls straight through to LLM
+        synthesis.
         """
         results = []
 
-        # Try AAC endpoints for live market data
-        try:
-            resp = await self.http_client.get(
-                "http://localhost:8080/health", timeout=3.0,
-            )
-            if resp.status_code < 400:
-                # AAC is online — try to get market regime data
-                try:
-                    regime_resp = await self.http_client.get(
-                        "http://localhost:8080/regime", timeout=5.0,
-                    )
-                    if regime_resp.status_code < 400:
-                        data = regime_resp.json()
-                        result = SourceResult(
-                            source_type=SourceType.MARKET_DATA,
-                            url="http://localhost:8080/regime",
-                            title="AAC War Room: Current Market Regime",
-                            content=json.dumps(data, indent=2)[:1000],
-                            relevance_score=0.90,
-                            credibility_score=0.95,
-                        )
-                        results.append(result)
-                except Exception:
-                    pass
-        except Exception:
-            pass
+        # AAC War Room market-regime hook retired 2026-05-23 — skipped.
 
         # Fill remaining with LLM research
         if len(results) < max_results:
@@ -454,7 +433,9 @@ class ResearchGatherer:
             )
             text = await self._llm_research(prompt)
             results.extend(
-                self._parse_research_results(text, SourceType.MARKET_DATA, query, max_results - len(results))
+                self._parse_research_results(
+                    text, SourceType.MARKET_DATA, query, max_results - len(results)
+                )
             )
 
         return results[:max_results]

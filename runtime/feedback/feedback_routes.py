@@ -3,6 +3,7 @@
 Distinct from the pillar-feedback synthesis pipeline (scanner.py).
 Wired by Brain startup via `set_feedback_recorder(recorder)`.
 """
+
 from __future__ import annotations
 
 import logging
@@ -13,6 +14,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from .recorder import FeedbackRecorder
+
 
 log = logging.getLogger(__name__)
 

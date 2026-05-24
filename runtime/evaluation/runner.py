@@ -8,8 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from .models import GoldenTask, TaskResult, SuiteResult
 from .golden_tasks import get_golden_tasks
+from .models import GoldenTask, SuiteResult, TaskResult
 
 
 class GoldenTaskRunner:
@@ -188,7 +188,9 @@ class GoldenTaskRunner:
             content = input_data.get("content", "")
             for field in input_data["fields"]:
                 if field == "email":
-                    emails = re.findall(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b", content)
+                    emails = re.findall(
+                        r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b", content
+                    )
                     output["email"] = emails[0] if emails else None
                 elif field == "date":
                     dates = re.findall(r"\d{4}-\d{2}-\d{2}", content)
@@ -212,7 +214,7 @@ class GoldenTaskRunner:
             # Ensure unicode characters are preserved in output string representation
             output["unicode_preserved"] = True
             # Extract any unicode characters to ensure they're in output
-            unicode_chars = re.findall(r'[\u4e00-\u9fff€✓]', input_data["text"])
+            unicode_chars = re.findall(r"[\u4e00-\u9fff€✓]", input_data["text"])
             if unicode_chars:
                 output["unicode_content"] = "".join(unicode_chars)
 
@@ -240,7 +242,9 @@ class GoldenTaskRunner:
             if "level2" in input_data["level1"]:
                 if "level3" in input_data["level1"]["level2"]:
                     nested_target = input_data["level1"]["level2"]["level3"].get("value")
-                    signal = input_data["level1"]["level2"]["level3"].get("metadata", {}).get("type")
+                    signal = (
+                        input_data["level1"]["level2"]["level3"].get("metadata", {}).get("type")
+                    )
                     output["nested_target"] = nested_target
                     output["signal"] = signal
 
@@ -305,11 +309,7 @@ class GoldenTaskRunner:
                 output[f"{pillar}_plan"] = f"Plan for {pillar}"
 
         if "items" in input_data:
-            items = sorted(
-                input_data["items"],
-                key=lambda x: x.get("impact", 0),
-                reverse=True
-            )
+            items = sorted(input_data["items"], key=lambda x: x.get("impact", 0), reverse=True)
             output["priorities"] = [item["name"] for item in items]
             output["ranked"] = True
 
@@ -336,10 +336,7 @@ class GoldenTaskRunner:
         if "query_tags" in input_data and "memory" in input_data:
             query_tags = set(input_data["query_tags"])
             memory = input_data["memory"]
-            matches = [
-                m for m in memory
-                if set(m.get("tags", [])).intersection(query_tags)
-            ]
+            matches = [m for m in memory if set(m.get("tags", [])).intersection(query_tags)]
             output["matches"] = matches
             output["count"] = len(matches)
 
@@ -354,20 +351,14 @@ class GoldenTaskRunner:
             start = input_data["start"]
             end = input_data["end"]
             memory = input_data.get("memory", [])
-            in_range = [
-                m for m in memory
-                if start <= m.get("timestamp", "") <= end
-            ]
+            in_range = [m for m in memory if start <= m.get("timestamp", "") <= end]
             output["results"] = in_range
             output["in_range_count"] = len(in_range)
 
         if "query" in input_data and "memory" in input_data:
             query = input_data["query"]
             memory = input_data["memory"]
-            similar = [
-                m for m in memory
-                if query.lower() in m.get("content", "").lower()
-            ]
+            similar = [m for m in memory if query.lower() in m.get("content", "").lower()]
             output["similar"] = similar
             output["best_match"] = similar[0]["id"] if similar else None
 
@@ -487,7 +478,7 @@ class GoldenTaskRunner:
             output["dissent_count"] = len([v for v in votes if v == 0])
 
         if "member" in input_data:
-            member = input_data["member"]
+            member = input_data["member"]  # noqa: F841
             statement = input_data.get("statement", "")
             expected = input_data.get("expected_concern", "")
             output["adherent"] = expected.lower() in statement.lower()
@@ -570,10 +561,7 @@ class GoldenTaskRunner:
         if "tags" in input_data:
             query_tags = set(input_data["tags"])
             docs = input_data["documents"]
-            matches = [
-                doc for doc in docs
-                if query_tags == set(doc.get("tags", []))
-            ]
+            matches = [doc for doc in docs if query_tags == set(doc.get("tags", []))]
             output["matches"] = matches
             output["match_ids"] = [m["id"] for m in matches]
 
@@ -606,7 +594,7 @@ class GoldenTaskRunner:
                 "id": "generated_mandate",
                 "action": pump.get("action"),
                 "target": pump.get("target"),
-                "status": "active"
+                "status": "active",
             }
             output["status"] = "active"
             output["pillar"] = "finance"
@@ -617,9 +605,7 @@ class GoldenTaskRunner:
 
         return output or {"pipeline": True}
 
-    def _evaluate_task(
-        self, task: GoldenTask, actual_output: dict
-    ) -> tuple[bool, list[str]]:
+    def _evaluate_task(self, task: GoldenTask, actual_output: dict) -> tuple[bool, list[str]]:
         """
         Evaluate task output against expectations.
 
@@ -642,7 +628,9 @@ class GoldenTaskRunner:
         # Also check raw string representation for unicode patterns
         output_raw = str(actual_output)
         for pattern in task.expected_patterns:
-            if not re.search(pattern, output_str, re.IGNORECASE) and not re.search(pattern, output_raw, re.IGNORECASE):
+            if not re.search(pattern, output_str, re.IGNORECASE) and not re.search(
+                pattern, output_raw, re.IGNORECASE
+            ):
                 reasons.append(f"Output does not match pattern: {pattern}")
 
         # Check failure conditions
@@ -655,8 +643,7 @@ class GoldenTaskRunner:
             actual_type = type(actual_output).__name__
             if actual_type != task.expected_type:
                 reasons.append(
-                    f"Type mismatch: expected {task.expected_type}, "
-                    f"got {actual_type}"
+                    f"Type mismatch: expected {task.expected_type}, " f"got {actual_type}"
                 )
 
         return len(reasons) == 0, reasons
