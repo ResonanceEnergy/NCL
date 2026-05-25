@@ -621,3 +621,123 @@ async def morning_quiz_history(
             for q in items
         ],
     }
+
+
+# ===========================================================================
+# Weekly + Yearly Review Wizards — Wave 14F (2026-05-25)
+# ===========================================================================
+#
+# Same pattern as morning-quiz: persist to data/journal/{weekly,yearly}-review/
+# + create a JournalEntry that the reflection engine consumes.
+
+
+class _WeeklyReviewSubmit(BaseModel):
+    iso_week: str = Field(default="", description="YYYY-Www; blank = current week")
+    wins: list[str] = Field(default_factory=list)
+    biggest_miss: str = ""
+    miss_lesson: str = ""
+    energy_score: int = Field(default=7, ge=1, le=10)
+    focus_score: int = Field(default=7, ge=1, le=10)
+    mood_score: int = Field(default=7, ge=1, le=10)
+    needle_moved: str = ""
+    top_kr_movement: str = ""
+    next_week_focus: str = Field(..., min_length=1, max_length=300)
+    open_threads: list[str] = Field(default_factory=list)
+    notes: str = ""
+
+
+class _YearlyReviewSubmit(BaseModel):
+    year: int
+    wins: list[str] = Field(default_factory=list)
+    hard_lesson: str = ""
+    would_change: str = ""
+    north_star_progress: str = ""
+    next_year_themes: list[str] = Field(default_factory=list)
+    open_question: str = ""
+    notes: str = ""
+
+
+def _current_iso_week() -> str:
+    d = datetime.now(timezone.utc).date()
+    iy, iw, _ = d.isocalendar()
+    return f"{iy}-W{iw:02d}"
+
+
+@router.post("/journal/weekly-review")
+async def submit_weekly_review_endpoint(
+    body: _WeeklyReviewSubmit,
+    journal_store=Depends(get_journal_store),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    from ...journal.review_wizards import WeeklyReview, submit_weekly_review
+
+    iso_week = (body.iso_week or "").strip() or _current_iso_week()
+    review = WeeklyReview(
+        iso_week=iso_week,
+        wins=body.wins,
+        biggest_miss=body.biggest_miss,
+        miss_lesson=body.miss_lesson,
+        energy_score=body.energy_score,
+        focus_score=body.focus_score,
+        mood_score=body.mood_score,
+        needle_moved=body.needle_moved,
+        top_kr_movement=body.top_kr_movement,
+        next_week_focus=body.next_week_focus,
+        open_threads=body.open_threads,
+        notes=body.notes,
+    )
+    fired = await submit_weekly_review(review, journal_store=journal_store)
+    return {
+        "status": "ok",
+        "review_id": review.review_id,
+        "iso_week": review.iso_week,
+        "fired": fired,
+    }
+
+
+@router.get("/journal/weekly-review/latest")
+async def weekly_review_latest(_: None = Depends(verify_strike_token_dep)) -> dict:
+    from ...journal.review_wizards import load_weekly
+
+    iw = _current_iso_week()
+    r = load_weekly(iw)
+    if not r:
+        return {"status": "not_yet_submitted", "iso_week": iw}
+    return {"status": "ok", "review": r.model_dump(mode="json")}
+
+
+@router.post("/journal/yearly-review")
+async def submit_yearly_review_endpoint(
+    body: _YearlyReviewSubmit,
+    journal_store=Depends(get_journal_store),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    from ...journal.review_wizards import YearlyReview, submit_yearly_review
+
+    review = YearlyReview(
+        year=body.year,
+        wins=body.wins,
+        hard_lesson=body.hard_lesson,
+        would_change=body.would_change,
+        north_star_progress=body.north_star_progress,
+        next_year_themes=body.next_year_themes,
+        open_question=body.open_question,
+        notes=body.notes,
+    )
+    fired = await submit_yearly_review(review, journal_store=journal_store)
+    return {
+        "status": "ok",
+        "review_id": review.review_id,
+        "year": review.year,
+        "fired": fired,
+    }
+
+
+@router.get("/journal/yearly-review/{year}")
+async def yearly_review_by_year(year: int, _: None = Depends(verify_strike_token_dep)) -> dict:
+    from ...journal.review_wizards import load_yearly
+
+    r = load_yearly(year)
+    if not r:
+        return {"status": "not_yet_submitted", "year": year}
+    return {"status": "ok", "review": r.model_dump(mode="json")}

@@ -419,3 +419,73 @@ async def life_dashboard(_: None = Depends(verify_strike_token_dep)) -> dict:
     except Exception:
         pass
     return {"status": "ok", **db}
+
+
+# ── Wave 14F — LLM goal synthesis ────────────────────────────────────────
+
+
+@router.post("/life/goal/{goal_id}/synthesize-weekly")
+async def synthesize_weekly_for_goal(goal_id: str, _: None = Depends(verify_strike_token_dep)) -> dict:
+    """Generate 4-6 weekly SMART task Goals under a quarterly OKR via Sonnet 4.
+
+    Replaces any prior weekly children of this parent (marks them
+    superseded). New weekly Goals are linked via parent_goal_id and live
+    Monday-Sunday of the upcoming week.
+    """
+    parent = _store.get_goal(goal_id)
+    if not parent:
+        raise HTTPException(status_code=404, detail=f"goal {goal_id} not found")
+    from ...life_plan.goal_synthesis import synthesize_weekly_tasks
+
+    result = await synthesize_weekly_tasks(parent, store=_store, replace_existing=True)
+    return result
+
+
+# ── Wave 14F — Vision board image generation ────────────────────────────
+
+
+@router.post("/life/vision/board/generate")
+async def vision_board_generate(_: None = Depends(verify_strike_token_dep)) -> dict:
+    """Generate a vision board PNG for the current active Vision via OpenAI gpt-image-1.
+
+    Costs ~$0.04 per high-quality 1024x1024. Budget-gated against the
+    OpenAI daily cap. Stored at data/life_plan/vision-boards/.
+    """
+    v = _store.get_vision()
+    if not v:
+        raise HTTPException(status_code=400, detail="no active vision; POST /life/vision first")
+    from ...life_plan.vision_board import generate_vision_board
+
+    result = await generate_vision_board(v)
+    return result
+
+
+@router.get("/life/vision/board/latest")
+async def vision_board_latest(_: None = Depends(verify_strike_token_dep)) -> dict:
+    """Return base64-encoded PNG of the most recent board for the active vision."""
+    import base64 as _b64
+
+    v = _store.get_vision()
+    if not v:
+        return {"status": "no_vision", "filename": None, "image_b64": None}
+    from ...life_plan.vision_board import latest_board_for_vision
+
+    p = latest_board_for_vision(v.vision_id)
+    if p is None:
+        return {"status": "none_generated", "filename": None, "image_b64": None}
+    return {
+        "status": "ok",
+        "filename": p.name,
+        "image_b64": _b64.b64encode(p.read_bytes()).decode("ascii"),
+        "size_bytes": p.stat().st_size,
+    }
+
+
+@router.get("/life/vision/board/history")
+async def vision_board_history(_: None = Depends(verify_strike_token_dep)) -> dict:
+    """List all generated boards (newest first)."""
+    v = _store.get_vision()
+    from ...life_plan.vision_board import list_boards
+
+    items = list_boards(vision_id=v.vision_id if v else None)
+    return {"status": "ok", "count": len(items), "items": items}
