@@ -357,6 +357,30 @@ async def generate_morning_brief(
             "treasuries", "bond market", "duration", "ust ",
             "curve invert", "yield curve",
         }
+        # Crypto keys cover NATRIX's named majors plus broader market.
+        _CRYPTO_KEYS = {
+            "bitcoin", "btc", "btcusd", "btc-usd", "$btc",
+            "ethereum", "eth", "ethusd", "eth-usd", "$eth",
+            "xrp", "xrpusd", "ripple",
+            "solana", "sol", "solusd", "$sol",
+            "hedera", "hbar", "hbarusd",
+            "cardano", "ada",
+            "dogecoin", "doge",
+            "stablecoin", "usdc", "usdt",
+            "altcoin", "crypto market", "defi",
+        }
+        # GOAT / Bravo are NATRIX's two named stock-scanner outputs.
+        # Awarebot tags these in signal source. Bravo signals also
+        # frequently mention 200 SMA / swing setup as content tells.
+        _GOAT_KEYS = {"goat scanner", "goat:", " goat ", "goat signal"}
+        _BRAVO_KEYS = {"bravo scanner", "bravo:", " bravo ", "bravo swing", "bravo signal"}
+        # Capital flow — dollar-weighted institutional signals
+        _FLOW_KEYS = {
+            "unusual whales", "uw flow", "options flow", "dark pool",
+            "block trade", "premium flow", "call premium", "put premium",
+            "net premium", "13f", "institutional", "smart money",
+            "p/c ratio", "call/put", "net flow", "$m flow", "flow alert",
+        }
 
         def _haystack(s) -> str:
             return f"{(getattr(s, 'title', '') or '').lower()} {(getattr(s, 'content', '') or '').lower()}"
@@ -375,6 +399,17 @@ async def generate_morning_brief(
         oil_signals = [s for s in brief.top_signals if _matches_any(s, _OIL_KEYS)]
         rates_signals = [s for s in brief.top_signals if _matches_any(s, _RATES_KEYS)]
         bonds_signals = [s for s in brief.top_signals if _matches_any(s, _BONDS_KEYS)]
+        crypto_signals = [s for s in brief.top_signals if _matches_any(s, _CRYPTO_KEYS)]
+        goat_signals = [
+            s for s in brief.top_signals
+            if "goat" in _src(s) or _matches_any(s, _GOAT_KEYS)
+        ]
+        bravo_signals = [
+            s for s in brief.top_signals
+            if "bravo" in _src(s) or _matches_any(s, _BRAVO_KEYS)
+        ]
+        polymarket_signals = [s for s in brief.top_signals if "polymarket" in _src(s)]
+        capital_flow_signals = [s for s in brief.top_signals if _matches_any(s, _FLOW_KEYS)]
 
         # Top potential daily movers — the highest-scored Awarebot
         # signals overall, biased toward "actionable" sources
@@ -409,6 +444,11 @@ async def generate_morning_brief(
         oil_context = _format_signals(oil_signals, 6)
         rates_context = _format_signals(rates_signals, 6)
         bonds_context = _format_signals(bonds_signals, 6)
+        crypto_context = _format_signals(crypto_signals, 8)
+        goat_context = _format_signals(goat_signals, 6)
+        bravo_context = _format_signals(bravo_signals, 6)
+        polymarket_context = _format_signals(polymarket_signals, 6)
+        capital_flow_context = _format_signals(capital_flow_signals, 8)
         movers_context = _format_signals(movers_pool, 12)
         sectors_context = "\n".join(
             f"- {s.sector}: {s.direction.value}, {s.signal_count} signals"
@@ -462,23 +502,48 @@ FORMAT RULES — read these carefully:
 
 REQUIRED SECTIONS (in this exact order):
 
+IMMEDIATE ACTION
+Top of the brief. 0-5 lines. ONLY include items NATRIX needs to act on before the open today. Each line: leading dash, then a single sentence — ticker or topic, what changed, what to do. Examples:
+- TICKER PLTR — closed within 1.2% of 3-ATR stop overnight on AI-deal headlines — review stop placement before open.
+- TSLA 250C short option expires Friday with pin risk 0.4% — decide roll/close today.
+- XRP +6% overnight on settlement-rail news while held position is 8% of NAV — review concentration.
+If genuinely nothing is urgent, write a single line: "No immediate action items — book is quiet."
+
 EXECUTIVE SUMMARY
 2-3 sentences. What's the single most important development for NATRIX to know about today? What changed since yesterday?
 
+PORTFOLIO HEALTH
+Read the HELD POSITIONS block below and produce three short paragraphs labeled exactly as shown:
+
+LOOKING GOOD: positions where the thesis is intact, flow is supportive, the trend is with NATRIX. Cite tickers.
+NEEDS MONITORING: positions with degrading signal, concentration risk, sector rotation against, or near a stop. Cite tickers and the specific reason.
+RECOMMENDED ADDS-TRIMS: 1-3 concrete suggestions — add to TICKER on X condition, trim TICKER size by N%, etc. Anchor every suggestion to signal data or position concentration. Do NOT recommend opening new positions here (that's the TRADE IDEAS section).
+
+If HELD POSITIONS is unavailable, write a single line: "Portfolio snapshot unavailable — skipping health read."
+
+CAPITAL FLOW
+Two short paragraphs labeled INSTITUTIONAL and RETAIL_AND_MACRO. Where is the smart money going (UW options flow, dark pool, block trades) vs retail (Reddit sentiment, Google Trends, Polymarket odds). Use the CAPITAL FLOW SIGNALS data feed below.
+
 MACRO LANDSCAPE
-This section must cover ALL five lanes below, each as its own labeled paragraph (one short paragraph, 2-3 sentences each). Anchor every claim to the signal data — do NOT invent macro narrative without evidence. If the signals don't carry data for a lane, write "Signals quiet — no actionable read." for that lane rather than making something up.
+This section must cover ALL SIX lanes below, each as its own labeled paragraph (one short paragraph, 2-3 sentences each). Anchor every claim to the signal data — do NOT invent macro narrative without evidence. If the signals don't carry data for a lane, write "Signals quiet — no actionable read." for that lane rather than making something up.
 
 PRECIOUS METALS: silver / SLV / SIVR and gold / GLD / IAU. Spot price moves vs prior session, miner divergence (GDX/GDXJ), real-yield correlation, any flow imbalance.
 OIL: WTI / Brent / USO / XLE. Crude price action, OPEC headlines, energy-sector positioning, refining-vs-producer split if visible.
 US RATES (FED): Fed funds expectations, Powell / FOMC commentary, upcoming meeting odds (look at the polymarket signals if present), terminal-rate path.
 BOND MARKET: TLT / IEF / 10y / 2y / 30y yields, curve shape (steepener / flattener / inverted), duration positioning.
-DAILY/WEEKLY OUTLOOK: Calendar of catalysts NATRIX should know about for the rest of today and the upcoming week — economic prints (CPI, NFP, retail sales, PCE), Fed speakers, major earnings, options expiry, futures roll, options-flow concentration days. Cite specific dates from the signals where available.
+CRYPTO: Bitcoin (BTC), Ethereum (ETH), XRP, Solana (SOL), Hedera (HBAR), with stablecoin and altcoin context. Cite price action, dominance shifts, ETF/regulatory headlines, on-chain vs CEX flow.
+DAILY/WEEKLY OUTLOOK: Calendar of catalysts NATRIX should know about for the rest of today and the upcoming week — economic prints (CPI, NFP, retail sales, PCE), Fed speakers, major earnings, options expiry, futures roll, crypto unlocks, options-flow concentration days. Cite specific dates from the signals where available.
 
 KEY MOVEMENTS
 3-5 bullet-style lines (use a leading dash). Each line = one concrete observation grounded in the signal data: sector flow, options imbalance, geopolitical shift, etc. Cite the ticker / market / source by name.
 
 EMERGING OPPORTUNITIES AND RISKS
 2-4 short paragraphs. Asymmetric setups, narrative shifts, risk-of-ruin notes. Bias toward what NATRIX should monitor or position around, not generic commentary.
+
+SCANNER READOUT
+Two labeled paragraphs:
+GOAT: anything fresh from the GOAT scanner (NATRIX's 150 SMA + VIX-adjusted screener). Tickers, conditions, why now. If quiet, say so.
+BRAVO: anything fresh from the Bravo Swing scanner (200 SMA filter). Same format.
 
 PRE-MARKET TRADE IDEAS
 This is the actionable section. Produce exactly six setups in this format, one per block, blank line between blocks:
@@ -517,6 +582,9 @@ Hard rules for trade ideas:
 - Every ticker must appear in or be directly implied by the signal data below. Do NOT invent setups out of thin air.
 - If NATRIX already holds the underlying (see HELD POSITIONS below), say "ADD TO EXISTING" in THESIS rather than treating it as a new entry.
 - If the signals genuinely don't support six setups, say "INSUFFICIENT EDGE" in that block and explain in one line why. Better to skip than fabricate.
+
+POLYMARKET WATCH
+2-4 bullet lines on prediction-market odds that matter for NATRIX today: politically-driven volatility, Fed-meeting probabilities, Iran/geopolitical, AI policy, sports/event-driven catalysts shifting >5% overnight. Use the POLYMARKET SIGNALS feed below. If quiet, single line: "Polymarket quiet."
 
 TOP POTENTIAL DAILY MOVERS
 Rank the top 5-8 names most likely to move today on increased volume / unusual flow / catalyst. ONE line each in this exact shape (use a leading dash):
@@ -562,6 +630,21 @@ US RATES SIGNALS (Fed / FOMC / Powell / rate path / fedwatch):
 BOND MARKET SIGNALS (TLT / IEF / yields / curve / duration):
 {bonds_context}
 
+CRYPTO SIGNALS (BTC / ETH / XRP / SOL / HBAR / stablecoins / altcoins):
+{crypto_context}
+
+CAPITAL FLOW SIGNALS (UW options flow / dark pool / blocks / institutional / net premium):
+{capital_flow_context}
+
+GOAT SCANNER OUTPUT (NATRIX's stock scanner — 150 SMA gate + VIX-adjusted):
+{goat_context}
+
+BRAVO SWING SCANNER OUTPUT (NATRIX's swing scanner — 200 SMA filter):
+{bravo_context}
+
+POLYMARKET SIGNALS (prediction-market odds + sentiment-driven catalysts):
+{polymarket_context}
+
 POTENTIAL MOVERS POOL (high-score signals, biased toward options flow + market data — use these to fill TOP POTENTIAL DAILY MOVERS):
 {movers_context}
 
@@ -571,7 +654,7 @@ SECTORS (direction + signal count):
 RISK ALERTS:
 {risks_context}
 
-HELD POSITIONS (current portfolio snapshot — avoid duplicating these as NEW entries):
+HELD POSITIONS (current portfolio snapshot — drives PORTFOLIO HEALTH section; avoid duplicating these as NEW trade-idea entries):
 {portfolio_context}
 
 </user_content>
@@ -615,13 +698,18 @@ Respond with ONLY the formatted brief. No preamble, no closing remarks, no "Here
                             "model": os.getenv(
                                 "NCL_INTEL_SUMMARY_MODEL", "claude-sonnet-4-20250514"
                             ),  # noqa: E501
-                            # 2026-05-25: brief format keeps expanding —
-                            # exec summary + 5-lane macro landscape +
-                            # key movements + opp/risks + 6 trade setups
-                            # + top movers + 3 research topics. 3500-tok
-                            # budget gives the model headroom without
-                            # going wild on length.
-                            "max_tokens": 3500,
+                            # 2026-05-25: brief is now:
+                            # IMMEDIATE ACTION + EXECUTIVE SUMMARY +
+                            # PORTFOLIO HEALTH (3 paragraphs) +
+                            # CAPITAL FLOW (2 paragraphs) +
+                            # MACRO LANDSCAPE (6 lanes) +
+                            # KEY MOVEMENTS + OPPORTUNITIES/RISKS +
+                            # SCANNER READOUT (goat + bravo) +
+                            # POLYMARKET WATCH + 6 trade setups +
+                            # TOP MOVERS + 3 research topics.
+                            # 5000-tok budget; observed real briefs run
+                            # 5K-6K chars at this length.
+                            "max_tokens": 5000,
                             "messages": [{"role": "user", "content": topic_prompt}],
                         },
                     )
