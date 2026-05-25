@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 from typing import Optional
 
 from ..config import flags
@@ -123,18 +124,36 @@ class MemoryDashboardBridge:
             "importance_distribution": importance_dist,
         }
 
-    async def get_timeline(self, limit: int = 50) -> dict:
+    async def get_timeline(self, limit: int = 50, max_per_source: int | None = None) -> dict:
         """
         Get timeline of recent memory events (creation, access, decay).
 
         Args:
             limit: Maximum events to return
+            max_per_source: Cap on consecutive same-source entries to prevent
+                a single noisy autonomous loop (e.g. ``ncl-city-events`` which
+                emits 50+ events per cycle across 7 cities) from monopolizing
+                the chronological view. Defaults to ``NCL_TIMELINE_MAX_PER_SOURCE``
+                env (fallback 5). Pass 0 to disable the cap.
 
         Returns:
             ``{"events": [...], "degraded": bool}``. ``degraded=True`` when
             the underlying ``_load_all_units`` call timed out and we fell
             back to the last in-memory snapshot (still useful for iOS —
             shows something instead of an empty page). Wave-13 P1-B.
+
+        Diversity selector (Wave 14A-PATCH 2026-05-25)
+        -----------------------------------------------
+        Before this patch, the timeline sorted by created_at desc and sliced
+        ``[:limit]``. Any source that ingested ``>= limit`` units in a tight
+        window owned the entire view — NATRIX observed this when the
+        post-bounce ``ncl-city-events`` loop wrote 50 city events across 5
+        cities in 22 seconds and the Memory→Timeline iOS sub-tab showed
+        nothing but city events. The fix is a single-pass diversity selector:
+        walk the time-sorted list, count per-source emissions, skip any event
+        from a source that already hit ``max_per_source``. This preserves
+        chronological order *within* each source but guarantees no single
+        source can crowd out the rest of the brain.
         """
         degraded = False
         try:
@@ -212,7 +231,54 @@ class MemoryDashboardBridge:
         # Sort by timestamp descending (newest first)
         events.sort(key=lambda e: e["timestamp"], reverse=True)
 
-        return events[:limit]
+        # Per-source diversity cap. Default 5 — high enough to show a busy
+        # council session in full, low enough that a city-events sweep can't
+        # eat the whole view. ``access`` and ``decay_warning`` events don't
+        # carry a source field; bucket them under their unit-source by
+        # joining back through unit_id. To keep this O(n) we just bucket
+        # access/decay events under a synthetic "_signal_event" key so they
+        # don't gobble per-source slots, then cap creation events.
+        cap = max_per_source
+        if cap is None:
+            try:
+                cap = int(os.getenv("NCL_TIMELINE_MAX_PER_SOURCE", "5"))
+            except (TypeError, ValueError):
+                cap = 5
+
+        if cap > 0:
+            from collections import Counter
+
+            seen: Counter = Counter()
+            kept: list[dict] = []
+            overflow: list[dict] = []
+            for ev in events:
+                # Non-creation events (access / decay_warning) don't have a
+                # source attached, so they bypass the cap.
+                key = ev.get("source") if ev.get("type") == "created" else "_synthetic"
+                if key is None:
+                    key = "_unknown"
+                if seen[key] < cap or key == "_synthetic":
+                    kept.append(ev)
+                    seen[key] += 1
+                    if len(kept) >= limit:
+                        break
+                else:
+                    overflow.append(ev)
+            # If the cap pruned too aggressively (e.g. only 2 sources active
+            # so cap=5 yields only 10 events for a limit=50 ask), backfill
+            # from overflow in chronological order so we still hit `limit`.
+            if len(kept) < limit and overflow:
+                kept.extend(overflow[: limit - len(kept)])
+                # Re-sort after backfill to keep timestamps monotonic.
+                kept.sort(key=lambda e: e["timestamp"], reverse=True)
+            events = kept
+
+        # Return the dict envelope the docstring promises. Before this patch
+        # this function returned a bare list, so the ``degraded`` flag set
+        # in the timeout-handling branch above never made it to the API
+        # response. The API handler at runtime/api/routers/memory.py already
+        # tolerates both shapes.
+        return {"events": events[:limit], "degraded": degraded}
 
     async def search(
         self,
