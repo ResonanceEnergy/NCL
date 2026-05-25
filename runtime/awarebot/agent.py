@@ -3415,7 +3415,13 @@ Focus on what requires attention or action."""
                         "models": models,
                         "direction": direction,
                     }
-                    pred_file.write_text(json.dumps(pred_data, indent=2, default=str))
+                    # W13 followup: serialize + write OFF the event loop.
+                    # Smaller payload than YTC reports but on a hot path
+                    # (every prediction emission).
+                    pred_json = await asyncio.to_thread(
+                        json.dumps, pred_data, indent=2, default=str
+                    )
+                    await asyncio.to_thread(pred_file.write_text, pred_json)
                 except Exception as disk_err:
                     log.warning(f"[AGENT:PREDICT] Disk persistence failed: {disk_err}")
 
@@ -3744,7 +3750,11 @@ Focus on what requires attention or action."""
                             }
                         )
                         vid_path = json_dir / f"{vid_report.session_id}.json"
-                        vid_json = json.dumps(vid_data, default=str, indent=2)
+                        # W13 followup: serialize OFF the event loop (see
+                        # scheduler.py per-video YTC write for same fix).
+                        vid_json = await asyncio.to_thread(
+                            json.dumps, vid_data, default=str, indent=2
+                        )
                         async with aiofiles.open(vid_path, "w") as f:
                             await f.write(vid_json)
 
@@ -3761,7 +3771,11 @@ Focus on what requires attention or action."""
                             "per_video_count": len(per_video),
                         }
                     )
-                    report_json = json.dumps(report_data, default=str, indent=2)
+                    # W13 followup: serialize OFF the event loop (see
+                    # scheduler.py nightshift write for same fix).
+                    report_json = await asyncio.to_thread(
+                        json.dumps, report_data, default=str, indent=2
+                    )
                     async with aiofiles.open(out_path, "w") as f:
                         await f.write(report_json)
 

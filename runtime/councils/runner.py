@@ -1197,7 +1197,11 @@ async def _snapshot_intel_state(session_id: str) -> None:
         "source": str(src),
         "brief": data,
     }
-    out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    # W13 followup: serialize+write OFF the event loop. Brief can be
+    # 100-300KB after a busy intel cycle and we fire this every council
+    # spawn (autonomous + manual).
+    payload_json = await asyncio.to_thread(json.dumps, payload, indent=2)
+    await asyncio.to_thread(out.write_text, payload_json, "utf-8")
     log.info(f"[snapshot] Pre-brief snapshot saved → {out.name}")
 
 

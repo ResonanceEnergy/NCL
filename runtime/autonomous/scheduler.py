@@ -4481,8 +4481,17 @@ class AutonomousScheduler:
                             }
                         )
                         vid_path = json_dir / f"{vid_report.session_id}.json"
+                        # W13 followup: serialize OFF the event loop. The
+                        # outer per-video loop fires 30-50× per hourly YTC
+                        # cycle; each ~100KB indent=2 dump = 30-80ms sync
+                        # CPU on the event loop. Cumulative blocking adds
+                        # up across the tight loop and was a likely
+                        # contributor to the 21:35 lockup pattern.
+                        vid_json = await asyncio.to_thread(
+                            json.dumps, vid_data, default=str, indent=2
+                        )
                         async with aiofiles.open(vid_path, "w") as f:
-                            await f.write(json.dumps(vid_data, default=str, indent=2))
+                            await f.write(vid_json)
 
                     # Conservative per-video estimate; tighten later if usage data exposed.
                     est_cost = 0.05 * max(1, len(per_video))
@@ -4653,8 +4662,16 @@ class AutonomousScheduler:
                         "spawned_by": "ncl-ytc-nightshift",
                     }
                 )
+                # W13 followup: serialize OFF the event loop — nightshift
+                # rollup brief_data is the biggest YTC artifact (~500KB-1MB
+                # with full rollup insights + per-video summaries), and
+                # the 3am loop runs once but a sync dump here would block
+                # everything else for 200-500ms.
+                brief_json = await asyncio.to_thread(
+                    json.dumps, brief_data, default=str, indent=2
+                )
                 async with aiofiles.open(brief_path, "w") as f:
-                    await f.write(json.dumps(brief_data, default=str, indent=2))
+                    await f.write(brief_json)
 
                 # Persist nightshift-brief.md (human-readable for morning op)
                 md_lines: list[str] = []
