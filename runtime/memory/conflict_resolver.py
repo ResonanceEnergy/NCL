@@ -464,7 +464,14 @@ class ConflictResolver:
                                 ]
                             )
                         try:
-                            await self.kg.add_relationships(rels, source_unit_id=units[0])
+                            # 2026-05-24 lockup fix: persist=False to skip
+                            # the per-call full-graph rewrite. One explicit
+                            # persist fires after the whole batch below.
+                            await self.kg.add_relationships(
+                                rels,
+                                source_unit_id=units[0],
+                                persist=False,
+                            )
                         except Exception as kge:
                             log.warning(
                                 "[CONFLICT-ARB] KG link failed (%s) — sidecar still written", kge
@@ -489,6 +496,16 @@ class ConflictResolver:
             except Exception as e:
                 log.error("[CONFLICT-ARB] failed to link conflict %s: %s", c.get("conflict_id"), e)
                 continue
+
+        # 2026-05-24 lockup fix: persist the KG ONCE at end-of-batch.
+        # Previously this loop did N full-graph rewrites (~50-200ms each
+        # on the event loop). With 2,612 conflicts that was 2-9 minutes of
+        # cumulative event-loop block. Single persist amortizes the cost.
+        if kg_ok and linked > 0:
+            try:
+                await self.kg._persist_to_disk()
+            except Exception as e:
+                log.warning("[CONFLICT-ARB] end-of-batch KG persist failed: %s", e)
 
         return linked
 

@@ -99,52 +99,97 @@ class KnowledgeGraph:
             except Exception as e:
                 log.warning(f"Failed to load edges: {e}")
 
-    async def _persist_to_disk(self):
-        """Atomically persist graph to JSONL files.
+    @staticmethod
+    def _do_persist_io(
+        nodes_snapshot: list[tuple],
+        edges_snapshot: list[tuple],
+        nodes_file: Path,
+        edges_file: Path,
+    ) -> None:
+        """Worker-thread: write nodes + edges JSONL atomically with fsync.
 
-        W13-P2 fix: added os.fsync() before os.replace() so a crash between
-        write-completion and disk-flush can't leave a corrupted target. The
-        .tmp file would previously linger if the process was killed
-        mid-persist; now flushed-then-replaced is durable on the next boot.
+        Pure sync I/O — runs inside ``asyncio.to_thread`` so the event loop
+        isn't blocked. Caller hands in pre-iterated snapshots so we don't
+        race with concurrent graph mutation.
         """
-        if not self._graph:
-            return
         try:
-            # Persist nodes
-            tmp_nodes = str(self.nodes_file) + ".tmp"
+            tmp_nodes = str(nodes_file) + ".tmp"
             with open(tmp_nodes, "w") as f:
-                for node_id, attrs in self._graph.nodes(data=True):
+                for node_id, attrs in nodes_snapshot:
                     record = {"node_id": node_id, **attrs}
                     f.write(json.dumps(record, default=str) + "\n")
                 f.flush()
                 os.fsync(f.fileno())
-            os.replace(tmp_nodes, str(self.nodes_file))
+            os.replace(tmp_nodes, str(nodes_file))
 
-            # Persist edges
-            tmp_edges = str(self.edges_file) + ".tmp"
+            tmp_edges = str(edges_file) + ".tmp"
             with open(tmp_edges, "w") as f:
-                for src, tgt, attrs in self._graph.edges(data=True):
+                for src, tgt, attrs in edges_snapshot:
                     record = {"source": src, "target": tgt, **attrs}
                     f.write(json.dumps(record, default=str) + "\n")
                 f.flush()
                 os.fsync(f.fileno())
-            os.replace(tmp_edges, str(self.edges_file))
+            os.replace(tmp_edges, str(edges_file))
         except Exception as e:
             log.error(f"Failed to persist knowledge graph: {e}")
-            # Cleanup temp files
-            for tmp in [str(self.nodes_file) + ".tmp", str(self.edges_file) + ".tmp"]:
+            for tmp in [str(nodes_file) + ".tmp", str(edges_file) + ".tmp"]:
                 try:
                     os.unlink(tmp)
                 except OSError:
                     pass
 
-    async def add_entities(self, entities: list[str], source_unit_id: str = "") -> int:
+    async def _persist_to_disk(self):
+        """Atomically persist graph to JSONL files.
+
+        W13-P2 added fsync; **2026-05-24 lockup fix**: this used to do
+        sync open/write/fsync/replace on the event loop while iterating
+        every node + edge. With ~50K edges (typical after the conflict-arb
+        loop processes its 2,612-conflict backlog) each call is 50-200ms
+        of pure event-loop CPU; the conflict resolver fires N persists
+        sequentially because `add_relationships` calls `_persist_to_disk`
+        once per call and the resolver calls `add_relationships` once per
+        conflict. Net effect: minutes of event-loop block per warm-start.
+
+        Fix: snapshot nodes + edges synchronously under the lock (cheap
+        attribute iteration), then offload the json.dumps + fsync + replace
+        to a worker thread via ``asyncio.to_thread``. The event loop yields
+        to other tasks during the worker. Bulk callers should additionally
+        pass ``persist=False`` to ``add_relationships`` / ``add_entities``
+        and call ``self._persist_to_disk()`` ONCE at end-of-batch.
+        """
+        if not self._graph:
+            return
+        # Cheap snapshot under the GIL — the actual heavy json.dumps + I/O
+        # happens in the worker thread below.
+        nodes_snapshot = list(self._graph.nodes(data=True))
+        edges_snapshot = list(self._graph.edges(data=True))
+        await asyncio.to_thread(
+            self._do_persist_io,
+            nodes_snapshot,
+            edges_snapshot,
+            self.nodes_file,
+            self.edges_file,
+        )
+
+    async def add_entities(
+        self,
+        entities: list[str],
+        source_unit_id: str = "",
+        persist: bool = True,
+    ) -> int:
         """
         Add entity nodes to the graph. Updates mention_count if entity exists.
 
         2026-05-22 audit: applies the shared entity blacklist (URL stems,
         yfinance sector buckets) so the noise never lands in the graph
         again.
+
+        2026-05-24 lockup fix: ``persist=False`` skips the
+        ``_persist_to_disk`` call at the end so bulk callers (e.g. the
+        conflict resolver linking 2,612 conflicts) can amortize the
+        graph rewrite across the whole batch instead of paying it N
+        times. Caller MUST trigger one explicit ``_persist_to_disk()``
+        at end-of-batch when using this flag.
 
         Returns number of new entities added.
         """
@@ -188,11 +233,17 @@ class KnowledgeGraph:
                     )
                     added += 1
 
-            await self._persist_to_disk()
+            if persist:
+                await self._persist_to_disk()
 
         return added
 
-    async def add_relationships(self, relationships: list[dict], source_unit_id: str = "") -> int:
+    async def add_relationships(
+        self,
+        relationships: list[dict],
+        source_unit_id: str = "",
+        persist: bool = True,
+    ) -> int:
         """
         Add relationship edges to the graph.
 
@@ -260,7 +311,8 @@ class KnowledgeGraph:
                     )
                     added += 1
 
-            await self._persist_to_disk()
+            if persist:
+                await self._persist_to_disk()
 
         return added
 
