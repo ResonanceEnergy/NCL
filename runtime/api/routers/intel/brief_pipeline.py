@@ -301,10 +301,11 @@ SIGNAL FEED SUMMARY:
 
 Decisions you must make:
 
-1. mode — overall edge in today's data
-   - "full": rich, multi-source data, real actionable themes → full brief
-   - "short": some data but thin / one-source dominated → 3-section abbreviated brief
-   - "no-edge": data is empty or noise-dominated → ship a single-line quiet-day note
+1. mode — overall edge in today's data. DEFAULT to "full" — only downgrade if data is genuinely thin.
+   - "full": ≥2 distinct sources active, options flow OR market data present, ≥30 total signals. This is the EXPECTED case for a market day; pick "full" by default.
+   - "short": one-source dominated (e.g. only Reddit), OR <30 total signals, OR market is closed (weekend/holiday).
+   - "no-edge": signal feed is empty or pure noise (almost never — only if every scanner failed today).
+   With 100+ signals across 5+ sources, mode is "full" — do not pick "short" because individual sectors look quiet.
 
 2. themes — 1-4 short narrative themes (3-8 words each) the brief should organize around. Examples: "energy distribution divergence", "tech accumulation late-cycle", "fed-pause repricing", "crypto regulatory headlines".
 
@@ -334,6 +335,13 @@ Decisions you must make:
 
 8. research_topic_seeds — 1-5 seed topics the executor will refine. {{topic, why}}.
 
+9. trade_idea_count_target — explicit number of PRE-MARKET TRADE IDEAS the executor MUST emit. Map from mode + data:
+   - mode=full + options flow data present → target = 6 (default for a normal market day)
+   - mode=full + thin data → target = 4
+   - mode=short → target = 4 (not 2 — even thin data should yield 4 honest setups)
+   - mode=no-edge → target = 0 (and remove PRE_MARKET_TRADE_IDEAS from include_sections)
+   When PRE_MARKET_TRADE_IDEAS is in include_sections, target MUST be >= 4. Trade ideas are the brief's most-used surface — NATRIX scans them pre-open to size positions. A brief with 2 ideas is functionally a brief with no ideas.
+
 Output ONLY valid JSON matching this shape:
 
 {{
@@ -344,7 +352,8 @@ Output ONLY valid JSON matching this shape:
   "focus_tickers": ["string", ...],
   "include_sections": ["string", ...],
   "portfolio_alerts": [{{"ticker": "string", "concern": "string"}}],
-  "research_topic_seeds": [{{"topic": "string", "why": "string"}}]
+  "research_topic_seeds": [{{"topic": "string", "why": "string"}}],
+  "trade_idea_count_target": 0 | 2 | 4 | 6
 }}
 
 No preamble, no explanation, just the JSON object."""
@@ -363,6 +372,16 @@ No preamble, no explanation, just the JSON object."""
     plan.setdefault("include_sections", ["EXECUTIVE_SUMMARY", "KEY_MOVEMENTS"])
     plan.setdefault("portfolio_alerts", [])
     plan.setdefault("research_topic_seeds", [])
+    # Default trade_idea_count_target — fall back to 4 if missing and the
+    # section is included, 0 otherwise. Clamp to {0, 2, 4, 6}.
+    raw_target = plan.get("trade_idea_count_target")
+    if raw_target is None:
+        raw_target = 4 if "PRE_MARKET_TRADE_IDEAS" in plan["include_sections"] else 0
+    try:
+        target = int(raw_target)
+    except (TypeError, ValueError):
+        target = 4
+    plan["trade_idea_count_target"] = min(6, max(0, target))
     return plan
 
 
@@ -454,6 +473,7 @@ PLAN FROM PLANNER:
 - include_sections: {include_sections}
 - portfolio_alerts: {portfolio_alerts_str}
 - research_topic_seeds: {seeds_str}
+- trade_idea_count_target: {plan.get("trade_idea_count_target", 4)}  (MUST emit this many trade ideas if section is included)
 
 DATA FEED (signal id is the 8-char prefix; cite by this id):
 
@@ -496,9 +516,11 @@ OUTPUT REQUIREMENTS — strict:
    - futures fields: contract, level_to_watch, direction
    - sources: [signal_id1, signal_id2, ...] — REQUIRED, ≥1 id
 
-7. Avoid tickers in held_tickers as NEW entries — label them ADD TO EXISTING in thesis if you want to recommend adding.
+7. TRADE IDEAS QUOTA: if PRE_MARKET_TRADE_IDEAS is in include_sections, you MUST emit EXACTLY {plan.get("trade_idea_count_target", 4)} trade ideas (the planner set this target based on flow data quality). Each idea must cite ≥1 real signal_id. If you genuinely cannot ground that many setups in the data feed, omit the section entirely (set trade_ideas to []) — but the planner already gauged data sufficiency, so dropping below target should be rare. Mix types (some stock, some options, optionally one futures). Prefer focus_tickers but don't repeat the same ticker.
 
-8. macro_landscape: keys are the lane names from active_lanes ONLY. No "Signals quiet" stubs.
+8. Avoid tickers in held_tickers as NEW entries — label them ADD TO EXISTING in thesis if you want to recommend adding.
+
+9. macro_landscape: keys are the lane names from active_lanes ONLY. No "Signals quiet" stubs.
 
 OUTPUT SHAPE (strict JSON):
 
@@ -598,12 +620,15 @@ _STUB_PATTERNS = re.compile(
 _MD_PATTERN = re.compile(r"\*\*[^*\n]+?\*\*|`[^`\n]+`|^#{1,6}\s", re.MULTILINE)
 
 
-def _local_critique(executor_out: dict, valid_ids: set[str]) -> dict:
+def _local_critique(executor_out: dict, valid_ids: set[str], plan: dict | None = None) -> dict:
     """Pure-Python critic — runs first, cheap, deterministic.
 
     Returns critic-shape dict. If this passes cleanly we skip the LLM
     critic entirely (saves $0.0005 and ~3s). If this flags issues we
     surface them as the critic result without the LLM call.
+
+    `plan` (optional) lets the critic enforce planner contracts that
+    aren't visible from executor_out alone — e.g. trade_idea_count_target.
     """
     texts: list[tuple[str, str]] = []
     cites: list[tuple[str, list[str]]] = []
@@ -637,13 +662,27 @@ def _local_critique(executor_out: dict, valid_ids: set[str]) -> dict:
                 failed_sections.add(path.split(".")[0])
 
     # 3) Every trade idea must have ≥1 source
-    for i, idea in enumerate(executor_out.get("trade_ideas", []) or []):
+    trade_ideas = executor_out.get("trade_ideas", []) or []
+    for i, idea in enumerate(trade_ideas):
         sources = idea.get("sources", []) or []
         if not sources:
             reasons.append(f"trade_ideas[{i}] missing sources")
             failed_sections.add("trade_ideas")
 
-    # 4) Required-section presence
+    # 4) Planner trade-idea quota — executor must meet target if section was included.
+    # Allows up to 1-idea slack below target (executor can ship 3 if target was 4
+    # and one would have been fabricated). Pre-iter the executor often shipped 0
+    # trade ideas even when there was clear flow data; this guard catches that.
+    if plan is not None and "PRE_MARKET_TRADE_IDEAS" in plan.get("include_sections", []):
+        target = int(plan.get("trade_idea_count_target", 0) or 0)
+        if target > 0 and len(trade_ideas) < max(2, target - 1):
+            reasons.append(
+                f"trade_ideas count {len(trade_ideas)} below planner target {target} "
+                f"(min allowed {max(2, target - 1)})"
+            )
+            failed_sections.add("trade_ideas")
+
+    # 5) Required-section presence
     if not executor_out.get("executive_summary"):
         reasons.append("missing executive_summary")
         failed_sections.add("executive_summary")
@@ -660,13 +699,13 @@ def _local_critique(executor_out: dict, valid_ids: set[str]) -> dict:
     }
 
 
-async def _critic_stage(executor_out: dict, valid_ids: set[str], api_key: str) -> dict:
+async def _critic_stage(executor_out: dict, valid_ids: set[str], api_key: str, plan: dict | None = None) -> dict:
     """Run local critic first; only escalate to LLM if local passes.
 
     The LLM critic does a second, semantic-level pass for things the
     regex can't catch (e.g. claims unsupported by their cited signal).
     """
-    local = _local_critique(executor_out, valid_ids)
+    local = _local_critique(executor_out, valid_ids, plan)
     if not local["ship"]:
         # Local already failed — return its findings without spending on LLM
         return local
@@ -1046,7 +1085,7 @@ async def run_brief_pipeline(brief, held_tickers: set[str], api_key: str, lane_r
         if sid:
             valid_ids.add(sid)
 
-    critic = await _critic_stage(executor_out, valid_ids, api_key)
+    critic = await _critic_stage(executor_out, valid_ids, api_key, plan)
     stages.append("critic")
 
     regenerated = False
@@ -1058,7 +1097,7 @@ async def run_brief_pipeline(brief, held_tickers: set[str], api_key: str, lane_r
                 )
                 stages.append("regenerator")
                 # Re-critique after regen (local-only, cheap)
-                critic = _local_critique(executor_out, valid_ids)
+                critic = _local_critique(executor_out, valid_ids, plan)
                 regenerated = True
         except Exception as exc:
             log.warning("[BRIEF-PIPELINE] regenerate failed (shipping original): %s", exc)

@@ -971,10 +971,15 @@ Respond with ONLY the formatted brief. No preamble, no closing remarks, no "Here
                     "regenerated": pipeline_result.get("regenerated", False),
                     "critic_score": pipeline_result.get("critic", {}).get("score"),
                     "critic_ship": pipeline_result.get("critic", {}).get("ship"),
+                    "critic_reasons": pipeline_result.get("critic", {}).get("reasons", []),
                     "mode": pipeline_result.get("pipeline"),
                     "plan_mode": pipeline_result.get("plan", {}).get("mode"),
                     "active_lanes": pipeline_result.get("plan", {}).get("active_lanes"),
                     "include_sections": pipeline_result.get("plan", {}).get("include_sections"),
+                    "trade_idea_target": pipeline_result.get("plan", {}).get("trade_idea_count_target"),
+                    "trade_ideas_emitted": len(
+                        pipeline_result.get("executor_out", {}).get("trade_ideas", []) or []
+                    ),
                 }
                 log.info(
                     "[MORNING-BRIEF] pipeline OK — stages=%s regen=%s score=%s mode=%s",
