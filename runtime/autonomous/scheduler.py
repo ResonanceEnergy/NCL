@@ -189,6 +189,7 @@ class AutonomousScheduler:
         # long_running_ctx() helper. Everything else still trips at 90s.
         self._long_running_tags: set[str] = {
             "ncl-ytc-dedicated",
+            "ncl-ytc-nightshift",
             "ncl-night-watch",
             "ncl-memory-eval",
             "ncl-stocks-scan",
@@ -450,6 +451,12 @@ class AutonomousScheduler:
         # Loop 5: dedicated YouTube Council — split from Awarebot, own budget
         self._tasks.append(
             asyncio.create_task(self._ytc_dedicated_loop(), name="ncl-ytc-dedicated")
+        )
+        # Loop 5b (W11-1, 2026-05-24): YTC nightshift — synthesizes one daily
+        # rollup from prior-day per-video reports at 3am local. Companion to
+        # the hourly per-video-only ``ncl-ytc-dedicated`` loop.
+        self._tasks.append(
+            asyncio.create_task(self._ytc_nightshift_loop(), name="ncl-ytc-nightshift")
         )
         # Loop 6: BM25 keyword index rebuild — backs FusedRetriever (Loop 11)
         self._tasks.append(asyncio.create_task(self._bm25_rebuild_loop(), name="ncl-bm25-rebuild"))
@@ -720,6 +727,7 @@ class AutonomousScheduler:
             "ncl-cache-warmer": self._cache_warmer_loop,
             "ncl-alert-dispatch": self._alert_dispatch_loop,
             "ncl-ytc-dedicated": self._ytc_dedicated_loop,
+            "ncl-ytc-nightshift": self._ytc_nightshift_loop,
             "ncl-bm25-rebuild": self._bm25_rebuild_loop,
             "ncl-city-events": self._city_events_loop,
             "ncl-stocks-scan": self._stocks_scan_loop,
@@ -4422,15 +4430,28 @@ class AutonomousScheduler:
                         raise
 
                 session_id = f"ytc-dedicated-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
-                log.info(f"[YTC-DEDICATED] Starting YouTube Council run: {session_id}")
+                log.info(f"[YTC-DEDICATED] Starting per-video-only YTC run: {session_id}")
 
-                from ..councils.runner import run_youtube_council
+                # W11-1: hourly loop now does per-video only. Cross-video
+                # rollup is produced by ``ncl-ytc-nightshift`` at 3am local.
+                from ..councils.runner import run_youtube_per_video_only
 
-                report = await run_youtube_council(session_id)
+                async with self.long_running_ctx("ncl-ytc-dedicated"):
+                    report = await run_youtube_per_video_only(session_id)
 
                 if report:
                     ncl_base = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
-                    json_dir = ncl_base / "intelligence-scan" / "youtube-reports"
+                    # W11-1: per-video reports now land under
+                    # intelligence-scan/council-reports/youtube/YYYY-MM-DD/
+                    # so the nightshift loop can glob a single day's worth.
+                    today_local = datetime.now().strftime("%Y-%m-%d")
+                    json_dir = (
+                        ncl_base
+                        / "intelligence-scan"
+                        / "council-reports"
+                        / "youtube"
+                        / today_local
+                    )
                     loop = asyncio.get_running_loop()
                     await loop.run_in_executor(
                         None, lambda: json_dir.mkdir(parents=True, exist_ok=True)
@@ -4452,40 +4473,26 @@ class AutonomousScheduler:
                         async with aiofiles.open(vid_path, "w") as f:
                             await f.write(json.dumps(vid_data, default=str, indent=2))
 
-                    out_path = json_dir / f"{session_id}.json"
-                    report_data = report.to_dict()
-                    report_data.update(
-                        {
-                            "session_id": session_id,
-                            "status": "complete",
-                            "completed_at": datetime.now(timezone.utc).isoformat(),
-                            "auto_triggered": True,
-                            "report_type": "rollup",
-                            "per_video_count": len(per_video),
-                            "spawned_by": "ncl-ytc-dedicated",
-                        }
-                    )
-                    async with aiofiles.open(out_path, "w") as f:
-                        await f.write(json.dumps(report_data, default=str, indent=2))
-
                     # Conservative per-video estimate; tighten later if usage data exposed.
-                    est_cost = max(0.05, 0.05 * max(1, len(per_video)))
+                    est_cost = 0.05 * max(1, len(per_video))
                     try:
                         await record_cost(
                             "ytc",
                             est_cost,
                             "ytc_per_video",
-                            detail=f"{len(per_video)} videos + 1 rollup ({session_id})",
+                            detail=f"{len(per_video)} videos ({session_id})",
                         )
                     except Exception as ce:
                         log.warning("[YTC-DEDICATED] record_cost failed: %s", ce)
 
                     log.info(
-                        f"[YTC-DEDICATED] run complete: {session_id} "
-                        f"({len(per_video)} per-video + 1 rollup, est ${est_cost:.4f})"
+                        f"[YTC-DEDICATED] cycle complete: {session_id} "
+                        f"({len(per_video)} per-video reports, est ${est_cost:.4f}) — "
+                        f"rollup deferred to nightshift"
                     )
                     self._stats["last_ytc_dedicated"] = datetime.now(timezone.utc).isoformat()
                     self._stats["ytc_dedicated_runs"] = self._stats.get("ytc_dedicated_runs", 0) + 1
+                    self._stats["last_ytc_per_video_count"] = len(per_video)
                     # Also write to awarebot stats for the iOS UI which already
                     # reads aware_stats['last_ytc_at'].
                     if self.awarebot is not None:
@@ -4497,7 +4504,7 @@ class AutonomousScheduler:
                         except Exception:
                             pass
                 else:
-                    log.info(f"[YTC-DEDICATED] run produced no report: {session_id}")
+                    log.info(f"[YTC-DEDICATED] cycle produced no per-video reports: {session_id}")
             except asyncio.CancelledError:
                 log.info("[YTC-DEDICATED] cancelled")
                 raise
@@ -4508,6 +4515,191 @@ class AutonomousScheduler:
                 await asyncio.sleep(ytc_interval)
             except asyncio.CancelledError:
                 raise
+
+    async def _ytc_nightshift_loop(self) -> None:
+        """LOOP — YouTube Council nightshift rollup (3am LOCAL nightly).
+
+        Wave 11 task W11-1. Fires once at 3:00 AM local time. Reads every
+        per-video report written during the prior day under
+        ``intelligence-scan/council-reports/youtube/<yesterday>/``,
+        calls ``run_youtube_nightshift(yesterday_date)`` which runs the
+        same ``synthesize_rollup()`` the legacy hourly loop used to call,
+        and writes the resulting daily rollup as ``nightshift-brief.json``
+        + ``nightshift-brief.md`` into that same date directory so it's
+        ready for the morning operator.
+
+        Cost gated on the ``ytc`` source budget (~$0.30 estimated). Heavy
+        work is bracketed in ``long_running_ctx("ncl-night-watch")`` so the
+        stall watchdog uses the relaxed (300s) threshold during synthesis.
+        """
+        from ..cost_tracker import check_budget, record_cost
+
+        log.info("[YTC-NIGHTSHIFT] loop started — will fire daily at 3:00 AM local")
+
+        # Startup grace so other Brain init work finishes before we even
+        # think about computing the next 3am-local target.
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            raise
+
+        while self._running:
+            if EMERGENCY_STOP_EVENT.is_set():
+                log.critical("[YTC-NIGHTSHIFT] Emergency stop active — halting loop")
+                break
+
+            # ── Compute seconds until next 3am LOCAL ───────────────────
+            try:
+                now_local = datetime.now()  # naive, system local tz
+                target = now_local.replace(hour=3, minute=0, second=0, microsecond=0)
+                if now_local >= target:
+                    target += timedelta(days=1)
+                sleep_secs = (target - now_local).total_seconds()
+                log.info(
+                    "[YTC-NIGHTSHIFT] next run at %s (%.0fs)",
+                    target.isoformat(),
+                    sleep_secs,
+                )
+                await asyncio.sleep(sleep_secs)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.error("[YTC-NIGHTSHIFT] sleep-target compute failed: %s", e, exc_info=True)
+                try:
+                    await asyncio.sleep(3600)
+                except asyncio.CancelledError:
+                    raise
+                continue
+
+            # ── Fire the rollup synthesis ─────────────────────────────
+            try:
+                if not await check_budget("ytc", 0.30):
+                    log.warning(
+                        "[YTC-NIGHTSHIFT] ytc daily budget exhausted — skipping tonight's rollup"
+                    )
+                    continue
+
+                yesterday_local = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+                session_id = (
+                    f"ytc-nightshift-{yesterday_local}-"
+                    f"{datetime.now(timezone.utc).strftime('%H%M%S')}"
+                )
+                log.info(
+                    "[YTC-NIGHTSHIFT] starting rollup for %s as %s",
+                    yesterday_local,
+                    session_id,
+                )
+
+                from ..councils.runner import run_youtube_nightshift
+
+                # Use night-watch deadband — nightshift synthesis is heavy
+                # (Sonnet rollup + write) and may exceed the default 90s
+                # stall threshold.
+                async with self.long_running_ctx("ncl-night-watch"):
+                    rollup = await run_youtube_nightshift(yesterday_local, session_id)
+
+                if rollup is None:
+                    log.info(
+                        "[YTC-NIGHTSHIFT] no rollup produced for %s "
+                        "(insufficient per-video reports or empty day)",
+                        yesterday_local,
+                    )
+                    self._stats["last_ytc_nightshift_skipped"] = datetime.now(
+                        timezone.utc
+                    ).isoformat()
+                    continue
+
+                ncl_base = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
+                date_dir = (
+                    ncl_base
+                    / "intelligence-scan"
+                    / "council-reports"
+                    / "youtube"
+                    / yesterday_local
+                )
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(
+                    None, lambda: date_dir.mkdir(parents=True, exist_ok=True)
+                )
+
+                # Persist nightshift-brief.json
+                brief_path = date_dir / "nightshift-brief.json"
+                brief_data = rollup.to_dict()
+                brief_data.update(
+                    {
+                        "session_id": session_id,
+                        "status": "complete",
+                        "completed_at": datetime.now(timezone.utc).isoformat(),
+                        "auto_triggered": True,
+                        "report_type": "nightshift_rollup",
+                        "rolled_up_date": yesterday_local,
+                        "spawned_by": "ncl-ytc-nightshift",
+                    }
+                )
+                async with aiofiles.open(brief_path, "w") as f:
+                    await f.write(json.dumps(brief_data, default=str, indent=2))
+
+                # Persist nightshift-brief.md (human-readable for morning op)
+                md_lines: list[str] = []
+                md_lines.append(f"# YouTube Council — Nightshift Brief ({yesterday_local})\n")
+                md_lines.append(f"_Session: {session_id}_\n")
+                md_lines.append(
+                    f"_Synthesized: {datetime.now(timezone.utc).isoformat()}_\n\n"
+                )
+                md_lines.append(
+                    f"**Per-video reports rolled up:** {rollup.sources_processed}  \n"
+                )
+                md_lines.append(
+                    f"**Total content duration:** {rollup.total_duration_hours:.1f}h  \n"
+                )
+                md_lines.append(f"**Insight count:** {len(rollup.insights)}  \n\n")
+                if rollup.summary:
+                    md_lines.append("## Executive Summary\n\n")
+                    md_lines.append(rollup.summary + "\n\n")
+                if rollup.raw_analysis:
+                    md_lines.append("## Full Analysis\n\n")
+                    md_lines.append(rollup.raw_analysis + "\n\n")
+                if rollup.insights:
+                    md_lines.append("## Insights\n\n")
+                    for i, ins in enumerate(rollup.insights, 1):
+                        md_lines.append(
+                            f"### {i}. [{ins.category.value}] {ins.title} "
+                            f"(conf {ins.confidence:.0%})\n\n{ins.description}\n\n"
+                        )
+                md_path = date_dir / "nightshift-brief.md"
+                async with aiofiles.open(md_path, "w") as f:
+                    await f.write("".join(md_lines))
+
+                # Record cost (~$0.30 estimated — single Sonnet rollup call)
+                try:
+                    await record_cost(
+                        "ytc",
+                        0.30,
+                        "ytc_nightshift_rollup",
+                        detail=f"nightshift rollup {yesterday_local} ({session_id})",
+                    )
+                except Exception as ce:
+                    log.warning("[YTC-NIGHTSHIFT] record_cost failed: %s", ce)
+
+                log.info(
+                    "[YTC-NIGHTSHIFT] complete: %s — %d insights, %.1fh content, "
+                    "ready for morning at %s",
+                    yesterday_local,
+                    len(rollup.insights),
+                    rollup.total_duration_hours,
+                    brief_path,
+                )
+                self._stats["last_ytc_nightshift"] = datetime.now(timezone.utc).isoformat()
+                self._stats["ytc_nightshift_runs"] = (
+                    self._stats.get("ytc_nightshift_runs", 0) + 1
+                )
+                self._stats["last_ytc_nightshift_insights"] = len(rollup.insights)
+                self._stats["last_ytc_nightshift_date"] = yesterday_local
+            except asyncio.CancelledError:
+                log.info("[YTC-NIGHTSHIFT] cancelled")
+                raise
+            except Exception as e:
+                log.error("[YTC-NIGHTSHIFT] cycle failed: %s", e, exc_info=True)
 
     async def _bm25_rebuild_loop(self) -> None:
         """LOOP 18 — BM25 keyword index maintenance for Loop-11 fusion.

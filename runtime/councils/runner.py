@@ -571,6 +571,338 @@ async def _run_x_pack_augmenter(*, report, session_id: str) -> None:
         log.warning("[X-COUNCIL:PACK] pack path failed (%s) — augmentation skipped", pack_err)
 
 
+async def run_youtube_per_video_only(
+    session_id: str,
+    dry_run: bool = False,
+    progress_cb: object | None = None,
+) -> "CouncilReport | None":
+    """W11-1 hourly variant: scrape -> download -> transcribe -> per-video
+    analysis -> write per-video reports. NO rollup synthesis.
+
+    The cross-video rollup is now produced by the nightshift loop
+    (``run_youtube_nightshift``) which fires once at 3am local and consumes
+    every per-video report from the prior 24h.
+
+    Skip rules (vs ``run_youtube_council``):
+      * If no NEW videos remain after dedup, return None (cycle is a no-op).
+      * Per-video download failure is logged and skipped (caller already
+        tolerates this via ``download_batch`` returning fewer items).
+      * Per-video analysis failure is logged and the next video is tried —
+        the gather/return-None path is unchanged.
+
+    Returns a synthetic CouncilReport that carries ``_per_video_reports`` so
+    the caller can persist them, or None if nothing was produced. The
+    returned report itself is NOT a rollup — its ``summary`` is a static
+    "per-video only" placeholder and it should NOT be ingested into memory
+    as a rollup (the scheduler writes per-video JSONs only).
+    """
+    from .shared.models import CouncilReport, CouncilSource
+    from .shared.report_writer import write_report
+    from .youtube.scraper import download_batch, scrape_recent_videos
+    from .youtube.transcriber import cleanup_old_audio, transcribe_batch
+
+    def _progress(step: str, **kwargs):
+        if progress_cb is not None:
+            try:
+                progress_cb(step, **kwargs)
+            except Exception:
+                pass
+
+    log.info("=" * 60)
+    log.info("  YOUTUBE COUNCIL (PER-VIDEO ONLY) — Starting session")
+    log.info("=" * 60)
+
+    try:
+        cleanup_old_audio()
+    except Exception as e:
+        log.warning(f"Audio cleanup failed (non-fatal): {e}")
+
+    _progress("scraping")
+    log.info("Step 1/4: Scraping channel feeds...")
+    videos = await asyncio.to_thread(scrape_recent_videos)
+    if not videos:
+        log.info("[YTC-PV] No recent videos found — skipping cycle")
+        return None
+
+    already_seen = _load_previously_analyzed_video_ids()
+    if already_seen:
+        before = len(videos)
+        videos = [v for v in videos if v.get("video_id", v.get("id", "")) not in already_seen]
+        skipped = before - len(videos)
+        if skipped:
+            log.info(f"[YTC-PV] Dedup skipped {skipped}, {len(videos)} remaining")
+
+    # W11-1 rule: skip cycle if no new videos
+    if len(videos) < 1:
+        log.info("[YTC-PV] No new videos after dedup — skipping cycle (no rollup attempted)")
+        return None
+
+    log.info(f"[YTC-PV] Found {len(videos)} new videos to analyze")
+    _progress("downloading", videos_found=len(videos))
+
+    if dry_run:
+        log.info("[YTC-PV][DRY RUN] Skipping download/transcribe/analyze")
+        return None
+
+    log.info("Step 2/4: Downloading audio...")
+    downloaded = await asyncio.to_thread(download_batch, videos)
+    if not downloaded:
+        # W11-1 rule: download-fail tolerance — try next cycle, no rollup
+        log.warning("[YTC-PV] No audio downloaded this cycle — will retry next hour")
+        return None
+
+    _progress("transcribing", videos_found=len(videos), videos_transcribed=0)
+    log.info("Step 3/4: Transcribing audio...")
+    transcribed = await asyncio.to_thread(transcribe_batch, downloaded)
+    if not transcribed:
+        log.warning("[YTC-PV] No transcriptions produced this cycle")
+        return None
+
+    total_duration = sum(t.duration_seconds for _, t in transcribed)
+    log.info(f"[YTC-PV] Transcribed {len(transcribed)} videos ({total_duration / 3600:.1f}h)")
+    _progress("analyzing", videos_found=len(videos), videos_transcribed=len(transcribed))
+
+    from .youtube.analyzer import analyze_single_video
+
+    log.info(f"Step 4/4: Per-video AI analysis on {len(transcribed)} videos...")
+    sem = asyncio.Semaphore(3)
+
+    async def _analyze_one(video_info: dict, transcript, idx: int):
+        async with sem:
+            vid_id = video_info.get("video_id", f"vid{idx}")
+            vid_session = f"{session_id}-{vid_id}"
+            log.info(
+                f"  [YTC-PV] Analyzing [{idx + 1}/{len(transcribed)}]: "
+                f"{video_info.get('title', 'Untitled')}"
+            )
+            _progress(
+                "analyzing_video",
+                video_index=idx + 1,
+                video_total=len(transcribed),
+                video_title=video_info.get("title", ""),
+            )
+            try:
+                report = await analyze_single_video(video_info, transcript, vid_session)
+                vid_md, vid_json = write_report(report)
+                log.info(f"  [YTC-PV] Per-video report saved: {vid_md.name}")
+                await _auto_ingest_report(report)
+                return report
+            except Exception as e:
+                log.error(
+                    f"  [YTC-PV] Analysis failed for '{video_info.get('title', '')}': {e}",
+                    exc_info=True,
+                )
+                # W11-1 rule: try next video instead of bailing
+                return None
+
+    tasks = [
+        _analyze_one(video_info, transcript, i)
+        for i, (video_info, transcript) in enumerate(transcribed)
+    ]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    per_video_reports: list[CouncilReport] = []
+    for r in results:
+        if isinstance(r, Exception):
+            log.warning("[YTC-PV][GATHER] per-video task failed: %s", r)
+            continue
+        if r is not None:
+            per_video_reports.append(r)
+
+    if not per_video_reports:
+        log.warning("[YTC-PV] All per-video analyses failed this cycle")
+        return None
+
+    log.info(
+        f"[YTC-PV] Per-video complete: {len(per_video_reports)}/{len(transcribed)} succeeded"
+    )
+
+    # Synthetic carrier — NOT a rollup. Caller uses ``_per_video_reports``
+    # only; the synthesized rollup is now the nightshift loop's job.
+    carrier = CouncilReport(
+        council_type=CouncilSource.YOUTUBE,
+        session_id=session_id,
+        sources_processed=len(per_video_reports),
+        total_duration_hours=total_duration,
+        insights=[],
+        summary="Per-video YTC cycle — rollup deferred to nightshift loop.",
+        videos=[],
+    )
+    carrier._per_video_reports = per_video_reports  # type: ignore[attr-defined]
+    return carrier
+
+
+def _ytc_dict_to_report(data: dict) -> "CouncilReport | None":
+    """Best-effort reverse of ``CouncilReport.to_dict()`` for nightshift load.
+
+    Reconstructs just enough of the dataclass tree for ``synthesize_rollup``
+    to read ``report.insights[*].title``, ``report.videos[0].title``,
+    ``report.videos[0].channel``, ``report.summary`` and
+    ``report.total_duration_hours``. Anything missing is filled with safe
+    defaults.
+    """
+    from .shared.models import (
+        CouncilReport,
+        CouncilSource,
+        Insight,
+        SignalCategory,
+        VideoMeta,
+    )
+
+    try:
+        ctype = data.get("council_type") or CouncilSource.YOUTUBE.value
+        if isinstance(ctype, str):
+            try:
+                ctype_enum = CouncilSource(ctype)
+            except ValueError:
+                ctype_enum = CouncilSource.YOUTUBE
+        else:
+            ctype_enum = CouncilSource.YOUTUBE
+
+        insights_raw = data.get("insights") or []
+        insights: list[Insight] = []
+        for ins in insights_raw:
+            try:
+                cat = ins.get("category") or "content"
+                try:
+                    cat_enum = SignalCategory(cat)
+                except ValueError:
+                    cat_enum = SignalCategory.CONTENT
+                insights.append(
+                    Insight(
+                        title=ins.get("title", ""),
+                        description=ins.get("description", ""),
+                        category=cat_enum,
+                        confidence=float(ins.get("confidence", 0.5) or 0.5),
+                        tags=list(ins.get("tags") or []),
+                        source_refs=list(ins.get("source_refs") or []),
+                        actionable=bool(ins.get("actionable", False)),
+                        action_suggestion=ins.get("action_suggestion", ""),
+                    )
+                )
+            except Exception:
+                continue
+
+        videos_raw = data.get("videos") or []
+        videos: list[VideoMeta] = []
+        for v in videos_raw:
+            try:
+                videos.append(
+                    VideoMeta(
+                        video_id=v.get("video_id", ""),
+                        title=v.get("title", ""),
+                        channel=v.get("channel", ""),
+                        channel_id=v.get("channel_id", ""),
+                        upload_date=v.get("upload_date", ""),
+                        duration_seconds=int(v.get("duration_seconds", 0) or 0),
+                        url=v.get("url", ""),
+                        description=v.get("description", "") or "",
+                        view_count=int(v.get("view_count", 0) or 0),
+                        like_count=int(v.get("like_count", 0) or 0),
+                        tags=list(v.get("tags") or []),
+                        thumbnail_url=v.get("thumbnail_url", "") or "",
+                    )
+                )
+            except Exception:
+                continue
+
+        return CouncilReport(
+            council_type=ctype_enum,
+            session_id=data.get("session_id", ""),
+            timestamp=data.get("timestamp", datetime.now(timezone.utc).isoformat()),
+            period_hours=int(data.get("period_hours", 24) or 24),
+            sources_processed=int(data.get("sources_processed", 0) or 0),
+            total_duration_hours=float(data.get("total_duration_hours", 0.0) or 0.0),
+            insights=insights,
+            summary=data.get("summary", "") or "",
+            raw_analysis=data.get("raw_analysis", "") or "",
+            videos=videos,
+            posts=[],
+        )
+    except Exception as e:
+        log.warning("[YTC-NIGHTSHIFT] failed to rehydrate report dict: %s", e)
+        return None
+
+
+async def run_youtube_nightshift(
+    date_str: str,
+    session_id: str | None = None,
+) -> "CouncilReport | None":
+    """W11-1 nightshift rollup synthesizer.
+
+    Reads every per-video report from
+    ``intelligence-scan/council-reports/youtube/<date_str>/`` (where
+    ``date_str`` is the local YYYY-MM-DD of the day to roll up — typically
+    ``yesterday``), rehydrates them into ``CouncilReport`` objects, and
+    runs ``synthesize_rollup(reports, session_id)`` ONLY. No scrape, no
+    download, no transcription.
+
+    Requires >= 2 per-video reports to bother synthesizing — a single
+    report doesn't have cross-video patterns to surface.
+
+    Returns the synthesized rollup ``CouncilReport`` (the caller writes
+    it to ``<date_dir>/nightshift-brief.{json,md}``), or None.
+    """
+    from .shared.report_writer import REPORTS_DIR
+    from .youtube.analyzer import synthesize_rollup
+
+    if session_id is None:
+        session_id = (
+            f"ytc-nightshift-{date_str}-"
+            f"{datetime.now(timezone.utc).strftime('%H%M%S')}"
+        )
+
+    date_dir = REPORTS_DIR / "youtube" / date_str
+    if not date_dir.exists():
+        log.info(
+            "[YTC-NIGHTSHIFT] No per-video reports directory for %s (%s) — nothing to roll up",
+            date_str,
+            date_dir,
+        )
+        return None
+
+    per_video_reports: list[CouncilReport] = []
+    try:
+        for f in sorted(date_dir.glob("*.json")):
+            # Skip our own output if a prior nightshift wrote here
+            if f.name.startswith("nightshift-brief"):
+                continue
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+            except Exception as e:
+                log.warning("[YTC-NIGHTSHIFT] could not read %s: %s", f.name, e)
+                continue
+            # Only consider per_video reports (skip stray rollups if any)
+            if data.get("report_type") and data.get("report_type") != "per_video":
+                continue
+            report = _ytc_dict_to_report(data)
+            if report is not None:
+                per_video_reports.append(report)
+    except Exception as e:
+        log.error("[YTC-NIGHTSHIFT] glob+load failed for %s: %s", date_dir, e, exc_info=True)
+        return None
+
+    if len(per_video_reports) < 2:
+        log.info(
+            "[YTC-NIGHTSHIFT] only %d per-video report(s) for %s — skipping rollup synthesis",
+            len(per_video_reports),
+            date_str,
+        )
+        return None
+
+    log.info(
+        "[YTC-NIGHTSHIFT] synthesizing rollup from %d per-video reports (%s)",
+        len(per_video_reports),
+        date_str,
+    )
+    rollup = await synthesize_rollup(per_video_reports, session_id)
+    log.info(
+        "[YTC-NIGHTSHIFT] rollup complete: %d insights, %.1fh total",
+        len(rollup.insights),
+        rollup.total_duration_hours,
+    )
+    return rollup
+
+
 async def run_youtube_council(
     session_id: str,
     dry_run: bool = False,

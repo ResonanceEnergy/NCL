@@ -1896,11 +1896,26 @@ async def youtube_reports_recent(
     """
     ncl_base = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
     candidates: list[tuple[float, Path]] = []
+    # Legacy flat layouts (still scanned for back-compat — files migrate
+    # out of these as W11-2 ``reorganize_ytc_reports.py`` runs).
     for sub in ("youtube-reports", "council-reports"):
         d = ncl_base / "intelligence-scan" / sub
         if not d.exists():
             continue
         for p in d.glob("*.json"):
+            try:
+                candidates.append((p.stat().st_mtime, p))
+            except OSError:
+                continue
+    # New per-date layout (W11-2): ``council-reports/youtube/<date>/*.json``.
+    yt_root = ncl_base / "intelligence-scan" / "council-reports" / "youtube"
+    if yt_root.exists():
+        for p in yt_root.rglob("*.json"):
+            # Skip nightshift rollups — they have their own endpoints
+            # (``/youtube/nightshift/*``) and shouldn't pollute the
+            # per-video recent feed.
+            if p.name.startswith("nightshift-brief"):
+                continue
             try:
                 candidates.append((p.stat().st_mtime, p))
             except OSError:
@@ -2020,6 +2035,251 @@ async def youtube_reports_recent(
             "filtered_count": len(sliced),
             "dedup_count": dedup_count,
         },
+    }
+
+
+# ===========================================================================
+# YouTube nightshift brief endpoints (W11-2, 2026-05-24)
+# ===========================================================================
+#
+# Nightshift briefs are written by the ``ncl-ytc-nightshift`` loop at
+# 3:00 AM local time into::
+#
+#     intelligence-scan/council-reports/youtube/<YYYY-MM-DD>/nightshift-brief.json
+#     intelligence-scan/council-reports/youtube/<YYYY-MM-DD>/nightshift-brief.md
+#
+# These endpoints surface that artifact to FirstStrike iOS (YTC tab —
+# "Last Night's Brief" header card + a history list).
+
+
+_YT_REPORTS_ROOT = (
+    Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
+    / "intelligence-scan"
+    / "council-reports"
+    / "youtube"
+)
+
+
+def _nightshift_brief_summary(date_dir: Path) -> dict | None:
+    """Read ``<date_dir>/nightshift-brief.json`` and shape it as a history row.
+
+    Returns None when the file is missing or unparseable. ``date_dir.name``
+    is treated as the canonical date — the on-disk JSON's ``rolled_up_date``
+    is preferred when present.
+    """
+    brief_path = date_dir / "nightshift-brief.json"
+    if not brief_path.exists():
+        return None
+    try:
+        data = json.loads(brief_path.read_text(encoding="utf-8"))
+    except Exception as e:  # pragma: no cover — corrupt file
+        log.warning("[ytc-nightshift] %s unreadable: %s", brief_path, e)
+        return None
+    insights = data.get("insights") or []
+    return {
+        "date": data.get("rolled_up_date") or date_dir.name,
+        "session_id": data.get("session_id") or "",
+        "sources_processed": int(data.get("sources_processed", 0) or 0),
+        "total_duration_hours": float(data.get("total_duration_hours", 0.0) or 0.0),
+        "summary": (data.get("summary") or "")[:1000],
+        "insights_count": len(insights) if isinstance(insights, list) else 0,
+        "generated_at": (
+            data.get("completed_at")
+            or data.get("timestamp")
+            or ""
+        ),
+    }
+
+
+@router.get("/youtube/nightshift/latest")
+async def youtube_nightshift_latest(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Return today's nightshift brief if present, else yesterday's.
+
+    The nightshift loop fires at 3am local for *yesterday's* per-video
+    reports — so on a typical morning iOS asks for ``latest`` and gets
+    today's freshly-written brief. If the loop hasn't fired yet (early
+    morning, or a skipped night) we fall back to the most recent
+    available date.
+    """
+    if not _YT_REPORTS_ROOT.exists():
+        raise HTTPException(status_code=404, detail="No youtube reports tree yet")
+
+    # Try today first, then walk back through every YYYY-MM-DD dir
+    # (newest first) until we find one with a nightshift-brief.json.
+    today = datetime.now().strftime("%Y-%m-%d")
+    candidates: list[Path] = []
+    today_dir = _YT_REPORTS_ROOT / today
+    if today_dir.exists():
+        candidates.append(today_dir)
+    date_dirs = sorted(
+        (
+            d
+            for d in _YT_REPORTS_ROOT.iterdir()
+            if d.is_dir() and re.match(r"^\d{4}-\d{2}-\d{2}$", d.name)
+        ),
+        key=lambda d: d.name,
+        reverse=True,
+    )
+    for d in date_dirs:
+        if d not in candidates:
+            candidates.append(d)
+
+    for d in candidates:
+        brief_path = d / "nightshift-brief.json"
+        if brief_path.exists():
+            try:
+                data = json.loads(brief_path.read_text(encoding="utf-8"))
+            except Exception as e:
+                log.warning("[ytc-nightshift] could not read %s: %s", brief_path, e)
+                continue
+            data.setdefault("date", d.name)
+            data["_path"] = str(brief_path)
+            return data
+
+    raise HTTPException(status_code=404, detail="No nightshift brief found")
+
+
+@router.get("/youtube/nightshift/history")
+async def youtube_nightshift_history(
+    limit: int = Query(default=30, ge=1, le=180),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Return up to ``limit`` past nightshift-brief summaries, newest first."""
+    if not _YT_REPORTS_ROOT.exists():
+        return {"total": 0, "briefs": [], "limit": limit}
+
+    rows: list[dict] = []
+    date_dirs = [
+        d
+        for d in _YT_REPORTS_ROOT.iterdir()
+        if d.is_dir() and re.match(r"^\d{4}-\d{2}-\d{2}$", d.name)
+    ]
+    date_dirs.sort(key=lambda d: d.name, reverse=True)
+    for d in date_dirs:
+        row = _nightshift_brief_summary(d)
+        if row:
+            rows.append(row)
+        if len(rows) >= limit:
+            break
+
+    return {
+        "total": len(rows),
+        "briefs": rows,
+        "limit": limit,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+@router.get("/youtube/nightshift/{date}")
+async def youtube_nightshift_by_date(
+    date: str,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Return the full nightshift brief for a specific ``YYYY-MM-DD``.
+
+    404 when the date directory doesn't exist or holds no brief.
+    """
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", date):
+        raise HTTPException(status_code=422, detail="date must be YYYY-MM-DD")
+    brief_path = _YT_REPORTS_ROOT / date / "nightshift-brief.json"
+    if not brief_path.exists():
+        raise HTTPException(status_code=404, detail=f"No nightshift brief for {date}")
+    try:
+        data = json.loads(brief_path.read_text(encoding="utf-8"))
+    except Exception as e:
+        log.exception("[ytc-nightshift] %s unreadable: %s", brief_path, e)
+        raise HTTPException(status_code=500, detail="Brief file corrupted")
+    data.setdefault("date", date)
+    data["_path"] = str(brief_path)
+    return data
+
+
+@router.get("/youtube/reports/by-date/{date}")
+async def youtube_reports_by_date(
+    date: str,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """List per-video YTC reports for a specific ``YYYY-MM-DD``.
+
+    Globs ``intelligence-scan/council-reports/youtube/<date>/*.json``,
+    excluding any ``nightshift-brief*`` files, and returns each report
+    in the same flat shape used by ``/youtube/reports/recent``. Sorted
+    by ``completed_at`` (descending), falling back to file mtime.
+    """
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", date):
+        raise HTTPException(status_code=422, detail="date must be YYYY-MM-DD")
+    date_dir = _YT_REPORTS_ROOT / date
+    if not date_dir.exists():
+        return {"reports": [], "count": 0, "date": date}
+
+    rows: list[dict] = []
+    for p in date_dir.glob("*.json"):
+        if p.name.startswith("nightshift-brief"):
+            continue
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except Exception as e:
+            log.warning("[ytc-by-date] %s unreadable: %s", p, e)
+            continue
+        try:
+            mtime = p.stat().st_mtime
+        except OSError:
+            mtime = 0.0
+
+        videos = data.get("videos") or []
+        first_video = videos[0] if videos else {}
+        insights = data.get("insights") or []
+        completed_at = (
+            data.get("completed_at")
+            or data.get("timestamp")
+            or datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
+        )
+        rows.append(
+            {
+                "id": data.get("session_id") or p.stem,
+                "session_id": data.get("session_id") or "",
+                "title": (
+                    first_video.get("title")
+                    or data.get("title")
+                    or data.get("video_title")
+                    or data.get("topic")
+                    or p.stem
+                ),
+                "video_title": (
+                    first_video.get("title") or data.get("video_title") or data.get("title") or ""
+                ),
+                "channel": (
+                    first_video.get("channel")
+                    or data.get("channel")
+                    or data.get("channel_name")
+                    or "Unknown"
+                ),
+                "video_id": first_video.get("video_id") or data.get("video_id") or "",
+                "url": first_video.get("url") or data.get("video_url") or data.get("url") or "",
+                "completed_at": completed_at,
+                "summary": (
+                    data.get("summary")
+                    or data.get("transcript_summary")
+                    or (data.get("raw_analysis", "") or "")[:500]
+                ),
+                "insights_count": len(insights) if isinstance(insights, list) else 0,
+                "duration_hours": float(data.get("total_duration_hours", 0) or 0),
+                "report_type": data.get("report_type", "per_video"),
+                "report_path": str(p),
+                "filename": p.name,
+                "auto_triggered": bool(data.get("auto_triggered", False)),
+                "status": data.get("status", "complete"),
+            }
+        )
+
+    rows.sort(key=lambda r: r.get("completed_at", ""), reverse=True)
+    return {
+        "date": date,
+        "count": len(rows),
+        "reports": rows,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
 
