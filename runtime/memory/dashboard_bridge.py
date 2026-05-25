@@ -160,7 +160,14 @@ class MemoryDashboardBridge:
 
         events = []
         for unit in units:
-            # Creation event
+            # Creation event — carries full unit payload so iOS detail
+            # view doesn't need a second round-trip. 2026-05-24: was
+            # stripped to {timestamp, type, unit_id, source, importance}
+            # which left iOS MemoryDetailView showing an empty CONTENT
+            # card; the unit's actual content was on disk but the wire
+            # format didn't carry it. Adding content + created_at + tags
+            # + entities + memory_type + memory_tier + reinforcement_count
+            # so the detail view can render without an extra fetch.
             events.append(
                 {
                     "timestamp": unit.created_at.isoformat(),
@@ -168,6 +175,13 @@ class MemoryDashboardBridge:
                     "unit_id": unit.unit_id,
                     "source": unit.source,
                     "importance": unit.importance,
+                    "content": unit.content,
+                    "created_at": unit.created_at.isoformat(),
+                    "tags": list(unit.tags or []),
+                    "entities": list(unit.entities or []),
+                    "memory_type": getattr(unit.memory_type, "value", unit.memory_type) if unit.memory_type is not None else None,
+                    "memory_tier": getattr(unit.memory_tier, "value", unit.memory_tier) if unit.memory_tier is not None else None,
+                    "reinforcement_count": unit.reinforcement_count,
                 }
             )
 
