@@ -18,9 +18,10 @@ echo -e "${CYAN}============================================${NC}"
 echo ""
 
 # Ensure directories exist
+# NOTE: mandate-generation/ dirs intentionally NOT created — strike-point
+# pipeline merged into Brain 2026-05-23, file-queue scaffolding archived.
 mkdir -p ~/Projects/FirstStrike/logs
 mkdir -p ~/dev/NCL/logs
-mkdir -p ~/dev/NCL/mandate-generation/{input,processed,failed}
 
 # Install deps if needed (prefer venv; never --break-system-packages)
 $PYTHON -c "import fastapi, uvicorn, pydantic, httpx" 2>/dev/null || {
@@ -33,10 +34,10 @@ $PYTHON -c "import fastapi, uvicorn, pydantic, httpx" 2>/dev/null || {
 }
 
 # Kill old relay if running (to pick up new code)
+# (pump_watcher archived 2026-05-23 — Brain /pump endpoint absorbed its role)
 echo -e "${YELLOW}Restarting services with latest code...${NC}"
 pkill -f "relay-pump-endpoint" 2>/dev/null || true
 pkill -f "runtime.api.routes" 2>/dev/null || true
-pkill -f "pump_watcher" 2>/dev/null || true
 sleep 2
 
 # Remove old TLS cert so relay regenerates with current Tailscale IP
@@ -66,11 +67,8 @@ else
     echo -e "${YELLOW}  ⚠ Brain starting (may need API keys in .env)${NC}"
 fi
 
-# Start Pump Watcher
-echo -e "${YELLOW}  Starting Pump Watcher...${NC}"
-cd ~/dev/NCL
-PYTHONPATH=~/dev/NCL nohup $PYTHON -m runtime.pump_watcher > logs/pump-watcher-stdout.log 2> logs/pump-watcher-stderr.log &
-echo -e "${GREEN}  ✓ Watcher started${NC}"
+# Pump Watcher REMOVED 2026-05-23 — strike-point pipeline merged into Brain;
+# runtime.pump_watcher moved to archive/strike-point-pre-merge/.
 
 # Run E2E test
 echo ""

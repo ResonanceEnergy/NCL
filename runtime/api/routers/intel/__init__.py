@@ -576,7 +576,7 @@ async def get_brief_by_id(
                 try:
                     d = json.loads(line)
                     if d.get("brief_id") == brief_id:
-                        from ...intelligence.models import IntelBrief
+                        from ....intelligence.models import IntelBrief
 
                         brief = IntelBrief(**d)
                         return {
@@ -641,7 +641,7 @@ async def escalate_intelligence_to_strike_point(
                             try:
                                 d = json.loads(line)
                                 if d.get("brief_id") == brief_id:
-                                    from ...intelligence.models import IntelBrief
+                                    from ....intelligence.models import IntelBrief
 
                                     brief = IntelBrief(**d)
                                     break
@@ -1027,7 +1027,7 @@ async def reddit_intel(
     if intelligence and hasattr(intelligence, "_reddit"):
         scanner = intelligence._reddit
     else:
-        from ...intelligence.collectors import RedditCollector
+        from ....intelligence.collectors import RedditCollector
 
         scanner = RedditCollector(subreddits=[subreddit])
         owns_scanner = True
@@ -1077,7 +1077,7 @@ async def reddit_ticker_heat(
     if intelligence and hasattr(intelligence, "_reddit"):
         scanner = intelligence._reddit
     else:
-        from ...intelligence.collectors import RedditCollector
+        from ....intelligence.collectors import RedditCollector
 
         scanner = RedditCollector()
         owns_scanner = True
@@ -1219,7 +1219,7 @@ async def run_reddit_scan(
     if intelligence and hasattr(intelligence, "_reddit"):
         scanner = intelligence._reddit
     else:
-        from ...intelligence.collectors import RedditCollector
+        from ....intelligence.collectors import RedditCollector
 
         scanner = RedditCollector(subreddits=sub_names)
         owns_scanner = True
@@ -1294,7 +1294,7 @@ def _load_x_accounts() -> list[dict]:
                 return data["accounts"]
         except Exception as _load_err:
             log.warning("Failed to load X accounts config: %s", _load_err)
-    from ...councils.xai.scanner import DEFAULT_ACCOUNTS
+    from ....councils.xai.scanner import DEFAULT_ACCOUNTS
 
     return [
         {"handle": h, "display_name": h, "added_at": datetime.now(timezone.utc).isoformat()}
@@ -1394,7 +1394,7 @@ async def run_x_scan(
         log.info(f"[X] Returning cached scan ({now - _x_scan_cache['timestamp']:.0f}s old)")
         return _x_scan_cache["data"]
 
-    from ...councils.xai.scanner import full_sweep
+    from ....councils.xai.scanner import full_sweep
 
     try:
         sweep = await full_sweep(lookback_hours=24)
@@ -1479,7 +1479,7 @@ async def x_ticker_heatmap(
         log.info(f"[X] Returning cached tickers ({now - _x_ticker_cache['timestamp']:.0f}s old)")
         return _x_ticker_cache["data"]
 
-    from ...councils.xai.scanner import full_sweep
+    from ....councils.xai.scanner import full_sweep
 
     try:
         sweep = await full_sweep(lookback_hours=24)
@@ -1599,7 +1599,7 @@ async def reddit_posts_alias(
     if intelligence and hasattr(intelligence, "_reddit"):
         scanner = intelligence._reddit
     else:
-        from ...intelligence.collectors import RedditCollector
+        from ....intelligence.collectors import RedditCollector
 
         scanner = RedditCollector(subreddits=[subreddit])
         owns_scanner = True
@@ -2301,6 +2301,35 @@ from .predictions import router as _predictions_router  # noqa: E402
 
 
 router.include_router(_predictions_router)
+
+
+# ===========================================================================
+# Wave 13 P0-3: GET /intelligence/x/posts — cached-post reader for iOS XView
+# ===========================================================================
+#
+# Mirrors the GET /intelligence/reddit/posts alias pattern. iOS XView calls
+# this on view-load (read-only — does NOT trigger a fresh scan). Returns
+# the in-memory ``_x_scan_cache`` populated by POST /intelligence/x/run.
+# When the cache is cold, returns an empty post list with status="empty"
+# so XView can render the "tap SCAN" empty-state rather than a 404.
+
+
+@router.get("/intelligence/x/posts")
+async def x_posts_cached(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Read cached X scan results without triggering a new sweep."""
+    cached = _x_scan_cache.get("data")
+    if cached:
+        return cached
+    return {
+        "status": "empty",
+        "total_posts": 0,
+        "top_tickers": {},
+        "posts": [],
+        "vectors": {},
+        "cached_at": None,
+    }
 
 
 __all__ = ["router", "OutcomeBody"]

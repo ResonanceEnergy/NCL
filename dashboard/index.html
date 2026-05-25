@@ -358,7 +358,7 @@
   <!-- Pipeline Overview -->
   <div class="card card-full">
     <div class="card-header">
-      <span class="card-title">Pipeline Flow — First Strike → NCL → NCC → First Strike</span>
+      <span class="card-title">Pipeline Flow — First Strike → NCL → First Strike</span>
       <span class="card-badge badge-partial" id="pipelineBadge">Checking...</span>
     </div>
     <div class="pipeline" id="pipelineStages">
@@ -366,7 +366,7 @@
       <div class="stage stage-ok"><div class="stage-num">2</div><div class="stage-info"><div class="stage-name">Strike Point (NCL Brain receives pump)</div><div class="stage-detail">POST /pump → authenticate → parse intent</div></div><div class="stage-status" id="s2">⏳</div></div>
       <div class="stage stage-warn"><div class="stage-num">3</div><div class="stage-info"><div class="stage-name">NCL Council (Claude chairs debate)</div><div class="stage-detail">Claude + Grok + Gemini + Perplexity + GPT</div></div><div class="stage-status" id="s3">⏳</div></div>
       <div class="stage stage-warn"><div class="stage-num">4</div><div class="stage-info"><div class="stage-name">NATRIX Approval Gate</div><div class="stage-detail">Pushover notification → human approval</div></div><div class="stage-status" id="s4">⏳</div></div>
-      <div class="stage stage-ok"><div class="stage-num">5</div><div class="stage-info"><div class="stage-name">NCC Dispatch (Mandate → Execution)</div><div class="stage-detail">Validate → enrich AAC/BRS → dispatch</div></div><div class="stage-status" id="s5">⏳</div></div>
+      <div class="stage stage-ok"><div class="stage-num">5</div><div class="stage-info"><div class="stage-name">Mandate persist + memory write</div><div class="stage-detail">In-process Brain persistence → MemoryStore → ChromaDB</div></div><div class="stage-status" id="s5">⏳</div></div>
       <div class="stage stage-warn"><div class="stage-num">6</div><div class="stage-info"><div class="stage-name">Execution Loop (Claude Code → VS Code)</div><div class="stage-detail">Claude Code CLI bridge → Copilot fallback</div></div><div class="stage-status" id="s6">⏳</div></div>
       <div class="stage stage-ok"><div class="stage-num">7</div><div class="stage-info"><div class="stage-name">Review & Sign-Off</div><div class="stage-detail">Verify → stage → feedback payload</div></div><div class="stage-status" id="s7">⏳</div></div>
       <div class="stage stage-warn"><div class="stage-num">8</div><div class="stage-info"><div class="stage-name">Feedback Return (→ NCL → iPhone)</div><div class="stage-detail">POST /feedback → Pushover → relay completion</div></div><div class="stage-status" id="s8">⏳</div></div>
@@ -506,13 +506,11 @@ const DEMO_DATA = {
 };
 
 // Service list
+// Pillar services retired 2026-05-23: NCC Relay (8787), NCC Master (8765),
+// AAC Monitor (8080), BRS Dashboard (8000) — NCC repo gone, BRS/AAC pillars retired.
 const SERVICES = [
   { name: 'NCL Brain', port: 8800, path: '/health' },
-  { name: 'NCC Relay', port: 8787, path: '/health' },
-  { name: 'NCC Master', port: 8765, path: '/health' },
   { name: 'One-Drop', port: 8123, path: '/health' },
-  { name: 'AAC Monitor', port: 8080, path: '/health' },
-  { name: 'BRS Dashboard', port: 8000, path: '/health' },
   { name: 'Paperclip', port: 3100, path: '/health' },
   { name: 'Ollama', port: 11434, path: '/api/tags' },
 ];

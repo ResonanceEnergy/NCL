@@ -1230,10 +1230,10 @@ function generateSuggestions(item, type) {
   if (type === 'PUMP') {
     suggestions.push({
       suggestion_id: 'pump-approve',
-      action_text: 'Approve & dispatch',
+      action_text: 'Approve & persist mandate',
       action_type: 'approve',
       confidence: 0.75,
-      reasoning: 'Suggest approving pump prompt and dispatching to NCC'
+      reasoning: 'Suggest approving pump prompt and persisting mandate to memory'
     });
     suggestions.push({
       suggestion_id: 'pump-defer',

@@ -1,8 +1,11 @@
 """
 NCL (NUREALCORTEXLINK) Brain Service.
 
-Think pillar of Resonance Energy enterprise.
-Version 2.0.0 — Optimized for Mac Mini M4 Pro
+Standalone personal-AI brain for NATRIX. Surfaced to iOS via FirstStrike.
+The original multi-pillar architecture (NCC/BRS/AAC) was retired 2026-05-23 —
+NCL now owns memory, councils, intelligence, calendar, journal, and portfolio
+end-to-end with no downstream pillars.
+Version 2.0.0 — Optimized for Mac Studio M1 Ultra
 """
 
 __version__ = "2.0.0"

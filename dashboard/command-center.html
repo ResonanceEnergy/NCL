@@ -1462,13 +1462,13 @@ async function pumpResponseApprove() {
   if (!pumpId) { toast('No pump ID to approve', 'error'); return; }
   try {
     await api(`/pump/approve/${pumpId}`, { method: 'POST' });
-    toast('Approved and dispatched', 'success');
+    toast('Approved and persisted', 'success');
     showPumpResponse({
       status: 'complete',
       icon: '✅',
-      title: 'Approved & Dispatched',
-      statusText: `Pump ${pumpId} dispatched to NCC`,
-      body: 'Mandates have been approved and dispatched to the execution pipeline.',
+      title: 'Approved & Persisted',
+      statusText: `Pump ${pumpId} persisted to memory`,
+      body: 'Mandates have been approved and persisted to the Brain memory store.',
       showActions: false,
     });
     loadPending();

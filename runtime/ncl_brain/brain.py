@@ -992,8 +992,7 @@ class NCLBrain:
             f"SOURCE: {prompt.source}\n"
             f"CONTEXT:{context_str if context_str else ' (none provided)'}\n\n"
             f"As the council, debate and determine:\n"
-            f"1. Which mandate(s) should NCL pursue in-process? "
-            f"(BRS/AAC/NCC pillars retired 2026-05-23 — NCL is standalone.)\n"
+            f"1. Which mandate(s) should NCL pursue in-process?\n"
             f"2. What is the strategic objective for each mandate?\n"
             f"3. What are the success criteria?\n"
             f"4. Priority level (1-10)?\n"
@@ -1013,17 +1012,15 @@ class NCLBrain:
         # Try to parse structured mandate blocks from council output
 
         # Look for PILLAR: mentions
-        # BRS/AAC retired 2026-05-23; NCC repo also removed from this
-        # machine. NCL is standalone — every mandate targets NCL itself
-        # (in-process persistence + Brain-internal loops). Legacy
-        # "ncc"/"brs"/"aac" tags in council output are folded to NCL so
-        # we don't silently drop council-proposed mandates.
+        # NCL is standalone (BRS/AAC/NCC retired 2026-05-23). Council output
+        # MUST tag mandates as PILLAR: NCL. Any legacy tag (ncc/brs/aac) is
+        # rejected outright and the mandate is dropped + logged — silently
+        # folding retired tags to NCL is what produced months of NCC-tagged
+        # mandate residue in iOS surfaces (Wave 13 P0-1).
         pillar_map = {
             "ncl": PillarType.NCL,
-            "ncc": PillarType.NCL,
-            "brs": PillarType.NCL,
-            "aac": PillarType.NCL,
         }
+        retired_pillar_tags = {"ncc", "brs", "aac"}
 
         # Pattern: PILLAR: NCL ... TITLE: ... OBJECTIVE: ... PRIORITY: N
         blocks = re.split(r"(?:^|\n)(?=(?:PILLAR|Pillar|pillar)\s*:)", text)
@@ -1040,6 +1037,15 @@ class NCLBrain:
 
             if pillar_match:
                 pillar_key = pillar_match.group(1).lower().strip()
+                if pillar_key in retired_pillar_tags:
+                    log.warning(
+                        "Dropping council-proposed mandate with retired pillar "
+                        "tag '%s' (block snippet: %r). NCL is standalone; "
+                        "council prompts must emit PILLAR: NCL.",
+                        pillar_key,
+                        block[:120],
+                    )
+                    continue
                 if pillar_key in pillar_map:
                     mandates.append(
                         {
@@ -2001,11 +2007,14 @@ class NCLBrain:
 
     async def _persist_mandates_unlocked(self) -> None:
         """Internal — assumes _mandates_lock is already held by caller."""
-        # Snapshot to avoid concurrent-mutation iteration errors
-        snapshot = [m.model_dump() for m in list(self.mandates.values())]
+        # Snapshot live model refs under the lock; the heavy work
+        # (model_dump + json.dumps + fsync) runs off the event loop in a
+        # worker thread so a 5-10MB serialize never blocks the loop (W13 P0-4).
+        mandates_refs = list(self.mandates.values())
         tmp_path = self.mandates_file.with_suffix(self.mandates_file.suffix + ".tmp")
-        payload = json.dumps(snapshot, default=str, indent=2)
-        await asyncio.to_thread(self._atomic_write_json, tmp_path, self.mandates_file, payload)
+        await asyncio.to_thread(
+            self._serialize_and_write_mandates, mandates_refs, tmp_path, self.mandates_file
+        )
 
         # SQLite double-write (flag-gated, never blocks the JSON write).
         # W10B-1: routed through the unified DoubleWriteHook — the hook
@@ -2161,10 +2170,15 @@ class NCLBrain:
     async def _persist_pending_dispatches_unlocked(self) -> None:
         """Persist pending dispatches to disk. Caller must hold _pending_dispatches_lock."""
         try:
-            payload = json.dumps(dict(self._pending_dispatches), default=str, indent=2)
+            # Shallow-copy the OrderedDict under the lock; the json.dumps
+            # then runs off the event loop inside the worker thread (W13 P0-4).
+            dispatches_snapshot = dict(self._pending_dispatches)
             tmp_path = self._pending_dispatches_file.with_suffix(".json.tmp")
             await asyncio.to_thread(
-                self._atomic_write_json, tmp_path, self._pending_dispatches_file, payload
+                self._serialize_and_write_dict,
+                dispatches_snapshot,
+                tmp_path,
+                self._pending_dispatches_file,
             )
         except Exception as exc:
             log.error(f"[persist] Failed to save pending_dispatches: {exc}")
@@ -2211,11 +2225,18 @@ class NCLBrain:
     async def _persist_council_sessions_unlocked(self) -> None:
         """Persist council sessions to disk. Caller must hold _council_sessions_lock."""
         try:
-            snapshot = {sid: sess.model_dump() for sid, sess in self.council_sessions.items()}
-            payload = json.dumps(snapshot, default=str, indent=2)
+            # Snapshot the live CouncilSession refs under the lock. The
+            # heavy work (per-session model_dump + 5-10MB json.dumps at
+            # indent=2) runs off the event loop inside a worker thread so
+            # the loop is never blocked mid-flood (W13 P0-4 — root cause of
+            # the 2026-05-24 20:30 lockup).
+            sessions_items = list(self.council_sessions.items())
             tmp_path = self._council_sessions_file.with_suffix(".json.tmp")
             await asyncio.to_thread(
-                self._atomic_write_json, tmp_path, self._council_sessions_file, payload
+                self._serialize_and_write_council_sessions,
+                sessions_items,
+                tmp_path,
+                self._council_sessions_file,
             )
         except Exception as exc:
             log.error(f"[persist] Failed to save council_sessions: {exc}")
@@ -2249,3 +2270,40 @@ class NCLBrain:
                 # fsync may fail on some filesystems; don't crash persistence
                 pass
         os.replace(tmp_path, target)
+
+    # ------------------------------------------------------------------
+    # Off-loop serialize+write helpers (W13 P0-4)
+    #
+    # These run INSIDE asyncio.to_thread workers — they must touch only
+    # plain Python data and sync model objects (pydantic .model_dump() is
+    # sync, json.dumps is sync, file I/O is sync). No asyncio primitives.
+    # Callers snapshot the live state under their lock and hand the
+    # snapshot in so the event loop never sees the model_dump/json.dumps
+    # cost (was 300ms-1.5s for 5-10MB council transcripts).
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def _serialize_and_write_mandates(
+        cls, mandates_refs: list, tmp_path: Path, target: Path
+    ) -> None:
+        """Worker-thread: dump mandate models → JSON → atomic write."""
+        snapshot = [m.model_dump() for m in mandates_refs]
+        payload = json.dumps(snapshot, default=str, indent=2)
+        cls._atomic_write_json(tmp_path, target, payload)
+
+    @classmethod
+    def _serialize_and_write_dict(
+        cls, data: dict, tmp_path: Path, target: Path
+    ) -> None:
+        """Worker-thread: dict → JSON → atomic write. For pending_dispatches."""
+        payload = json.dumps(data, default=str, indent=2)
+        cls._atomic_write_json(tmp_path, target, payload)
+
+    @classmethod
+    def _serialize_and_write_council_sessions(
+        cls, sessions_items: list, tmp_path: Path, target: Path
+    ) -> None:
+        """Worker-thread: dump CouncilSession models → JSON → atomic write."""
+        snapshot = {sid: sess.model_dump() for sid, sess in sessions_items}
+        payload = json.dumps(snapshot, default=str, indent=2)
+        cls._atomic_write_json(tmp_path, target, payload)

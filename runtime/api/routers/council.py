@@ -90,6 +90,14 @@ class CouncilSpawnBody(BaseModel):
     priority: str = "P2"
 
 
+class CouncilQueueBody(BaseModel):
+    """iOS Memory tab → 'Council This' adjudication request."""
+
+    topic: str = ""
+    source: str = "memory"
+    unit_id: str | None = None
+
+
 class CouncilRunRequest(BaseModel):
     """Request body for council runner trigger."""
 
@@ -1207,3 +1215,43 @@ async def councils_status(
         status["pending_council_flags"] = 0
 
     return status
+
+
+# ── /council/queue — iOS adjudication queue (Wave 13) ─────────────────────
+
+
+_COUNCIL_QUEUE_FILE = (
+    Path(os.getenv("NCL_DATA", str(Path.home() / "NCL" / "data")))
+    / "council"
+    / "queue.jsonl"
+)
+
+
+@router.post("/council/queue")
+async def queue_council_adjudication(
+    body: CouncilQueueBody,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Queue a memory unit for council adjudication.
+
+    Minimal first cut: persist the request to ``data/council/queue.jsonl``
+    so the autonomous council-auto loop can pick it up alongside its
+    converge-signals path. Returns a synthetic session_id so iOS can
+    show a confirmation toast without blocking on the actual debate.
+    """
+    topic = (body.topic or "").strip() or f"Adjudicate memory unit {body.unit_id or ''}".strip()
+    session_id = f"queue-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
+    entry = {
+        "session_id": session_id,
+        "topic": topic,
+        "source": body.source or "memory",
+        "unit_id": body.unit_id,
+        "queued_at": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        _COUNCIL_QUEUE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        async with aiofiles.open(_COUNCIL_QUEUE_FILE, "a") as fh:
+            await fh.write(json.dumps(entry) + "\n")
+    except Exception as e:
+        log.warning(f"[/council/queue] queue persist failed: {e}")
+    return {"status": "queued", "topic": topic, "session_id": session_id}

@@ -15,9 +15,10 @@ echo -e "${CYAN}============================================${NC}"
 echo ""
 
 # Ensure directories
+# NOTE: mandate-generation/ dirs intentionally NOT created — strike-point
+# pipeline merged into Brain 2026-05-23, file-queue scaffolding archived.
 mkdir -p ~/Projects/FirstStrike/logs
 mkdir -p ~/dev/NCL/logs
-mkdir -p ~/dev/NCL/mandate-generation/{input,processed,failed}
 mkdir -p ~/dev/NCL/data
 mkdir -p ~/dev/NCL/config
 
@@ -30,12 +31,12 @@ fi
 pip3 install -r ~/dev/NCL/requirements.txt -q 2>/dev/null || true
 echo -e "${GREEN}  ✓ Dependencies OK${NC}"
 
-# Kill ALL old relay/brain/watcher processes
+# Kill ALL old relay/brain processes
+# (pump_watcher archived 2026-05-23 — Brain /pump endpoint absorbed its role)
 echo ""
 echo -e "${YELLOW}Stopping old services...${NC}"
 pkill -f "relay-pump-endpoint" 2>/dev/null && echo -e "${GREEN}  ✓ Old relay killed${NC}" || echo "  (no relay running)"
 pkill -f "runtime.api.routes" 2>/dev/null && echo -e "${GREEN}  ✓ Old brain killed${NC}" || echo "  (no brain running)"
-pkill -f "pump_watcher" 2>/dev/null && echo -e "${GREEN}  ✓ Old watcher killed${NC}" || echo "  (no watcher running)"
 sleep 2
 
 # Start FirstStrike Relay (port 8787)
@@ -66,13 +67,8 @@ else
     tail -5 logs/ncl-brain-stderr.log 2>/dev/null
 fi
 
-# Start Pump Watcher
-echo ""
-echo -e "${YELLOW}Starting Pump Watcher...${NC}"
-cd ~/dev/NCL
-PYTHONPATH=~/dev/NCL nohup python3 -m runtime.pump_watcher > logs/pump-watcher-stdout.log 2> logs/pump-watcher-stderr.log &
-WATCHER_PID=$!
-echo -e "${GREEN}  ✓ Watcher started (PID $WATCHER_PID)${NC}"
+# Pump Watcher REMOVED 2026-05-23 — strike-point pipeline merged into Brain;
+# runtime.pump_watcher moved to archive/strike-point-pre-merge/.
 
 # Run E2E test — failures here are logged but do NOT abort the restart
 echo ""

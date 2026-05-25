@@ -1650,11 +1650,12 @@ class AutonomousScheduler:
             adj_clean = (adj or "").strip()
             if not adj_clean:
                 continue
-            # Default to NCC for adjustments without explicit pillar tagging;
-            # NCC owns execution and can re-route if needed.
+            # NCL is standalone (BRS/AAC/NCC retired 2026-05-23). Adjustments
+            # without explicit pillar tagging target the Brain itself for
+            # in-process persistence.
             proposals.append(
                 (
-                    PillarType.NCC,
+                    PillarType.NCL,
                     5,
                     f"FEEDBACK: {adj_clean[:80]}",
                     f"Pillar-suggested adjustment from synthesis {note.synthesis_id}: "

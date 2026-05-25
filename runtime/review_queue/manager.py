@@ -533,8 +533,8 @@ class ReviewQueueManager:
     async def batch_approve(self, item_ids: List[str]) -> List[Dict[str, Any]]:
         """Approve multiple items.
 
-        NOTE: This is a tracking operation. Actual approval (dispatching to NCC)
-        should be done via the pump/action approval endpoints.
+        NOTE: This is a tracking operation. Actual approval (persisting the
+        mandate to memory) should be done via the pump/action approval endpoints.
 
         Args:
             item_ids: List of item IDs to approve
@@ -619,10 +619,10 @@ class ReviewQueueManager:
         if item.item_type == ReviewItemType.PUMP:
             suggestions.append(
                 Suggestion(
-                    action_text="Approve & dispatch to NCC",
+                    action_text="Approve & persist mandate",
                     action_type="approve",
                     confidence=0.75,
-                    reasoning="Approve pump prompt and dispatch to NCC for mandate execution",
+                    reasoning="Approve pump prompt and persist mandate to Brain memory store",
                 )
             )
             suggestions.append(

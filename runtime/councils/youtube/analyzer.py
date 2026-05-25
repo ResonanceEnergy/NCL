@@ -71,7 +71,7 @@ OLLAMA_MODEL = os.getenv("OLLAMA_COUNCIL_MODEL", "qwen3:32b")
 ANALYSIS_MODEL = os.getenv("YT_COUNCIL_MODEL", CLAUDE_MODEL)
 
 
-ANALYSIS_SYSTEM_PROMPT = """You are the YouTube Council Analyst for NARTIX — Resonance Energy studio.
+ANALYSIS_SYSTEM_PROMPT = """You are the YouTube Council Analyst for NATRIX (NCL Council).
 
 Your job: analyze transcribed YouTube video content and extract structured insights.
 
@@ -108,7 +108,7 @@ Output your analysis as JSON matching this exact schema:
   "content_opportunities": "string"
 }"""  # noqa: E501
 
-SINGLE_VIDEO_SYSTEM_PROMPT = """You are the YouTube Council Analyst for NARTIX — Resonance Energy studio.
+SINGLE_VIDEO_SYSTEM_PROMPT = """You are the YouTube Council Analyst for NATRIX (NCL Council).
 
 Your job: deeply analyze a SINGLE transcribed YouTube video and extract every actionable insight.
 
@@ -145,7 +145,7 @@ Output your analysis as JSON matching this exact schema:
   "content_assessment": "string"
 }"""  # noqa: E501
 
-ROLLUP_SYSTEM_PROMPT = """You are the YouTube Council Analyst for NARTIX — Resonance Energy studio.
+ROLLUP_SYSTEM_PROMPT = """You are the YouTube Council Analyst for NATRIX (NCL Council).
 
 You have already analyzed each video individually. Now synthesize cross-video patterns.
 

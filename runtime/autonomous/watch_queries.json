@@ -93,7 +93,6 @@
     "description": "Watch queries for NCL autonomous scanner. Aligned with active NATRIX mandates.",
     "mandates": [
       "DIGITAL-LABOUR (revenue scanning)",
-      "AAC War Room (crypto/market signals)",
       "Crimson Compass (game dev intelligence)",
       "DUBFORGE (music production trends)",
       "STRIKE-POINT (AI infrastructure)"

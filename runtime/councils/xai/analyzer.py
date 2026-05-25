@@ -57,7 +57,7 @@ def _get_ollama_host() -> str:
 ANALYSIS_MODEL = os.getenv("X_COUNCIL_MODEL", "claude-sonnet-4")
 
 
-X_ANALYSIS_SYSTEM_PROMPT = """You are the X (Twitter) Intelligence Analyst for NARTIX — Resonance Energy studio.
+X_ANALYSIS_SYSTEM_PROMPT = """You are the X (Twitter) Intelligence Analyst for NATRIX (NCL Council).
 
 Your job: analyze scraped X/Twitter posts across three vectors (tracked accounts, keyword searches, trending topics) and extract structured intelligence.
 

@@ -2,6 +2,11 @@
 # ============================================================
 # NCL START-ALL — Bring every dashboard service online
 # ============================================================
+# Pillar services retired 2026-05-23:
+#   - NCC Relay (8787), NCC Master (8765): NCC repo removed from this machine
+#   - AAC Monitor (8080): pillar retired
+#   - BRS Dashboard (8000): pillar retired (never shipped)
+# Active services below = NCL Brain + One-Drop + Paperclip + Ollama.
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[1;33m'
@@ -14,8 +19,6 @@ if [ ! -x "$PYTHON" ]; then
 fi
 
 NCL_DIR="$HOME/dev/NCL"
-NCC_DIR="$HOME/dev/NCC-Doctrine"
-AAC_DIR="$HOME/dev/AAC"
 LOGS="$NCL_DIR/logs"
 mkdir -p "$LOGS"
 
@@ -66,7 +69,7 @@ if [ "$NCL_ENV" = "development" ]; then
 fi
 
 # ─── 1. NCL Brain (:8800) ───────────────────────────────────
-echo -e "${YELLOW}[1/8] NCL Brain (:8800)${NC}"
+echo -e "${YELLOW}[1/4] NCL Brain (:8800)${NC}"
 if curl -s http://localhost:8800/health >/dev/null 2>&1; then
     echo -e "  ${GREEN}✓ Already running${NC}"
 else
@@ -79,152 +82,16 @@ else
     wait_for_port 8800 "NCL Brain"
 fi
 
-# ─── 2. NCC Relay (:8787) ───────────────────────────────────
-echo -e "${YELLOW}[2/8] NCC Relay (:8787)${NC}"
-if curl -sk https://localhost:8787/health >/dev/null 2>&1 || curl -s http://localhost:8787/health >/dev/null 2>&1; then
-    echo -e "  ${GREEN}✓ Already running${NC}"
-else
-    clear_port 8787
-    sleep 1
-    # Use the real relay server from NCC-Doctrine
-    if [ -f "$NCC_DIR/runtime/relay_server.py" ]; then
-        cd "$NCC_DIR/runtime"
-        PYTHONPATH="$NCC_DIR" nohup $PYTHON relay_server.py \
-            > "$LOGS/relay-stdout.log" 2> "$LOGS/relay-stderr.log" &
-        wait_for_port 8787 "NCC Relay"
-    elif [ -f "$HOME/Projects/FirstStrike/relay-pump-endpoint.py" ]; then
-        cd "$HOME/Projects/FirstStrike"
-        nohup $PYTHON relay-pump-endpoint.py > "$LOGS/relay-stdout.log" 2> "$LOGS/relay-stderr.log" &
-        sleep 3
-        if curl -sk https://localhost:8787/health >/dev/null 2>&1; then
-            echo -e "  ${GREEN}✓ Relay online (:8787)${NC}"
-        else
-            echo -e "  ${YELLOW}⚠ Relay started but health check pending${NC}"
-        fi
-    else
-        echo -e "  ${RED}✗ No relay server found${NC}"
-    fi
-fi
-
-# ─── 3. NCC Master (:8765) ──────────────────────────────────
-echo -e "${YELLOW}[3/8] NCC Master (:8765)${NC}"
-if curl -s http://localhost:8765/health >/dev/null 2>&1; then
-    echo -e "  ${GREEN}✓ Already running${NC}"
-else
-    clear_port 8765
-    sleep 1
-    if [ -f "$NCC_DIR/runtime/ncc_command_api.py" ]; then
-        cd "$NCC_DIR"
-        PYTHONPATH="$NCC_DIR" nohup $PYTHON -m runtime.ncc_command_api \
-            > "$LOGS/ncc-master-stdout.log" 2> "$LOGS/ncc-master-stderr.log" &
-        wait_for_port 8765 "NCC Master"
-    else
-        echo -e "  ${RED}✗ NCC-Doctrine not found at $NCC_DIR${NC}"
-    fi
-fi
-
-# ─── 4. One-Drop (:8123) ────────────────────────────────────
-echo -e "${YELLOW}[4/8] One-Drop (:8123)${NC}"
+# ─── 2. One-Drop (:8123) ────────────────────────────────────
+echo -e "${YELLOW}[2/4] One-Drop (:8123)${NC}"
 if curl -s http://localhost:8123/health >/dev/null 2>&1; then
     echo -e "  ${GREEN}✓ Already running${NC}"
 else
-    clear_port 8123
-    sleep 1
-    if [ -f "$NCC_DIR/backend/api/main.py" ]; then
-        cd "$NCC_DIR/backend"
-        PYTHONPATH="$NCC_DIR/backend" nohup $PYTHON -m api.main \
-            > "$LOGS/onedrop-stdout.log" 2> "$LOGS/onedrop-stderr.log" &
-        wait_for_port 8123 "One-Drop"
-    else
-        echo -e "  ${RED}✗ One-Drop not found${NC}"
-    fi
+    echo -e "  ${YELLOW}⚠ One-Drop not auto-started (no longer co-located with NCC). Start manually if needed.${NC}"
 fi
 
-# ─── 5. AAC Monitor (:8080) ─────────────────────────────────
-echo -e "${YELLOW}[5/8] AAC Monitor (:8080)${NC}"
-if curl -s http://localhost:8080/health >/dev/null 2>&1; then
-    echo -e "  ${GREEN}✓ Already running${NC}"
-else
-    clear_port 8080
-    sleep 1
-    if [ -f "$AAC_DIR/shared/health_server.py" ]; then
-        cd "$AAC_DIR"
-        PYTHONPATH="$AAC_DIR" nohup $PYTHON shared/health_server.py \
-            > "$LOGS/aac-stdout.log" 2> "$LOGS/aac-stderr.log" &
-        sleep 3
-        if curl -s http://localhost:8080/health >/dev/null 2>&1; then
-            echo -e "  ${GREEN}✓ AAC Monitor online (:8080)${NC}"
-        else
-            # Fallback: lightweight stub
-            echo -e "  ${YELLOW}⚠ AAC health_server failed — starting stub${NC}"
-            clear_port 8080
-            sleep 1
-            nohup $PYTHON -c "
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
-import uvicorn, json, os
-from datetime import datetime, timezone
-app = FastAPI(title='AAC War Room Monitor')
-app.add_middleware(CORSMiddleware, allow_origins=['*'], allow_methods=['*'], allow_headers=['*'])
-_regime = {'regime': 'neutral', 'confidence': 0.5, 'signals': [], 'updated': None}
-_positions = {'active': [], 'pending': [], 'closed_today': []}
-@app.get('/health')
-async def health():
-    return JSONResponse({'status': 'ok', 'service': 'aac-war-room', 'regime': _regime['regime']})
-@app.get('/regime')
-async def regime():
-    return JSONResponse({**_regime, 'updated': datetime.now(timezone.utc).isoformat()})
-@app.post('/regime')
-async def update_regime(data: dict):
-    _regime.update(data)
-    return JSONResponse({'status': 'updated'})
-@app.get('/positions')
-async def positions():
-    return JSONResponse(_positions)
-@app.get('/sitrep')
-async def sitrep():
-    return JSONResponse({'regime': _regime['regime'], 'positions': len(_positions.get('active',[])), 'pnl': 0})
-if __name__ == '__main__':
-    uvicorn.run(app, host='127.0.0.1', port=8080)
-" > "$LOGS/aac-stub-stdout.log" 2> "$LOGS/aac-stub-stderr.log" &
-            wait_for_port 8080 "AAC Monitor (stub)"
-        fi
-    else
-        echo -e "  ${RED}✗ AAC dir not found at $AAC_DIR${NC}"
-    fi
-fi
-
-# ─── 6. BRS Dashboard (:8000) ───────────────────────────────
-echo -e "${YELLOW}[6/8] BRS Dashboard (:8000)${NC}"
-if curl -s http://localhost:8000/health >/dev/null 2>&1; then
-    echo -e "  ${GREEN}✓ Already running${NC}"
-else
-    clear_port 8000
-    sleep 1
-    nohup $PYTHON -c "
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
-import uvicorn
-
-app = FastAPI(title='BRS Dashboard')
-
-@app.get('/health')
-async def health():
-    return JSONResponse({'status': 'ok', 'service': 'brs-dashboard', 'pillar': 'BRS'})
-
-@app.get('/matrix/sitrep')
-async def sitrep():
-    return JSONResponse({'status': 'operational', 'workers': 0, 'tasks_queued': 0})
-
-if __name__ == '__main__':
-    uvicorn.run(app, host='127.0.0.1', port=8000)
-" > "$LOGS/brs-stdout.log" 2> "$LOGS/brs-stderr.log" &
-    wait_for_port 8000 "BRS Dashboard"
-fi
-
-# ─── 7. Paperclip (:3100) ───────────────────────────────────
-echo -e "${YELLOW}[7/8] Paperclip (:3100)${NC}"
+# ─── 3. Paperclip (:3100) ───────────────────────────────────
+echo -e "${YELLOW}[3/4] Paperclip (:3100)${NC}"
 if curl -s http://localhost:3100/health >/dev/null 2>&1; then
     echo -e "  ${GREEN}✓ Already running${NC}"
 else
@@ -252,8 +119,8 @@ if __name__ == '__main__':
     wait_for_port 3100 "Paperclip"
 fi
 
-# ─── 8. Ollama (:11434) ─────────────────────────────────────
-echo -e "${YELLOW}[8/8] Ollama (:11434)${NC}"
+# ─── 4. Ollama (:11434) ─────────────────────────────────────
+echo -e "${YELLOW}[4/4] Ollama (:11434)${NC}"
 if curl -s http://localhost:11434/api/tags >/dev/null 2>&1; then
     echo -e "  ${GREEN}✓ Already running${NC}"
 else
@@ -279,7 +146,7 @@ echo -e "${CYAN}============================================${NC}"
 echo ""
 
 ONLINE=0
-TOTAL=8
+TOTAL=4
 check() {
     local name=$1 port=$2 path=${3:-/health} proto=${4:-http}
     if curl -sk "${proto}://localhost:${port}${path}" >/dev/null 2>&1; then
@@ -291,11 +158,7 @@ check() {
 }
 
 check "NCL Brain"     8800 /health
-check "NCC Relay"     8787 /health
-check "NCC Master"    8765 /health
 check "One-Drop"      8123 /health
-check "AAC Monitor"   8080 /health
-check "BRS Dashboard" 8000 /health
 check "Paperclip"     3100 /health
 check "Ollama"        11434 /api/tags
 

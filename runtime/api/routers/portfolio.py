@@ -126,6 +126,17 @@ async def portfolio_summary(
 
     try:
         summary = pm.get_summary(base_currency=base_currency)
+        # Count positions whose quote lookup failed (quote_ok == False) so
+        # iOS PortfolioSummary.quotesFailed can render "--" badges without
+        # a second roundtrip to /portfolio/positions. (Wave 13 P0-3)
+        quotes_failed = 0
+        try:
+            positions = pm.get_positions(account_filter="all") or []
+            for p in positions:
+                if isinstance(p, dict) and p.get("quote_ok") is False:
+                    quotes_failed += 1
+        except Exception as _qe:
+            log.debug(f"[portfolio.summary] quote_ok rollup skipped: {_qe}")
         return {
             "total_value": summary.get("total_value", 0),
             "base_currency": summary.get("base_currency", base_currency),
@@ -135,6 +146,7 @@ async def portfolio_summary(
             "total_pl_pct": summary.get("total_pl_pct", 0),
             "cash_total": summary.get("cash_total", 0),
             "positions_count": summary.get("positions_count", 0),
+            "quotes_failed": quotes_failed,
             "accounts": summary.get("accounts", []),
             "allocation": summary.get("allocation", {}),
             "fx_rate_usd_cad": summary.get("fx_rate_usd_cad", 1.0),

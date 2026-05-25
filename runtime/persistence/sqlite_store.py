@@ -577,14 +577,21 @@ class SqliteStore:
         await self._rwlock.acquire_write()
         try:
             assert self._writer_conn is not None
+            conn = self._writer_conn
+
+            def _do_execute() -> sqlite3.Cursor:
+                # Runs in a worker thread — sync sqlite3 calls only.
+                # W13 P0-4: was blocking the event loop on big writes.
+                cur = conn.execute(sql, params)
+                if commit:
+                    conn.commit()
+                return cur
+
             for attempt, delay in enumerate((0.0,) + _SQLITE_RETRY_DELAYS_S):
                 if delay > 0:
                     await asyncio.sleep(delay)
                 try:
-                    cur = self._writer_conn.execute(sql, params)
-                    if commit:
-                        self._writer_conn.commit()
-                    return cur
+                    return await asyncio.to_thread(_do_execute)
                 except sqlite3.OperationalError as e:
                     if _is_retryable_sqlite_error(e):
                         if attempt < len(_SQLITE_RETRY_DELAYS_S):
@@ -627,24 +634,34 @@ class SqliteStore:
         await self._rwlock.acquire_write()
         try:
             assert self._writer_conn is not None
+            conn = self._writer_conn
+
+            def _do_executemany() -> int:
+                # Runs in a worker thread — sync sqlite3 calls only.
+                # W13 P0-4: was blocking the event loop on bulk writes.
+                conn.execute("BEGIN")
+                cur = conn.executemany(sql, rows_list)
+                if commit:
+                    conn.execute("COMMIT")
+                return cur.rowcount
+
+            def _do_rollback() -> None:
+                if conn.in_transaction:
+                    try:
+                        conn.execute("ROLLBACK")
+                    except sqlite3.OperationalError:
+                        # Rollback itself can fail under the same lock
+                        # condition — best-effort.
+                        pass
+
             for attempt, delay in enumerate((0.0,) + _SQLITE_RETRY_DELAYS_S):
                 if delay > 0:
                     await asyncio.sleep(delay)
                 try:
-                    self._writer_conn.execute("BEGIN")
-                    cur = self._writer_conn.executemany(sql, rows_list)
-                    if commit:
-                        self._writer_conn.execute("COMMIT")
-                    return cur.rowcount
+                    return await asyncio.to_thread(_do_executemany)
                 except sqlite3.OperationalError as e:
                     # Always clean up any half-open txn before deciding.
-                    if self._writer_conn.in_transaction:
-                        try:
-                            self._writer_conn.execute("ROLLBACK")
-                        except sqlite3.OperationalError:
-                            # Rollback itself can fail under the same
-                            # lock condition — best-effort.
-                            pass
+                    await asyncio.to_thread(_do_rollback)
                     if _is_retryable_sqlite_error(e):
                         if attempt < len(_SQLITE_RETRY_DELAYS_S):
                             log.warning(
@@ -659,8 +676,7 @@ class SqliteStore:
                     raise  # non-retryable OperationalError
                 except Exception:
                     # Non-OperationalError: original behaviour — rollback + re-raise.
-                    if self._writer_conn.in_transaction:
-                        self._writer_conn.execute("ROLLBACK")
+                    await asyncio.to_thread(_do_rollback)
                     raise
             # Unreachable: loop either returns or raises.
             raise RuntimeError("sqlite retry loop exited without return")  # pragma: no cover
@@ -675,10 +691,18 @@ class SqliteStore:
         in-flight ``fetch_all`` uses its own ``sqlite3.Connection`` —
         no RWLock contention, no blocking on the writer. Signature
         unchanged from the W4-11 implementation.
+
+        W13 P0-4: the sync ``conn.execute()/cur.fetchall()`` pair runs
+        off the event loop inside ``asyncio.to_thread`` so big result
+        sets don't block other coroutines. The reader checkout itself
+        stays async.
         """
         async with self._checkout_reader() as conn:
-            cur = conn.execute(sql, params)
-            return cur.fetchall()
+            def _do_fetch_all() -> list[sqlite3.Row]:
+                cur = conn.execute(sql, params)
+                return cur.fetchall()
+
+            return await asyncio.to_thread(_do_fetch_all)
 
     async def fetch_one(self, sql: str, params: Sequence = ()) -> Optional[sqlite3.Row]:
         """
@@ -686,10 +710,15 @@ class SqliteStore:
 
         W10B-5: see ``fetch_all`` — same pool semantics. Signature
         unchanged.
+
+        W13 P0-4: sync sqlite call wrapped in ``asyncio.to_thread``.
         """
         async with self._checkout_reader() as conn:
-            cur = conn.execute(sql, params)
-            return cur.fetchone()
+            def _do_fetch_one() -> Optional[sqlite3.Row]:
+                cur = conn.execute(sql, params)
+                return cur.fetchone()
+
+            return await asyncio.to_thread(_do_fetch_one)
 
 
 # ── Singleton ────────────────────────────────────────────────────────

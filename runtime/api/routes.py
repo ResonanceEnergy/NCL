@@ -830,11 +830,11 @@ async def health_check_detailed(authorization: str = Header(default="")) -> dict
 
 # ── Service Health Proxy (server-side checks, avoids browser CORS) ──
 
-# AAC Monitor (8080) and BRS Dashboard (8000) removed 2026-05-23 — pillars retired.
+# Pillar services retired 2026-05-23:
+#   - AAC Monitor (8080), BRS Dashboard (8000): pillars retired
+#   - NCC Relay (8787), NCC Master (8765): NCC repo removed from this machine
 MONITORED_SERVICES = [
     {"name": "NCL Brain", "port": 8800, "path": "/health"},
-    {"name": "NCC Relay", "port": 8787, "path": "/health"},
-    {"name": "NCC Master", "port": 8765, "path": "/health"},
     {"name": "One-Drop", "port": 8123, "path": "/health"},
     {"name": "Paperclip", "port": 3100, "path": "/health"},
     {"name": "Ollama", "port": 11434, "path": "/api/tags"},
@@ -1228,11 +1228,11 @@ async def get_dashboard_data(authorization: str = Header(default="")) -> dict:
     }
 
     # ── Services ───────────────────────────────────────────────────────────
-    # AAC Monitor (8080) and BRS Dashboard (8000) removed 2026-05-23 — pillars retired.
+    # Pillar services retired 2026-05-23:
+    #   - AAC Monitor (8080), BRS Dashboard (8000): pillars retired
+    #   - NCC Relay (8787), NCC Master (8765): NCC repo removed from this machine
     services = [
         {"name": "NCL Brain", "port": 8800, "status": "running"},
-        {"name": "NCC Relay", "port": 8787, "status": "unknown"},
-        {"name": "NCC Master", "port": 8765, "status": "unknown"},
         {"name": "One-Drop", "port": 8123, "status": "unknown"},
         {"name": "Paperclip", "port": 3100, "status": "unknown"},
         {"name": "Ollama", "port": 11434, "status": "unknown"},
@@ -3657,7 +3657,7 @@ async def context_top10(authorization: str = Header(default="")) -> dict:
 
 def _score_signals_against_context(signals: list, wctx) -> list[dict]:
     """Score signals against working context themes and return enriched dicts."""
-    from .memory.working_context import DailyContextWindow
+    from ..memory.working_context import DailyContextWindow
 
     themes = []
     if wctx and wctx._current:

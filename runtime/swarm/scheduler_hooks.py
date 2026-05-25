@@ -44,8 +44,8 @@ class SwarmSchedulerHooks:
             "title": "Weekly Strategy Review",
             "objective": (
                 "Perform a comprehensive strategy review: evaluate mandate completion rates, "
-                "assess pillar health (NCC; BRS/AAC retired 2026-05-23), identify stalled initiatives, "  # noqa: E501
-                "and propose priority adjustments for the coming week."
+                "assess Brain subsystem health (memory, councils, intel, calendar, journal), "
+                "identify stalled initiatives, and propose priority adjustments for the coming week."  # noqa: E501
             ),
             "interval_seconds": 604800,  # 7 days
             "priority": 7,

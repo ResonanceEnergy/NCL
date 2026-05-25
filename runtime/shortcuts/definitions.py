@@ -146,7 +146,7 @@ def get_shortcut_definitions(
         {
             "id": "ncl-approve",
             "name": "NCL Approve",
-            "description": "Review and approve pending pump prompts for NCC dispatch",
+            "description": "Review and approve pending pump prompts (persist mandate to Brain memory)",
             "trigger_phrase": "approve pump",
             "siri_phrase": "Hey Siri, approve pump",
             "icon": "checkmark.seal.fill",
@@ -183,7 +183,7 @@ def get_shortcut_definitions(
                             "method": "POST",
                             "headers": {"Authorization": f"Bearer {strike_token}"},
                         },
-                        {"type": "speak_text", "template": "Pump approved and dispatched to NCC."},
+                        {"type": "speak_text", "template": "Pump approved and mandate persisted."},
                     ],
                     "else": [
                         {"type": "speak_text", "template": "No pumps pending approval."},

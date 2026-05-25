@@ -1,8 +1,8 @@
 {
   "_meta": {
-    "description": "Resonance Energy — Cross-repo service discovery",
-    "updated": "2026-04-18",
-    "note": "Single source of truth for all service URLs. Each repo loads this at startup."
+    "description": "NCL — Cross-service discovery",
+    "updated": "2026-05-24",
+    "note": "Single source of truth for active service URLs. NCC/AAC/BRS pillar blocks removed 2026-05-23 — NCL is standalone."
   },
   "services": {
     "ncl_brain": {
@@ -10,7 +10,7 @@
       "url": "http://localhost:8800",
       "health": "/health",
       "repo": "NCL",
-      "description": "Command center, councils, intelligence, mandate pipeline"
+      "description": "Standalone personal-AI brain — councils, intelligence, memory, mandate persistence"
     },
     "brl_api": {
       "name": "BIT RAGE LABOUR API",
@@ -20,46 +20,17 @@
       "description": "30-agent fleet, OpenClaw engine, task dispatch",
       "production": "https://bitrage-labour-api-production.up.railway.app"
     },
-    "ncc_relay": {
-      "name": "NCC Relay",
-      "url": "http://localhost:8787",
-      "health": "/health",
-      "repo": "NCC-Doctrine",
-      "description": "Cross-system directive relay, NCC orchestrator"
-    },
-    "ncc_master": {
-      "name": "NCC Master",
-      "url": "http://localhost:8765",
-      "health": "/health",
-      "repo": "NCC-Doctrine",
-      "description": "NCC governance server"
-    },
     "paperclip": {
       "name": "Paperclip",
       "url": "http://localhost:3100",
       "health": "/health",
       "description": "Project management, mandate tracking, cost reporting, approval gates"
     },
-    "aac": {
-      "name": "AAC Trading Platform",
-      "url": "http://localhost:8500",
-      "health": "/health",
-      "repo": "AAC",
-      "description": "Accelerated Arbitrage Capital — trading agents, market data"
-    },
     "ollama": {
       "name": "Ollama (Local LLM)",
       "url": "http://localhost:11434",
       "health": "/api/tags",
       "description": "Local model inference — qwen3, deepseek-coder"
-    },
-    "cloudflare_tunnel": {
-      "name": "Cloudflare Tunnel (ncc)",
-      "tunnel_id": "your-cloudflare-tunnel-id-here",
-      "subdomains": {
-        "ncc": "ncc.your-domain.com",
-        "aac": "aac.your-domain.com"
-      }
     }
   },
   "email": {
