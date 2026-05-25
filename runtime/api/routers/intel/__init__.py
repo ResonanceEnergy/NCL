@@ -333,12 +333,64 @@ async def generate_morning_brief(
             except Exception:
                 return ""
 
+        # Keyword bags for the new macro slices. Lowercased substring
+        # matches against signal title + content. Conservative — these
+        # are the tickers / topics NATRIX explicitly wants surfaced.
+        _PM_KEYS = {
+            "silver", "slv", "xag", "siver",  # silver
+            "gold", "gld", "iau", "xau",      # gold
+            "gdx", "gdxj",                    # miners
+            "precious metal", "bullion",
+        }
+        _OIL_KEYS = {
+            "wti", "brent", "crude", "oil", "uso", "xop", "xle",
+            "opec", "/cl", "energy sector",
+        }
+        _RATES_KEYS = {
+            "fomc", "fed ", "federal reserve", "powell", "rate cut",
+            "rate hike", "interest rate", "fed funds", "dot plot",
+            "tapering", "qt ", "quantitative", "jerome", "fedwatch",
+        }
+        _BONDS_KEYS = {
+            "tlt", "ief", "shy", "bnd", "agg", "yield", "10-year",
+            "10y", "2y", "2-year", "30y", "30-year", "treasury",
+            "treasuries", "bond market", "duration", "ust ",
+            "curve invert", "yield curve",
+        }
+
+        def _haystack(s) -> str:
+            return f"{(getattr(s, 'title', '') or '').lower()} {(getattr(s, 'content', '') or '').lower()}"
+
+        def _matches_any(s, keys: set[str]) -> bool:
+            hay = _haystack(s)
+            return any(k in hay for k in keys)
+
         options_signals = [s for s in brief.top_signals if "options" in _src(s) or "unusual" in _src(s)]
         market_signals = [
             s for s in brief.top_signals
             if any(k in _src(s) for k in ("market", "stock", "yfinance", "polymarket"))
         ]
         news_signals = [s for s in brief.top_signals if "news" in _src(s)]
+        precious_metals_signals = [s for s in brief.top_signals if _matches_any(s, _PM_KEYS)]
+        oil_signals = [s for s in brief.top_signals if _matches_any(s, _OIL_KEYS)]
+        rates_signals = [s for s in brief.top_signals if _matches_any(s, _RATES_KEYS)]
+        bonds_signals = [s for s in brief.top_signals if _matches_any(s, _BONDS_KEYS)]
+
+        # Top potential daily movers — the highest-scored Awarebot
+        # signals overall, biased toward "actionable" sources
+        # (options flow + market scanners). We hand the LLM a tighter
+        # ranked list it can mine for the MOVERS section without
+        # double-counting the trade-idea picks.
+        def _score_for_movers(s) -> float:
+            base = float(getattr(s, "confidence", 0.0) or 0.0)
+            src = _src(s)
+            if "options" in src or "unusual" in src:
+                base += 0.15
+            elif "polymarket" in src or "yfinance" in src or "market" in src:
+                base += 0.08
+            return base
+
+        movers_pool = sorted(brief.top_signals, key=_score_for_movers, reverse=True)[:15]
 
         def _format_signals(items, limit: int) -> str:
             if not items:
@@ -353,6 +405,11 @@ async def generate_morning_brief(
         options_context = _format_signals(options_signals, 8)
         market_context = _format_signals(market_signals, 6)
         news_context = _format_signals(news_signals, 5)
+        precious_metals_context = _format_signals(precious_metals_signals, 6)
+        oil_context = _format_signals(oil_signals, 6)
+        rates_context = _format_signals(rates_signals, 6)
+        bonds_context = _format_signals(bonds_signals, 6)
+        movers_context = _format_signals(movers_pool, 12)
         sectors_context = "\n".join(
             f"- {s.sector}: {s.direction.value}, {s.signal_count} signals"
             for s in brief.sectors[:8]
@@ -408,6 +465,15 @@ REQUIRED SECTIONS (in this exact order):
 EXECUTIVE SUMMARY
 2-3 sentences. What's the single most important development for NATRIX to know about today? What changed since yesterday?
 
+MACRO LANDSCAPE
+This section must cover ALL five lanes below, each as its own labeled paragraph (one short paragraph, 2-3 sentences each). Anchor every claim to the signal data — do NOT invent macro narrative without evidence. If the signals don't carry data for a lane, write "Signals quiet — no actionable read." for that lane rather than making something up.
+
+PRECIOUS METALS: silver / SLV / SIVR and gold / GLD / IAU. Spot price moves vs prior session, miner divergence (GDX/GDXJ), real-yield correlation, any flow imbalance.
+OIL: WTI / Brent / USO / XLE. Crude price action, OPEC headlines, energy-sector positioning, refining-vs-producer split if visible.
+US RATES (FED): Fed funds expectations, Powell / FOMC commentary, upcoming meeting odds (look at the polymarket signals if present), terminal-rate path.
+BOND MARKET: TLT / IEF / 10y / 2y / 30y yields, curve shape (steepener / flattener / inverted), duration positioning.
+DAILY/WEEKLY OUTLOOK: Calendar of catalysts NATRIX should know about for the rest of today and the upcoming week — economic prints (CPI, NFP, retail sales, PCE), Fed speakers, major earnings, options expiry, futures roll, options-flow concentration days. Cite specific dates from the signals where available.
+
 KEY MOVEMENTS
 3-5 bullet-style lines (use a leading dash). Each line = one concrete observation grounded in the signal data: sector flow, options imbalance, geopolitical shift, etc. Cite the ticker / market / source by name.
 
@@ -452,6 +518,13 @@ Hard rules for trade ideas:
 - If NATRIX already holds the underlying (see HELD POSITIONS below), say "ADD TO EXISTING" in THESIS rather than treating it as a new entry.
 - If the signals genuinely don't support six setups, say "INSUFFICIENT EDGE" in that block and explain in one line why. Better to skip than fabricate.
 
+TOP POTENTIAL DAILY MOVERS
+Rank the top 5-8 names most likely to move today on increased volume / unusual flow / catalyst. ONE line each in this exact shape (use a leading dash):
+
+- TICKER (dir: bullish | bearish | volatile) — why-it-moves in 1 phrase — catalyst-or-trigger.
+
+Pull from the POTENTIAL MOVERS POOL data below. Each name MUST appear in the signal data. Don't repeat tickers already used as trade ideas above — if the same name lands in both, prefer keeping it in trade ideas and pick a different mover.
+
 TODAY'S RESEARCH TOPICS
 Three short research questions NATRIX should investigate during the day. Format each as:
 
@@ -476,6 +549,21 @@ MARKET / STOCK SIGNALS:
 
 NEWS SIGNALS:
 {news_context}
+
+PRECIOUS METALS SIGNALS (silver / SLV / gold / GLD / miners):
+{precious_metals_context}
+
+OIL AND ENERGY SIGNALS (WTI / Brent / USO / XLE / OPEC):
+{oil_context}
+
+US RATES SIGNALS (Fed / FOMC / Powell / rate path / fedwatch):
+{rates_context}
+
+BOND MARKET SIGNALS (TLT / IEF / yields / curve / duration):
+{bonds_context}
+
+POTENTIAL MOVERS POOL (high-score signals, biased toward options flow + market data — use these to fill TOP POTENTIAL DAILY MOVERS):
+{movers_context}
 
 SECTORS (direction + signal count):
 {sectors_context}
@@ -510,7 +598,13 @@ Respond with ONLY the formatted brief. No preamble, no closing remarks, no "Here
             import httpx
 
             try:
-                async with httpx.AsyncClient(timeout=30) as client:
+                # 2026-05-25: bumped from 30s to 120s. The expanded brief
+                # format (5-lane macro landscape + 6 trade setups + movers
+                # + research topics) asks for up to 3500 output tokens
+                # which can run 45-75s on Sonnet. Pre-fix the call timed
+                # out at 30s and fell through to the deterministic
+                # 3-topic fallback even when budget was healthy.
+                async with httpx.AsyncClient(timeout=120) as client:
                     resp = await client.post(
                         "https://api.anthropic.com/v1/messages",
                         headers={
@@ -521,19 +615,26 @@ Respond with ONLY the formatted brief. No preamble, no closing remarks, no "Here
                             "model": os.getenv(
                                 "NCL_INTEL_SUMMARY_MODEL", "claude-sonnet-4-20250514"
                             ),  # noqa: E501
-                            # 2026-05-25: expanded brief format (executive
-                            # summary + key movements + opp/risks + 6 trade
-                            # setups + 3 research topics) needs more
-                            # output budget than the old 500-tok topic-only
-                            # version.
-                            "max_tokens": 2500,
+                            # 2026-05-25: brief format keeps expanding —
+                            # exec summary + 5-lane macro landscape +
+                            # key movements + opp/risks + 6 trade setups
+                            # + top movers + 3 research topics. 3500-tok
+                            # budget gives the model headroom without
+                            # going wild on length.
+                            "max_tokens": 3500,
                             "messages": [{"role": "user", "content": topic_prompt}],
                         },
                     )
                     resp.raise_for_status()
                     topics_text = resp.json()["content"][0]["text"].strip()
             except Exception as e:
-                log.warning(f"[MORNING-BRIEF] Claude topic generation failed: {e}")
+                # Use the type AND the repr so empty-message exceptions
+                # (httpx ReadTimeout, etc.) leave a useful trail.
+                log.warning(
+                    "[MORNING-BRIEF] Claude topic generation failed: %s: %r",
+                    type(e).__name__,
+                    e,
+                )
 
         if not topics_text:
             fallback_topics = []
