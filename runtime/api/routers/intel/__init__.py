@@ -119,7 +119,7 @@ async def generate_intelligence_brief(
     _: None = Depends(verify_strike_token_dep),
 ) -> dict:
     """Generate a fresh intelligence brief from all data sources."""
-    from .. import routes as _routes
+    from ... import routes as _routes
 
     _routes._check_rate_limit(request)
     if not intelligence:
@@ -263,7 +263,7 @@ async def collect_intelligence_signals(
     _: None = Depends(verify_strike_token_dep),
 ) -> dict:
     """Run a signal collection sweep without generating a full brief."""
-    from .. import routes as _routes
+    from ... import routes as _routes
 
     _routes._check_rate_limit(request)
     if not intelligence:
@@ -316,7 +316,7 @@ async def generate_morning_brief(
 
     Tracks progress in intelligence. Called automatically at 6am or manually.
     """
-    from .. import routes as _routes
+    from ... import routes as _routes
 
     _routes._check_rate_limit(request)
     if not intelligence:
@@ -618,7 +618,7 @@ async def escalate_intelligence_to_strike_point(
     generation pipeline. This is the "expand and analyze" action from
     FirstStrike on iPhone.
     """
-    from .. import routes as _routes
+    from ... import routes as _routes
 
     _routes._check_rate_limit(request)
     if not intelligence:
@@ -778,7 +778,7 @@ async def escalate_single_signal(
     Used from the FirstStrike "NCL Signal Action" shortcut when NATRIX
     picks a specific signal to expand on.
     """
-    from .. import routes as _routes
+    from ... import routes as _routes
 
     if not intelligence:
         raise HTTPException(status_code=503, detail="Intelligence engine not initialized")
@@ -1670,7 +1670,7 @@ def _save_watch_queries_to_disk(data: dict) -> None:
 
 def _reload_awarebot_queries() -> None:
     """Tell the live Awarebot agent to reload queries from disk."""
-    from .. import routes as _routes
+    from ... import routes as _routes
 
     if _routes._autonomous and _routes._autonomous.awarebot:
         _routes._autonomous.awarebot.reload_watch_queries()
