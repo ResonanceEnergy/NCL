@@ -31,6 +31,7 @@ import json
 import logging
 import os
 import re
+import hashlib
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -309,6 +310,50 @@ class ConflictResolver:
         # Council pending queue lives next to the brain's council data
         brain_root = data_dir.parent  # data/memory → data/
         self.council_queue_path = brain_root / "councils" / "pending_conflicts.jsonl"
+        # 2026-05-24 efficiency fix: in-memory set of already-linked
+        # conflict_ids. Loaded lazily on first link_contradicts call from
+        # the sidecar JSONL. Subsequent cycles consult this set to skip
+        # re-linking the same unit-pair (which was eating 2,612 KG
+        # rewrites per cycle pre-fix).
+        self._linked_ids: Optional[set[str]] = None
+
+    # ────────────────────────────────────────────────────────────────────
+    async def _load_linked_ids(self) -> set[str]:
+        """Load the set of already-linked conflict_ids from the sidecar.
+
+        Called lazily on first ``link_contradicts``. The sidecar is the
+        canonical record of every contradiction that's been processed,
+        so reading it once at startup and consulting the in-memory set
+        afterwards lets future cycles skip already-linked pairs.
+
+        Returns an empty set if the sidecar doesn't exist yet, or if the
+        read fails (best-effort — a failed load means we re-link the
+        backlog ONCE which is the pre-fix behavior, not a regression).
+        """
+        path = self.contradicts_index_path
+        if not path.exists():
+            return set()
+
+        def _read_ids() -> set[str]:
+            ids: set[str] = set()
+            try:
+                with path.open("r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            rec = json.loads(line)
+                        except Exception:
+                            continue
+                        cid = rec.get("conflict_id")
+                        if isinstance(cid, str):
+                            ids.add(cid)
+            except Exception as e:
+                log.warning("[CONFLICT-ARB] sidecar load failed (%s) — starting empty", e)
+            return ids
+
+        return await asyncio.to_thread(_read_ids)
 
     # ────────────────────────────────────────────────────────────────────
     async def scan_recent(self, window_hours: int = DEFAULT_WINDOW_HOURS) -> list[dict]:
@@ -392,9 +437,18 @@ class ConflictResolver:
                         f"{getattr(ub, 'importance', 0):.0f}, "
                         f"gap {gap_h:.1f}h, shared entities={len(shared)}"
                     )
+                    # 2026-05-24 efficiency fix: deterministic conflict_id
+                    # derived from the sorted pair of unit_ids. Pre-fix this
+                    # was uuid.uuid4().hex[:12] — fresh per call — which
+                    # defeated the sidecar de-dupe in link_contradicts and
+                    # caused 2,612 same-pair conflicts to be re-linked every
+                    # cycle. With a stable id the seen-set works and only
+                    # NEW pairs get linked.
+                    pair_key = f"{pair[0]}::{pair[1]}".encode("utf-8")
+                    conflict_id = hashlib.sha1(pair_key).hexdigest()[:12]
                     conflicts.append(
                         {
-                            "conflict_id": uuid.uuid4().hex[:12],
+                            "conflict_id": conflict_id,
                             "entity": entity,
                             "shared_entities": sorted(shared),
                             "units": [ida, idb],
@@ -432,6 +486,31 @@ class ConflictResolver:
         """
         if not conflicts:
             return 0
+
+        # 2026-05-24 efficiency fix: load the seen-set on first call so
+        # we can skip already-linked pairs. The conflict_id is now
+        # deterministic (sha1 of sorted unit-pair) so a re-linked pair
+        # produces the same id and can be filtered. Pre-fix this loop
+        # re-linked all 2,612 conflicts every cycle because ids were
+        # uuid.uuid4() per call.
+        if self._linked_ids is None:
+            self._linked_ids = await self._load_linked_ids()
+            log.info(
+                "[CONFLICT-ARB] linked-id seen-set seeded with %d entries from sidecar",
+                len(self._linked_ids),
+            )
+
+        # Pre-filter to only NEW conflicts
+        new_conflicts = [c for c in conflicts if c.get("conflict_id") not in self._linked_ids]
+        if len(new_conflicts) < len(conflicts):
+            log.info(
+                "[CONFLICT-ARB] skipping %d already-linked conflicts (processing %d new)",
+                len(conflicts) - len(new_conflicts),
+                len(new_conflicts),
+            )
+        if not new_conflicts:
+            return 0
+        conflicts = new_conflicts
 
         linked = 0
         kg_ok = self.kg is not None
@@ -492,6 +571,10 @@ class ConflictResolver:
                     "schema_version": _CONTRADICTS_SCHEMA_VERSION,
                 }
                 await _atomic_append_jsonl(self.contradicts_index_path, record)
+                # 2026-05-24 efficiency fix: stamp the seen-set so future
+                # cycles skip this pair.
+                if self._linked_ids is not None:
+                    self._linked_ids.add(c["conflict_id"])
                 linked += 1
             except Exception as e:
                 log.error("[CONFLICT-ARB] failed to link conflict %s: %s", c.get("conflict_id"), e)
