@@ -511,15 +511,30 @@ class MemoryStore:
         Returns:
             List of matching MemUnits, sorted by importance descending
         """
-        try:
-            await self._acquire_read()
-        except MemoryStoreReadTimeout:
-            log.warning("[MEMORY] search_units degraded: read-lock timeout")
-            return []
-        try:
-            units = await self._load_all_units()
-        finally:
-            await self._release_read()
+        # P1-B fast-path (2026-05-24): if the snapshot cache is fresh
+        # (<10s) skip the read lock entirely so we don't queue behind
+        # the Awarebot drainer's batch write. Under warm-start flood this
+        # is what unblocks /memory/working-context/pin (which traverses
+        # search_units via the working-context lock).
+        units: Optional[list[MemUnit]] = None
+        cache = getattr(self, "_units_cache", None)
+        if cache is not None:
+            cache_ts, cached_units = cache
+            if (time.monotonic() - cache_ts) < self._UNITS_FAST_PATH_TTL_S:
+                units = list(cached_units)
+        if units is None:
+            try:
+                await self._acquire_read()
+            except MemoryStoreReadTimeout:
+                log.warning("[MEMORY] search_units degraded: read-lock timeout")
+                # Last-ditch: serve the stale cache rather than empty
+                # results (Wave-13 P1-B).
+                snapshot = self._last_known_snapshot()
+                return snapshot if snapshot is not None else []
+            try:
+                units = await self._load_all_units()
+            finally:
+                await self._release_read()
         cutoff = datetime.now(timezone.utc) - timedelta(days=days_back) if days_back else None
 
         results = []
@@ -1711,6 +1726,13 @@ class MemoryStore:
     # per-second hot path. Cache is invalidated on every write path
     # below (single + batch append).
     _UNITS_CACHE_TTL_S: float = 30.0
+    # P1-B fast-path TTL (2026-05-24): under sustained writer flood the
+    # 30s cache window plus reader-starvation produced /memory/timeline
+    # and /memory/working-context/pin 30s-timeouts even though a fresh
+    # snapshot was sitting in memory. Below this short TTL we serve the
+    # cached snapshot WITHOUT acquiring the read lock at all — writers
+    # never block readers on a hot cache hit.
+    _UNITS_FAST_PATH_TTL_S: float = 10.0
 
     async def _load_all_units(self) -> list[MemUnit]:
         """
@@ -1723,6 +1745,17 @@ class MemoryStore:
         re-Pydantic-parsing 13K units on every call. Invalidated on write
         via ``self._units_cache = None`` in the JSONL append sites.
 
+        Wave-13 P1-B (2026-05-24): on a hot cache hit (cache age < 10s)
+        this method returns the cached snapshot WITHOUT acquiring the
+        rw-lock. Under Awarebot warm-start flood the writer queue can
+        block readers past the 30s timeout — but the in-memory snapshot
+        was perfectly serviceable. Timeline + pin endpoints benefit
+        directly. Cache invalidation contract is unchanged: every write
+        path (``_persist_unit``, ``persist_units_batch``,
+        ``_rewrite_units``) sets ``self._units_cache = None``, so the
+        first stale-cache load after a write goes back through the
+        normal full-scan path.
+
         Returns:
             List of unique MemUnits (defensive copy)
         """
@@ -1731,7 +1764,13 @@ class MemoryStore:
         cache = getattr(self, "_units_cache", None)
         if cache is not None:
             cache_ts, cached_units = cache
-            if (time.monotonic() - cache_ts) < self._UNITS_CACHE_TTL_S:
+            age = time.monotonic() - cache_ts
+            # P1-B fast-path: hot cache hit, return without ever touching
+            # the rw-lock. Saves /memory/timeline from blocking behind
+            # the Awarebot drainer's batch write lock under flood.
+            if age < self._UNITS_FAST_PATH_TTL_S:
+                return list(cached_units)
+            if age < self._UNITS_CACHE_TTL_S:
                 # Defensive shallow copy — callers may mutate the list
                 # (sort, filter in place) without poisoning the cache.
                 return list(cached_units)
@@ -1755,6 +1794,25 @@ class MemoryStore:
         units = list(seen.values())
         self._units_cache = (time.monotonic(), units)
         return list(units)
+
+    def _last_known_snapshot(self) -> Optional[list[MemUnit]]:
+        """Return the most recent cached snapshot regardless of age.
+
+        Used as a graceful-degrade lifeline by ``dashboard_bridge.get_timeline``
+        when ``_load_all_units`` times out under a writer flood. Returns
+        ``None`` if the cache has never been populated. Defensive shallow
+        copy so callers can sort/filter without poisoning the cache.
+
+        Wave-13 P1-B (2026-05-24).
+        """
+        cache = getattr(self, "_units_cache", None)
+        if cache is None:
+            return None
+        try:
+            _cache_ts, cached_units = cache
+        except (TypeError, ValueError):
+            return None
+        return list(cached_units)
 
     async def get_stats(self) -> dict:
         """

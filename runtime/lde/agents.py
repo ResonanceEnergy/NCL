@@ -263,6 +263,17 @@ async def _call_claude(system: str, prompt: str, temp: float, max_tok: int) -> s
 
 
 async def _call_grok(system: str, prompt: str, temp: float, max_tok: int) -> str:
+    # W13 P1-A: budget gate — back off if xai is at cap. Returns "" so
+    # the caller falls through to Ollama (same as any other Grok error).
+    try:
+        from ..cost_tracker import check_budget
+
+        if not await check_budget("xai", 0.01):
+            log.warning("[LDE] xai budget exhausted — falling through past Grok")
+            return ""
+    except Exception:
+        pass
+
     try:
         client = await _get_lde_client()
         resp = await client.post(
@@ -283,7 +294,26 @@ async def _call_grok(system: str, prompt: str, temp: float, max_tok: int) -> str
             timeout=180.0,
         )
         resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
+        data = resp.json()
+        # W13 P1-A: record actual cost so the xai budget reflects this
+        # call. Previously this call site had no `record_cost` wired up
+        # at all — every LDE Grok call was free in the ledger.
+        try:
+            from ..cost_tracker import record_cost
+
+            usage = data.get("usage", {}) or {}
+            input_t = usage.get("prompt_tokens", 0) or 0
+            output_t = usage.get("completion_tokens", 0) or 0
+            cost_usd = (input_t * 2.0 + output_t * 10.0) / 1_000_000
+            await record_cost(
+                "xai",
+                cost_usd,
+                "lde_grok",
+                f"lde grok call in={input_t} out={output_t}",
+            )
+        except Exception:
+            pass
+        return data["choices"][0]["message"]["content"]
     except Exception as e:
         log.warning(f"Grok failed: {e}")
         return ""

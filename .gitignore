@@ -198,3 +198,4 @@ nohup.out
 
 # W10C-11: large archived JSONLs preserved on disk but excluded from git
 archive/wave10c-deletes/*.jsonl*
+archive/wave13c-data-cleanup/index_cache.json.from-2026-04-30

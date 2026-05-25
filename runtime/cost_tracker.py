@@ -78,6 +78,10 @@ DEFAULT_DAILY_BUDGETS: dict[str, float] = {
     "youtube_data": 0.00,  # Free tier (quota-based)
     "reddit": 0.00,  # Free (RSS + public API)
     "ytc": 0.00,  # No own pool — bills against anthropic/xai
+    "whisper": 0.00,  # Local faster-whisper / mlx-whisper — free; OpenAI
+    # API fallback bills under "openai" instead. Key exists so call sites
+    # have a "cost source" string for `can_spend()` even when the local
+    # backends are used (cpu/gpu cost is real but not metered in USD).
 }
 # Sum of paid sources = 12 + 2 + 2 + 1 + 1 + 1 + 1 = $20.00 (= platform cap)
 

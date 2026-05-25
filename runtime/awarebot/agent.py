@@ -137,16 +137,26 @@ _AGENT_SIGNALS_ROTATE_BYTES = int(
 
 
 def _maybe_rotate_agent_signals(path: Path) -> None:
+    """Rotate ``agent_signals.jsonl`` when it exceeds the byte cap.
+
+    W13-P2 fix: previously this dropped any existing ``.1`` outright, losing
+    every prior cycle's signal history. Now we cascade ``.1 → .2`` (and drop
+    the older ``.2`` if present) so we keep ~2× the cap of history while
+    still bounding total disk use.
+    """
     try:
         if path.exists() and path.stat().st_size > _AGENT_SIGNALS_ROTATE_BYTES:
-            backup = path.with_suffix(path.suffix + ".1")
-            if backup.exists():
-                backup.unlink()
-            path.rename(backup)
+            backup_1 = path.with_suffix(path.suffix + ".1")
+            backup_2 = path.with_suffix(path.suffix + ".2")
+            # Cascade: .1 → .2, dropping the prior .2.
+            if backup_1.exists():
+                if backup_2.exists():
+                    backup_2.unlink()
+                backup_1.rename(backup_2)
+            path.rename(backup_1)
             log.info(
-                "[AGENT:PERSIST] Rotated %s → %s (exceeded %d bytes)",
+                "[AGENT:PERSIST] Rotated %s → .1 (cascaded .1 → .2; exceeded %d bytes)",
                 path.name,
-                backup.name,
                 _AGENT_SIGNALS_ROTATE_BYTES,
             )
     except OSError as e:
@@ -3108,6 +3118,24 @@ Active Sectors:
 
 Be concise, actionable, and highlight the most important developments.
 Focus on what requires attention or action."""
+
+        # W13 P1-A: budget gate — fall back to the deterministic summary
+        # if the anthropic budget is exhausted (degrades gracefully —
+        # the brief still ships, just without the LLM polish).
+        try:
+            from ..cost_tracker import check_budget
+
+            if not await check_budget("anthropic", 0.01):
+                log.warning(
+                    "[AGENT:BRIEF] anthropic budget exhausted — using deterministic fallback summary"  # noqa: E501
+                )
+                return (
+                    f"Intelligence brief: {len(top_signals)} significant signals detected. "
+                    f"Top sector: {sectors[0]['sector'] if sectors else 'unknown'}. "
+                    f"Highest-scoring signal: {top_signals[0].title[:80] if top_signals else 'none'}."  # noqa: E501
+                )
+        except Exception:
+            pass
 
         try:
             response = await self._http_client.post(

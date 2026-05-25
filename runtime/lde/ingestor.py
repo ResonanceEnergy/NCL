@@ -110,7 +110,7 @@ async def _ingest_video(url: str, source_type: str) -> dict[str, str]:
         }
 
     # Step 2: Transcribe
-    transcript, duration = _transcribe_audio(audio_path)
+    transcript, duration = await _transcribe_audio(audio_path)
 
     log.info(f"Transcribed: {len(transcript)} chars, {duration:.0f}s from '{title}'")
 
@@ -241,11 +241,33 @@ def _download_audio(url: str) -> tuple[Optional[Path], str]:
 # ── Whisper Transcription ─────────────────────────────────────────────────
 
 
-def _transcribe_audio(audio_path: Path) -> tuple[str, float]:
-    """Transcribe audio file. Returns (timestamped_text, duration_seconds)."""
+async def _transcribe_audio(audio_path: Path) -> tuple[str, float]:
+    """Transcribe audio file. Returns (timestamped_text, duration_seconds).
+
+    W13 P1-A (2026-05-24): gated on the ``whisper`` budget key + the
+    faster-whisper backend now goes through the process-wide singleton
+    (``runtime.lde.whisper_singleton``) instead of constructing a fresh
+    ``WhisperModel`` per call. Same anti-pattern that caused the W12
+    ChromaDB Rust HNSW deadlock.
+    """
+    # Budget gate — even though local whisper has $0/day cap (= free),
+    # routing through can_spend() lets ops disable the path via env
+    # (``NCL_BUDGET_WHISPER=-1``) and lets us swap in a paid backend
+    # later without touching every call site.
+    try:
+        from ..cost_tracker import check_budget
+
+        if not await check_budget("whisper", 0.0):
+            log.warning(
+                "[INGESTOR] whisper budget exhausted — skipping transcription for %s",
+                audio_path.name,
+            )
+            return "", 0.0
+    except Exception as e:
+        log.debug(f"[INGESTOR] cost gate import failed: {e}")
 
     # Try faster-whisper
-    transcript, dur = _try_faster_whisper(audio_path)
+    transcript, dur = await _try_faster_whisper(audio_path)
     if transcript:
         return transcript, dur
 
@@ -254,7 +276,20 @@ def _transcribe_audio(audio_path: Path) -> tuple[str, float]:
     if transcript:
         return transcript, dur
 
-    # Try OpenAI Whisper API
+    # Try OpenAI Whisper API (gated on the "openai" budget key — Whisper
+    # cloud is metered, faster-whisper local is free)
+    try:
+        from ..cost_tracker import check_budget
+
+        if not await check_budget("openai", 0.006):
+            log.warning(
+                "[INGESTOR] openai budget exhausted — skipping cloud Whisper fallback for %s",
+                audio_path.name,
+            )
+            return "", 0.0
+    except Exception:
+        pass
+
     transcript, dur = _try_openai_whisper(audio_path)
     if transcript:
         return transcript, dur
@@ -263,25 +298,47 @@ def _transcribe_audio(audio_path: Path) -> tuple[str, float]:
     return "", 0.0
 
 
-def _try_faster_whisper(audio_path: Path) -> tuple[str, float]:
-    """Transcribe via faster-whisper."""
+async def _try_faster_whisper(audio_path: Path) -> tuple[str, float]:
+    """Transcribe via faster-whisper.
+
+    W13 P1-A: now uses the process-wide WhisperModel singleton to avoid
+    spawning a fresh CTranslate2 backend per video — the W12 deadlock
+    class.
+    """
     try:
-        from faster_whisper import WhisperModel
+        from .whisper_singleton import get_whisper_model
     except ImportError:
         return "", 0.0
 
     try:
+        model = await get_whisper_model(
+            model_size=WHISPER_MODEL,
+            compute_type=WHISPER_COMPUTE_TYPE,
+            device=WHISPER_DEVICE,
+        )
+    except ImportError:
+        # faster_whisper not installed
+        return "", 0.0
+    except Exception as e:
+        log.warning(f"faster-whisper singleton init failed: {e}")
+        return "", 0.0
+
+    try:
         start = time.monotonic()
-        model = WhisperModel(
-            WHISPER_MODEL, device=WHISPER_DEVICE, compute_type=WHISPER_COMPUTE_TYPE
-        )
-        segments_iter, info = model.transcribe(
-            str(audio_path),
-            beam_size=5,
-            language="en",
-            vad_filter=True,
-            vad_parameters=dict(min_silence_duration_ms=500, speech_pad_ms=200),
-        )
+        # .transcribe() is sync — push to a worker thread so the event
+        # loop stays responsive while CTranslate2 chews on the audio.
+        def _run_transcribe():
+            return model.transcribe(
+                str(audio_path),
+                beam_size=5,
+                language="en",
+                vad_filter=True,
+                vad_parameters=dict(min_silence_duration_ms=500, speech_pad_ms=200),
+            )
+
+
+        import asyncio as _asyncio
+        segments_iter, info = await _asyncio.to_thread(_run_transcribe)
 
         lines = []
         last_end = 0.0

@@ -151,11 +151,24 @@ async def get_memory_timeline(
     memory_bridge=Depends(get_memory_bridge),
     _: None = Depends(verify_strike_token_dep),
 ) -> dict:
-    """Get memory event timeline."""
+    """Get memory event timeline.
+
+    P1-B (2026-05-24): the bridge now returns either a list (legacy) OR
+    a ``{"events": [...], "degraded": bool}`` envelope so iOS sees the
+    last-known snapshot instead of an empty response when the memory
+    store is locked by the Awarebot drainer flood.
+    """
     if not memory_bridge:
         raise HTTPException(status_code=503, detail="MemoryBridge not initialized")
-    events = await memory_bridge.get_timeline(limit=limit)
-    return {"events": events, "count": len(events)}
+    result = await memory_bridge.get_timeline(limit=limit)
+    # Back-compat: tolerate both list and dict envelope.
+    if isinstance(result, dict):
+        events = result.get("events", [])
+        degraded = bool(result.get("degraded", False))
+    else:
+        events = result or []
+        degraded = False
+    return {"events": events, "count": len(events), "degraded": degraded}
 
 
 @router.post("/memory/search")

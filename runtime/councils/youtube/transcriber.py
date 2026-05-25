@@ -158,13 +158,25 @@ def transcribe_audio(
     return None
 
 
-# Module-level cache for Whisper models (load once, reuse across calls)
+# Module-level cache for Whisper models (load once, reuse across calls).
+# W13 P1-A: also seed the process-wide singleton in
+# ``runtime.lde.whisper_singleton`` so the LDE ingestor and YTC share one
+# WhisperModel instance instead of holding two copies of the weights in
+# memory at the same time.
 _faster_whisper_model = None
 _mlx_whisper_available: Optional[bool] = None
 
 
 def _get_faster_whisper_model():
-    """Get or create the cached faster-whisper model instance."""
+    """Get or create the cached faster-whisper model instance.
+
+    Returns the same instance that ``runtime.lde.whisper_singleton``
+    serves to LDE callers. Kept as a sync wrapper so existing sync
+    callers in ``transcriber.py`` don't all need to be made async.
+    Construction itself is one-time so the sync ``WhisperModel(...)``
+    call is fine — the original bug class (W12 ChromaDB / W13 audit)
+    was *per-call* construction.
+    """
     global _faster_whisper_model
     if _faster_whisper_model is not None:
         return _faster_whisper_model
@@ -178,6 +190,17 @@ def _get_faster_whisper_model():
     log.info(
         f"faster-whisper model loaded: {WHISPER_MODEL} ({WHISPER_DEVICE}/{WHISPER_COMPUTE_TYPE})"
     )
+    # Seed the async singleton so the LDE ingestor reuses the same
+    # underlying model instance instead of building its own copy.
+    try:
+        from ...lde import whisper_singleton as _ws
+
+        if _ws._instance is None:
+            _ws._instance = _faster_whisper_model
+            _ws._cfg_used = (WHISPER_MODEL, WHISPER_DEVICE, WHISPER_COMPUTE_TYPE)
+            log.debug("[YTC] seeded LDE whisper singleton with shared model")
+    except Exception as _seed_err:
+        log.debug(f"[YTC] could not seed LDE whisper singleton: {_seed_err}")
     return _faster_whisper_model
 
 

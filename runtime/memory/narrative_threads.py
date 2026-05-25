@@ -320,8 +320,54 @@ class NarrativeThreader:
                 f.write(json.dumps(t.to_dict(), default=str) + "\n")
         os.replace(tmp, self.active_file)
 
+    # W13-P2: archive rotation cap. Mirrors awarebot agent_signals rotation
+    # (50MB) but at a smaller 20MB cap because threads compress better and
+    # the on-disk file is rarely read end-to-end (only for archaeological
+    # queries via /memory/threads/archive).
+    _ARCHIVE_ROTATE_BYTES = 20 * 1024 * 1024
+    _ARCHIVE_KEEP_ROTATIONS = 3
+
+    def _maybe_rotate_archive(self) -> None:
+        """Rotate ``narrative_threads_archive.jsonl`` when it exceeds the cap.
+
+        Cascade pattern: ``.jsonl → .1``, ``.1 → .2``, ``.2 → .3``; drop ``.3``.
+        Keeps at most ``_ARCHIVE_KEEP_ROTATIONS`` rotated files so total disk
+        use is bounded at ~(KEEP_ROTATIONS + 1) × _ARCHIVE_ROTATE_BYTES.
+        """
+        try:
+            if not self.archive_file.exists():
+                return
+            if self.archive_file.stat().st_size <= self._ARCHIVE_ROTATE_BYTES:
+                return
+            # Cascade older rotations: .{KEEP-1} → .{KEEP}, dropping the oldest.
+            keep = self._ARCHIVE_KEEP_ROTATIONS
+            oldest = self.archive_file.with_suffix(f".jsonl.{keep}")
+            if oldest.exists():
+                oldest.unlink()
+            for i in range(keep - 1, 0, -1):
+                src = self.archive_file.with_suffix(f".jsonl.{i}")
+                dst = self.archive_file.with_suffix(f".jsonl.{i + 1}")
+                if src.exists():
+                    src.rename(dst)
+            # Rotate current → .1
+            self.archive_file.rename(self.archive_file.with_suffix(".jsonl.1"))
+        except OSError as e:
+            # Persist failures silent — archive rotation is best-effort.
+            try:
+                from runtime.log import log as _log
+            except ImportError:
+                _log = None
+            if _log is not None:
+                _log.warning(f"[NARRATIVE:ARCHIVE] rotation failed: {e}")
+
     def _append_archive(self, thread: NarrativeThread) -> None:
         thread.archived = True
+        # W13-P2: rotate before appending so a single append cannot push the
+        # file past 2× the cap.
+        try:
+            self._maybe_rotate_archive()
+        except Exception:
+            pass
         with self.archive_file.open("a") as f:
             f.write(json.dumps(thread.to_dict(), default=str) + "\n")
 

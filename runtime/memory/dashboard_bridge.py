@@ -123,7 +123,7 @@ class MemoryDashboardBridge:
             "importance_distribution": importance_dist,
         }
 
-    async def get_timeline(self, limit: int = 50) -> list[dict]:
+    async def get_timeline(self, limit: int = 50) -> dict:
         """
         Get timeline of recent memory events (creation, access, decay).
 
@@ -131,16 +131,32 @@ class MemoryDashboardBridge:
             limit: Maximum events to return
 
         Returns:
-            List of timeline events sorted by time (newest first)
+            ``{"events": [...], "degraded": bool}``. ``degraded=True`` when
+            the underlying ``_load_all_units`` call timed out and we fell
+            back to the last in-memory snapshot (still useful for iOS —
+            shows something instead of an empty page). Wave-13 P1-B.
         """
+        degraded = False
         try:
             units = await asyncio.wait_for(self.store._load_all_units(), timeout=_BRIDGE_TIMEOUT)
         except asyncio.TimeoutError:
-            log.warning("get_timeline: _load_all_units timed out after %.0fs", _BRIDGE_TIMEOUT)
-            return []
+            log.warning(
+                "get_timeline: _load_all_units timed out after %.0fs — "
+                "serving last known snapshot (degraded)",
+                _BRIDGE_TIMEOUT,
+            )
+            # P1-B graceful degrade: return the most recent cached snapshot
+            # rather than an empty list. Under Awarebot warm-start flood
+            # the writer queue can park readers past the timeout, but the
+            # last-known snapshot is still serviceable for the iOS UI.
+            snapshot = self.store._last_known_snapshot()
+            if snapshot is None:
+                return {"events": [], "degraded": True}
+            units = snapshot
+            degraded = True
         except Exception as e:
             log.error("get_timeline: failed to load units: %s", e)
-            return []
+            return {"events": [], "degraded": True}
 
         events = []
         for unit in units:

@@ -100,7 +100,13 @@ class KnowledgeGraph:
                 log.warning(f"Failed to load edges: {e}")
 
     async def _persist_to_disk(self):
-        """Atomically persist graph to JSONL files."""
+        """Atomically persist graph to JSONL files.
+
+        W13-P2 fix: added os.fsync() before os.replace() so a crash between
+        write-completion and disk-flush can't leave a corrupted target. The
+        .tmp file would previously linger if the process was killed
+        mid-persist; now flushed-then-replaced is durable on the next boot.
+        """
         if not self._graph:
             return
         try:
@@ -110,6 +116,8 @@ class KnowledgeGraph:
                 for node_id, attrs in self._graph.nodes(data=True):
                     record = {"node_id": node_id, **attrs}
                     f.write(json.dumps(record, default=str) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
             os.replace(tmp_nodes, str(self.nodes_file))
 
             # Persist edges
@@ -118,6 +126,8 @@ class KnowledgeGraph:
                 for src, tgt, attrs in self._graph.edges(data=True):
                     record = {"source": src, "target": tgt, **attrs}
                     f.write(json.dumps(record, default=str) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
             os.replace(tmp_edges, str(self.edges_file))
         except Exception as e:
             log.error(f"Failed to persist knowledge graph: {e}")

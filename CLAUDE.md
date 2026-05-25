@@ -1,13 +1,14 @@
 # NCL (NUREALCORTEXLINK) — Standalone Personal-AI Brain
 
-**Status**: Authoritative spec, rewritten 2026-05-23, updated 2026-05-24 (Wave 12) — supersedes pre-retirement docs in `archive/docs-pre-retirement/`.
+**Status**: Authoritative spec, rewritten 2026-05-23, updated 2026-05-24 (Wave 13 P3 reconcile — Wave 12 ChromaDB singleton, Wave 13 audit + P0/P1/P2/P3 fix waves) — supersedes pre-retirement docs in `archive/docs-pre-retirement/`.
 
 **Recent wave summary (2026-05-24)**:
 - Wave 8 — 15-agent foundation swarm: Tailscale-only bind, A/B harness, burn-in verifier, Prometheus /metrics, tracing IDs, LLM facade complete, pillar dispatch excised, SQLite double-write live on 3 tables.
 - Wave 9 — 10-agent post-W8 audit + Director's synthesis.
-- Wave 10 — 45-agent 3-phase implementation: stop silent bleeds + CI sanity (10A) → foundation refactors (10B) → cleanup + carves + DI completion (10C). Net: scheduler.py 7,464 → 4,802 LOC (3 night-watch monsters carved), intel.py carved into package, DoubleWriteHook abstraction, central flags module, SQLite connection pool (1 writer + 4 readers), double-writes off hot path (12× speedup), correlation IDs in 5 high-volume loops, CouncilQuorum wired (autonomous-only Sonnet+Haiku pre-pass), 9 routers DI-converted, ChromaDB batched upsert (memory store only — W10B-15), predictions live SQLite write hook, /metrics separate read-only token, SQLite OperationalError retry handler, stall watchdog deadband for long-running tags, alert-dispatcher sentinel.
+- Wave 10 — 45-agent 3-phase implementation: stop silent bleeds + CI sanity (10A) → foundation refactors (10B) → cleanup + carves + DI completion (10C). Net: scheduler.py 7,464 → 5,032 LOC (3 night-watch monsters carved; LOC verified 2026-05-24 / Wave 13 via `wc -l runtime/autonomous/scheduler.py`), intel.py carved into package, DoubleWriteHook abstraction, central flags module, SQLite connection pool (1 writer + 4 readers), double-writes off hot path (12× speedup), correlation IDs in 5 high-volume loops, CouncilQuorum wired (autonomous-only Sonnet+Haiku pre-pass), 9 routers DI-converted, ChromaDB batched upsert (memory store only — W10B-15), predictions live SQLite write hook, /metrics separate read-only token, SQLite OperationalError retry handler, stall watchdog deadband for long-running tags, alert-dispatcher sentinel. Note: the SQLite double-write "live on 3 tables" claim was the GATE being flipped — `data/mandates.sqlite` does NOT yet exist on disk (verified 2026-05-24 / Wave 13 via `ls data/mandates.sqlite` → not found); `data/mandates.json` remains the source of truth and the SQLite mirror is still being built lazily on first write.
 - Wave 11 — YTC restructure: hourly per-video reports + 3am-local nightshift rollup; 354 reports reorganized into per-date subfolders; iOS YTC tab → 3 sections (NIGHTSHIFT / TODAY'S VIDEOS / PAST BRIEFS); 5 nightshift briefs (5/20-5/24) retro-seeded.
 - Wave 12 — CouncilVectorStore singleton + batched + async-safe ChromaDB. Fixes 2026-05-24 19:20 incident (pid 27623 deadlocked 99% CPU entirely inside `chromadb_rust_bindings.abi3.so`, frozen mid-YTC-loop at video 24/33). Root cause: `_auto_ingest_report` constructed a fresh `CouncilVectorStore(data_dir)` per video → fresh `chromadb.PersistentClient` per call. 33 videos/hour × concurrent clients on the same persistent store → Rust HNSW write-lock deadlock. Compounding: every `upsert`/`query` was a sync call inside an async function blocking the event loop. Fix: `runtime/councils/shared/vector_store_singleton.py` (process-wide instance + double-checked lock); `index_documents_batch()` for one upsert per report instead of N; sync ChromaDB ops wrapped in `asyncio.to_thread`. 4 call sites migrated (runner + 3 council router handlers + LDE sandbox).
+- Wave 13 — 10-agent read-only audit + 4-agent P0 fix wave + 4-agent P1/P2/P3 reconcile wave. Root-cause of "NCC residue keeps appearing": `runtime/councils/runner/council.py:1126` CHAIR prompt was literally instructing every LLM to emit `"pillar": "NCC"` in its JSON mandate block — fixed to use `NCL` and gated by a strict pillar_map (no fallback to NCC). 10 more relative-import bugs in `runtime/awarebot/intel/__init__.py` (same morning-brief HTTP 500 class hit in Wave 12) — fixed. iOS↔Brain contract drift: 6 endpoint mismatches (working-context pin body, memory timeline key, `/intelligence/x/posts` handler, `/council/queue` handler, unpin path, portfolio `quotes_failed` field) — fixed on both sides. Sync `json.dumps(5–10MB)` on the event loop in `brain._persist_council_sessions_unlocked` (likely root of the 20:30 JSON-encoder lockup) — moved to `asyncio.to_thread`. Whisper model singleton (same anti-pattern as Wave 12 ChromaDB), stall-watchdog factory entry for `ncl-ytc-nightshift`, 7 paid-call cost gates added at previously-unmetered sites, MemoryStore reader cache fast-path, data store integrity sweep (orphan tmp files, oversize jsonl, stale 113MB ghost embeddings, archive caps, alert pruner). This doc reconciled against live grep in the same wave.
 
 **Codename**: NCL (NUREALCORTEXLINK)
 **Role**: Standalone personal AI brain serving NATRIX via the FirstStrike iOS app.
@@ -27,7 +28,7 @@ The original "Resonance Energy" architecture (NCL → NCC/BRS/AAC) has been full
 
 What NCL **is** today:
 - FastAPI service on port 8800 (`runtime/api/routes.py:versioned_app`)
-- 34 in-process autonomous loops (memory consolidation, calendar correlation, awarebot intel, council auto-spawn, journal reflection, working-context assembly, portfolio sync, etc.) <!-- verified 2026-05-24 / Wave 10 — 34 unique `ncl-*` task names in runtime/autonomous/scheduler.py incl. supervisor -->
+- 35 in-process autonomous loops (memory consolidation, calendar correlation, awarebot intel, council auto-spawn, journal reflection, working-context assembly, portfolio sync, etc.) <!-- verified 2026-05-24 / Wave 13 — 35 unique `ncl-*` task names in runtime/autonomous/scheduler.py incl. supervisor; +1 since Wave 10 = `ncl-ytc-nightshift` -->
 
 - Memory subsystem: 25K MemUnits, ChromaDB vectors, BM25 keyword index, NetworkX knowledge graph, 7-tier authority weighting, Beta-Bernoulli source-authority learner, ACE reflection, conflict resolver, narrative threads, PII redactor, async write queue
 - Multi-LLM council system (Claude chairs; Grok, Gemini, Perplexity, GPT, Copilot as members). Universal context pack at `runtime/council_pack/` consolidates assembly + MMR + temporal split + contradictions surfacing + position trick + 40% utilization cap + MapReduce compression + Anthropic Citations API document blocks + calibrated verbalized confidence + anonymized peer review + 3-tier hierarchical write-back
@@ -48,7 +49,7 @@ The pump → council → mandate → pillar pipeline was MERGED into the Brain. 
 | Was | Where it lives now |
 |-----|--------------------|
 | `runtime/pump_watcher.py` | `archive/strike-point-pre-merge/pump_watcher.py` — replaced by Brain `POST /pump` endpoint (`routes.py:795`) |
-| `runtime/strike_point_orchestrator.py` | `archive/strike-point-pre-merge/strike_point_orchestrator.py` — replaced by Brain `receive_pump_prompt(auto_flow=True)` at `brain.py:312-399`, which runs the full strike-point flow in-process |
+| `runtime/strike_point_orchestrator.py` | `archive/strike-point-pre-merge/strike_point_orchestrator.py` — replaced by Brain `receive_pump_prompt(auto_flow=True)` at `runtime/ncl_brain/brain.py:312-399`, which runs the full strike-point flow in-process |
 | `runtime/execution_loop.py` | `archive/strike-point-pre-merge/execution_loop.py` — Copilot/Claude-Code subprocess bridge, separately dead (manual-mode fallback since May 22) |
 | `tests/test_pump_watcher.py` | `archive/strike-point-pre-merge/` |
 | `mandate-generation/` directory tree (input/, processed/, failed/, output/) | `archive/strike-point-pre-merge/mandate-generation/` — preserved with 21 historical processed pumps + 5 stuck AAC War Room sweeps |
@@ -63,7 +64,7 @@ The Brain has been verified healthy post-archive: pid still serving 8800, FirstS
 **Stale mandate cleanup (2026-05-24)**: After A03b retired the BRS/AAC enum values, `data/mandates.json` still held 21 mandates with `target_pillar: 'brs'` or `'aac'` that the Pydantic model now rejects on `load_state()` — 105 ERROR lines per boot. Pruned via `scripts/prune_retired_pillar_mandates.py` (idempotent, takes a timestamped `.pre-prune-*.bak` backup, drops only retired-pillar entries). 70 NCC mandates retained because the NCC enum value is kept for back-compat. Re-run the script if the mandate file ever regrows retired-pillar entries.
 
 **Strike Point pipeline — current architecture**:
-iOS `POST /pump` → Brain `routes.py:receive_pump_prompt` → `brain.py:receive_pump_prompt(auto_flow=True)` → `spawn_council_session()` → `_extract_mandates_from_council()` → council write-back via async writer → memory persistence. All in-process, no file queue, no external dispatch.
+iOS `POST /pump` → Brain `routes.py:receive_pump_prompt` → `runtime/ncl_brain/brain.py:receive_pump_prompt(auto_flow=True)` → `spawn_council_session()` → `_extract_mandates_from_council()` → council write-back via async writer → memory persistence. All in-process, no file queue, no external dispatch.
 
 **iOS pump transport**: defaults to Brain Direct (port 8800). Relay mode (port 8787 via `/Users/natrix/Projects/FirstStrike/relay-pump-endpoint.py`) is a fallback that requires explicit toggle in iOS settings; relay still drops files to `archive/strike-point-pre-merge/mandate-generation/input/` if exercised, but nothing reads them anymore.
 
@@ -73,7 +74,7 @@ iOS `POST /pump` → Brain `routes.py:receive_pump_prompt` → `brain.py:receive
 
 NCL Brain API runs as a **FastAPI service on port 8800** with 289+ route decorators across 20+ categories. The runtime layer is autonomous and persistent. <!-- verified 2026-05-24 / Wave 10 — `grep -rE "@\w+\.(get|post|put|delete|patch)\(" runtime/` = 323 raw matches; ~289 unique routes after stripping duplicate decorators on the same handler -->
 
-### Autonomous Scheduler — 34 Active Named Tasks (verified 2026-05-24 / Wave 10)
+### Autonomous Scheduler — 35 Active Named Tasks (verified 2026-05-24 / Wave 13)
 
 | # | Task name | Method | Cadence | Status |
 |---|-----------|--------|---------|--------|
@@ -94,6 +95,7 @@ NCL Brain API runs as a **FastAPI service on port 8800** with 289+ route decorat
 | 15 | `ncl-cache-warmer` — pre-touches calendar (7d/30d) + todos + sun + working context | `_cache_warmer_loop` | 5m | ACTIVE |
 | 16 | `ncl-alert-dispatch` — centralized rate-limited (1/10s) + deduped (1h per-key) ntfy queue | `_alert_dispatch_loop` | 10s tick | ACTIVE |
 | 17 | `ncl-ytc-dedicated` — YouTube Council with own $3/day cap; dedup window 1d | `_ytc_dedicated_loop` | 1hr | ACTIVE |
+| 17b | `ncl-ytc-nightshift` — 3am-local YTC rollup that consolidates the day's per-video reports into a single nightshift brief (Wave 11) | `_ytc_nightshift_loop` | 3am local daily | ACTIVE <!-- added Wave 13 verification 2026-05-24 — present in scheduler.py but missing from prior doc table --> |
 | 18 | `ncl-bm25-rebuild` — BM25 keyword index rebuild for FusedRetriever | `_bm25_rebuild_loop` | 30m | ACTIVE |
 | 19 | `ncl-memory-eval` — weekly 50 Q/A regression eval; hit@5 / MRR / recall@10; ntfy on regression | `_memory_eval_loop` | Sun 3am ET | ACTIVE |
 | 20 | `ncl-chroma-gc` — purges orphaned ChromaDB embeddings (zero-ghost collections now preserved in output) | `_chroma_gc_loop` | 1hr | ACTIVE |
@@ -112,7 +114,7 @@ NCL Brain API runs as a **FastAPI service on port 8800** with 289+ route decorat
 | 33 | `ncl-startup-migrations` — one-shot startup data migrations | `_startup_migrations` | one-shot at boot | ACTIVE <!-- added Wave 10 verification 2026-05-24 --> |
 | + | `ncl-supervisor` — monitors and restarts crashed tasks (max 3 restarts) | `_supervisor_loop` | 30s | ACTIVE (supervises itself) |
 
-> Active set: 33 named work tasks + supervisor = **34 unique `ncl-*` names** in `runtime/autonomous/scheduler.py` (verified 2026-05-24 / Wave 10 via `grep -oE 'name="ncl-[a-z0-9-]+"' runtime/autonomous/scheduler.py | sort -u | wc -l`). Plus 4 async-writer drainer subtasks reported individually in `/autonomous/loops`.
+> Active set: 34 named work tasks + supervisor = **35 unique `ncl-*` names** in `runtime/autonomous/scheduler.py` (verified 2026-05-24 / Wave 13 via `grep -oE 'name="ncl-[a-z0-9-]+"' runtime/autonomous/scheduler.py | sort -u | wc -l`). Plus 4 async-writer drainer subtasks reported individually in `/autonomous/loops`. The +1 since Wave 10 is `ncl-ytc-nightshift` (row 17b above).
 
 **Removed since prior doc:** `_aac_sync_loop` (folded into Night Watch Phase 1) and the previously-listed `ncl-awarebot-brief` — that task name has no `create_task(..., name="ncl-awarebot-brief")` in `runtime/autonomous/scheduler.py` and was a doc artifact (verified 2026-05-24 / Wave 10).
 
@@ -126,7 +128,7 @@ NCL Brain API runs as a **FastAPI service on port 8800** with 289+ route decorat
 |----------|---------|
 | `GET /memory/search/fused?q=...&top_k=N` | Vector + BM25 + entity-graph via RRF. Surfaces `tier`+`signal_id`. `NCL_FUSION_MIN_SCORE` env knob |
 | `GET /memory/by-authority?min_tier=council` | Filter recall by authority tier |
-| `POST /memory/backfill-authority` / `POST /memory/retag-authority` | One-shot migrations (both already run; ~12,792 units now in `data/memory/units.jsonl`, verified 2026-05-24 / Wave 10 via `wc -l`) |
+| `POST /memory/backfill-authority` / `POST /memory/retag-authority` | One-shot migrations (both already run; **14,144 units** now in `data/memory/units.jsonl`, verified 2026-05-24 / Wave 13 via `wc -l`) |
 | `POST /memory/bootstrap-claude-md` | Ingest CLAUDE.md files as procedural memory |
 | `POST /memory/kg-cleanup` | Purge URL/domain noise nodes (one-shot) |
 | `GET /memory/budget` / `/memory/budget/history` / `/memory/budget/check` | Per-tier token-spend telemetry |
@@ -142,7 +144,7 @@ NCL Brain API runs as a **FastAPI service on port 8800** with 289+ route decorat
 | `POST/DELETE /focus/queries` + `/focus/subreddits` | Accept tier as bare digit `1`/`2`/`3` |
 | `GET /youtube/reports/recent?limit=N` | Recent YTC + YouTube reports, dedup by `video_id` |
 | `GET /predictions` | Each item: cleaned `description`, `direction` (regex classifier), `models` (parsed from `[Consensus: lead=X][Y concurs]`), `linked_signals` |
-| `GET /autonomous/loops` | 34 loops with correct `last_run` (verified 2026-05-24 / Wave 10) |
+| `GET /autonomous/loops` | 35 loops with correct `last_run` (verified 2026-05-24 / Wave 13) |
 | `GET /portfolio/accounts` | `positions_count` propagation fixed |
 | `GET /portfolio/options-flow` | **NEW EOD** — top-20 grouped by ticker with premium splits + call/put ratio + `is_held_in_portfolio` flag |
 | `GET /calendar/events/compiled?window=30` | Auto-excludes first 7 days; scanner contribution capped at 30% (was 93%) |
@@ -244,7 +246,7 @@ YTC now produces one deep-dive report per video (full 150K char transcript budge
 Tracks NATRIX's liked videos on X via OAuth 2.0 user auth, downloads via yt-dlp, transcribes with Whisper, analyzes per-video, stores reports + transcripts in long-term memory. Autonomous scan every 6h when OAuth token is available. Setup: set `X_OAUTH_CLIENT_ID`/`X_OAUTH_CLIENT_SECRET` in `.env`, call `POST /x/oauth/authorize`.
 
 ### Memory System (Hardened May 22, 2026 EOD)
-**MemoryStore**: **25K unit capacity** (bumped from 10K — was thrashing eviction every ~4s), ~12,792 units now in `data/memory/units.jsonl` (verified 2026-05-24 / Wave 10 via `wc -l`; up from the ~9,711 figure recorded at the May-22 EOD retag). Seven-layer architecture inspired by MemGPT/Letta + Mem0, plus Zep/Graphiti bi-temporal KG edges.
+**MemoryStore**: **25K unit capacity** (bumped from 10K — was thrashing eviction every ~4s), **14,144 units** now in `data/memory/units.jsonl` (verified 2026-05-24 / Wave 13 via `wc -l`; up from the ~12,792 Wave-10 figure and the ~9,711 May-22 EOD retag figure). Seven-layer architecture inspired by MemGPT/Letta + Mem0, plus Zep/Graphiti bi-temporal KG edges.
 
 **Core Features:**
 - Two-speed decay (FadeMem): LML 0.999/day (facts, decisions, preferences, procedures), SML 0.95/day (signals, episodes)
@@ -269,7 +271,7 @@ Tracks NATRIX's liked videos on X via OAuth 2.0 user auth, downloads via yt-dlp,
 | RAW | 10 | Unscored ingest |
 
 **New Memory Subsystem Modules (`runtime/memory/`)** — added 2026-05-22:
-- `async_writer.py` — fire-and-forget memory write queue (4 drainers, Sonnet 4.6 enrichment in background)
+- `async_writer.py` — fire-and-forget memory write queue (4 drainers, Sonnet 4 enrichment in background; model id `claude-sonnet-4-20250514` — the "4.6" `claude-sonnet-4-6-20250514` string was returning HTTP 404 and was swept out in the EOD model fix)
 - `chat_context.py` — chat amnesia fix; builds context block injected into `/chat`
 - `chroma_gc.py` — orphaned-embedding purger
 - `conflict_resolver.py` — `contradicts` edge detection → council arbitration queue
@@ -413,8 +415,8 @@ The pump → mandate → pillar pipeline was MERGED into the Brain. `pump_watche
 
 If a future change really does need to revive any of this, do it as a separate explicit project — not as a side effect of another fix.
 
-### 7. Do not re-introduce pillar dispatch to NCC/BRS/AAC (added 2026-05-23)
-NCL is standalone. `PillarType` enum has `NCL` and `NCC` values for historical compatibility; the actual dispatcher (`brain._dispatch_to_ncc`, `runtime/dispatch/pillar_router.py`) writes to a non-existent intake dir and is a no-op in practice. Do not rebuild this. If multi-target dispatch is ever needed again, that's a fresh feature decision, not a "restoration".
+### 7. Do not re-introduce pillar dispatch to NCC/BRS/AAC (added 2026-05-23, tightened 2026-05-24 Wave 13)
+NCL is standalone. `PillarType` enum has `NCL` and `NCC` values for historical compatibility; the only dispatch surface that still exists is the `pillar_map` block at `runtime/ncl_brain/brain.py:1020` plus the vestigial `_dispatch_to_ncc()` helper at `brain.py:1091` (its only call site at `brain.py:760` is commented out). Wave 13 P0 made `pillar_map` STRICT — unknown pillar strings (including any future LLM emitting `"pillar": "NCC"`) now log a warning and fall through to `PillarType.NCL` rather than silently routing to a retired pillar. The separate `runtime/dispatch/pillar_router.py` referenced by older drafts of this doc has not existed for a long time (verified 2026-05-24 / Wave 13 via `ls runtime/dispatch/` → "No such file or directory"). Do not rebuild any of this. If multi-target dispatch is ever needed again, that's a fresh feature decision, not a "restoration".
 
 ### 8. Do not hardcode the STRIKE_AUTH_TOKEN in dashboard HTML (added 2026-05-24, W6-E)
 `dashboard/command-center.html` and `dashboard/review-queue.html` contain the placeholder `__AUTH_TOKEN__` which the `/app` and `/review-queue/dashboard` handlers in `runtime/api/routes.py` substitute with the requester's already-verified Bearer token before serving. The token is NEVER on disk + NEVER in VCS. If you add a new authed dashboard page, follow the same pattern: ship `__AUTH_TOKEN__` in the HTML, run `_verify_strike_token(authorization)` in the handler, then `html.replace("__AUTH_TOKEN__", safe_token)` before returning `HTMLResponse`. Do NOT paste the real token back into the HTML "just for testing" — that puts it back into git history.

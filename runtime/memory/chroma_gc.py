@@ -483,4 +483,14 @@ async def _chroma_gc_loop(
         except Exception as e:
             log.error(f"[CHROMA-GC] tick failed: {e}", exc_info=True)
 
+        # W13-P2: opportunistic alerts/ pruner. Folded into chroma_gc so we
+        # don't add another scheduler task for a single os.unlink loop.
+        # Runs every tick (default 1h); deletes alert JSON files older than
+        # NCL_ALERTS_PRUNE_DAYS (default 14d). README + non-JSON preserved.
+        try:
+            from runtime.councils.shared.report_writer import prune_alerts
+            await asyncio.to_thread(prune_alerts)
+        except Exception as e:
+            log.debug(f"[CHROMA-GC] alerts prune skipped: {e}")
+
         await asyncio.sleep(interval)

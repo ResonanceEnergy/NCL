@@ -731,6 +731,12 @@ class AutonomousScheduler:
             "ncl-bm25-rebuild": self._bm25_rebuild_loop,
             "ncl-city-events": self._city_events_loop,
             "ncl-stocks-scan": self._stocks_scan_loop,
+            # W13 P1-A (2026-05-24): stall watchdog can die too. Without a
+            # factory entry the supervisor logs "No factory for task
+            # 'ncl-stall-watchdog' — cannot restart" and the watchdog
+            # stays dead, meaning we lose detection of frozen
+            # heartbeats / Rust HNSW deadlocks (the W12 incident class).
+            "ncl-stall-watchdog": self._stall_watchdog_loop,
         }
         # 2026-05-22 memory loops (factory registration — only if loaded above)
         try:
@@ -4421,9 +4427,13 @@ class AutonomousScheduler:
                 break
 
             try:
-                # Budget gate — block if YTC budget exhausted for the day.
-                if not await check_budget("ytc", 0.10):
-                    log.warning("[YTC-DEDICATED] ytc daily budget exhausted — skipping cycle")
+                # Budget gate — YTC bills against `anthropic` (the actual
+                # provider). Previously billed against `ytc` which had a
+                # $0 cap = unlimited. W13 P1-A (2026-05-24) audit A8 fix.
+                if not await check_budget("anthropic", 0.10):
+                    log.warning(
+                        "[YTC-DEDICATED] anthropic daily budget exhausted — skipping cycle"
+                    )
                     try:
                         await asyncio.sleep(ytc_interval)
                         continue
@@ -4477,8 +4487,11 @@ class AutonomousScheduler:
                     # Conservative per-video estimate; tighten later if usage data exposed.
                     est_cost = 0.05 * max(1, len(per_video))
                     try:
+                        # W13 P1-A: bill YTC against `anthropic` (the
+                        # actual provider) instead of the `ytc` key
+                        # which had a $0 cap = unlimited spend.
                         await record_cost(
-                            "ytc",
+                            "anthropic",
                             est_cost,
                             "ytc_per_video",
                             detail=f"{len(per_video)} videos ({session_id})",
@@ -4574,9 +4587,12 @@ class AutonomousScheduler:
 
             # ── Fire the rollup synthesis ─────────────────────────────
             try:
-                if not await check_budget("ytc", 0.30):
+                # W13 P1-A: bill YTC nightshift against `anthropic` (the
+                # actual provider). Previously billed against `ytc`
+                # which had a $0 cap = unlimited spend.
+                if not await check_budget("anthropic", 0.30):
                     log.warning(
-                        "[YTC-NIGHTSHIFT] ytc daily budget exhausted — skipping tonight's rollup"
+                        "[YTC-NIGHTSHIFT] anthropic daily budget exhausted — skipping tonight's rollup"  # noqa: E501
                     )
                     continue
 
@@ -4672,9 +4688,10 @@ class AutonomousScheduler:
                     await f.write("".join(md_lines))
 
                 # Record cost (~$0.30 estimated — single Sonnet rollup call)
+                # W13 P1-A: bill against `anthropic` (the actual provider).
                 try:
                     await record_cost(
-                        "ytc",
+                        "anthropic",
                         0.30,
                         "ytc_nightshift_rollup",
                         detail=f"nightshift rollup {yesterday_local} ({session_id})",

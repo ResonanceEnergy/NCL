@@ -246,9 +246,34 @@ class SearchIndexer:
         except Exception as e:
             log.warning(f"Failed to save search index cache: {e}")
 
+    # Cache TTL: rebuild if the on-disk cache is older than this (W13-P2).
+    # Source NDJSON files change all day; a stale cache poisons search results
+    # because new memory units / events / mandates never enter the inverted
+    # index until manually purged. 24h is conservative — the rebuild is cheap.
+    _CACHE_TTL_SECONDS = 24 * 60 * 60
+
     async def _load_cache(self) -> bool:
-        """Load index from cache file. Returns True if cache was valid."""
+        """Load index from cache file. Returns True if cache was valid.
+
+        W13-P2: rejects caches older than ``_CACHE_TTL_SECONDS`` (24h). A 113MB
+        ``index_cache.json`` from April 30 was being loaded on every startup
+        with stale doc references — now we treat anything past TTL as a miss
+        and rebuild from source NDJSON files.
+        """
         if not self._cache_file.exists():
+            return False
+        # Reject stale caches (mtime-based TTL).
+        try:
+            import time
+            age_s = time.time() - self._cache_file.stat().st_mtime
+            if age_s > self._CACHE_TTL_SECONDS:
+                log.info(
+                    f"Search index cache stale ({age_s/3600:.1f}h > "
+                    f"{self._CACHE_TTL_SECONDS/3600:.0f}h) — rebuilding"
+                )
+                return False
+        except OSError as e:
+            log.warning(f"Could not stat search cache, treating as miss: {e}")
             return False
         try:
             async with aiofiles.open(self._cache_file, "r") as f:

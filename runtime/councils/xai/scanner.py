@@ -786,6 +786,19 @@ async def _scan_account_grok(
         f"Format each as: POST: [content] | LIKES: [n] | RTs: [n] | TIME: [approx time]"
     )
 
+    # W13 P1-A: budget gate — back off if xai is at cap.
+    try:
+        from ...cost_tracker import check_budget
+
+        if not await check_budget("xai", 0.10):
+            log.warning(
+                "[X-SCAN] xai budget exhausted — skipping Grok account scan for @%s",
+                handle,
+            )
+            return []
+    except Exception:
+        pass
+
     try:
         await _grok_limiter.acquire()
         client = await _get_shared_client()
@@ -845,6 +858,19 @@ async def _search_keyword_grok(
         f"Format: @handle: [content] | LIKES: [n] | RTs: [n]"
     )
 
+    # W13 P1-A: budget gate — back off if xai is at cap.
+    try:
+        from ...cost_tracker import check_budget
+
+        if not await check_budget("xai", 0.10):
+            log.warning(
+                "[X-SCAN] xai budget exhausted — skipping Grok keyword search '%s'",
+                keyword,
+            )
+            return []
+    except Exception:
+        pass
+
     try:
         await _grok_limiter.acquire()
         client = await _get_shared_client()
@@ -898,6 +924,16 @@ async def _scan_trending_grok(since: datetime) -> list[XPost]:
         "For each trend, give me the key posts driving it. "
         "Format: TREND: [topic] | @handle: [content] | LIKES: [n]"
     )
+
+    # W13 P1-A: budget gate — back off if xai is at cap.
+    try:
+        from ...cost_tracker import check_budget
+
+        if not await check_budget("xai", 0.10):
+            log.warning("[X-SCAN] xai budget exhausted — skipping Grok trending scan")
+            return []
+    except Exception:
+        pass
 
     try:
         await _grok_limiter.acquire()

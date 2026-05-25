@@ -367,7 +367,21 @@ Respond with ONLY the 3 topics, no preamble."""  # noqa: E501
 
         topics_text = ""
         anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
-        if anthropic_key:
+        # W13 P1-A: gate Claude call on anthropic budget. If exhausted,
+        # fall through to the deterministic topic fallback below.
+        budget_ok = True
+        try:
+            from ...cost_tracker import check_budget
+
+            budget_ok = await check_budget("anthropic", 0.02)
+            if not budget_ok:
+                log.warning(
+                    "[MORNING-BRIEF] anthropic budget exhausted — skipping Claude topics, using fallback"  # noqa: E501
+                )
+        except Exception:
+            pass
+
+        if anthropic_key and budget_ok:
             import httpx
 
             try:

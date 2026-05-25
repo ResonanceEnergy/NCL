@@ -263,3 +263,43 @@ def _write_alerts(report: CouncilReport) -> None:
         alert_tmp.write_text(json.dumps(alert, indent=2))
         alert_tmp.replace(alert_path)
         log.info(f"Alert raised → {alert_path.name}: {insight.title}")
+
+
+# W13-P2: alerts/ pruner. Before this, ALERTS_DIR grew unbounded — 2,657
+# files at the time of the W13 audit (the oldest from mid-May, never cleaned
+# up). Called from the autonomous scheduler's chroma_gc loop and on startup.
+ALERTS_PRUNE_DAYS = int(os.getenv("NCL_ALERTS_PRUNE_DAYS", "14"))
+
+
+def prune_alerts(max_age_days: int = ALERTS_PRUNE_DAYS) -> dict[str, int]:
+    """Delete alert files older than ``max_age_days``.
+
+    Walks ``ALERTS_DIR`` once. Skips ``README.md`` and any non-JSON file.
+    Returns a dict with ``scanned``, ``deleted``, ``errors``, ``kept``.
+    """
+    stats = {"scanned": 0, "deleted": 0, "errors": 0, "kept": 0}
+    if not ALERTS_DIR.exists():
+        return stats
+    cutoff = datetime.now(timezone.utc).timestamp() - max_age_days * 86400
+    for entry in ALERTS_DIR.iterdir():
+        if not entry.is_file():
+            continue
+        if not entry.name.endswith(".json"):
+            # Preserve README.md and anything else non-JSON.
+            continue
+        stats["scanned"] += 1
+        try:
+            if entry.stat().st_mtime < cutoff:
+                entry.unlink()
+                stats["deleted"] += 1
+            else:
+                stats["kept"] += 1
+        except OSError as e:
+            stats["errors"] += 1
+            log.warning(f"[ALERTS:PRUNE] could not delete {entry.name}: {e}")
+    if stats["deleted"]:
+        log.info(
+            f"[ALERTS:PRUNE] deleted {stats['deleted']} of {stats['scanned']} "
+            f"alerts older than {max_age_days}d (kept {stats['kept']})"
+        )
+    return stats
