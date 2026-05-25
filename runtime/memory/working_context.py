@@ -228,14 +228,16 @@ class DailyContextWindow:
         except Exception as e:
             log.warning(f"[WORKING-CTX] Failed to load today.json: {e}")
 
-    def _persist(self) -> None:
-        """Save current context to disk atomically (tmp + fsync + rename)."""
-        if not self._current:
-            return
-        target = self._today_file()
+    @staticmethod
+    def _do_persist_io(data: dict, target: Path) -> None:
+        """Heavy lifting for _persist — json.dumps + atomic write + fsync.
+
+        Runs in a worker thread via ``asyncio.to_thread`` so the main
+        event loop isn't blocked while serializing a 50-item context
+        (~1-3 MB of nested metadata after a fresh assemble).
+        """
         tmp = target.with_suffix(".json.tmp")
         try:
-            data = self._current.to_dict()
             tmp.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
             with open(tmp, "rb+") as f:
                 os.fsync(f.fileno())
@@ -243,30 +245,67 @@ class DailyContextWindow:
         except Exception as exc:
             log.warning("[WORKING-CTX] persist failed: %s", exc)
             try:
-                tmp.unlink()  # cleanup partial tmp file
-            except FileNotFoundError:
-                pass
-            except Exception:
-                pass
-
-    def _archive_to_history(self, ctx: DailyContext) -> None:
-        """Archive a day's context to history atomically (tmp + fsync + rename)."""
-        target = self._history_file(ctx.date)
-        tmp = target.with_suffix(".json.tmp")
-        try:
-            tmp.write_text(json.dumps(ctx.to_dict(), indent=2, default=str), encoding="utf-8")
-            with open(tmp, "rb+") as f:
-                os.fsync(f.fileno())
-            os.replace(str(tmp), str(target))
-            log.info(f"[WORKING-CTX] Archived context for {ctx.date}")
-        except Exception as e:
-            log.warning(f"[WORKING-CTX] Failed to archive: {e}")
-            try:
                 tmp.unlink()
             except FileNotFoundError:
                 pass
             except Exception:
                 pass
+
+    def _persist(self) -> None:
+        """Save current context to disk atomically (tmp + fsync + rename).
+
+        Wave 13 followup (2026-05-24): the json.dumps + atomic write was
+        running on the event loop for 12 different call sites (every
+        pin/unpin/access/assemble). With 50 items × ~5-10KB nested
+        metadata each, that's a 0.3-1.5s freeze of the event loop. After
+        the mid-day refresh fired around 21:28 the loop got into a
+        recurring tight-cycle pattern (assemble → persist → next loop
+        immediately re-trigger) and pegged the JSON encoder at 99% CPU
+        until restart. Same pattern as the brain._persist_council_sessions
+        fix from P0-4, missed at audit time because working_context wasn't
+        on the same grep.
+
+        Fix: snapshot the dict synchronously (cheap), then hand the
+        json.dumps + write to a worker thread. Fire-and-forget is safe
+        here because every later _persist() call rewrites the file with
+        the latest state — if the worker loses, no harm done. Falls back
+        to inline sync write if no event loop is running (e.g. CLI
+        scripts, tests).
+        """
+        if not self._current:
+            return
+        data = self._current.to_dict()  # cheap snapshot under the GIL
+        target = self._today_file()
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop is not None:
+            loop.create_task(asyncio.to_thread(self._do_persist_io, data, target))
+        else:
+            self._do_persist_io(data, target)
+
+    def _archive_to_history(self, ctx: DailyContext) -> None:
+        """Archive a day's context to history atomically (tmp + fsync + rename).
+
+        Same off-event-loop pattern as ``_persist`` — see that docstring
+        for the incident this was added in response to.
+        """
+        data = ctx.to_dict()  # cheap snapshot
+        target = self._history_file(ctx.date)
+        date_str = ctx.date
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop is not None:
+            async def _archive_async():
+                await asyncio.to_thread(self._do_persist_io, data, target)
+                log.info(f"[WORKING-CTX] Archived context for {date_str}")
+            loop.create_task(_archive_async())
+        else:
+            self._do_persist_io(data, target)
+            log.info(f"[WORKING-CTX] Archived context for {date_str}")
 
     # ── Salience Scoring ─────────────────────────────────────────────
 
