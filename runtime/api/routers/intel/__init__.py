@@ -105,6 +105,163 @@ router = APIRouter(tags=["intel"])
 
 
 # ===========================================================================
+# Wave 14A helpers (2026-05-25) — authority filtering + risk-alert dedup
+# ===========================================================================
+#
+# Per docs/INTEL_MEMORY_REORG_2026-05-25.md ship-now A2 + A3.
+#
+# A3 — Authority filter at brief boundary
+# ----------------------------------------
+# IntelSignal does not carry an authority_tier natively, so we resolve it
+# from the signal's source via runtime.memory.authority.tier_for_source(),
+# which is the same map MemoryStore uses on ingest. Awarebot signals all
+# resolve to SCANNER(20); LLM-direct synthesis to LLM_SINGLE(40); council
+# output to COUNCIL(80); etc.
+#
+# The plan doc suggested `default=40`, but in production every top-of-brief
+# signal is an Awarebot scanner signal (SCANNER=20), so default=40 would
+# zero out the brief callouts entirely. We default to 20 (drop only RAW=10
+# unknowns) and document the env knob so NATRIX can tighten it once
+# LLM-tier synthesis sources start landing in top_signals.
+#
+# Awarebot signals with route_level CRITICAL/HIGH get bumped one tier
+# (SCANNER -> LLM_SINGLE) so high-confidence scanner output can pass a
+# stricter min-authority gate without re-tagging the whole pipeline. The
+# bump reads `signal.metadata["route_level"]` because IntelSignal itself
+# does not carry the awarebot field.
+#
+# A2 — Risk-alert dedup
+# ----------------------
+# IntelBrief.risk_alerts is `list[str]` — short headline-style strings the
+# brief generator pre-extracted as worth flagging. They are *frequently*
+# substrings of (or near-identical to) the top_signals[:5] titles, which
+# is what makes the iOS Brief tab feel like Risk Alerts ⊂ Key Signals.
+# We drop any risk alert whose normalized text overlaps with one of the
+# first 5 top-signal titles. Comparison is lowercase + punctuation-stripped
+# + token-Jaccard with a 0.6 threshold — a tighter substring check missed
+# cases where the LLM rephrased "PLTR breakout above 245" as "Palantir
+# breakout (PLTR) above $245".
+
+
+def _signal_source_str(signal) -> str:
+    """Best-effort source string for tier_for_source() lookup."""
+    try:
+        src = getattr(signal, "source", None)
+        if src is None:
+            return ""
+        val = getattr(src, "value", src)
+        return str(val).lower()
+    except Exception:
+        return ""
+
+
+def _signal_authority_tier(signal) -> int:
+    """Resolve an IntelSignal to an authority-tier integer.
+
+    Returns the AuthorityTier int value. Falls back to SCANNER(20) for
+    awarebot-origin signals whose specific source key is missing, and to
+    RAW(10) for everything unknown so the min-authority gate can decide.
+    """
+    try:
+        from ....memory.authority import AuthorityTier, tier_for_source
+    except Exception:  # pragma: no cover — defensive
+        return 20  # SCANNER fallback
+
+    src = _signal_source_str(signal)
+    if not src:
+        return int(AuthorityTier.RAW)
+
+    # 1) Try the awarebot-prefixed key first; this matches SOURCE_TIER_MAP
+    #    entries like `awarebot:reddit`, `awarebot:youtube`, etc.
+    tier = tier_for_source(f"awarebot:{src}")
+    if int(tier) > int(AuthorityTier.RAW):
+        base = int(tier)
+    else:
+        # 2) Fall back to a bare-source lookup (e.g. `news`, `polymarket`).
+        bare = tier_for_source(src)
+        base = int(bare) if int(bare) > int(AuthorityTier.RAW) else int(AuthorityTier.SCANNER)
+
+    # 3) Bump CRITICAL/HIGH route_level Awarebot signals by one tier so a
+    #    stricter NCL_BRIEF_MIN_AUTHORITY (e.g. 40) can let curated
+    #    high-route-level scanner output through without re-tagging.
+    try:
+        metadata = getattr(signal, "metadata", {}) or {}
+        route_level = str(metadata.get("route_level", "")).upper()
+        if route_level in ("CRITICAL", "HIGH") and base < int(AuthorityTier.LLM_SINGLE):
+            base = int(AuthorityTier.LLM_SINGLE)
+    except Exception:
+        pass
+
+    return base
+
+
+def _filter_signals_by_authority(signals: list, min_authority: int | None = None) -> list:
+    """Drop signals below NCL_BRIEF_MIN_AUTHORITY (default 20)."""
+    if min_authority is None:
+        try:
+            min_authority = int(os.getenv("NCL_BRIEF_MIN_AUTHORITY", "20"))
+        except (TypeError, ValueError):
+            min_authority = 20
+    if min_authority <= 10:
+        return list(signals)
+    filtered = [s for s in signals if _signal_authority_tier(s) >= min_authority]
+    if not filtered and signals:
+        # Don't zero out the brief — if everything got filtered, log and
+        # pass the originals through so downstream slicing still has data.
+        log.warning(
+            "[brief] authority filter (min=%s) eliminated all %s signals; passing through unfiltered",
+            min_authority,
+            len(signals),
+        )
+        return list(signals)
+    return filtered
+
+
+_RISK_DEDUP_PUNCT = re.compile(r"[^a-z0-9\s]+")
+
+
+def _normalize_for_dedup(text: str) -> set[str]:
+    """Lowercase + punctuation-strip + tokenize for set-overlap comparison."""
+    if not text:
+        return set()
+    cleaned = _RISK_DEDUP_PUNCT.sub(" ", text.lower())
+    return {tok for tok in cleaned.split() if len(tok) > 2}
+
+
+def _dedup_risk_alerts(
+    risk_alerts: list[str], top_signals: list, top_n: int = 5, jaccard_threshold: float = 0.6
+) -> list[str]:
+    """Drop risk_alerts whose text substantially overlaps with top_signals[:N] titles.
+
+    Token-Jaccard with default 0.6 threshold catches both substring matches
+    (e.g. "PLTR breakout" inside "PLTR breakout above 245") and rephrases
+    (e.g. "Palantir breakout PLTR above $245" vs "PLTR breakout above 245").
+    """
+    if not risk_alerts:
+        return []
+    top_token_sets = [_normalize_for_dedup(getattr(s, "title", "") or "") for s in top_signals[:top_n]]
+    top_token_sets = [t for t in top_token_sets if t]
+
+    deduped: list[str] = []
+    for alert in risk_alerts:
+        alert_tokens = _normalize_for_dedup(alert)
+        if not alert_tokens:
+            continue
+        overlapped = False
+        for top_tokens in top_token_sets:
+            union = alert_tokens | top_tokens
+            if not union:
+                continue
+            jaccard = len(alert_tokens & top_tokens) / len(union)
+            if jaccard >= jaccard_threshold:
+                overlapped = True
+                break
+        if not overlapped:
+            deduped.append(alert)
+    return deduped
+
+
+# ===========================================================================
 # Intelligence Engine
 # ===========================================================================
 
@@ -324,6 +481,29 @@ async def generate_morning_brief(
 
     try:
         brief = await intelligence.generate_brief(brief_type="daily")
+
+        # Wave 14A A3 (2026-05-25): authority filter at brief boundary.
+        # Drops signals below NCL_BRIEF_MIN_AUTHORITY tier (default 20)
+        # so r/depression-style noise stops reaching every downstream
+        # slice. CRITICAL/HIGH route-level scanner signals get bumped to
+        # LLM_SINGLE inside the helper so they pass a stricter gate.
+        # We replace brief.top_signals in-place so every slice below
+        # (options/market/news/PM/oil/rates/bonds/crypto/etc.) inherits
+        # the filter without per-slice changes.
+        _orig_signal_count = len(brief.top_signals)
+        brief.top_signals = _filter_signals_by_authority(brief.top_signals)
+        if len(brief.top_signals) != _orig_signal_count:
+            log.info(
+                "[morning-brief] authority filter: %d -> %d signals (min=%s)",
+                _orig_signal_count,
+                len(brief.top_signals),
+                os.getenv("NCL_BRIEF_MIN_AUTHORITY", "20"),
+            )
+
+        # Wave 14A A2 (2026-05-25): risk_alerts dedup vs top_signals[:5].
+        # Computed once here, used in the persisted brief_data and both
+        # return paths below.
+        deduped_risk_alerts = _dedup_risk_alerts(brief.risk_alerts, brief.top_signals)
 
         # Slice signals by source affinity so the trade-ideas section has
         # concrete options-flow + market context to reason over.
@@ -749,7 +929,9 @@ Respond with ONLY the formatted brief. No preamble, no closing remarks, no "Here
             "full_brief": topics_text,
             "topics": topics_text,
             "executive_summary": brief.executive_summary,
-            "risk_alerts": brief.risk_alerts,
+            # Wave 14A A2 — risk_alerts deduped against top_signals[:5]
+            "risk_alerts": deduped_risk_alerts,
+            "risk_alerts_raw": brief.risk_alerts,  # pre-dedup, kept for audit
             "status": "pending",
             "progress": [],
         }
@@ -767,7 +949,8 @@ Respond with ONLY the formatted brief. No preamble, no closing remarks, no "Here
             "executive_summary": brief.executive_summary,
             "topics": topics_text,
             "full_brief": topics_text,
-            "risk_alerts": brief.risk_alerts,
+            # Wave 14A A2 — deduped vs top_signals[:5]
+            "risk_alerts": deduped_risk_alerts,
         }
     except Exception as e:
         log.exception("Endpoint error: %s", e)
@@ -1348,6 +1531,152 @@ async def push_brief_to_phone(
     except Exception as e:
         log.exception("Endpoint error: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ===========================================================================
+# Wave 14A A5 — Unified /intelligence/digest endpoint
+# ===========================================================================
+#
+# One read returns everything iOS needs to render a "what's happening right
+# now" surface — headline + summary + key signals + dedup'd risk alerts +
+# working context + night-watch status + source breakdown.
+#
+# Shipped now so iOS can adopt it in the IA-reorg wave (14B). Until then,
+# this is the single endpoint to test the integrated picture end-to-end.
+
+
+@router.get("/intelligence/digest")
+async def intelligence_digest(
+    top_signal_limit: int = Query(default=8, ge=1, le=20),
+    working_context_limit: int = Query(default=10, ge=1, le=30),
+    intelligence=Depends(get_intelligence),
+    autonomous=Depends(get_autonomous),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Unified "what's happening" digest — aggregates brief + working context + night-watch.
+
+    Fields:
+      headline                 — first sentence of executive_summary (single line)
+      summary                  — full executive_summary text
+      key_signals              — top N signals after authority filter (rich payload)
+      risk_alerts              — risk_alerts list, deduped against key_signals[:5]
+      working_context_top      — top pinned + auto-salience items from DailyContext
+      night_watch_status       — {date, status, key_findings_count, recommendations_count}
+      source_breakdown         — {source_name: count} across key_signals
+      generated_at             — UTC ISO timestamp
+      brief_id                 — backing brief id (for /intelligence/briefs/{id})
+      brief_timestamp          — when the backing brief was generated
+    """
+    if not intelligence:
+        raise HTTPException(status_code=503, detail="Intelligence engine not initialized")
+
+    brief = await intelligence.get_latest_brief()
+    if not brief:
+        return {
+            "status": "no_brief",
+            "message": "No intelligence brief generated yet. POST /intelligence/brief to generate one.",  # noqa: E501
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    # Authority filter at digest boundary — same default as morning brief
+    filtered_signals = _filter_signals_by_authority(brief.top_signals)
+    top = sorted(filtered_signals, key=lambda s: s.importance_score(), reverse=True)[:top_signal_limit]
+
+    # Risk-alert dedup against the top 5 (after filter)
+    deduped_risks = _dedup_risk_alerts(brief.risk_alerts, top)
+
+    # Headline = first sentence of exec summary (or first 140 chars)
+    exec_summary = brief.executive_summary or ""
+    headline = ""
+    if exec_summary:
+        first_sentence = re.split(r"(?<=[.!?])\s+", exec_summary.strip(), maxsplit=1)
+        headline = (first_sentence[0] if first_sentence else exec_summary[:140]).strip()
+
+    # Source breakdown across the rendered key_signals
+    source_breakdown: dict[str, int] = {}
+    for sig in top:
+        src = _signal_source_str(sig) or "unknown"
+        source_breakdown[src] = source_breakdown.get(src, 0) + 1
+
+    # Working context top items — pinned first, then top auto-salience.
+    # Soft-fail if working_context isn't initialized so digest stays usable.
+    working_top: list[dict] = []
+    if autonomous and getattr(autonomous, "_working_context", None):
+        try:
+            ctx_window = autonomous._working_context
+            ctx = ctx_window.get_current()
+            if ctx:
+                pinned = [i for i in ctx.items if getattr(i, "pinned", False)]
+                non_pinned = [i for i in ctx.items if not getattr(i, "pinned", False)]
+                ordered = pinned + non_pinned
+                working_top = [item.to_dict() for item in ordered[:working_context_limit]]
+        except Exception as e:
+            log.warning("[digest] working_context read failed: %s", e)
+
+    # Night-watch status — reuse the parser from the night_watch router so
+    # we get the same shape iOS will see at /intelligence/night-watch/latest.
+    nw_status: dict = {"status": "unknown"}
+    try:
+        from .night_watch import _night_watch_dir, _parse_brief
+
+        nw_dir = _night_watch_dir()
+        if nw_dir.exists():
+            today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            candidate = nw_dir / f"daily-{today_str}.md"
+            chosen: Path | None = candidate if candidate.exists() else None
+            if chosen is None:
+                md_files = sorted(nw_dir.glob("daily-*.md"), key=lambda p: p.stat().st_mtime, reverse=True)
+                chosen = md_files[0] if md_files else None
+            if chosen is not None:
+                parsed = _parse_brief(chosen)
+                nw_status = {
+                    "date": parsed["date"],
+                    "status": parsed["status"],
+                    "generated_at": parsed["generated_at"],
+                    "key_findings_count": len(parsed["key_findings"]),
+                    "recommendations_count": len(parsed["recommendations"]),
+                    "llm_cost_usd": parsed["llm_cost_usd"],
+                    "freshness": "today" if chosen == candidate else "stale",
+                }
+    except Exception as e:  # pragma: no cover — never block digest on nw parse failure
+        log.warning("[digest] night-watch parse failed: %s", e)
+        nw_status = {"status": "error", "error": str(e)}
+
+    return {
+        "status": "ok",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "brief_id": brief.brief_id,
+        "brief_timestamp": brief.timestamp.isoformat(),
+        "brief_type": brief.brief_type,
+        "headline": headline,
+        "summary": exec_summary,
+        "key_signals": [
+            {
+                "signal_id": s.signal_id,
+                "title": s.title,
+                "content": (s.content or "")[:400],
+                "source": _signal_source_str(s),
+                "direction": s.direction.value,
+                "importance": s.importance_score(),
+                "confidence": s.confidence,
+                "change_pct": s.change_pct,
+                "value": s.value,
+                "url": s.url,
+                "authority_tier": _signal_authority_tier(s),
+                "timestamp": s.timestamp.isoformat(),
+            }
+            for s in top
+        ],
+        "key_signals_count": len(top),
+        "filtered_out_count": len(brief.top_signals) - len(filtered_signals),
+        "risk_alerts": deduped_risks,
+        "risk_alerts_count": len(deduped_risks),
+        "working_context_top": working_top,
+        "working_context_count": len(working_top),
+        "night_watch_status": nw_status,
+        "source_breakdown": source_breakdown,
+        "min_authority": int(os.getenv("NCL_BRIEF_MIN_AUTHORITY", "20")),
+    }
 
 
 # ===========================================================================
@@ -2638,9 +2967,11 @@ async def youtube_reports_by_date(
 
 from .predictions import OutcomeBody  # noqa: E402, F401
 from .predictions import router as _predictions_router  # noqa: E402
+from .night_watch import router as _night_watch_router  # noqa: E402
 
 
 router.include_router(_predictions_router)
+router.include_router(_night_watch_router)
 
 
 # ===========================================================================

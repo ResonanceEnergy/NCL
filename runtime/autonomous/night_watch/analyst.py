@@ -478,8 +478,12 @@ async def run(
         "content-type": "application/json",
     }
 
-    sonnet_model = "claude-sonnet-4"
-    opus_model = "claude-opus-4-6"
+    # Wave 14A 2026-05-25: corrected model IDs after audit found 2026-05-25 brief
+    # hit 4× HTTP 404 because `claude-opus-4-6` is not a valid model and
+    # `claude-sonnet-4` was missing the `-20250514` suffix. Wave 13 EOD swept
+    # Sonnet 4.6 → 4 across the codebase but missed Night Watch's analyst.
+    sonnet_model = "claude-sonnet-4-20250514"
+    opus_model = "claude-opus-4-20250514"
 
     # Sonnet cost rates: $3.00/1M input, $15.00/1M output
     # Opus cost rates: $15.00/1M input, $75.00/1M output
