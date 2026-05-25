@@ -695,6 +695,19 @@ class AutonomousScheduler:
             asyncio.create_task(_startup_migrations(), name="ncl-startup-migrations")
         )
 
+        # ── Morning Quiz scheduler (Wave 14E followup) ──
+        # 00:05 ET — write tomorrow's template (carries forward posture + research_q)
+        # 06:00 ET — ntfy nudge if quiz not yet submitted
+        # 12:00 ET — second-chance nudge if still empty
+        from .loops.morning_quiz_scheduler import run as _morning_quiz_run
+
+        async def _morning_quiz():
+            await _morning_quiz_run(self)
+
+        self._tasks.append(
+            asyncio.create_task(_morning_quiz(), name="ncl-morning-quiz")
+        )
+
         # Attach a done-callback to every task so a silent crash (unobserved
         # task exception) gets logged instead of disappearing.
         def _task_done(task: asyncio.Task) -> None:

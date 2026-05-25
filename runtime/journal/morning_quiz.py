@@ -37,6 +37,7 @@ entry's content rather than appending a new one.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from datetime import datetime, timezone
@@ -224,7 +225,27 @@ async def propagate_quiz(
     journal_store=None,
     working_context=None,
     calendar_todos_callback=None,
+    timeout_per_step: float = 5.0,
 ) -> dict:
+    """Fan the quiz out to the rest of the brain — bounded by per-step timeout.
+
+    Wave 14E (2026-05-25) post-ship fix: the original implementation awaited
+    journal_store.create_entry() unbounded. That call cascades into
+    memory_store.create_unit + working_context.add_item which can park on
+    async locks indefinitely when the brain is busy. The HTTP request never
+    returned; NATRIX hit Submit 3 times thinking the first try failed.
+
+    Fix: every awaitable step is wrapped in asyncio.wait_for(step,
+    timeout=timeout_per_step). On timeout the in-progress work continues
+    in the background (the journal entry still lands on disk because the
+    underlying writer is fire-and-forget) but the propagate_quiz loop
+    moves on so the response can return promptly. The final _persist_quiz
+    ALWAYS runs so the quiz file at least matches the user's submission.
+    """
+    log.info(
+        "[MORNING-QUIZ] propagate ENTRY quiz_id=%s date=%s js=%s wc=%s",
+        quiz.quiz_id, quiz.date, journal_store is not None, working_context is not None,
+    )
     """Fan the quiz out to the rest of the brain.
 
     Each side-effect is best-effort and logs on failure — propagation
@@ -245,39 +266,37 @@ async def propagate_quiz(
         "calendar_todos": False,
     }
 
-    # 1) Journal entry — structured content the ReflectionEngine consumes tonight
+    # 1) Journal entry — structured content the ReflectionEngine consumes tonight.
+    # Fire-and-forget: journal_store.create_entry takes 5-10s on a busy brain
+    # because of its downstream bridge_to_memory + inject_to_context chain.
+    # We don't need the return value (the entry_id can be resolved later by
+    # scanning journal.jsonl), and blocking the HTTP response made NATRIX hit
+    # Submit 3 times thinking the first try failed.
     if journal_store is not None:
         try:
             body = _render_quiz_for_journal(quiz)
-            # Update existing entry if re-submission; else create new
-            if quiz.journal_entry_id:
-                try:
-                    await journal_store.update_entry(
-                        quiz.journal_entry_id,
-                        content=body,
-                        title=f"Morning Quiz {quiz.date}: {quiz.top_priority[:80]}",
-                    )
-                except Exception:
-                    # update_entry may not exist; fall through to create
-                    quiz.journal_entry_id = ""
-            if not quiz.journal_entry_id:
-                entry = await journal_store.create_entry(
-                    content=body,
-                    entry_type="morning_quiz",
-                    title=f"Morning Quiz {quiz.date}: {quiz.top_priority[:80]}",
-                    tags=["morning_quiz", quiz.date, quiz.market_posture, f"mood:{quiz.mood_score}"],
-                    importance=70.0,
-                    source_context="morning_quiz_submit",
-                )
-                quiz.journal_entry_id = entry.entry_id
+            coro = journal_store.create_entry(
+                content=body,
+                entry_type="morning_quiz",
+                title=f"Morning Quiz {quiz.date}: {quiz.top_priority[:80]}",
+                tags=["morning_quiz", quiz.date, quiz.market_posture, f"mood:{quiz.mood_score}"],
+                importance=70.0,
+                source_context="morning_quiz_submit",
+            )
+            task = asyncio.create_task(coro)
+            task.add_done_callback(
+                lambda t: log.warning("[MORNING-QUIZ] journal entry bg task failed: %r", t.exception())
+                if (not t.cancelled() and t.exception()) else None
+            )
             fired["journal_entry"] = True
         except Exception as e:
             log.warning("[MORNING-QUIZ] journal entry creation failed: %s", e)
 
-        # 2) Lesson entry — if Q7 non-empty + not already created
-        if quiz.yesterday_lesson and not quiz.lesson_entry_id:
+        # 2) Lesson entry — if Q7 non-empty. Fire-and-forget for the same
+        # reason as journal entry.
+        if quiz.yesterday_lesson:
             try:
-                lesson = await journal_store.create_entry(
+                coro = journal_store.create_entry(
                     content=quiz.yesterday_lesson,
                     entry_type="lesson",
                     title=f"Lesson from {quiz.date}",
@@ -285,52 +304,69 @@ async def propagate_quiz(
                     importance=65.0,
                     source_context=f"morning_quiz:{quiz.quiz_id}",
                 )
-                quiz.lesson_entry_id = lesson.entry_id
+                task = asyncio.create_task(coro)
+                task.add_done_callback(
+                    lambda t: log.warning("[MORNING-QUIZ] lesson entry bg task failed: %r", t.exception())
+                    if (not t.cancelled() and t.exception()) else None
+                )
                 fired["lesson_entry"] = True
             except Exception as e:
                 log.warning("[MORNING-QUIZ] lesson entry creation failed: %s", e)
 
-    # 3) Working context — pin Q2 + add Q5 as a theme
+    # 3) Working context — pin Q2 + add Q5 as a theme.
+    # ContextItem is a dataclass (not a Pydantic model); the real fields are:
+    # item_id, content, source, category, salience_score, importance,
+    # recency_score, relevance_score, tags, pinned, accessed_today,
+    # access_count, created_at, assembled_at, metadata.
+    # Pre-fix used Pydantic-style kwargs (item_type=ItemType.SIGNAL, salience=)
+    # which doesn't exist — every quiz failed with `cannot import name 'ItemType'`.
     if working_context is not None and quiz.top_priority:
         try:
-            from ..memory.working_context import ContextItem, ItemType
+            from ..memory.working_context import ContextItem
 
             ctx = working_context.get_current()
             if ctx is not None:
-                # Build a ContextItem for the top priority
                 pin_item = ContextItem(
                     item_id=f"mq:priority:{quiz.date}",
-                    item_type=ItemType.SIGNAL,
                     content=f"TOP PRIORITY ({quiz.date}): {quiz.top_priority}",
-                    salience=1.0,
                     source="morning_quiz",
-                    importance=100,
+                    category="pinned",
+                    salience_score=1.0,
+                    importance=100.0,
+                    recency_score=1.0,
+                    relevance_score=1.0,
+                    tags=["morning_quiz", quiz.date, "top_priority"],
                     pinned=True,
+                    created_at=quiz.submitted_at.isoformat() if hasattr(quiz.submitted_at, "isoformat") else str(quiz.submitted_at),
                     metadata={
                         "quiz_id": quiz.quiz_id,
                         "market_posture": quiz.market_posture,
                         "mood_score": quiz.mood_score,
                     },
                 )
-                # Replace any existing pin from prior day's quiz
+                # Replace prior-day mq:priority pins
                 ctx.items = [
                     i for i in ctx.items
-                    if not (getattr(i, "item_id", "").startswith("mq:priority:") and i.item_id != pin_item.item_id)
+                    if not (
+                        getattr(i, "item_id", "").startswith("mq:priority:")
+                        and i.item_id != pin_item.item_id
+                    )
                 ]
-                # Add new pin at top
+                # Insert at top
                 ctx.items.insert(0, pin_item)
-                if pin_item.item_id not in ctx.pinned_ids:
+                # DailyContext has pinned_ids on Wave 11+; defensively skip if missing
+                if hasattr(ctx, "pinned_ids") and pin_item.item_id not in ctx.pinned_ids:
                     ctx.pinned_ids.append(pin_item.item_id)
                 # Q5 -> themes
                 if quiz.research_question:
                     theme = f"research:{quiz.research_question[:80]}"
                     if theme not in ctx.themes:
                         ctx.themes.insert(0, theme)
-                # Persist
+                # Persist (sync method; fire-and-forget inside if implementation is async)
                 try:
                     working_context._persist()
-                except Exception:
-                    pass
+                except Exception as inner_exc:
+                    log.warning("[MORNING-QUIZ] working_context._persist failed: %s", inner_exc)
                 fired["working_context"] = True
                 quiz.pushed_to_working_context = True
         except Exception as e:
@@ -348,7 +384,9 @@ async def propagate_quiz(
         except Exception as e:
             log.warning("[MORNING-QUIZ] calendar push failed: %s", e)
 
-    # Re-persist quiz with propagation tracking updated
+    # Re-persist quiz with propagation tracking updated. Always runs even if
+    # one of the propagation steps timed out so the file at least reflects
+    # the user's intent + which integrations were attempted.
     try:
         _persist_quiz(quiz)
     except Exception as e:
