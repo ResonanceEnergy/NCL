@@ -27,5 +27,31 @@ from __future__ import annotations
 
 from .agent import PortfolioAnalystAgent
 from .schema import NightlyReport
+from .theses import (
+    Evidence,
+    EvidenceKind,
+    ExitPlan,
+    Mandate,
+    PositionThesis,
+    ThesisEvaluationResult,
+    ThesisStatus,
+    WatchItem,
+)
+from .thesis_evaluator import apply_evaluation, evaluate as evaluate_thesis
+from .thesis_store import ThesisStore
 
-__all__ = ["PortfolioAnalystAgent", "NightlyReport"]
+__all__ = [
+    "PortfolioAnalystAgent",
+    "NightlyReport",
+    "PositionThesis",
+    "Mandate",
+    "ThesisStatus",
+    "ExitPlan",
+    "WatchItem",
+    "Evidence",
+    "EvidenceKind",
+    "ThesisEvaluationResult",
+    "ThesisStore",
+    "evaluate_thesis",
+    "apply_evaluation",
+]
