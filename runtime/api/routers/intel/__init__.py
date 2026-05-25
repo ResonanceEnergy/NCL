@@ -96,6 +96,7 @@ from ...deps import (
     get_autonomous,
     get_brain,
     get_intelligence,
+    get_portfolio_mgr,
     verify_strike_token_dep,
 )
 
@@ -218,6 +219,40 @@ def _filter_signals_by_authority(signals: list, min_authority: int | None = None
 
 
 _RISK_DEDUP_PUNCT = re.compile(r"[^a-z0-9\s]+")
+
+
+# Wave 14C (2026-05-25): morning-brief quality helpers
+# ---------------------------------------------------
+# Markdown post-strip — defense against the Pink Elephant effect (telling
+# Claude "Do NOT use **" makes attention focus on **). Even with the new
+# positive-direction prompt, a regex sweep guarantees iOS BriefRenderer
+# (plain-text only) never sees a stray header marker. Strips:
+#   - Leading/trailing ** around words
+#   - Leading # / ## / ### headers
+#   - Backtick code fences (``` blocks) — replaced with the content only
+#   - Inline backticks around words
+# Newlines preserved.
+_MD_BOLD = re.compile(r"\*\*([^*\n]+?)\*\*")
+_MD_ITALIC = re.compile(r"(?<!\*)\*([^*\n]+?)\*(?!\*)")
+_MD_HEADER = re.compile(r"^[ \t]*#{1,6}[ \t]+", re.MULTILINE)
+_MD_INLINE_CODE = re.compile(r"`([^`\n]+)`")
+_MD_FENCE = re.compile(r"```(?:[a-zA-Z]*)\n?(.*?)```", re.DOTALL)
+
+
+def _strip_markdown(text: str) -> str:
+    """Defang any markdown the LLM emits despite the no-markdown prompt.
+
+    Idempotent and safe on already-clean text. Preserves all other
+    formatting (newlines, ALL CAPS headers, bullets, KEY: value pairs).
+    """
+    if not text:
+        return text
+    out = _MD_FENCE.sub(lambda m: m.group(1), text)
+    out = _MD_BOLD.sub(lambda m: m.group(1), out)
+    out = _MD_ITALIC.sub(lambda m: m.group(1), out)
+    out = _MD_HEADER.sub("", out)
+    out = _MD_INLINE_CODE.sub(lambda m: m.group(1), out)
+    return out
 
 
 def _normalize_for_dedup(text: str) -> set[str]:
@@ -467,11 +502,17 @@ _MORNING_BRIEF_DIR = (
 async def generate_morning_brief(
     request: Request,
     intelligence=Depends(get_intelligence),
+    portfolio_mgr=Depends(get_portfolio_mgr),
     _: None = Depends(verify_strike_token_dep),
 ) -> dict:
-    """Generate a daily morning brief with 3 research topics/todos.
+    """Generate a daily morning brief with portfolio-aware trade ideas.
 
     Tracks progress in intelligence. Called automatically at 6am or manually.
+
+    Wave 14C (2026-05-25): per docs/MORNING_BRIEF_QUALITY_2026-05-25.md.
+    Surgical fixes — source-aware lane filters, in-process portfolio inline,
+    citation-required trade ideas, auto-omit empty sections, post-strip
+    markdown, Pink-Elephant-free prompt.
     """
     from ... import routes as _routes
 
@@ -513,31 +554,40 @@ async def generate_morning_brief(
             except Exception:
                 return ""
 
-        # Keyword bags for the new macro slices. Lowercased substring
-        # matches against signal title + content. Conservative — these
-        # are the tickers / topics NATRIX explicitly wants surfaced.
+        # Wave 14C A5/A6 (2026-05-25): source-aware lane filters.
+        # Pre-14C the filters only matched on title + content keywords,
+        # which left every macro lane mostly silent (Awarebot writes the
+        # asset class into source.value, not the signal title). The new
+        # _src_matches helper checks the signal source first against a
+        # set of source-namespace fragments, then falls back to keyword
+        # matching against title+content. Either match qualifies the
+        # signal for the lane.
         _PM_KEYS = {
-            "silver", "slv", "xag", "siver",  # silver
-            "gold", "gld", "iau", "xau",      # gold
-            "gdx", "gdxj",                    # miners
+            "silver", "slv", "xag", "siver",
+            "gold", "gld", "iau", "xau",
+            "gdx", "gdxj",
             "precious metal", "bullion",
         }
+        _PM_SOURCES = {"metals", "precious_metals", "gold", "silver"}
         _OIL_KEYS = {
             "wti", "brent", "crude", "oil", "uso", "xop", "xle",
             "opec", "/cl", "energy sector",
         }
+        _OIL_SOURCES = {"energy", "oil", "crude"}
         _RATES_KEYS = {
             "fomc", "fed ", "federal reserve", "powell", "rate cut",
             "rate hike", "interest rate", "fed funds", "dot plot",
             "tapering", "qt ", "quantitative", "jerome", "fedwatch",
+            "cpi", "pce", "ppi", "non-farm",
         }
+        _RATES_SOURCES: set[str] = set()  # no dedicated source; keyword-only
         _BONDS_KEYS = {
             "tlt", "ief", "shy", "bnd", "agg", "yield", "10-year",
             "10y", "2y", "2-year", "30y", "30-year", "treasury",
             "treasuries", "bond market", "duration", "ust ",
             "curve invert", "yield curve",
         }
-        # Crypto keys cover NATRIX's named majors plus broader market.
+        _BONDS_SOURCES: set[str] = set()
         _CRYPTO_KEYS = {
             "bitcoin", "btc", "btcusd", "btc-usd", "$btc",
             "ethereum", "eth", "ethusd", "eth-usd", "$eth",
@@ -549,47 +599,67 @@ async def generate_morning_brief(
             "stablecoin", "usdc", "usdt",
             "altcoin", "crypto market", "defi",
         }
-        # GOAT / Bravo are NATRIX's two named stock-scanner outputs.
-        # Awarebot tags these in signal source. Bravo signals also
-        # frequently mention 200 SMA / swing setup as content tells.
+        _CRYPTO_SOURCES = {"crypto", "onchain", "ndax", "metamask"}
+        # Awarebot writes scanner:goat / scanner:bravo per
+        # runtime/memory/authority.py SOURCE_TIER_MAP. Match on the
+        # source namespace; keyword fallback only catches signals
+        # whose title literally mentions the scanner by name.
         _GOAT_KEYS = {"goat scanner", "goat:", " goat ", "goat signal"}
+        _GOAT_SOURCES = {"scanner:goat", "goat"}
         _BRAVO_KEYS = {"bravo scanner", "bravo:", " bravo ", "bravo swing", "bravo signal"}
-        # Capital flow — dollar-weighted institutional signals
+        _BRAVO_SOURCES = {"scanner:bravo", "bravo"}
         _FLOW_KEYS = {
             "unusual whales", "uw flow", "options flow", "dark pool",
             "block trade", "premium flow", "call premium", "put premium",
             "net premium", "13f", "institutional", "smart money",
             "p/c ratio", "call/put", "net flow", "$m flow", "flow alert",
         }
+        _FLOW_SOURCES = {"options_flow", "unusual_whales", "uw"}
 
         def _haystack(s) -> str:
-            return f"{(getattr(s, 'title', '') or '').lower()} {(getattr(s, 'content', '') or '').lower()}"
+            return (
+                f"{(getattr(s, 'title', '') or '').lower()} "
+                f"{(getattr(s, 'content', '') or '').lower()}"
+            )
 
-        def _matches_any(s, keys: set[str]) -> bool:
-            hay = _haystack(s)
-            return any(k in hay for k in keys)
+        def _src_matches(s, source_set: set[str]) -> bool:
+            """True if signal's source contains any namespace fragment."""
+            if not source_set:
+                return False
+            src = _src(s)
+            return any(token in src for token in source_set)
 
-        options_signals = [s for s in brief.top_signals if "options" in _src(s) or "unusual" in _src(s)]
+        def _lane(signals: list, kw_set: set[str], src_set: set[str]) -> list:
+            """Source-aware OR keyword lane filter."""
+            hits: list = []
+            for s in signals:
+                if _src_matches(s, src_set):
+                    hits.append(s)
+                    continue
+                hay = _haystack(s)
+                if any(k in hay for k in kw_set):
+                    hits.append(s)
+            return hits
+
+        options_signals = _lane(
+            brief.top_signals,
+            {"options", "unusual"},
+            _FLOW_SOURCES,
+        )
         market_signals = [
             s for s in brief.top_signals
-            if any(k in _src(s) for k in ("market", "stock", "yfinance", "polymarket"))
+            if any(k in _src(s) for k in ("market", "stock", "yfinance"))
         ]
         news_signals = [s for s in brief.top_signals if "news" in _src(s)]
-        precious_metals_signals = [s for s in brief.top_signals if _matches_any(s, _PM_KEYS)]
-        oil_signals = [s for s in brief.top_signals if _matches_any(s, _OIL_KEYS)]
-        rates_signals = [s for s in brief.top_signals if _matches_any(s, _RATES_KEYS)]
-        bonds_signals = [s for s in brief.top_signals if _matches_any(s, _BONDS_KEYS)]
-        crypto_signals = [s for s in brief.top_signals if _matches_any(s, _CRYPTO_KEYS)]
-        goat_signals = [
-            s for s in brief.top_signals
-            if "goat" in _src(s) or _matches_any(s, _GOAT_KEYS)
-        ]
-        bravo_signals = [
-            s for s in brief.top_signals
-            if "bravo" in _src(s) or _matches_any(s, _BRAVO_KEYS)
-        ]
+        precious_metals_signals = _lane(brief.top_signals, _PM_KEYS, _PM_SOURCES)
+        oil_signals = _lane(brief.top_signals, _OIL_KEYS, _OIL_SOURCES)
+        rates_signals = _lane(brief.top_signals, _RATES_KEYS, _RATES_SOURCES)
+        bonds_signals = _lane(brief.top_signals, _BONDS_KEYS, _BONDS_SOURCES)
+        crypto_signals = _lane(brief.top_signals, _CRYPTO_KEYS, _CRYPTO_SOURCES)
+        goat_signals = _lane(brief.top_signals, _GOAT_KEYS, _GOAT_SOURCES)
+        bravo_signals = _lane(brief.top_signals, _BRAVO_KEYS, _BRAVO_SOURCES)
         polymarket_signals = [s for s in brief.top_signals if "polymarket" in _src(s)]
-        capital_flow_signals = [s for s in brief.top_signals if _matches_any(s, _FLOW_KEYS)]
+        capital_flow_signals = _lane(brief.top_signals, _FLOW_KEYS, _FLOW_SOURCES)
 
         # Top potential daily movers — the highest-scored Awarebot
         # signals overall, biased toward "actionable" sources
@@ -608,10 +678,18 @@ async def generate_morning_brief(
         movers_pool = sorted(brief.top_signals, key=_score_for_movers, reverse=True)[:15]
 
         def _format_signals(items, limit: int) -> str:
+            """Format signals with signal_id so the LLM can cite sources.
+
+            Wave 14C A7: prepended id={signal_id[:8]} to every signal line.
+            The trade-idea prompt now requires SOURCES: [id, id] citation
+            from each setup, and the post-pass critic verifies the ids
+            were actually present in the data feed.
+            """
             if not items:
                 return "(none in this slice)"
             return "\n".join(
-                f"- [{_src(s)}] {(s.title or '')[:120]}: {(s.content or '')[:180]} "
+                f"- id={(getattr(s, 'signal_id', '') or '')[:8]} [{_src(s)}] "
+                f"{(s.title or '')[:120]}: {(s.content or '')[:180]} "
                 f"(dir={s.direction.value}, conf={s.confidence:.0%})"
                 for s in items[:limit]
             )
@@ -636,97 +714,109 @@ async def generate_morning_brief(
         )
         risks_context = "\n".join(f"- {r}" for r in brief.risk_alerts[:5])
 
-        # Pull current portfolio holdings (best-effort) so trade ideas
-        # don't duplicate positions NATRIX already has. Read from disk
-        # snapshot — no live IBKR call, just the most recent /portfolio
-        # sync output. Fail soft to empty list.
+        # Wave 14C A4 (2026-05-25): in-process portfolio call.
+        # Pre-14C this read ~/dev/NCL/data/portfolio/snapshots.jsonl via
+        # NCL_BASE env. NCL_BASE wasn't set, default was /dev/NCL, but
+        # the snapshots live under $HOME/NCL/data/ (without /dev/) — so
+        # the file never existed and PORTFOLIO HEALTH was permanently
+        # "Portfolio snapshot unavailable". The fix calls PortfolioManager
+        # directly (no HTTP, no file) — fresh data, no path drift, plus
+        # richer fields (avg_cost, daily_pl_pct, weight_pct) that the
+        # snapshot file didn't carry.
         portfolio_context = "(unavailable)"
+        held_tickers: set[str] = set()
         try:
-            from pathlib import Path as _Path
-            ncl_root = _Path(os.getenv("NCL_BASE", str(_Path.home() / "dev" / "NCL")))
-            snap_path = ncl_root / "data" / "portfolio" / "snapshots.jsonl"
-            if snap_path.exists():
-                # Tail the file to grab the most recent snapshot line.
-                last_line: str = ""
-                async def _tail_last():
-                    nonlocal last_line
-                    import aiofiles
-                    async with aiofiles.open(snap_path, "r") as f:
-                        async for line in f:
-                            line = line.strip()
-                            if line:
-                                last_line = line
-                await _tail_last()
-                if last_line:
-                    snap = json.loads(last_line)
-                    positions = snap.get("positions", [])
-                    if positions:
-                        rows = []
-                        for p in positions[:30]:
-                            sym = p.get("symbol") or p.get("ticker") or "?"
-                            qty = p.get("quantity") or p.get("qty") or 0
-                            val = p.get("market_value") or p.get("value") or 0
-                            rows.append(f"- {sym} qty={qty} value=${val:,.0f}")
+            if portfolio_mgr is not None:
+                positions = portfolio_mgr.get_positions("all") or []
+                if positions:
+                    rows = []
+                    for p in positions[:30]:
+                        sym = (p.get("symbol") or "").upper()
+                        if not sym:
+                            continue
+                        held_tickers.add(sym)
+                        qty = p.get("quantity", 0) or 0
+                        mv_cad = p.get("market_value_cad", 0) or 0
+                        weight = p.get("weight_pct", 0) or 0
+                        avg_cost = p.get("avg_cost", 0) or 0
+                        last = p.get("last_price")
+                        last_str = f"${last:,.2f}" if isinstance(last, (int, float)) else "--"
+                        upl_pct = p.get("unrealized_pl_pct", 0) or 0
+                        rows.append(
+                            f"- {sym:6s} qty={qty:>8.2f} "
+                            f"avg={avg_cost:>8.2f} last={last_str:>10s} "
+                            f"mv_cad=${mv_cad:>10,.0f} weight={weight:>5.1f}% "
+                            f"upnl={upl_pct:+.1f}%"
+                        )
+                    if rows:
                         portfolio_context = "\n".join(rows)
         except Exception as exc:
-            log.debug(f"[MORNING-BRIEF] portfolio snapshot read failed: {exc}")
+            log.debug(f"[MORNING-BRIEF] portfolio_mgr read failed: {exc}")
 
-        topic_prompt = f"""You are NCL, NATRIX's intelligence engine. It is pre-market. Produce a Morning Brief that NATRIX can read on phone before the open and act on.
+        held_block = (
+            "Tickers currently held (do NOT recommend as new entries; "
+            "label ADD TO EXISTING if relevant): "
+            + (", ".join(sorted(held_tickers)) if held_tickers else "(no positions)")
+        )
 
-FORMAT RULES — read these carefully:
-- Plain text only. Do NOT use markdown asterisks (**), pound signs (#), or backticks.
-- Section headers in ALL CAPS on their own line, followed by a blank line, then the body.
-- Inside body paragraphs, write in clean prose. Use line breaks between distinct points.
-- Numbers and tickers in plain text — no formatting.
-- Keep the whole brief under 1,200 words.
+        topic_prompt = f"""You are NCL, NATRIX's pre-market intelligence engine. Produce a Morning Brief that NATRIX reads on phone before the open and acts on.
 
-REQUIRED SECTIONS (in this exact order):
+OUTPUT STYLE — match these exactly:
+- Plain text. Section headers in ALL CAPS on their own line; blank line; then body.
+- Tickers, prices, percentages, dates appear as raw values (PLTR, 245.50, +1.2%, 5/30).
+- Lead every sentence with a concrete data point: a ticker, a dollar amount, a percentage, a named event, or a dated catalyst.
+- Whole brief under 1,200 words. Density over length.
+
+GOOD-vs-WEAK examples (study the contrast):
+WEAK: "Markets are showing mixed signals with sector rotation visible."
+GOOD: "XLE -1.8% on $3.1M net put premium while XLU drew $1.9M net calls (0.44 P/C) — late-cycle defensive rotation underway."
+
+WEAK: "Bitcoin remains volatile amid uncertain conditions."
+GOOD: "BTC -2.3% overnight to 68,420 on $42M Coinbase outflow while Polymarket prices 64% probability of >70K close by 5/31."
+
+SECTION ORDER (use these exact headers; omit any section whose required data block below is empty):
 
 IMMEDIATE ACTION
-Top of the brief. 0-5 lines. ONLY include items NATRIX needs to act on before the open today. Each line: leading dash, then a single sentence — ticker or topic, what changed, what to do. Examples:
-- TICKER PLTR — closed within 1.2% of 3-ATR stop overnight on AI-deal headlines — review stop placement before open.
-- TSLA 250C short option expires Friday with pin risk 0.4% — decide roll/close today.
-- XRP +6% overnight on settlement-rail news while held position is 8% of NAV — review concentration.
-If genuinely nothing is urgent, write a single line: "No immediate action items — book is quiet."
+0-5 lines, leading dash. Items NATRIX must act on before open today, anchored to held positions + flow. Example shape:
+- PLTR — closed within 1.2% of 3-ATR stop overnight on AI-deal headlines — review stop placement before open.
+If HELD POSITIONS shows real positions AND nothing is truly urgent, omit this section entirely. (Do not emit a stub line.)
 
 EXECUTIVE SUMMARY
-2-3 sentences. What's the single most important development for NATRIX to know about today? What changed since yesterday?
+2-3 sentences. The single most important development for NATRIX today and how it changed from yesterday. Lead with the asset/event, then quantify.
 
 PORTFOLIO HEALTH
-Read the HELD POSITIONS block below and produce three short paragraphs labeled exactly as shown:
-
-LOOKING GOOD: positions where the thesis is intact, flow is supportive, the trend is with NATRIX. Cite tickers.
-NEEDS MONITORING: positions with degrading signal, concentration risk, sector rotation against, or near a stop. Cite tickers and the specific reason.
-RECOMMENDED ADDS-TRIMS: 1-3 concrete suggestions — add to TICKER on X condition, trim TICKER size by N%, etc. Anchor every suggestion to signal data or position concentration. Do NOT recommend opening new positions here (that's the TRADE IDEAS section).
-
-If HELD POSITIONS is unavailable, write a single line: "Portfolio snapshot unavailable — skipping health read."
+Three labeled paragraphs based on the HELD POSITIONS block:
+LOOKING GOOD: positions where flow + trend support the thesis. Cite tickers + the specific supporting signal.
+NEEDS MONITORING: positions with degrading signal, concentration risk, sector rotation against, or near a stop. Cite tickers + the specific reason.
+RECOMMENDED ADDS-TRIMS: 1-3 concrete actions (add to TICKER on condition X, trim TICKER size by N%). Anchor to signal data or position weight.
+Omit this entire section if HELD POSITIONS shows "(no positions)" or is empty.
 
 CAPITAL FLOW
-Two short paragraphs labeled INSTITUTIONAL and RETAIL_AND_MACRO. Where is the smart money going (UW options flow, dark pool, block trades) vs retail (Reddit sentiment, Google Trends, Polymarket odds). Use the CAPITAL FLOW SIGNALS data feed below.
+Two labeled paragraphs:
+INSTITUTIONAL: where the smart money is positioned per UW options flow, dark pool, blocks. Cite specific premium $, P/C ratios, tickers.
+RETAIL_AND_MACRO: retail sentiment from Reddit, Google Trends, Polymarket odds. Cite specific subreddit themes, search spikes, prediction-market shifts.
+Omit either paragraph whose source signals are empty.
 
 MACRO LANDSCAPE
-This section must cover ALL SIX lanes below, each as its own labeled paragraph (one short paragraph, 2-3 sentences each). Anchor every claim to the signal data — do NOT invent macro narrative without evidence. If the signals don't carry data for a lane, write "Signals quiet — no actionable read." for that lane rather than making something up.
+Cover ONLY the lanes that have data below. Each lane is one labeled paragraph (2-3 sentences). Anchor every claim to the signal data and cite a signal id from the feed when you reference a specific datapoint.
 
-PRECIOUS METALS: silver / SLV / SIVR and gold / GLD / IAU. Spot price moves vs prior session, miner divergence (GDX/GDXJ), real-yield correlation, any flow imbalance.
-OIL: WTI / Brent / USO / XLE. Crude price action, OPEC headlines, energy-sector positioning, refining-vs-producer split if visible.
-US RATES (FED): Fed funds expectations, Powell / FOMC commentary, upcoming meeting odds (look at the polymarket signals if present), terminal-rate path.
-BOND MARKET: TLT / IEF / 10y / 2y / 30y yields, curve shape (steepener / flattener / inverted), duration positioning.
-CRYPTO: Bitcoin (BTC), Ethereum (ETH), XRP, Solana (SOL), Hedera (HBAR), with stablecoin and altcoin context. Cite price action, dominance shifts, ETF/regulatory headlines, on-chain vs CEX flow.
-DAILY/WEEKLY OUTLOOK: Calendar of catalysts NATRIX should know about for the rest of today and the upcoming week — economic prints (CPI, NFP, retail sales, PCE), Fed speakers, major earnings, options expiry, futures roll, crypto unlocks, options-flow concentration days. Cite specific dates from the signals where available.
+Available lane labels (use exactly): PRECIOUS METALS, OIL, US RATES (FED), BOND MARKET, CRYPTO, DAILY/WEEKLY OUTLOOK.
+Skip any lane whose signal block below is "(none in this slice)" — do not emit "Signals quiet" or any stub. Just omit the label entirely.
 
 KEY MOVEMENTS
-3-5 bullet-style lines (use a leading dash). Each line = one concrete observation grounded in the signal data: sector flow, options imbalance, geopolitical shift, etc. Cite the ticker / market / source by name.
+3-5 leading-dash bullets. Each = one observation grounded in a specific signal. Cite ticker + source + the supporting datapoint (cite signal id when possible).
 
 EMERGING OPPORTUNITIES AND RISKS
-2-4 short paragraphs. Asymmetric setups, narrative shifts, risk-of-ruin notes. Bias toward what NATRIX should monitor or position around, not generic commentary.
+2-4 short paragraphs. Asymmetric setups, narrative shifts, risk-of-ruin notes. Forward-looking, NATRIX-actionable. Anchor each to a signal id.
 
 SCANNER READOUT
 Two labeled paragraphs:
-GOAT: anything fresh from the GOAT scanner (NATRIX's 150 SMA + VIX-adjusted screener). Tickers, conditions, why now. If quiet, say so.
-BRAVO: anything fresh from the Bravo Swing scanner (200 SMA filter). Same format.
+GOAT: signals from NATRIX's 150 SMA + VIX-adjusted screener. Tickers, conditions, why now.
+BRAVO: signals from NATRIX's 200 SMA Swing scanner.
+Omit either paragraph whose corresponding signal block is "(none in this slice)".
 
 PRE-MARKET TRADE IDEAS
-This is the actionable section. Produce exactly six setups in this format, one per block, blank line between blocks:
+Produce UP TO six setups, blank line between blocks. Each block MUST include a SOURCES line citing at least one signal id from the data feed below; if you cannot cite a real id, omit that block entirely.
 
 STOCK SETUP 1
 TICKER: [symbol]
@@ -735,12 +825,9 @@ ENTRY: [price level or condition, e.g. "above 245.50 on volume" or "limit 240 on
 STOP: [price level]
 TARGET: [price level or %]
 TIMEFRAME: [intraday | swing 1-5d | position 1-4w]
+SOURCES: [signal_id1, signal_id2, ...]
 
-STOCK SETUP 2
-(same fields)
-
-STOCK SETUP 3
-(same fields)
+STOCK SETUP 2 / STOCK SETUP 3 — same fields.
 
 OPTIONS PLAY 1
 TICKER: [underlying]
@@ -748,34 +835,33 @@ STRUCTURE: [e.g. "Long 250C 5/30, debit ~$3.20" or "Bull put spread 240/235 5/30
 THESIS: [1 sentence]
 MAX RISK: [dollars per spread]
 TARGET: [exit condition]
+SOURCES: [signal_id1, ...]
 
-OPTIONS PLAY 2
-(same fields)
+OPTIONS PLAY 2 — same fields.
 
 FUTURES ANGLE
 CONTRACT: [/ES, /CL, /GC, /NQ, etc.]
 THESIS: [1 sentence — usually a macro/correlation play]
 LEVEL TO WATCH: [price]
 DIRECTION: [long | short | wait-for-signal]
+SOURCES: [signal_id1, ...]
 
-Hard rules for trade ideas:
-- Every ticker must appear in or be directly implied by the signal data below. Do NOT invent setups out of thin air.
-- If NATRIX already holds the underlying (see HELD POSITIONS below), say "ADD TO EXISTING" in THESIS rather than treating it as a new entry.
-- If the signals genuinely don't support six setups, say "INSUFFICIENT EDGE" in that block and explain in one line why. Better to skip than fabricate.
+Trade-idea rules:
+- Every ticker must appear in or be directly implied by the supplied signal data. The SOURCES line is the audit trail.
+- {held_block}
+- If the signal data only supports four good setups, ship four. Better to ship five honest setups than six with one fabricated.
+- Skip the FUTURES ANGLE if no macro signal supports it.
 
 POLYMARKET WATCH
-2-4 bullet lines on prediction-market odds that matter for NATRIX today: politically-driven volatility, Fed-meeting probabilities, Iran/geopolitical, AI policy, sports/event-driven catalysts shifting >5% overnight. Use the POLYMARKET SIGNALS feed below. If quiet, single line: "Polymarket quiet."
+2-4 leading-dash bullets on prediction-market odds shifting >5% overnight that matter for NATRIX (Fed odds, geopolitical, AI policy, event-driven catalysts). Each bullet cites the polymarket signal id. Omit this section if the POLYMARKET SIGNALS block is empty.
 
 TOP POTENTIAL DAILY MOVERS
-Rank the top 5-8 names most likely to move today on increased volume / unusual flow / catalyst. ONE line each in this exact shape (use a leading dash):
-
+Rank the top 5-8 names most likely to move today. ONE line each:
 - TICKER (dir: bullish | bearish | volatile) — why-it-moves in 1 phrase — catalyst-or-trigger.
-
-Pull from the POTENTIAL MOVERS POOL data below. Each name MUST appear in the signal data. Don't repeat tickers already used as trade ideas above — if the same name lands in both, prefer keeping it in trade ideas and pick a different mover.
+Pull from POTENTIAL MOVERS POOL only. Don't repeat tickers already used as trade ideas.
 
 TODAY'S RESEARCH TOPICS
-Three short research questions NATRIX should investigate during the day. Format each as:
-
+Exactly three:
 TOPIC: [clear title]
 WHY: [1 sentence on why this matters today]
 INVESTIGATE: [what specific data/sources to check]
@@ -895,6 +981,13 @@ Respond with ONLY the formatted brief. No preamble, no closing remarks, no "Here
                     )
                     resp.raise_for_status()
                     topics_text = resp.json()["content"][0]["text"].strip()
+                    # Wave 14C A2 (2026-05-25): post-strip markdown that
+                    # leaks despite the no-markdown prompt. Pink Elephant
+                    # effect — telling Claude "no **" makes attention focus
+                    # on **. Even with the positive-direction rewrite a
+                    # regex sweep guarantees iOS BriefRenderer (plain-text
+                    # only) never sees a stray header marker.
+                    topics_text = _strip_markdown(topics_text)
             except Exception as e:
                 # Use the type AND the repr so empty-message exceptions
                 # (httpx ReadTimeout, etc.) leave a useful trail.
