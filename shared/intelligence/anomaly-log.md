@@ -375,3 +375,8 @@ Resolved anomalies older than 30 days are moved to `/NCL/shared/intelligence/arc
 
 ## 2026-05-22 13:20:01Z — 1 anomalies
 - **[reddit/retail_dd/bullish]** (95%) The top is almost in DD: my harem of women
+## 2026-05-25 02:41:05Z — 4 anomalies
+- **[reddit/retail_gain/bullish]** (95%) 23 years ago in college, I sold all my stock to buy my future wife a $1000 engagement ring...
+- **[reddit/retail_news/bearish]** (95%) SpaceX insiders will get to sell shares earlier than usual after the IPO
+- **[reddit/retail_news/bearish]** (95%) 🔮If you vote NO because "diLuTiOn" you gotta wake up & learn — Voting YES is a vote for ACCRETION, i.e. YOUR NET VALUE INCREASES even if your % ownership of GameStop decreases — RC is asking us to aut
+- **[reddit/retail_news/bullish]** (95%) The Fed's worst inflation fears may be coming true as consumers lose faith in long-term prices—even Trump supporters doubt he can bring relief

@@ -4716,9 +4716,7 @@ async def stocks_watchlist_items(authorization: str = Header(default="")):
 
 
 @app.post("/stocks/watchlist/items", tags=["stocks"])
-async def stocks_watchlist_add(
-    body: _WatchlistAddBody, authorization: str = Header(default="")
-):
+async def stocks_watchlist_add(body: _WatchlistAddBody, authorization: str = Header(default="")):
     """Add or upsert a single ticker to the watchlist."""
     _verify_strike_token(authorization)
     store = _get_watchlist_store()
@@ -4787,20 +4785,14 @@ async def portfolio_analyst_report_latest(authorization: str = Header(default=""
 
 
 @app.get("/portfolio/analyst/report/{date}", tags=["portfolio"])
-async def portfolio_analyst_report_by_date(
-    date: str, authorization: str = Header(default="")
-):
+async def portfolio_analyst_report_by_date(date: str, authorization: str = Header(default="")):
     """Historical report by date (YYYY-MM-DD)."""
     _verify_strike_token(authorization)
     safe_date = "".join(c for c in date if c.isdigit() or c == "-")
     if not safe_date:
         raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
     path = (
-        Path(config.data_dir)
-        / "portfolio"
-        / "analyst"
-        / "reports"
-        / f"portfolio-{safe_date}.json"
+        Path(config.data_dir) / "portfolio" / "analyst" / "reports" / f"portfolio-{safe_date}.json"
     )
     if not path.exists():
         return {"status": "not_found", "date": safe_date}
@@ -4822,9 +4814,7 @@ async def portfolio_analyst_theses_list(authorization: str = Header(default=""))
 
 
 @app.get("/portfolio/analyst/theses/{instrument_id}", tags=["portfolio"])
-async def portfolio_analyst_thesis_get(
-    instrument_id: str, authorization: str = Header(default="")
-):
+async def portfolio_analyst_thesis_get(instrument_id: str, authorization: str = Header(default="")):
     """Fetch one thesis by instrument_id."""
     _verify_strike_token(authorization)
     from runtime.portfolio.analyst.thesis_store import ThesisStore
@@ -4859,22 +4849,23 @@ async def portfolio_analyst_thesis_upsert(
 
 
 @app.post("/portfolio/analyst/run", tags=["portfolio"])
-async def portfolio_analyst_run_now(
-    dry_run: bool = False, authorization: str = Header(default="")
-):
+async def portfolio_analyst_run_now(dry_run: bool = False, authorization: str = Header(default="")):
     """Manual trigger — run the agent once and return the report.
 
     Useful for testing. The scheduled run still fires nightly inside
     Night Watch Phase 6.
     """
     _verify_strike_token(authorization)
+    from runtime.portfolio import portfolio_routes as _pr
     from runtime.portfolio.analyst.agent import PortfolioAnalystAgent
 
     portfolio_manager = getattr(brain, "portfolio_manager", None) if brain else None
     if portfolio_manager is None:
+        portfolio_manager = _pr._portfolio_manager
+    if portfolio_manager is None:
         raise HTTPException(
             status_code=503,
-            detail="portfolio_manager not initialized on brain",
+            detail="portfolio_manager not initialized",
         )
     agent = PortfolioAnalystAgent(
         portfolio_manager=portfolio_manager,

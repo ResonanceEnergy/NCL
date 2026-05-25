@@ -3271,8 +3271,15 @@ class AutonomousScheduler:
 
         portfolio_manager = getattr(self._brain, "portfolio_manager", None) if self._brain else None
         if portfolio_manager is None:
+            try:
+                from ..portfolio import portfolio_routes as _pr
+
+                portfolio_manager = _pr._portfolio_manager
+            except Exception:
+                portfolio_manager = None
+        if portfolio_manager is None:
             log.info(
-                "[NIGHT-WATCH-PORTFOLIO] no portfolio_manager on brain — "
+                "[NIGHT-WATCH-PORTFOLIO] no portfolio_manager available — "
                 "agent has nothing to analyze, skipping"
             )
             return
@@ -3283,7 +3290,7 @@ class AutonomousScheduler:
             portfolio_manager=portfolio_manager,
             memory_store=getattr(self._brain, "memory_store", None),
             cost_tracker=None,  # llm_synthesis imports the global tracker itself
-            data_dir=NCL_BASE / "data",
+            data_dir=self.data_dir,
             brain=self._brain,
         )
 
@@ -4506,9 +4513,7 @@ class AutonomousScheduler:
                 # provider). Previously billed against `ytc` which had a
                 # $0 cap = unlimited. W13 P1-A (2026-05-24) audit A8 fix.
                 if not await check_budget("anthropic", 0.10):
-                    log.warning(
-                        "[YTC-DEDICATED] anthropic daily budget exhausted — skipping cycle"
-                    )
+                    log.warning("[YTC-DEDICATED] anthropic daily budget exhausted — skipping cycle")
                     try:
                         await asyncio.sleep(ytc_interval)
                         continue
@@ -4532,11 +4537,7 @@ class AutonomousScheduler:
                     # so the nightshift loop can glob a single day's worth.
                     today_local = datetime.now().strftime("%Y-%m-%d")
                     json_dir = (
-                        ncl_base
-                        / "intelligence-scan"
-                        / "council-reports"
-                        / "youtube"
-                        / today_local
+                        ncl_base / "intelligence-scan" / "council-reports" / "youtube" / today_local
                     )
                     loop = asyncio.get_running_loop()
                     await loop.run_in_executor(
@@ -4712,11 +4713,7 @@ class AutonomousScheduler:
 
                 ncl_base = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
                 date_dir = (
-                    ncl_base
-                    / "intelligence-scan"
-                    / "council-reports"
-                    / "youtube"
-                    / yesterday_local
+                    ncl_base / "intelligence-scan" / "council-reports" / "youtube" / yesterday_local
                 )
                 loop = asyncio.get_running_loop()
                 await loop.run_in_executor(
@@ -4742,9 +4739,7 @@ class AutonomousScheduler:
                 # with full rollup insights + per-video summaries), and
                 # the 3am loop runs once but a sync dump here would block
                 # everything else for 200-500ms.
-                brief_json = await asyncio.to_thread(
-                    json.dumps, brief_data, default=str, indent=2
-                )
+                brief_json = await asyncio.to_thread(json.dumps, brief_data, default=str, indent=2)
                 async with aiofiles.open(brief_path, "w") as f:
                     await f.write(brief_json)
 
@@ -4752,12 +4747,8 @@ class AutonomousScheduler:
                 md_lines: list[str] = []
                 md_lines.append(f"# YouTube Council — Nightshift Brief ({yesterday_local})\n")
                 md_lines.append(f"_Session: {session_id}_\n")
-                md_lines.append(
-                    f"_Synthesized: {datetime.now(timezone.utc).isoformat()}_\n\n"
-                )
-                md_lines.append(
-                    f"**Per-video reports rolled up:** {rollup.sources_processed}  \n"
-                )
+                md_lines.append(f"_Synthesized: {datetime.now(timezone.utc).isoformat()}_\n\n")
+                md_lines.append(f"**Per-video reports rolled up:** {rollup.sources_processed}  \n")
                 md_lines.append(
                     f"**Total content duration:** {rollup.total_duration_hours:.1f}h  \n"
                 )
@@ -4800,9 +4791,7 @@ class AutonomousScheduler:
                     brief_path,
                 )
                 self._stats["last_ytc_nightshift"] = datetime.now(timezone.utc).isoformat()
-                self._stats["ytc_nightshift_runs"] = (
-                    self._stats.get("ytc_nightshift_runs", 0) + 1
-                )
+                self._stats["ytc_nightshift_runs"] = self._stats.get("ytc_nightshift_runs", 0) + 1
                 self._stats["last_ytc_nightshift_insights"] = len(rollup.insights)
                 self._stats["last_ytc_nightshift_date"] = yesterday_local
             except asyncio.CancelledError:

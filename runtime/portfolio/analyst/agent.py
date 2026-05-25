@@ -34,26 +34,24 @@ from typing import Any, Optional
 
 from .metrics import compute_concentration, compute_risk
 from .schema import (
+    NAV,
     CapitalFlow,
     DeterministicSection,
     ImmediateAction,
-    NAV,
     NightlyReport,
     RiskAlert,
     TrimAddCandidate,
 )
 from .theses import (
-    Evidence,
-    EvidenceKind,
-    Mandate,
     PositionThesis,
     ThesisEvaluationResult,
-    ThesisStatus,
 )
 from .thesis_evaluator import (
     apply_evaluation,
-    evaluate as evaluate_thesis,
     imminent_catalysts,
+)
+from .thesis_evaluator import (
+    evaluate as evaluate_thesis,
 )
 from .thesis_store import ThesisStore
 
@@ -216,9 +214,13 @@ class PortfolioAnalystAgent:
         """
         try:
             cached = getattr(self.portfolio_manager, "_positions", None)
-            if cached:
-                # cached is dict[broker -> list[Position]] — flatten + serialize
-                out: list[dict] = []
+            if not cached:
+                return []
+            out: list[dict] = []
+            # PortfolioManager._positions is a flat list[dict] today; the
+            # legacy dict[broker -> list] shape is still tolerated so older
+            # snapshots don't crash the agent.
+            if isinstance(cached, dict):
                 for broker, positions in cached.items():
                     for p in positions:
                         d = p if isinstance(p, dict) else getattr(p, "to_dict", lambda: {})()
@@ -227,6 +229,17 @@ class PortfolioAnalystAgent:
                         d = {**d, "broker": d.get("broker") or broker}
                         out.append(d)
                 return out
+            if isinstance(cached, list):
+                for p in cached:
+                    d = p if isinstance(p, dict) else getattr(p, "to_dict", lambda: {})()
+                    if not d:
+                        continue
+                    out.append(d)
+                return out
+            log.warning(
+                "[ANALYST] _fetch_positions: unexpected cache type %s",
+                type(cached).__name__,
+            )
         except Exception as exc:
             log.warning("[ANALYST] _fetch_positions cache read failed: %s", exc)
         return []
@@ -263,27 +276,35 @@ class PortfolioAnalystAgent:
         """
         if not self.memory_store:
             return []
-        tickers = sorted({
-            (p.get("symbol") or p.get("ticker") or "").upper()
-            for p in positions
-            if p.get("symbol") or p.get("ticker")
-        })
+        tickers = sorted(
+            {
+                (p.get("symbol") or p.get("ticker") or "").upper()
+                for p in positions
+                if p.get("symbol") or p.get("ticker")
+            }
+        )
         tickers = [t for t in tickers if t and len(t) <= 6]
         if not tickers:
             return []
 
         # Query: search for the union of tickers — memory store will rank
-        # by recency × authority and we filter to last 24h
+        # by recency × authority and we filter to last 24h. We use the
+        # unified ``search(query=...)`` entry-point (vector by default;
+        # ``search_units`` is tag-based and not suitable here).
         try:
-            search_fn = getattr(self.memory_store, "search_units", None) or getattr(
-                self.memory_store, "fused_search", None
-            )
+            search_fn = getattr(self.memory_store, "search", None)
             if not search_fn:
-                return []
-            query = " OR ".join(f"${t}" for t in tickers[:20])
-            result = search_fn(query=query, top_k=200) if not asyncio.iscoroutinefunction(
-                search_fn
-            ) else await search_fn(query=query, top_k=200)
+                semantic = getattr(self.memory_store, "semantic_search", None)
+                if not semantic:
+                    return []
+                query = " ".join(f"${t}" for t in tickers[:20])
+                result = await semantic(query=query, n_results=200)
+            else:
+                query = " ".join(f"${t}" for t in tickers[:20])
+                if asyncio.iscoroutinefunction(search_fn):
+                    result = await search_fn(query=query, top_k=200)
+                else:
+                    result = search_fn(query=query, top_k=200)
             now_ts = datetime.now(timezone.utc).timestamp()
             cutoff = now_ts - 24 * 3600
             recent: list[dict] = []
@@ -460,9 +481,7 @@ class PortfolioAnalystAgent:
                         ),
                         severity="critical",
                         linked_signals=[
-                            e.signal_id
-                            for e in result.new_invalidating_evidence
-                            if e.signal_id
+                            e.signal_id for e in result.new_invalidating_evidence if e.signal_id
                         ][:5],
                     )
                 )
@@ -498,13 +517,20 @@ class PortfolioAnalystAgent:
 
             # 3) Mandate drift
             if result and result.mandate_drift:
+                horizon = (
+                    thesis.exit_plan.time_horizon_days
+                    if thesis and thesis.exit_plan.time_horizon_days
+                    else None
+                )
+                held_days = (result.days_past_horizon or 0) + (horizon or 0) if horizon else "?"
+                mandate_label = thesis.mandate.value if thesis else "?"
                 actions.append(
                     ImmediateAction(
                         ticker=ticker,
                         kind="mandate_drift",
                         detail=(
-                            f"Held {(result.days_past_horizon or 0) + (thesis.exit_plan.time_horizon_days or 0) if thesis and thesis.exit_plan.time_horizon_days else '?'}d, "
-                            f"{result.days_past_horizon}d past {thesis.mandate.value if thesis else '?'} horizon."
+                            f"Held {held_days}d, "
+                            f"{result.days_past_horizon}d past {mandate_label} horizon."
                         ),
                         severity="high" if (result.days_past_horizon or 0) > 7 else "medium",
                     )
@@ -535,9 +561,7 @@ class PortfolioAnalystAgent:
                     ImmediateAction(
                         ticker=ticker,
                         kind="contract_incomplete",
-                        detail=(
-                            f"Thesis missing: {', '.join(result.missing_contract_fields[:3])}"
-                        ),
+                        detail=(f"Thesis missing: {', '.join(result.missing_contract_fields[:3])}"),
                         severity="medium",
                     )
                 )
