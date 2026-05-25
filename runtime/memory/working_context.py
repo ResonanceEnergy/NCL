@@ -235,9 +235,17 @@ class DailyContextWindow:
         Runs in a worker thread via ``asyncio.to_thread`` so the main
         event loop isn't blocked while serializing a 50-item context
         (~1-3 MB of nested metadata after a fresh assemble).
+
+        2026-05-25: self-heal the parent dir. Prior to this patch a
+        missing ``data/working_context/`` directory (e.g. on a fresh
+        Brain checkout, or after a manual rm -rf) produced an ENOENT
+        per call — observed in the 2026-05-25 post-bounce log as a
+        repeated WARNING from every working-context loop tick because
+        the dir was never created until the first successful assemble.
         """
         tmp = target.with_suffix(".json.tmp")
         try:
+            target.parent.mkdir(parents=True, exist_ok=True)
             tmp.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
             with open(tmp, "rb+") as f:
                 os.fsync(f.fileno())

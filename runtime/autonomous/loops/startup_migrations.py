@@ -23,9 +23,16 @@ Scheduler attributes touched (passed in as `scheduler`):
 Other dependencies:
 - `runtime.governance.emergency_stop.EMERGENCY_STOP_EVENT` — bail if
   the kill-switch is engaged at boot
-- `runtime.api.routers.memory.kg_cleanup_endpoint` +
-  `retag_authority_endpoint` — invoked in-process (not via HTTP) using
-  the `STRIKE_AUTH_TOKEN` env var for Bearer auth.
+- `scheduler.brain.memory_store._knowledge_graph` — for `cleanup_blacklisted()`
+- `runtime.memory.authority.retag_authority_tiers` — for the retag pass
+
+Both migrations call the underlying functions directly via
+`scheduler.brain.memory_store` rather than the FastAPI route handlers.
+Prior versions called `kg_cleanup_endpoint(authorization=Bearer ...)`,
+which silently broke when W10C converted those handlers to use
+`Depends(verify_strike_token_dep)` — `authorization` was no longer a
+parameter, so every boot just logged `unexpected keyword argument
+'authorization'` and skipped both migrations. Fixed 2026-05-25.
 
 This is a one-shot rather than a periodic loop: the function returns
 after both migrations complete (or are skipped) and the supervisor
@@ -36,7 +43,6 @@ from __future__ import annotations  # noqa: I001
 
 import asyncio
 import logging
-import os
 from datetime import datetime, timezone
 
 from ...governance.emergency_stop import EMERGENCY_STOP_EVENT
@@ -61,50 +67,70 @@ async def run(scheduler) -> None:
     if not scheduler._running or EMERGENCY_STOP_EVENT.is_set():
         return
     log.info("[STARTUP-MIGRATIONS] Running idempotent post-boot migrations")
-    # Call the endpoint handlers directly via the in-process app — same
-    # path the /memory/kg-cleanup and /memory/retag-authority HTTP
-    # routes use, but without going through the network. Idempotent —
-    # the handlers do nothing if everything's already correctly tagged.
-    try:
-        # W5-04 moved these handlers from runtime.api.routes to
-        # runtime.api.routers.memory and renamed them. Import from the
-        # new home so the migrations actually run instead of warning.
-        from ...api.routers.memory import (
-            kg_cleanup_endpoint,
-            retag_authority_endpoint,
-        )
+    # 2026-05-25: rewritten to call the underlying memory-store/KG functions
+    # directly instead of the FastAPI route handlers.
+    #
+    # Background: W10C converted the memory router from `authorization:
+    # str = Header(None)` to `_: None = Depends(verify_strike_token_dep)`.
+    # The old `kg_cleanup_endpoint(authorization=bearer)` /
+    # `retag_authority_endpoint(authorization=bearer)` kwarg calls began
+    # silently failing with `unexpected keyword argument 'authorization'`
+    # on every boot — visible in logs as
+    # `[STARTUP-MIGRATIONS] KG cleanup skipped: ...` /
+    # `Authority retag skipped: ...`. Both migrations had been no-ops for
+    # weeks until this fix.
+    #
+    # Fix: skip the HTTP-style call entirely. The route handlers are thin
+    # wrappers around `kg.cleanup_blacklisted()` and
+    # `retag_authority_tiers(store)`; call those directly via
+    # `scheduler.brain` so there's no auth surface to satisfy in the first
+    # place. Bonus: avoids the FastAPI Depends() machinery being invoked
+    # from a non-request context.
+    brain = getattr(scheduler, "brain", None)
+    if brain is None or getattr(brain, "memory_store", None) is None:
+        log.warning("[STARTUP-MIGRATIONS] Brain or memory_store unavailable — skipping migrations")
+        log.info("[STARTUP-MIGRATIONS] Complete")
+        return
 
-        token = os.environ.get("STRIKE_AUTH_TOKEN", "")
-        bearer = f"Bearer {token}" if token else ""
-        # KG cleanup — purge URL/domain noise nodes
-        try:
+    # ── KG cleanup ── purge URL/domain noise nodes ───────────────────────
+    try:
+        kg = getattr(brain.memory_store, "_knowledge_graph", None) or getattr(
+            brain, "knowledge_graph", None
+        )
+        if kg is None:
+            log.warning("[STARTUP-MIGRATIONS] KG cleanup skipped: knowledge graph not initialized")
+        else:
             result = await asyncio.wait_for(
-                kg_cleanup_endpoint(authorization=bearer),
+                kg.cleanup_blacklisted(),
                 timeout=_KG_CLEANUP_TIMEOUT_S,
             )
             scheduler._stats["last_kg_cleanup_at"] = datetime.now(timezone.utc).isoformat()
             scheduler._stats["last_kg_cleanup_result"] = str(result)[:200]
             log.info(f"[STARTUP-MIGRATIONS] KG cleanup: {str(result)[:200]}")
-        except Exception as e:
-            log.warning(f"[STARTUP-MIGRATIONS] KG cleanup skipped: {e}")
-        # Authority retag — re-stamps existing units to match current map.
-        # Budget 600s: with ~14K units the full pass takes ~3-4 min, and
-        # the operation is idempotent + read-mostly so a generous budget
-        # is safe. 180s was hitting asyncio.TimeoutError post-W5-04.
-        try:
-            result = await asyncio.wait_for(
-                retag_authority_endpoint(authorization=bearer),
-                timeout=_RETAG_TIMEOUT_S,
-            )
-            scheduler._stats["last_authority_retag_at"] = datetime.now(timezone.utc).isoformat()
-            scheduler._stats["last_authority_retag_result"] = str(result)[:200]
-            log.info(f"[STARTUP-MIGRATIONS] Authority retag: {str(result)[:200]}")
-        except asyncio.TimeoutError:
-            log.warning(
-                "[STARTUP-MIGRATIONS] Authority retag exceeded 600s budget — see _stats next boot"  # noqa: E501
-            )
-        except Exception as e:
-            log.warning(f"[STARTUP-MIGRATIONS] Authority retag skipped: {type(e).__name__}: {e}")
+    except asyncio.TimeoutError:
+        log.warning(f"[STARTUP-MIGRATIONS] KG cleanup exceeded {_KG_CLEANUP_TIMEOUT_S}s budget")
     except Exception as e:
-        log.warning(f"[STARTUP-MIGRATIONS] Memory router unavailable: {e}")
+        log.warning(f"[STARTUP-MIGRATIONS] KG cleanup failed: {type(e).__name__}: {e}")
+
+    # ── Authority retag ── re-stamp units against the current map ─────────
+    # Budget 600s: with ~14K units the full pass takes ~3-4 min, and the
+    # operation is idempotent + read-mostly so a generous budget is safe.
+    # 180s was hitting asyncio.TimeoutError post-W5-04.
+    try:
+        from ...memory.authority import retag_authority_tiers
+
+        result = await asyncio.wait_for(
+            retag_authority_tiers(brain.memory_store),
+            timeout=_RETAG_TIMEOUT_S,
+        )
+        scheduler._stats["last_authority_retag_at"] = datetime.now(timezone.utc).isoformat()
+        scheduler._stats["last_authority_retag_result"] = str(result)[:200]
+        log.info(f"[STARTUP-MIGRATIONS] Authority retag: {str(result)[:200]}")
+    except asyncio.TimeoutError:
+        log.warning(
+            "[STARTUP-MIGRATIONS] Authority retag exceeded 600s budget — see _stats next boot"  # noqa: E501
+        )
+    except Exception as e:
+        log.warning(f"[STARTUP-MIGRATIONS] Authority retag failed: {type(e).__name__}: {e}")
+
     log.info("[STARTUP-MIGRATIONS] Complete")
