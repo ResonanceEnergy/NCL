@@ -437,3 +437,187 @@ async def journal_context(
     except Exception as e:
         log.exception("Endpoint error: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ===========================================================================
+# Morning Quiz — Wave 14E (2026-05-25)
+# ===========================================================================
+#
+# Daily 7-question intention-setting protocol that anchors the Journal
+# system to actual operator input. See docs/JOURNAL_REDESIGN_2026-05-25.md
+# for design rationale.
+#
+# Endpoints:
+#   POST   /journal/morning-quiz                — submit today's quiz
+#   GET    /journal/morning-quiz/today          — today's quiz if exists
+#   GET    /journal/morning-quiz/latest         — most recent quiz
+#   GET    /journal/morning-quiz/by-date/{d}    — specific date
+#   GET    /journal/morning-quiz/history        — recent quizzes list
+
+
+class _MorningQuizSubmit(BaseModel):
+    """Inbound shape for POST /journal/morning-quiz.
+
+    Date defaults to operator-local today; the propagator handles
+    re-submission idempotency (same date overwrites the day's file
+    + updates existing journal entry rather than duplicating).
+    """
+
+    date: str = Field(default="", description="YYYY-MM-DD; blank = today")
+    mood_score: int = Field(..., ge=1, le=10)
+    mood_word: str = Field(default="")
+    top_priority: str = Field(..., min_length=1, max_length=300)
+    supporting_tasks: list[str] = Field(default_factory=list)
+    market_posture: str = Field(default="neutral")
+    research_question: str = Field(default="")
+    gratitude: str = Field(default="")
+    yesterday_lesson: str = Field(default="")
+    notes: str = Field(default="")
+    wisdom_id_shown: str = Field(default="")
+
+
+def _operator_local_today() -> str:
+    """Operator-local today, YYYY-MM-DD. Reuses journal_store helper."""
+    from ...journal.store import local_today_str
+
+    return local_today_str()
+
+
+@router.post("/journal/morning-quiz")
+async def submit_morning_quiz(
+    body: _MorningQuizSubmit,
+    journal_store=Depends(get_journal_store),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Submit the morning quiz. Propagates to context + journal + calendar."""
+    from ...journal.morning_quiz import MorningQuiz, submit_quiz
+
+    try:
+        # Resolve date
+        date_str = (body.date or "").strip() or _operator_local_today()
+
+        quiz = MorningQuiz(
+            date=date_str,
+            mood_score=body.mood_score,
+            mood_word=body.mood_word,
+            top_priority=body.top_priority,
+            supporting_tasks=body.supporting_tasks,
+            market_posture=body.market_posture,
+            research_question=body.research_question,
+            gratitude=body.gratitude,
+            yesterday_lesson=body.yesterday_lesson,
+            notes=body.notes,
+            wisdom_id_shown=body.wisdom_id_shown,
+        )
+
+        # Pull working_context off the autonomous scheduler if available
+        working_context = None
+        try:
+            from .. import routes as _routes
+
+            sched = getattr(_routes, "_autonomous", None)
+            if sched is not None:
+                working_context = getattr(sched, "_working_context", None)
+        except Exception:
+            pass
+
+        quiz, fired = await submit_quiz(
+            quiz,
+            journal_store=journal_store,
+            working_context=working_context,
+            calendar_todos_callback=None,  # calendar push wired in W14E followup
+        )
+        return {
+            "status": "ok",
+            "quiz_id": quiz.quiz_id,
+            "date": quiz.date,
+            "fired": fired,
+            "journal_entry_id": quiz.journal_entry_id,
+            "lesson_entry_id": quiz.lesson_entry_id,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.exception("Morning quiz submit failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"submit failed: {type(e).__name__}: {e}")
+
+
+@router.get("/journal/morning-quiz/today")
+async def morning_quiz_today(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Today's quiz if it exists, else {status: not_yet_submitted}."""
+    from ...journal.morning_quiz import load_quiz_by_date
+
+    today = _operator_local_today()
+    quiz = load_quiz_by_date(today)
+    if not quiz:
+        return {"status": "not_yet_submitted", "date": today}
+    return {"status": "ok", "date": today, "quiz": quiz.model_dump(mode="json")}
+
+
+@router.get("/journal/morning-quiz/latest")
+async def morning_quiz_latest(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Most recent quiz on disk (today preferred, else newest)."""
+    from ...journal.morning_quiz import load_quiz_by_date, load_quiz_history
+
+    today = _operator_local_today()
+    quiz = load_quiz_by_date(today)
+    if not quiz:
+        history = load_quiz_history(limit=1)
+        quiz = history[0] if history else None
+    if not quiz:
+        return {"status": "not_found", "message": "No morning quizzes yet."}
+    return {
+        "status": "ok",
+        "quiz": quiz.model_dump(mode="json"),
+        "is_today": quiz.date == today,
+    }
+
+
+@router.get("/journal/morning-quiz/by-date/{date}")
+async def morning_quiz_by_date(
+    date: str,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Specific date's quiz."""
+    import re as _re
+
+    from ...journal.morning_quiz import load_quiz_by_date
+
+    if not _re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+        raise HTTPException(status_code=400, detail="Date must be YYYY-MM-DD")
+    quiz = load_quiz_by_date(date)
+    if not quiz:
+        return {"status": "not_found", "date": date}
+    return {"status": "ok", "date": date, "quiz": quiz.model_dump(mode="json")}
+
+
+@router.get("/journal/morning-quiz/history")
+async def morning_quiz_history(
+    limit: int = Query(default=30, ge=1, le=120),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Recent quizzes (newest first, deduped by quiz_id)."""
+    from ...journal.morning_quiz import load_quiz_history
+
+    items = load_quiz_history(limit=limit)
+    return {
+        "status": "ok",
+        "count": len(items),
+        "items": [
+            {
+                "quiz_id": q.quiz_id,
+                "date": q.date,
+                "mood_score": q.mood_score,
+                "mood_word": q.mood_word,
+                "top_priority": q.top_priority,
+                "market_posture": q.market_posture,
+                "submitted_at": q.submitted_at.isoformat(),
+                "journal_entry_id": q.journal_entry_id,
+            }
+            for q in items
+        ],
+    }

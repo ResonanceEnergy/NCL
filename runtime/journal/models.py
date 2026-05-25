@@ -19,6 +19,7 @@ class EntryType(str, Enum):
     QUESTION = "question"  # Open question to investigate
     LESSON = "lesson"  # Lesson learned from outcome
     BEST_PRACTICE = "best_practice"  # Documented best practice
+    MORNING_QUIZ = "morning_quiz"  # Wave 14E — daily structured intention (~90s)
 
 
 class JournalEntry(BaseModel):
