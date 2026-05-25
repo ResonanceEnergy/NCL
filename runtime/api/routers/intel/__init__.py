@@ -928,22 +928,87 @@ HELD POSITIONS (current portfolio snapshot — drives PORTFOLIO HEALTH section; 
 Respond with ONLY the formatted brief. No preamble, no closing remarks, no "Here is your brief:" wrapper."""  # noqa: E501
 
         topics_text = ""
+        pipeline_meta: dict = {}
         anthropic_key = os.getenv("ANTHROPIC_API_KEY", "")
-        # W13 P1-A: gate Claude call on anthropic budget. If exhausted,
-        # fall through to the deterministic topic fallback below.
-        budget_ok = True
-        try:
-            from ...cost_tracker import check_budget
 
-            budget_ok = await check_budget("anthropic", 0.02)
-            if not budget_ok:
-                log.warning(
-                    "[MORNING-BRIEF] anthropic budget exhausted — skipping Claude topics, using fallback"  # noqa: E501
+        # Wave 14D (2026-05-25): multi-stage Planner→Executor→Critic pipeline.
+        # Per docs/MORNING_BRIEF_QUALITY_2026-05-25.md Phase B. Replaces the
+        # single mega-prompt with stage-validated generation. On ANY failure
+        # the handler falls through to the Phase A single-pass below — the
+        # brief never fails entirely.
+        #
+        # Gated via NCL_BRIEF_PIPELINE env. Default "1" (pipeline ON);
+        # set "0" to force the Phase A single-pass path.
+        if os.getenv("NCL_BRIEF_PIPELINE", "1") == "1" and anthropic_key:
+            try:
+                from .brief_pipeline import run_brief_pipeline
+
+                # Per-signal resolver closures — pipeline needs single-signal
+                # predicates rather than the list-in/list-out _lane() shape.
+                def _make_resolver(kw_set: set[str], src_set: set[str]):
+                    def resolver(s) -> bool:
+                        if _src_matches(s, src_set):
+                            return True
+                        hay = _haystack(s)
+                        return any(k in hay for k in kw_set)
+                    return resolver
+
+                lane_resolvers = {
+                    "PRECIOUS METALS": _make_resolver(_PM_KEYS, _PM_SOURCES),
+                    "OIL": _make_resolver(_OIL_KEYS, _OIL_SOURCES),
+                    "US RATES (FED)": _make_resolver(_RATES_KEYS, _RATES_SOURCES),
+                    "BOND MARKET": _make_resolver(_BONDS_KEYS, _BONDS_SOURCES),
+                    "CRYPTO": _make_resolver(_CRYPTO_KEYS, _CRYPTO_SOURCES),
+                    "DAILY/WEEKLY OUTLOOK": lambda s: False,  # outlook is calendar-derived, no signal match
+                }
+
+                pipeline_result = await run_brief_pipeline(
+                    brief, held_tickers, anthropic_key, lane_resolvers,
                 )
-        except Exception:
-            pass
+                topics_text = pipeline_result["text"]
+                pipeline_meta = {
+                    "stages": pipeline_result.get("stages_completed", []),
+                    "regenerated": pipeline_result.get("regenerated", False),
+                    "critic_score": pipeline_result.get("critic", {}).get("score"),
+                    "critic_ship": pipeline_result.get("critic", {}).get("ship"),
+                    "mode": pipeline_result.get("pipeline"),
+                    "plan_mode": pipeline_result.get("plan", {}).get("mode"),
+                    "active_lanes": pipeline_result.get("plan", {}).get("active_lanes"),
+                    "include_sections": pipeline_result.get("plan", {}).get("include_sections"),
+                }
+                log.info(
+                    "[MORNING-BRIEF] pipeline OK — stages=%s regen=%s score=%s mode=%s",
+                    pipeline_meta["stages"],
+                    pipeline_meta["regenerated"],
+                    pipeline_meta["critic_score"],
+                    pipeline_meta["mode"],
+                )
+            except Exception as exc:
+                log.warning(
+                    "[MORNING-BRIEF] pipeline failed (%s: %r) — falling back to Phase A single-pass",
+                    type(exc).__name__, exc,
+                )
+                topics_text = ""
+                pipeline_meta = {"error": f"{type(exc).__name__}: {exc}"}
 
-        if anthropic_key and budget_ok:
+        # Phase A single-pass fallback path. Runs only if the pipeline above
+        # didn't fill topics_text (either disabled, no anthropic key, or
+        # pipeline raised). Same code as Wave 14C — single 5000-token
+        # Sonnet call with the structured prompt.
+        budget_ok = True
+        if not topics_text:
+            try:
+                from ...cost_tracker import check_budget
+
+                budget_ok = await check_budget("anthropic", 0.02)
+                if not budget_ok:
+                    log.warning(
+                        "[MORNING-BRIEF] anthropic budget exhausted — skipping Claude topics, using fallback"  # noqa: E501
+                    )
+            except Exception:
+                pass
+
+        if not topics_text and anthropic_key and budget_ok:
             import httpx
 
             try:
@@ -1025,6 +1090,8 @@ Respond with ONLY the formatted brief. No preamble, no closing remarks, no "Here
             # Wave 14A A2 — risk_alerts deduped against top_signals[:5]
             "risk_alerts": deduped_risk_alerts,
             "risk_alerts_raw": brief.risk_alerts,  # pre-dedup, kept for audit
+            # Wave 14D — which generation path produced this brief
+            "pipeline_meta": pipeline_meta,
             "status": "pending",
             "progress": [],
         }
@@ -1044,6 +1111,8 @@ Respond with ONLY the formatted brief. No preamble, no closing remarks, no "Here
             "full_brief": topics_text,
             # Wave 14A A2 — deduped vs top_signals[:5]
             "risk_alerts": deduped_risk_alerts,
+            # Wave 14D — pipeline observability
+            "pipeline_meta": pipeline_meta,
         }
     except Exception as e:
         log.exception("Endpoint error: %s", e)
