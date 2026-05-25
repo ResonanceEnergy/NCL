@@ -2254,6 +2254,21 @@ class AutonomousScheduler:
             except Exception as exc:
                 log.error("[NIGHT-WATCH] Analyst phase failed: %s", exc)
 
+        # Phase 6: Portfolio Analyst Agent (defends the book overnight).
+        # Mandate (NATRIX, verbatim): maximize capital inflow, limit
+        # capital outflow + defend/invalidate thesises + enforce entry/
+        # exit/mandate/watch-for contract on every position.
+        # Skipped in catchup mode — this phase makes a Sonnet 4 call with
+        # extended thinking (~$0.15/run) and must not fire on every Brain
+        # restart-catchup. Full cycles only.
+        if catchup:
+            log.info("[NIGHT-WATCH] Skipping Phase 6 Portfolio Analyst (catchup mode)")
+        else:
+            try:
+                await self._night_watch_portfolio_analyst()
+            except Exception as exc:
+                log.error("[NIGHT-WATCH] Portfolio Analyst phase failed: %s", exc)
+
         # ── Tracking: stamp last-run after any successful cycle ──────
         now_iso = datetime.now(timezone.utc).isoformat()
         self._stats["last_night_watch"] = now_iso
@@ -3222,6 +3237,66 @@ class AutonomousScheduler:
             intel_report=intel_report,
             council_report=council_report,
         )
+
+    async def _night_watch_portfolio_analyst(self) -> None:
+        """Phase 6 — run the Portfolio Analyst Agent and persist the report.
+
+        Mandate (NATRIX): maximize capital inflow, limit capital outflow,
+        defend/invalidate thesises with evidence, enforce entry/exit/mandate/
+        watch-for contract on every position.
+
+        Steps (delegated to PortfolioAnalystAgent.run()):
+          1. Pull held positions from PortfolioManager (in-memory cache)
+          2. Pull last-24h awarebot signals filtered to held tickers
+          3. Pull last-24h council briefs
+          4. Compute deterministic metrics (HHI, sector, VaR, leverage)
+          5. Re-evaluate each PositionThesis against new evidence
+          6. Detect immediate actions (broken thesis, stop breach,
+             mandate drift, contract incomplete, imminent catalysts)
+          7. Sonnet 4 + extended-thinking synthesis (~$0.15) — trim/add
+             candidates + capital flow narrative + overall prose
+          8. Persist nightly_report.json + latest.json pointer
+          9. Ingest as MemoryUnit (BRAIN tier, importance 75)
+         10. Dispatch ntfy push for any critical-severity action
+
+        Failure-soft: any exception writes a degraded report with
+        ``llm_narrative=null`` and the deterministic block still populated.
+        """
+        log.info("[NIGHT-WATCH-PORTFOLIO] starting Portfolio Analyst Agent run")
+        try:
+            from ..portfolio.analyst.agent import PortfolioAnalystAgent
+        except ImportError as exc:
+            log.warning("[NIGHT-WATCH-PORTFOLIO] analyst package unavailable: %s", exc)
+            return
+
+        portfolio_manager = getattr(self._brain, "portfolio_manager", None) if self._brain else None
+        if portfolio_manager is None:
+            log.info(
+                "[NIGHT-WATCH-PORTFOLIO] no portfolio_manager on brain — "
+                "agent has nothing to analyze, skipping"
+            )
+            return
+
+        # Build the agent with the live dependencies. Each one is
+        # optional — agent degrades gracefully on missing inputs.
+        agent = PortfolioAnalystAgent(
+            portfolio_manager=portfolio_manager,
+            memory_store=getattr(self._brain, "memory_store", None),
+            cost_tracker=None,  # llm_synthesis imports the global tracker itself
+            data_dir=NCL_BASE / "data",
+            brain=self._brain,
+        )
+
+        try:
+            report = await agent.run(dry_run=False)
+            log.info(
+                "[NIGHT-WATCH-PORTFOLIO] complete — positions=%d immediate=%d cost=$%.4f",
+                report.positions_count,
+                len(report.immediate_actions),
+                report.cost_usd,
+            )
+        except Exception as exc:
+            log.error("[NIGHT-WATCH-PORTFOLIO] agent.run() failed: %s", exc, exc_info=True)
 
     # ─── SUPERVISOR: Self-healing task monitor ─────────────────────
 

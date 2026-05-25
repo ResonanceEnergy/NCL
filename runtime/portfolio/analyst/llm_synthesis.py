@@ -35,8 +35,16 @@ log = logging.getLogger("ncl.portfolio.analyst.llm_synthesis")
 
 
 SYNTHESIS_MODEL = os.getenv("NCL_PORTFOLIO_AGENT_MODEL", "claude-sonnet-4-20250514")
-SYNTHESIS_MAX_TOKENS = 3000
-SYNTHESIS_BUDGET = 0.10  # USD per run
+# 2026-05-25: extended-thinking enabled. The agent reasons over
+# 20-40 positions × theses × signals × policy thresholds — non-trivial
+# multi-step risk inference. Per round-2 research §4, Anthropic
+# extended thinking on Sonnet 4 hits the analyst reliability bar
+# without the cost of escalating to Opus 4. budget_tokens=5000 is a
+# conservative reasoning budget; thinking tokens don't appear in the
+# response but do count toward usage billing.
+SYNTHESIS_MAX_TOKENS = 8000
+SYNTHESIS_THINKING_BUDGET = 5000
+SYNTHESIS_BUDGET = 0.15  # USD per run — was 0.10, bumped for thinking
 
 
 PROMPT_TEMPLATE = """You are NCL's Portfolio Analyst. Your mandate, NATRIX's verbatim words:
@@ -360,8 +368,14 @@ async def synthesize_narrative(
     )
 
     # Fire the call
+    # 2026-05-25: thinking={"type":"enabled","budget_tokens":N} turns
+    # on extended reasoning. The thinking content is returned in a
+    # "thinking" content block that we discard — we only consume the
+    # final "text" block. Cost rises ~50% vs no-thinking but the
+    # output reliability on multi-step risk reasoning is materially
+    # higher (round-2 research §4).
     try:
-        async with httpx.AsyncClient(timeout=120) as client:
+        async with httpx.AsyncClient(timeout=180) as client:
             resp = await client.post(
                 "https://api.anthropic.com/v1/messages",
                 headers={
@@ -371,12 +385,24 @@ async def synthesize_narrative(
                 json={
                     "model": SYNTHESIS_MODEL,
                     "max_tokens": SYNTHESIS_MAX_TOKENS,
+                    "thinking": {
+                        "type": "enabled",
+                        "budget_tokens": SYNTHESIS_THINKING_BUDGET,
+                    },
                     "messages": [{"role": "user", "content": prompt}],
                 },
             )
             resp.raise_for_status()
             body = resp.json()
-            text = body["content"][0]["text"].strip()
+            # Find the final text content block — extended thinking returns
+            # multiple blocks; the user-visible response is the last "text" one.
+            text = ""
+            for block in body.get("content", []):
+                if block.get("type") == "text":
+                    text = (block.get("text") or "").strip()
+            if not text:
+                # Fallback to the legacy shape if structure changed
+                text = (body["content"][0].get("text") or "").strip()
     except Exception as exc:
         log.warning(
             "[ANALYST-LLM] Claude call failed: %s: %r", type(exc).__name__, exc

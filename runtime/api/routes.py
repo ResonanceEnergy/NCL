@@ -4660,6 +4660,259 @@ async def stocks_watchlist(sector: str = None, authorization: str = Header(defau
         raise HTTPException(status_code=500, detail=f"Watchlist fetch failed: {e}")
 
 
+# ──────────────────────────────────────────────────────────────────────────
+# Watchlist source-of-truth endpoints (W14 — 2026-05-25)
+#
+# Pre-W14 the watchlist lived in TWO places: runtime/stocks/watchlist.py
+# (Python module constant) AND Sources/Models/StockModels.swift mirror.
+# They had to be hand-edited in two repos to add/remove tickers.
+#
+# Now the Brain owns it via WatchlistStore (data/watchlist/watchlist.json).
+# iOS fetches via /stocks/watchlist/items, can add/remove/import via the
+# endpoints below. The Python DEFAULT_WATCHLIST becomes a one-time seed
+# that populates the JSON on first boot.
+# ──────────────────────────────────────────────────────────────────────────
+
+
+def _get_watchlist_store():
+    """Lazy-init the watchlist store. Idempotent."""
+    from runtime.stocks.watchlist_store import init_store
+
+    return init_store(Path(config.data_dir))
+
+
+class _WatchlistAddBody(BaseModel):
+    ticker: str
+    name: str = ""
+    sector: str = "Other"
+    currency: str = "USD"
+    is_position: bool = False
+    notes: str = ""
+    source: str = "manual"
+
+
+class _WatchlistPatchBody(BaseModel):
+    name: str | None = None
+    sector: str | None = None
+    currency: str | None = None
+    is_position: bool | None = None
+    notes: str | None = None
+
+
+class _WatchlistImportBody(BaseModel):
+    """TradingView .txt export contents (one symbol per line, EXCHANGE:TICKER)."""
+
+    text: str
+    replace: bool = False
+
+
+@app.get("/stocks/watchlist/items", tags=["stocks"])
+async def stocks_watchlist_items(authorization: str = Header(default="")):
+    """Return the persistent watchlist (no quote fetch). Source of truth."""
+    _verify_strike_token(authorization)
+    store = _get_watchlist_store()
+    tickers = await store.get_all()
+    return {"count": len(tickers), "tickers": tickers}
+
+
+@app.post("/stocks/watchlist/items", tags=["stocks"])
+async def stocks_watchlist_add(
+    body: _WatchlistAddBody, authorization: str = Header(default="")
+):
+    """Add or upsert a single ticker to the watchlist."""
+    _verify_strike_token(authorization)
+    store = _get_watchlist_store()
+    try:
+        entry = await store.add(
+            ticker=body.ticker,
+            name=body.name,
+            sector=body.sector,
+            currency=body.currency,
+            is_position=body.is_position,
+            notes=body.notes,
+            source=body.source,
+        )
+        return {"status": "ok", "entry": entry}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.patch("/stocks/watchlist/items/{ticker}", tags=["stocks"])
+async def stocks_watchlist_patch(
+    ticker: str, body: _WatchlistPatchBody, authorization: str = Header(default="")
+):
+    """Partial update of a ticker entry."""
+    _verify_strike_token(authorization)
+    store = _get_watchlist_store()
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    entry = await store.patch(ticker, **updates)
+    if entry is None:
+        raise HTTPException(status_code=404, detail=f"Ticker {ticker} not found")
+    return {"status": "ok", "entry": entry}
+
+
+@app.delete("/stocks/watchlist/items/{ticker}", tags=["stocks"])
+async def stocks_watchlist_remove(ticker: str, authorization: str = Header(default="")):
+    """Remove a ticker from the watchlist."""
+    _verify_strike_token(authorization)
+    store = _get_watchlist_store()
+    removed = await store.remove(ticker)
+    if not removed:
+        raise HTTPException(status_code=404, detail=f"Ticker {ticker} not found")
+    return {"status": "ok", "removed": ticker}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Portfolio Analyst Agent endpoints (W14 — 2026-05-25)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+@app.get("/portfolio/analyst/report/latest", tags=["portfolio"])
+async def portfolio_analyst_report_latest(authorization: str = Header(default="")):
+    """Most recent nightly portfolio-agent report.
+
+    Returns the JSON written by ``PortfolioAnalystAgent`` during the
+    Night Watch Phase 6 run. iOS Portfolio "AGENT" sub-tab consumes
+    this. Morning Brief also pulls from here when present.
+    """
+    _verify_strike_token(authorization)
+    path = Path(config.data_dir) / "portfolio" / "analyst" / "reports" / "latest.json"
+    if not path.exists():
+        return {"status": "not_found", "message": "No portfolio analyst report yet"}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        log.warning("portfolio analyst latest read failed: %s", exc)
+        raise HTTPException(status_code=500, detail="latest report read failed")
+
+
+@app.get("/portfolio/analyst/report/{date}", tags=["portfolio"])
+async def portfolio_analyst_report_by_date(
+    date: str, authorization: str = Header(default="")
+):
+    """Historical report by date (YYYY-MM-DD)."""
+    _verify_strike_token(authorization)
+    safe_date = "".join(c for c in date if c.isdigit() or c == "-")
+    if not safe_date:
+        raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
+    path = (
+        Path(config.data_dir)
+        / "portfolio"
+        / "analyst"
+        / "reports"
+        / f"portfolio-{safe_date}.json"
+    )
+    if not path.exists():
+        return {"status": "not_found", "date": safe_date}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+@app.get("/portfolio/analyst/theses", tags=["portfolio"])
+async def portfolio_analyst_theses_list(authorization: str = Header(default="")):
+    """List every active position thesis."""
+    _verify_strike_token(authorization)
+    from runtime.portfolio.analyst.thesis_store import ThesisStore
+
+    store = ThesisStore(Path(config.data_dir))
+    theses = await store.list_active()
+    return {
+        "count": len(theses),
+        "theses": [t.model_dump(mode="json") for t in theses],
+    }
+
+
+@app.get("/portfolio/analyst/theses/{instrument_id}", tags=["portfolio"])
+async def portfolio_analyst_thesis_get(
+    instrument_id: str, authorization: str = Header(default="")
+):
+    """Fetch one thesis by instrument_id."""
+    _verify_strike_token(authorization)
+    from runtime.portfolio.analyst.thesis_store import ThesisStore
+
+    store = ThesisStore(Path(config.data_dir))
+    thesis = await store.load(instrument_id)
+    if thesis is None:
+        raise HTTPException(status_code=404, detail=f"No thesis for {instrument_id}")
+    return thesis.model_dump(mode="json")
+
+
+@app.post("/portfolio/analyst/theses/{instrument_id}", tags=["portfolio"])
+async def portfolio_analyst_thesis_upsert(
+    instrument_id: str,
+    body: dict,
+    authorization: str = Header(default=""),
+):
+    """Create or update a thesis. Body is a full PositionThesis dict."""
+    _verify_strike_token(authorization)
+    from runtime.portfolio.analyst.theses import PositionThesis
+    from runtime.portfolio.analyst.thesis_store import ThesisStore
+
+    body["instrument_id"] = instrument_id  # enforce path match
+    try:
+        thesis = PositionThesis.model_validate(body)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid thesis: {exc}")
+
+    store = ThesisStore(Path(config.data_dir))
+    await store.save(thesis)
+    return {"status": "ok", "thesis": thesis.model_dump(mode="json")}
+
+
+@app.post("/portfolio/analyst/run", tags=["portfolio"])
+async def portfolio_analyst_run_now(
+    dry_run: bool = False, authorization: str = Header(default="")
+):
+    """Manual trigger — run the agent once and return the report.
+
+    Useful for testing. The scheduled run still fires nightly inside
+    Night Watch Phase 6.
+    """
+    _verify_strike_token(authorization)
+    from runtime.portfolio.analyst.agent import PortfolioAnalystAgent
+
+    portfolio_manager = getattr(brain, "portfolio_manager", None) if brain else None
+    if portfolio_manager is None:
+        raise HTTPException(
+            status_code=503,
+            detail="portfolio_manager not initialized on brain",
+        )
+    agent = PortfolioAnalystAgent(
+        portfolio_manager=portfolio_manager,
+        memory_store=getattr(brain, "memory_store", None),
+        cost_tracker=None,
+        data_dir=Path(config.data_dir),
+        brain=brain,
+    )
+    report = await agent.run(dry_run=dry_run)
+    return report.model_dump(mode="json")
+
+
+@app.post("/stocks/watchlist/import/tradingview", tags=["stocks"])
+async def stocks_watchlist_import_tradingview(
+    body: _WatchlistImportBody, authorization: str = Header(default="")
+):
+    """Import a TradingView watchlist export (.txt format).
+
+    The TV web app's "Export Watchlist" menu produces a text file with
+    one symbol per line in EXCHANGE:TICKER form (e.g. NASDAQ:NVDA,
+    NYSE:F, TSX:WCP, BATS:SPY). Comma-separated single-line exports
+    are also accepted.
+
+    Body:
+        text:    the raw .txt contents
+        replace: if true, wipe existing entries; else merge (skip dupes)
+
+    Returns:
+        {added, skipped, total, parsed, tickers}
+    """
+    _verify_strike_token(authorization)
+    if not body.text or not body.text.strip():
+        raise HTTPException(status_code=400, detail="text body required")
+    store = _get_watchlist_store()
+    result = await store.import_tradingview_txt(body.text, replace=body.replace)
+    return {"status": "ok", **result}
+
+
 @app.get("/stocks/scanner/goat", tags=["stocks"])
 async def stocks_scanner_goat(
     sector: str = None,
