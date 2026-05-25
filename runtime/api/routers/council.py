@@ -942,20 +942,10 @@ async def get_council_report(
 
 # ── Knowledge Base, Vector Store & Multi-Agent Endpoints ──────────────────
 
-# Global singletons (lazy-initialized on first request).
-# These are owned by this module; routes.py never referenced them outside
-# the handler bodies we just moved.
-_council_vector_store = None
+# Knowledge-base lazy init (separate from the vector store, which now
+# lives in runtime/councils/shared/vector_store_singleton.py).
 _council_knowledge_base = None
-_council_vector_store_lock: asyncio.Lock | None = None
 _council_knowledge_base_lock: asyncio.Lock | None = None
-
-
-def _get_council_vs_lock() -> asyncio.Lock:
-    global _council_vector_store_lock
-    if _council_vector_store_lock is None:
-        _council_vector_store_lock = asyncio.Lock()
-    return _council_vector_store_lock
 
 
 def _get_council_kb_lock() -> asyncio.Lock:
@@ -976,17 +966,10 @@ async def council_rag_query(
     Uses ChromaDB → LanceDB → TF-IDF fallback chain.
     """
     from .. import routes as _routes
+    from ...councils.shared.vector_store_singleton import get_council_vector_store
 
-    global _council_vector_store
-    if not _council_vector_store:
-        async with _get_council_vs_lock():
-            if not _council_vector_store:
-                from ...councils.shared.vector_store import CouncilVectorStore
-
-                _council_vector_store = CouncilVectorStore(data_dir=_routes.config.data_dir)
-                await _council_vector_store.init()
-
-    results = await _council_vector_store.query(
+    vector_store = await get_council_vector_store(_routes.config.data_dir)
+    results = await vector_store.query(
         query_text=req.query,
         top_k=req.top_k,
         filter_type=req.filter_type,
@@ -995,7 +978,7 @@ async def council_rag_query(
     return {
         "query": req.query,
         "total": len(results),
-        "backend": _council_vector_store._backend,
+        "backend": vector_store._backend,
         "results": [r.to_dict() for r in results],
     }
 
@@ -1018,17 +1001,10 @@ async def knowledge_base_stats(_: None = Depends(verify_strike_token_dep)):
 async def vector_store_stats(_: None = Depends(verify_strike_token_dep)):
     """Return vector store statistics."""
     from .. import routes as _routes
+    from ...councils.shared.vector_store_singleton import get_council_vector_store
 
-    global _council_vector_store
-    if not _council_vector_store:
-        async with _get_council_vs_lock():
-            if not _council_vector_store:
-                from ...councils.shared.vector_store import CouncilVectorStore
-
-                _council_vector_store = CouncilVectorStore(data_dir=_routes.config.data_dir)
-                await _council_vector_store.init()
-
-    return _council_vector_store.get_stats()
+    vector_store = await get_council_vector_store(_routes.config.data_dir)
+    return vector_store.get_stats()
 
 
 @router.post("/councils/vector-store/backfill")
@@ -1039,15 +1015,9 @@ async def vector_store_backfill(_: None = Depends(verify_strike_token_dep)):
     content into ChromaDB for RAG retrieval.
     """
     from .. import routes as _routes
+    from ...councils.shared.vector_store_singleton import get_council_vector_store
 
-    global _council_vector_store
-    if not _council_vector_store:
-        async with _get_council_vs_lock():
-            if not _council_vector_store:
-                from ...councils.shared.vector_store import CouncilVectorStore
-
-                _council_vector_store = CouncilVectorStore(data_dir=_routes.config.data_dir)
-                await _council_vector_store.init()
+    vector_store = await get_council_vector_store(_routes.config.data_dir)
 
     # Try multiple possible report locations
     ncl_root = Path(_routes.config.data_dir).parent
@@ -1091,7 +1061,7 @@ async def vector_store_backfill(_: None = Depends(verify_strike_token_dep)):
                 summary = "\n".join(summary_lines).strip()
 
             # Index the report summary
-            await _council_vector_store.index_report_summary(
+            await vector_store.index_report_summary(
                 session_id=session_id,
                 source=source,
                 summary=summary,
@@ -1105,7 +1075,7 @@ async def vector_store_backfill(_: None = Depends(verify_strike_token_dep)):
                 if len(chunk.strip()) < 50:
                     continue
                 doc_id = f"report-chunk-{session_id}-{i // chunk_size}"
-                await _council_vector_store.index_document(
+                await vector_store.index_document(
                     doc_id=doc_id,
                     text=chunk,
                     metadata={
@@ -1119,7 +1089,7 @@ async def vector_store_backfill(_: None = Depends(verify_strike_token_dep)):
         except Exception as e:
             errors.append(f"{report_file.name}: {str(e)}")
 
-    stats = _council_vector_store.get_stats()
+    stats = vector_store.get_stats()
     return {
         "status": "ok",
         "reports_indexed": indexed,

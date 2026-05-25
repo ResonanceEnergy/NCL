@@ -19,6 +19,7 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import math
@@ -214,7 +215,13 @@ class CouncilVectorStore:
         meta = metadata or {}
 
         if self._backend == "chromadb" and self._chroma_collection:
-            self._chroma_collection.upsert(
+            # Wrap sync ChromaDB call in ``to_thread`` so the Rust HNSW
+            # write doesn't block the event loop. Without this, a 33-video
+            # YTC loop's auto-ingest cycle holds the event loop ~200ms per
+            # upsert × 600 docs ≈ 2 minutes of starvation per hourly run
+            # — and in pathological cases deadlocks the Rust write lock.
+            await asyncio.to_thread(
+                self._chroma_collection.upsert,
                 ids=[doc_id],
                 documents=[text],
                 metadatas=[meta],
@@ -224,6 +231,55 @@ class CouncilVectorStore:
         else:
             self._add_tfidf_doc(doc_id, text, meta)
             await self._persist_tfidf_doc(doc_id, text, meta)
+
+    async def index_documents_batch(
+        self,
+        docs: list[tuple[str, str, dict[str, Any]]],
+    ) -> int:
+        """Batch-index a list of ``(doc_id, text, metadata)`` tuples.
+
+        ChromaDB ``upsert`` accepts parallel arrays — one Rust round-trip
+        for N documents instead of N round-trips. ~10-30× faster on
+        20-50 doc batches (a YTC per-video report) and only acquires the
+        HNSW write lock once. Returns the count actually indexed.
+
+        Falls back to per-doc index_document() for LanceDB / TF-IDF
+        backends since those don't expose batched upsert at this layer.
+        """
+        if not docs:
+            return 0
+        if not self._initialized:
+            await self.init()
+
+        if self._backend == "chromadb" and self._chroma_collection:
+            ids = [d[0] for d in docs]
+            texts = [d[1] for d in docs]
+            metas = [d[2] or {} for d in docs]
+            try:
+                await asyncio.to_thread(
+                    self._chroma_collection.upsert,
+                    ids=ids,
+                    documents=texts,
+                    metadatas=metas,
+                )
+                return len(docs)
+            except Exception as e:
+                log.warning(
+                    "Batched ChromaDB upsert of %d docs failed: %s — "
+                    "falling back to per-doc index",
+                    len(docs),
+                    e,
+                )
+                # Fall through to per-doc path below.
+
+        indexed = 0
+        for doc_id, text, meta in docs:
+            try:
+                await self.index_document(doc_id, text, meta)
+                indexed += 1
+            except Exception as e:
+                log.warning("Per-doc fallback index of %s failed: %s", doc_id, e)
+        return indexed
 
     async def index_insight(
         self,
@@ -321,7 +377,12 @@ class CouncilVectorStore:
             await self.init()
 
         if self._backend == "chromadb" and self._chroma_collection:
-            return self._query_chromadb(query_text, top_k, filter_type, filter_source)
+            # Sync ChromaDB query blocks ~50-300ms on HNSW search; run in
+            # a thread so concurrent /chat or working-context loops aren't
+            # starved while RAG queries are in flight.
+            return await asyncio.to_thread(
+                self._query_chromadb, query_text, top_k, filter_type, filter_source
+            )
         elif self._backend == "lancedb":
             return await self._query_lancedb(query_text, top_k, filter_type, filter_source)
         else:

@@ -71,51 +71,82 @@ async def _auto_ingest_report(report: CouncilReport) -> None:
     This closes the gap where reports were saved to disk but never entered
     the searchable knowledge base.
     """
-    from .shared.vector_store import CouncilVectorStore
+    from .shared.vector_store_singleton import get_council_vector_store
 
     source = report.council_type.value  # "youtube" or "x"
     session_id = report.session_id
 
     # ── 1. ChromaDB Vector Store Indexing ──────────────────────────────
+    #
+    # Pre-fix (2026-05-24 incident, pid 27623): this function instantiated
+    # a fresh CouncilVectorStore per report, which means a fresh
+    # chromadb.PersistentClient per video. Run 33 videos through the
+    # hourly YTC dedicated loop and you get 33 concurrent clients mmapping
+    # the same persistent store; ChromaDB Rust HNSW deadlocks under that
+    # access pattern (every CPU sample stuck in chromadb_rust_bindings).
+    # Plus each insight was a separate sync upsert call blocking the event
+    # loop. Fix:
+    #   - shared singleton (`get_council_vector_store`)
+    #   - batched upsert via `index_documents_batch`
+    #   - sync ChromaDB ops wrapped in `asyncio.to_thread` in vector_store.py
     try:
         data_dir = NCL_BASE / "data"
-        vector_store = CouncilVectorStore(data_dir=data_dir)
-        backend = await vector_store.init()
-        log.info(f"[AUTO-INGEST] Vector store initialized: {backend}")
+        vector_store = await get_council_vector_store(data_dir)
+        backend = vector_store._backend
 
-        # Index each insight
-        indexed_count = 0
+        # Build the parallel arrays for a single batched upsert: each
+        # insight is one document, plus optionally the report summary.
+        # Mirrors the per-document doc_id / metadata shape that
+        # `index_insight` and `index_report_summary` would have produced.
+        now_iso = datetime.now(timezone.utc).isoformat()
+        batch: list[tuple[str, str, dict]] = []
         for insight in report.insights:
-            try:
-                await vector_store.index_insight(
-                    insight_title=insight.title,
-                    insight_description=insight.description,
-                    session_id=session_id,
-                    source=source,
-                    category=insight.category.value,
-                    tags=insight.tags,
-                    confidence=insight.confidence,
+            title = insight.title or ""
+            desc = insight.description or ""
+            tags = list(insight.tags or [])
+            doc_id = f"insight-{source}-{session_id}-{title[:30].replace(' ', '_')}"
+            text = f"{title}. {desc}"
+            if tags:
+                text += " " + " ".join(tags)
+            batch.append(
+                (
+                    doc_id,
+                    text,
+                    {
+                        "type": "insight",
+                        "source": source,
+                        "session_id": session_id,
+                        "category": insight.category.value,
+                        "confidence": float(insight.confidence or 0.0),
+                        "tags": tags,
+                        "indexed_at": now_iso,
+                    },
                 )
-                indexed_count += 1
-            except Exception as e:
-                log.warning(f"[AUTO-INGEST] Failed to index insight '{insight.title}': {e}")
-
-        # Index report summary
+            )
         if report.summary:
-            try:
-                await vector_store.index_report_summary(
-                    session_id=session_id,
-                    source=source,
-                    summary=report.summary,
-                    insight_count=len(report.insights),
+            batch.append(
+                (
+                    f"report-{source}-{session_id}",
+                    report.summary,
+                    {
+                        "type": "report_summary",
+                        "source": source,
+                        "session_id": session_id,
+                        "insight_count": len(report.insights),
+                        "indexed_at": now_iso,
+                    },
                 )
-                log.info("[AUTO-INGEST] Report summary indexed into vector store")
-            except Exception as e:
-                log.warning(f"[AUTO-INGEST] Failed to index report summary: {e}")
+            )
+
+        indexed_count = await vector_store.index_documents_batch(batch)
+        # Report summary is the trailing element when present.
+        insight_indexed = max(0, indexed_count - (1 if report.summary else 0))
+        if report.summary:
+            log.info("[AUTO-INGEST] Report summary indexed into vector store")
 
         stats = vector_store.get_stats()
         log.info(
-            f"[AUTO-INGEST] Vector store: {indexed_count}/{len(report.insights)} insights indexed "
+            f"[AUTO-INGEST] Vector store: {insight_indexed}/{len(report.insights)} insights indexed "
             f"({stats.get('documents', '?')} total docs in {backend})"
         )
     except Exception as e:

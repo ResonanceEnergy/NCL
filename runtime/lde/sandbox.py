@@ -64,12 +64,14 @@ class LDESandbox:
         """Initialize sandbox — load doctrine and vector store."""
         self._doctrine = self._load_doctrine()
 
-        # Try to initialize vector store
+        # Try to initialize vector store — use the shared singleton so
+        # we don't open a second chromadb.PersistentClient against the
+        # same on-disk store (see vector_store_singleton.py docstring
+        # for the 2026-05-24 deadlock incident this prevents).
         try:
-            from ..councils.shared.vector_store import CouncilVectorStore
+            from ..councils.shared.vector_store_singleton import get_council_vector_store
 
-            self._vector_store = CouncilVectorStore(data_dir=self.data_dir)
-            await self._vector_store.init()
+            self._vector_store = await get_council_vector_store(self.data_dir)
             log.info(f"LDE vector store: {self._vector_store._backend}")
         except Exception as e:
             log.warning(f"Vector store init failed (will use doctrine-only mode): {e}")

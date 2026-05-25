@@ -48,6 +48,8 @@ log = logging.getLogger("ncl.scripts.retro_seed_ytc_nightshift")
 
 # Dates to retro-seed, in chronological order.
 TARGET_DATES: tuple[str, ...] = (
+    "2026-05-20",
+    "2026-05-21",
     "2026-05-22",
     "2026-05-23",
     "2026-05-24",
