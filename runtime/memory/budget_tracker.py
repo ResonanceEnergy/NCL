@@ -73,7 +73,13 @@ DEFAULT_BUDGETS: dict[str, int] = {
     "retrieval_rerank": 100_000,  # Haiku reranker on /memory/search/fused
     "reflection": 150_000,  # journal + memory reflection prompts
     "procedural_distill": 100_000,  # Loop 7 — chain → skill abstraction
-    "narrative_summary": 50_000,  # Loop 9 — Sonnet thread summaries
+    # narrative_summary calibration P27-C (2026-05-26): the 50K initial
+    # cap was a wild under-estimate. Actual workload at 6h cadence x
+    # ~20-40 active entity threads x ~8-12K tokens of prompt context is
+    # 800K-1.2M tokens/day. Bumped to 1.5M; loop is still gated by the
+    # platform Anthropic $/day cap so it can't actually run away. Env
+    # NCL_MEMORY_BUDGET_NARRATIVE_SUMMARY tunes further if needed.
+    "narrative_summary": 1_500_000,
 }
 
 # Platform-wide ceiling across all categories. Trips a separate alert.
