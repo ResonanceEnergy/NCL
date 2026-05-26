@@ -1080,6 +1080,148 @@ def _find_adapter(pm, name: str):
 
 
 # ──────────────────────────────────────────────────────────────────────
+# Wave 14K Phase 1 — Auto-trader foundation endpoints
+# PAPER TRADING ONLY. Auto-trader proposes + opens paper trades; never
+# touches live capital. See docs/AUTO_TRADER_AGENT_2026-05-26.md.
+# ──────────────────────────────────────────────────────────────────────
+
+@router.get("/auto-trader/status")
+async def auto_trader_status(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Current auto-trader state: active flag, pause reason, day counters."""
+    from ...portfolio.auto_trader import get_state, is_active
+    state = await get_state()
+    return {
+        "is_active": await is_active(),
+        "state": {
+            "active": state.active,
+            "paused_by": state.paused_by,
+            "pause_reason": state.pause_reason,
+            "paused_at_iso": state.paused_at_iso,
+            "drawdown_halt_pause": state.drawdown_halt_pause,
+            "drawdown_halt_band": state.drawdown_halt_band,
+            "drawdown_halt_at_iso": state.drawdown_halt_at_iso,
+            "last_loop_tick_iso": state.last_loop_tick_iso,
+            "last_seen_trade_idea_id": state.last_seen_trade_idea_id,
+            "ideas_evaluated_today": state.ideas_evaluated_today,
+            "ideas_opened_today": state.ideas_opened_today,
+            "ideas_rejected_today": state.ideas_rejected_today,
+            "counters_date_utc": state.counters_date_utc,
+        },
+    }
+
+
+@router.get("/auto-trader/policy")
+async def auto_trader_policy_get(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Current entry-criteria policy (operator-tunable)."""
+    from ...portfolio.auto_trader import get_policy
+    from dataclasses import asdict
+    p = await get_policy(force_reload=True)
+    return asdict(p)
+
+
+@router.patch("/auto-trader/policy")
+async def auto_trader_policy_patch(
+    payload: dict,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """PATCH the policy. Only listed fields change; rest preserved.
+    Example body: {"min_R_R_ratio": 2.0, "max_opens_per_day": 20}"""
+    from ...portfolio.auto_trader import update_policy
+    from dataclasses import asdict
+    if not isinstance(payload, dict) or not payload:
+        raise HTTPException(status_code=400, detail="Empty PATCH body")
+    try:
+        p = await update_policy(payload, updated_by="rest")
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve)) from ve
+    return asdict(p)
+
+
+@router.post("/auto-trader/pause")
+async def auto_trader_pause(
+    payload: Optional[dict] = None,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Manual pause. Optional body {reason: str}. Default reason
+    'operator manual pause'."""
+    from ...portfolio.auto_trader import pause
+    reason = (payload or {}).get("reason", "operator manual pause")
+    state = await pause(str(reason), by="operator")
+    return {"paused_by": state.paused_by, "pause_reason": state.pause_reason,
+            "paused_at_iso": state.paused_at_iso}
+
+
+@router.post("/auto-trader/resume")
+async def auto_trader_resume(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Resume from manual pause. Drawdown-halt auto-pause is NOT cleared
+    here; that resolves automatically when drawdown_bucket band moves
+    back to non-halt."""
+    from ...portfolio.auto_trader import resume
+    state = await resume()
+    return {"active": state.active, "paused_by": state.paused_by,
+            "drawdown_halt_pause": state.drawdown_halt_pause}
+
+
+@router.post("/auto-trader/eligibility-check")
+async def auto_trader_eligibility_check(
+    payload: dict,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Run a hypothetical trade idea through the auto-bar without
+    opening anything. Useful for the operator to preview whether a
+    given brief idea would pass.
+
+    Body: {idea: {...trade_idea fields...},
+           governor_decision: {...optional...}}
+
+    Returns: {eligible: bool, reason: str, policy_rev: int}"""
+    from ...portfolio.auto_trader import auto_open_eligible, get_policy
+    if "idea" not in payload:
+        raise HTTPException(status_code=400, detail="Missing 'idea' field")
+    p = await get_policy()
+    eligible, reason = await auto_open_eligible(
+        payload["idea"],
+        payload.get("governor_decision"),
+        policy=p,
+    )
+    return {"eligible": eligible, "reason": reason, "policy_rev": p.revision}
+
+
+@router.get("/auto-trader/reasoning-chains")
+async def auto_trader_reasoning_chains(
+    limit: int = Query(default=50, ge=1, le=500),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """List most-recent reasoning chains captured at open time
+    (newest first). Each chain is the audit trail for one trade idea."""
+    from ...portfolio.auto_trader import list_recent_chains
+    items = await list_recent_chains(limit=limit)
+    return {"count": len(items), "chains": items}
+
+
+@router.get("/auto-trader/reasoning-chains/{trade_idea_id}")
+async def auto_trader_reasoning_chain_one(
+    trade_idea_id: str,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Fetch one reasoning chain by trade_idea_id."""
+    from ...portfolio.auto_trader import get_reasoning_chain
+    chain = await get_reasoning_chain(trade_idea_id)
+    if chain is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No reasoning chain for trade_idea_id={trade_idea_id}",
+        )
+    return chain
+
+
+# ──────────────────────────────────────────────────────────────────────
 # Wave 14J out-of-scope finisher endpoints
 # Order PREVIEW (dry-run only — NCL never submits) + backtest replay +
 # manual-entry adapter + quote-source chain stats.

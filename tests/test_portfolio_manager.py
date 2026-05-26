@@ -757,6 +757,250 @@ def test_quote_source_chain_falls_through():
     asyncio.run(go())
 
 
+# ── Wave 14K Auto-Trader Phase 1 tests ─────────────────────────
+
+def test_auto_trader_state_lifecycle(tmp_path, monkeypatch):
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    for mod in list(sys.modules.keys()):
+        if mod.startswith("runtime.portfolio.auto_trader"):
+            del sys.modules[mod]
+    from runtime.portfolio.auto_trader import state as at_state
+
+    async def go():
+        # Force reload to pick up tmp_path
+        at_state._STATE = None
+        s = await at_state.get_state()
+        assert s.active is False  # default OFF
+        assert await at_state.is_active() is False
+        # Resume -> active, no pause
+        s = await at_state.resume()
+        assert s.active is True
+        assert s.paused_by is None
+        assert await at_state.is_active() is True
+        # Pause by operator
+        s = await at_state.pause("test", by="operator")
+        assert s.paused_by == "operator"
+        assert s.pause_reason == "test"
+        assert await at_state.is_active() is False
+        # Drawdown halt — even if active, is_active=False
+        await at_state.resume()
+        s = await at_state.set_drawdown_halt(True, band="halt")
+        assert s.drawdown_halt_pause is True
+        assert s.drawdown_halt_band == "halt"
+        assert await at_state.is_active() is False
+        # Drawdown clears
+        s = await at_state.set_drawdown_halt(False, band="green")
+        assert s.drawdown_halt_pause is False
+        assert await at_state.is_active() is True
+
+    asyncio.run(go())
+
+
+def test_auto_trader_policy_load_and_patch(tmp_path, monkeypatch):
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    for mod in list(sys.modules.keys()):
+        if mod.startswith("runtime.portfolio.auto_trader"):
+            del sys.modules[mod]
+    from runtime.portfolio.auto_trader import policy as at_policy
+
+    async def go():
+        at_policy._POLICY = None
+        p = await at_policy.get_policy()
+        # Capture BEFORE patch — singleton means p and p2 share the same
+        # object and .revision will mutate
+        starting_rev = p.revision
+        assert starting_rev >= 1
+        assert p.min_R_R_ratio == 1.5
+        # Patch
+        p2 = await at_policy.update_policy(
+            {"min_R_R_ratio": 2.0, "max_opens_per_day": 20},
+            updated_by="test",
+        )
+        assert p2.min_R_R_ratio == 2.0
+        assert p2.max_opens_per_day == 20
+        assert p2.revision == starting_rev + 1
+        # Unknown field rejected
+        try:
+            await at_policy.update_policy({"foo_bar_baz": 99})
+            raise AssertionError("expected ValueError on unknown field")
+        except ValueError:
+            pass
+
+    asyncio.run(go())
+
+
+def test_auto_open_eligible_pass(tmp_path, monkeypatch):
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    for mod in list(sys.modules.keys()):
+        if mod.startswith("runtime.portfolio.auto_trader"):
+            del sys.modules[mod]
+    from runtime.portfolio.auto_trader import policy as at_policy
+
+    async def go():
+        at_policy._POLICY = None
+        idea = {
+            "trade_idea_id": "abc123",
+            "ticker": "NVDA",
+            "type": "stock",
+            "strategy_tag": "goat",
+            "thesis": "Blackwell ramp + AI capex re-acceleration",
+            "entry_price": 180.0,
+            "stop_price": 170.0,
+            "target_price": 220.0,
+            "R_per_share": 10.0,
+            "stop_type": "atr",
+            "sources": ["sig_001"],
+            "rotation_stance": "with_trend",
+            "breadth_veto": {"vetoed": False, "reason": "Breadth OK"},
+        }
+        gov = {"approved": True, "band": "green", "sizing_multiplier": 1.0,
+               "reasons": ["approved"]}
+        eligible, reason = await at_policy.auto_open_eligible(idea, gov)
+        assert eligible is True, reason
+
+    asyncio.run(go())
+
+
+def test_auto_open_eligible_governor_reject(tmp_path, monkeypatch):
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    for mod in list(sys.modules.keys()):
+        if mod.startswith("runtime.portfolio.auto_trader"):
+            del sys.modules[mod]
+    from runtime.portfolio.auto_trader import policy as at_policy
+
+    async def go():
+        at_policy._POLICY = None
+        idea = {
+            "trade_idea_id": "x",
+            "ticker": "T",
+            "thesis": "x x x x x x x x x x x x x x x x x x x x x",
+            "entry_price": 100,
+            "stop_price": 95,
+            "target_price": 115,
+            "R_per_share": 5,
+            "stop_type": "price",
+            "sources": ["s1"],
+        }
+        gov = {"approved": False, "band": "halt",
+               "reasons": ["Drawdown band=halt"]}
+        eligible, reason = await at_policy.auto_open_eligible(idea, gov)
+        assert eligible is False
+        assert "governor" in reason.lower()
+
+    asyncio.run(go())
+
+
+def test_auto_open_eligible_breadth_veto(tmp_path, monkeypatch):
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    for mod in list(sys.modules.keys()):
+        if mod.startswith("runtime.portfolio.auto_trader"):
+            del sys.modules[mod]
+    from runtime.portfolio.auto_trader import policy as at_policy
+
+    async def go():
+        at_policy._POLICY = None
+        idea = {
+            "ticker": "T", "thesis": "x" * 30,
+            "entry_price": 100, "stop_price": 95, "target_price": 115,
+            "R_per_share": 5, "stop_type": "price", "sources": ["s1"],
+            "breadth_veto": {"vetoed": True, "reason": "Breadth 30%"},
+        }
+        gov = {"approved": True, "band": "green"}
+        eligible, reason = await at_policy.auto_open_eligible(idea, gov)
+        assert eligible is False
+        assert "breadth" in reason.lower()
+
+    asyncio.run(go())
+
+
+def test_auto_open_eligible_rr_too_low(tmp_path, monkeypatch):
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    for mod in list(sys.modules.keys()):
+        if mod.startswith("runtime.portfolio.auto_trader"):
+            del sys.modules[mod]
+    from runtime.portfolio.auto_trader import policy as at_policy
+
+    async def go():
+        at_policy._POLICY = None
+        # Entry 100, stop 95, target 105 -> R:R = 1.0 (below 1.5 default)
+        idea = {
+            "ticker": "T", "thesis": "x" * 30,
+            "entry_price": 100, "stop_price": 95, "target_price": 105,
+            "R_per_share": 5, "stop_type": "price", "sources": ["s1"],
+        }
+        gov = {"approved": True, "band": "green"}
+        eligible, reason = await at_policy.auto_open_eligible(idea, gov)
+        assert eligible is False
+        assert "R:R" in reason
+
+    asyncio.run(go())
+
+
+def test_auto_open_eligible_counter_trend_blocked(tmp_path, monkeypatch):
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    for mod in list(sys.modules.keys()):
+        if mod.startswith("runtime.portfolio.auto_trader"):
+            del sys.modules[mod]
+    from runtime.portfolio.auto_trader import policy as at_policy
+
+    async def go():
+        at_policy._POLICY = None
+        # Default policy.allow_counter_trend = False
+        idea = {
+            "ticker": "XLE", "thesis": "x" * 30,
+            "entry_price": 90, "stop_price": 86, "target_price": 100,
+            "R_per_share": 4, "stop_type": "price", "sources": ["s1"],
+            "rotation_stance": "counter_trend",
+        }
+        gov = {"approved": True, "band": "green"}
+        eligible, reason = await at_policy.auto_open_eligible(idea, gov)
+        assert eligible is False
+        assert "counter-trend" in reason.lower()
+
+    asyncio.run(go())
+
+
+def test_auto_trader_observability_record_and_dedup(tmp_path, monkeypatch):
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    for mod in list(sys.modules.keys()):
+        if mod.startswith("runtime.portfolio.auto_trader"):
+            del sys.modules[mod]
+    from runtime.portfolio.auto_trader import observability as obs
+
+    async def go():
+        idea = {"ticker": "NVDA", "strategy_tag": "goat", "type": "stock"}
+        chain = await obs.record_reasoning_chain(
+            trade_idea_id="abc123",
+            idea_snapshot=idea,
+            governor_decision={"approved": True, "band": "green"},
+            policy_check={"eligible": True, "reason": "passed", "policy_rev": 1},
+            confidence_pct=72.0,
+            effective_R_dollars=1000.0,
+            planned_qty=100.0,
+            model_meta={"executor_model": "claude-sonnet-4"},
+        )
+        assert chain["trade_idea_id"] == "abc123"
+        assert chain["strategy"] == "goat"
+        assert chain["confidence_pct"] == 72.0
+        # Dedup — second call returns same chain without writing twice
+        chain2 = await obs.record_reasoning_chain(
+            trade_idea_id="abc123",
+            idea_snapshot=idea,
+        )
+        assert chain2["trade_idea_id"] == "abc123"
+        # Update paper_trade_id link
+        ok = await obs.update_paper_trade_id("abc123", "paper_456")
+        assert ok is True
+        got = await obs.get_reasoning_chain("abc123")
+        assert got["paper_trade_id"] == "paper_456"
+        # List recent
+        recent = await obs.list_recent_chains(limit=10)
+        assert len(recent) == 1
+        assert recent[0]["trade_idea_id"] == "abc123"
+
+    asyncio.run(go())
+
+
 def test_streaming_mock_publisher():
     from runtime.portfolio.streaming_scaffold import (
         MockDeltaPublisher, PositionDeltaConsumer, DeltaEvent
