@@ -6,7 +6,11 @@
 #   - NCC Relay (8787), NCC Master (8765): NCC repo removed from this machine
 #   - AAC Monitor (8080): pillar retired
 #   - BRS Dashboard (8000): pillar retired (never shipped)
-# Active services below = NCL Brain + One-Drop + Paperclip + Ollama.
+# Service Paperclip (3100) retired 2026-05-25 (Wave 14G P13): never deployed,
+# cost tracking is owned by runtime/cost_tracker.py inside the Brain.
+# Active services below = NCL Brain + Ollama.
+# One-Drop (8123) is documented as a manual-start dependency — left in place
+# but not auto-started here.
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 YELLOW='\033[1;33m'
@@ -90,37 +94,8 @@ else
     echo -e "  ${YELLOW}⚠ One-Drop not auto-started (no longer co-located with NCC). Start manually if needed.${NC}"
 fi
 
-# ─── 3. Paperclip (:3100) ───────────────────────────────────
-echo -e "${YELLOW}[3/4] Paperclip (:3100)${NC}"
-if curl -s http://localhost:3100/health >/dev/null 2>&1; then
-    echo -e "  ${GREEN}✓ Already running${NC}"
-else
-    clear_port 3100
-    sleep 1
-    nohup $PYTHON -c "
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
-import uvicorn
-from datetime import datetime
-
-app = FastAPI(title='Paperclip Budget Tracker')
-
-@app.get('/health')
-async def health():
-    return JSONResponse({'status': 'ok', 'service': 'paperclip'})
-
-@app.get('/budget/summary')
-async def budget():
-    return JSONResponse({'total_budget': 0, 'spent': 0, 'remaining': 0})
-
-if __name__ == '__main__':
-    uvicorn.run(app, host='127.0.0.1', port=3100)
-" > "$LOGS/paperclip-stdout.log" 2> "$LOGS/paperclip-stderr.log" &
-    wait_for_port 3100 "Paperclip"
-fi
-
-# ─── 4. Ollama (:11434) ─────────────────────────────────────
-echo -e "${YELLOW}[4/4] Ollama (:11434)${NC}"
+# ─── 3. Ollama (:11434) ─────────────────────────────────────
+echo -e "${YELLOW}[3/3] Ollama (:11434)${NC}"
 if curl -s http://localhost:11434/api/tags >/dev/null 2>&1; then
     echo -e "  ${GREEN}✓ Already running${NC}"
 else
@@ -146,7 +121,7 @@ echo -e "${CYAN}============================================${NC}"
 echo ""
 
 ONLINE=0
-TOTAL=4
+TOTAL=3
 check() {
     local name=$1 port=$2 path=${3:-/health} proto=${4:-http}
     if curl -sk "${proto}://localhost:${port}${path}" >/dev/null 2>&1; then
@@ -159,7 +134,6 @@ check() {
 
 check "NCL Brain"     8800 /health
 check "One-Drop"      8123 /health
-check "Paperclip"     3100 /health
 check "Ollama"        11434 /api/tags
 
 echo ""
