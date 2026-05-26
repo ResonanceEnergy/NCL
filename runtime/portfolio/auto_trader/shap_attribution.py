@@ -272,6 +272,31 @@ async def run_attribution_for_strategy(
 
     # Emit memory unit
     await _emit_attribution_memory(brain, attribution)
+
+    # Wave 14K Phase 5 K4a: push source-level lifts into
+    # SourceAuthorityLearner. Non-fatal — never blocks SHAP completion.
+    try:
+        from .self_research import apply_shap_to_authority_learner
+        auth_result = await apply_shap_to_authority_learner(attribution)
+        if auth_result.get("adjustments"):
+            log.info(
+                "[SHAP->K4a] applied %d authority adjustments",
+                len(auth_result["adjustments"]),
+            )
+    except Exception as e:
+        log.warning("[SHAP] K4a authority push skipped: %s", e)
+
+    # Wave 14K Phase 5 K4c: regenerate research topics opportunistically
+    # whenever we have fresh attribution data. Idempotent — same cluster
+    # doesn't generate duplicate topic.
+    try:
+        from .self_research import generate_research_topics
+        new_topics = await generate_research_topics()
+        if new_topics:
+            log.info("[SHAP->K4c] generated %d research topics", len(new_topics))
+    except Exception as e:
+        log.warning("[SHAP] K4c topic generation skipped: %s", e)
+
     return attribution
 
 

@@ -1248,3 +1248,246 @@ def test_streaming_mock_publisher():
         await pub.stop()
 
     asyncio.run(go())
+
+
+# ── Self-research (Wave 14K Phase 5: K4a + K4c + K4d) ─────────────
+
+def test_self_research_cluster_losses():
+    """K4c: losing trades cluster by (dim, value); singleton dims skipped."""
+    from runtime.portfolio.auto_trader.self_research import _cluster_losses
+    losing = [
+        # XLE-sector cluster of 3
+        {"trade_idea_id": "a", "ticker": "XOM", "R_multiple": -0.8,
+         "source": "brief", "sector_etf": "XLE", "stop_type": "atr",
+         "rotation_quadrant": "Lagging"},
+        {"trade_idea_id": "b", "ticker": "CVX", "R_multiple": -1.0,
+         "source": "brief", "sector_etf": "XLE", "stop_type": "atr",
+         "rotation_quadrant": "Lagging"},
+        {"trade_idea_id": "c", "ticker": "EOG", "R_multiple": -0.5,
+         "source": "goat", "sector_etf": "XLE", "stop_type": "price",
+         "rotation_quadrant": "Lagging"},
+        # XLK isolated loss — should NOT form a cluster (n=1 < MIN_CLUSTER_SIZE=3)
+        {"trade_idea_id": "d", "ticker": "NVDA", "R_multiple": -2.0,
+         "source": "bravo", "sector_etf": "XLK", "stop_type": "price",
+         "rotation_quadrant": "Leading"},
+    ]
+    clusters = _cluster_losses(losing)
+    # XLE-sector cluster definitely surfaces (3 losses)
+    sector_clusters = [c for c in clusters if c["feature"] == "sector_etf"]
+    assert any(c["value"] == "XLE" and c["n_losses"] == 3 for c in sector_clusters)
+    # Lagging-rotation cluster also surfaces (3 losses with rotation=Lagging)
+    rotation_clusters = [c for c in clusters if c["feature"] == "rotation_quadrant"]
+    assert any(c["value"] == "Lagging" and c["n_losses"] == 3 for c in rotation_clusters)
+    # Singleton XLK (n=1) must NOT appear
+    assert not any(c["feature"] == "sector_etf" and c["value"] == "XLK" for c in clusters)
+    # avgR computed correctly for XLE: (-0.8 + -1.0 + -0.5)/3 = -0.7667
+    xle = next(c for c in sector_clusters if c["value"] == "XLE")
+    assert abs(xle["avg_R"] - (-0.7667)) < 0.001
+    # Sorted by n_losses desc
+    assert all(clusters[i]["n_losses"] >= clusters[i + 1]["n_losses"]
+               for i in range(len(clusters) - 1))
+
+
+def test_self_research_phrase_topic():
+    """K4c: topic phrasing varies by feature dimension."""
+    from runtime.portfolio.auto_trader.self_research import _phrase_topic
+    # sector_etf branch
+    title, rat = _phrase_topic(
+        {"feature": "sector_etf", "value": "XLE", "n_losses": 4, "avg_R": -0.9}
+    )
+    assert "XLE" in title and "4" in title
+    assert "sector" in rat.lower()
+    # source branch
+    title, rat = _phrase_topic(
+        {"feature": "source", "value": "polymarket", "n_losses": 5, "avg_R": -1.2}
+    )
+    assert "polymarket" in title and "source" in title.lower()
+    # stop_type branch
+    title, _ = _phrase_topic(
+        {"feature": "stop_type", "value": "atr", "n_losses": 3, "avg_R": -0.6}
+    )
+    assert "atr" in title
+    # rotation_quadrant branch
+    title, _ = _phrase_topic(
+        {"feature": "rotation_quadrant", "value": "Lagging", "n_losses": 3, "avg_R": -0.7}
+    )
+    assert "Lagging" in title
+
+
+def test_self_research_brief_context_packet_empty(tmp_path, monkeypatch):
+    """K4d: with no bandit data, no SHAP history, no topics → empty string."""
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    for mod in list(sys.modules.keys()):
+        if mod.startswith("runtime.portfolio.auto_trader"):
+            del sys.modules[mod]
+    from runtime.portfolio.auto_trader import self_research as sr
+    from runtime.portfolio.auto_trader import strategy_bandit as sb
+
+    async def go():
+        sb._BANDIT = None
+        packet = await sr.brief_context_packet()
+        # No bandit data + no SHAP history + no topics → empty
+        assert packet == "" or len(packet.strip()) == 0
+
+    asyncio.run(go())
+
+
+def test_self_research_brief_context_packet_with_data(tmp_path, monkeypatch):
+    """K4d: with strategies recorded + open topic, packet contains both blocks."""
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    for mod in list(sys.modules.keys()):
+        if mod.startswith("runtime.portfolio.auto_trader"):
+            del sys.modules[mod]
+    from runtime.portfolio.auto_trader import self_research as sr
+    from runtime.portfolio.auto_trader import strategy_bandit as sb
+    from dataclasses import asdict
+
+    async def go():
+        sb._BANDIT = None
+        bandit = await sb.get_bandit()
+        # Give goat a record so it surfaces in the packet (need n >= 3)
+        for _ in range(5):
+            await bandit.record_result("goat", win=True, R_multiple=2.0)
+        for _ in range(2):
+            await bandit.record_result("goat", win=False, R_multiple=-1.0)
+        # Pre-seed one open research topic
+        topic = sr.ResearchTopic(
+            topic_id="topic:sector_etf=XLE",
+            title="Why did 3 XLE-sector trades lose (-0.77R avg)?",
+            rationale="Concentrated XLE losses; worth fundamentals dive.",
+            cluster_features={"sector_etf": "XLE"},
+            n_losses=3, avg_R=-0.77,
+            example_trade_idea_ids=["a", "b", "c"],
+            status="open", created_at_iso=sr._now_iso(),
+        )
+        sr._persist_topics([asdict(topic)])
+        packet = await sr.brief_context_packet()
+        assert "STRATEGY EXPECTANCY" in packet
+        assert "goat" in packet
+        assert "OPEN RESEARCH TOPICS" in packet
+        assert "XLE" in packet
+
+    asyncio.run(go())
+
+
+def test_self_research_apply_shap_to_authority_learner(tmp_path, monkeypatch):
+    """K4a: per-source lifts ≥ threshold push counts into SourceAuthorityLearner."""
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    monkeypatch.setenv("NCL_SHAP_AUTH_THRESHOLD", "0.10")
+    # Override SourceAuthorityLearner with an in-memory recorder so we
+    # don't depend on its persistence/snapshot mechanics in the test.
+    calls = []
+
+    class FakeLearner:
+        async def record(self, source, outcome, *, delta=1.0, notes="", **_):
+            calls.append({
+                "source": source, "outcome": outcome,
+                "delta": delta, "notes": notes,
+            })
+            return type("S", (), {"hits": 1, "misses": 0, "partials": 0})
+
+    # Reset module + monkey-patch the learner import
+    for mod in list(sys.modules.keys()):
+        if mod.startswith("runtime.portfolio.auto_trader"):
+            del sys.modules[mod]
+    from runtime.portfolio.auto_trader import self_research as sr
+    import runtime.feedback.source_authority_learner as sal_mod
+    monkeypatch.setattr(sal_mod, "get_learner", lambda: FakeLearner())
+
+    async def go():
+        # Synthetic SHAP output with one positive + one negative source lift
+        attr = {
+            "strategy": "goat",
+            "features": {
+                "source": [
+                    {"value": "polymarket", "n": 8, "lift_vs_overall": -0.25,
+                     "hit_rate": 0.25, "avg_R": -1.0},
+                    {"value": "brief", "n": 10, "lift_vs_overall": 0.20,
+                     "hit_rate": 0.70, "avg_R": 1.5},
+                    {"value": "noise", "n": 5, "lift_vs_overall": 0.02,  # below threshold
+                     "hit_rate": 0.52, "avg_R": 0.1},
+                ],
+                "sector_etf": [
+                    # Non-'source' feature — should be ignored
+                    {"value": "XLK", "n": 7, "lift_vs_overall": 0.30,
+                     "hit_rate": 0.80, "avg_R": 2.0},
+                ],
+            },
+        }
+        result = await sr.apply_shap_to_authority_learner(attr)
+        # 2 adjustments: brief (correct, +0.20) + polymarket (wrong, -0.25)
+        # noise dropped (|lift|<0.10), sector_etf row never inspected
+        adjustments = result["adjustments"]
+        assert len(adjustments) == 2
+        sources_seen = {a["source"] for a in adjustments}
+        assert sources_seen == {"polymarket", "brief"}
+        # Polymarket should be a 'wrong' outcome, brief 'correct'
+        outcomes_by_source = {a["source"]: a["outcome"] for a in adjustments}
+        assert outcomes_by_source["polymarket"] == "wrong"
+        assert outcomes_by_source["brief"] == "correct"
+        # Delta computed: int(round(|lift|*n)), capped at n//2+1
+        # polymarket: round(0.25*8)=2, cap=8//2+1=5 -> 2
+        # brief: round(0.20*10)=2, cap=10//2+1=6 -> 2
+        deltas_by_source = {a["source"]: a["delta"] for a in adjustments}
+        assert deltas_by_source["polymarket"] == 2
+        assert deltas_by_source["brief"] == 2
+        # Fake learner received the same calls
+        call_sources = {c["source"] for c in calls}
+        assert call_sources == {"polymarket", "brief"}
+
+    asyncio.run(go())
+
+
+def test_self_research_resolve_topic(tmp_path, monkeypatch):
+    """K4c: resolve_research_topic moves topic to history."""
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    for mod in list(sys.modules.keys()):
+        if mod.startswith("runtime.portfolio.auto_trader"):
+            del sys.modules[mod]
+    from runtime.portfolio.auto_trader import self_research as sr
+    from dataclasses import asdict
+
+    async def go():
+        topic = sr.ResearchTopic(
+            topic_id="topic:sector_etf=XLE",
+            title="Why did 3 XLE-sector trades lose?",
+            rationale="...",
+            cluster_features={"sector_etf": "XLE"},
+            n_losses=3, avg_R=-0.7,
+            example_trade_idea_ids=[],
+            status="open", created_at_iso=sr._now_iso(),
+        )
+        sr._persist_topics([asdict(topic)])
+        # Open list contains it
+        assert any(t["topic_id"] == "topic:sector_etf=XLE"
+                   for t in sr.list_open_research_topics())
+        # Resolve
+        resolved = await sr.resolve_research_topic(
+            "topic:sector_etf=XLE",
+            resolution_notes="Pulled out XLE — energy regime broken",
+        )
+        assert resolved is not None
+        assert resolved["status"] == "researched"
+        assert resolved["resolution_notes"].startswith("Pulled out XLE")
+        # Open list no longer contains it
+        assert not any(t["topic_id"] == "topic:sector_etf=XLE"
+                       for t in sr.list_open_research_topics())
+        # Unknown topic → None
+        assert await sr.resolve_research_topic("topic:missing") is None
+
+    asyncio.run(go())
+
+
+def test_self_research_topic_id_stable():
+    """K4c: same cluster_features always produce same id (idempotency)."""
+    from runtime.portfolio.auto_trader.self_research import _topic_id_from_cluster
+    id1 = _topic_id_from_cluster({"sector_etf": "XLE"})
+    id2 = _topic_id_from_cluster({"sector_etf": "XLE"})
+    assert id1 == id2
+    # Different value → different id
+    id3 = _topic_id_from_cluster({"sector_etf": "XLK"})
+    assert id1 != id3
+    # Sort-stable: order of keys doesn't matter
+    id_a = _topic_id_from_cluster({"a": "1", "b": "2"})
+    id_b = _topic_id_from_cluster({"b": "2", "a": "1"})
+    assert id_a == id_b

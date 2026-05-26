@@ -588,7 +588,19 @@ async def _execute_stage(
     themes_str = "; ".join(plan.get("themes", [])) or "(no theme designated)"
     seeds_str = json.dumps(plan.get("research_topic_seeds", []), default=str)
 
+    # Wave 14K Phase 5 K4d — self-research context packet. Bandit
+    # posteriors + SHAP findings + open research topics from the
+    # auto-trader. Non-fatal; empty string if anything errors.
+    self_research_packet = ""
+    try:
+        from runtime.portfolio.auto_trader.self_research import brief_context_packet
+        self_research_packet = await brief_context_packet()
+    except Exception as e:
+        log.debug("[BRIEF-EXEC] self_research packet skipped: %s", e)
+
     prompt = f"""You are the EXECUTOR for NATRIX's morning intelligence brief. A PLANNER stage has already analyzed the signal feed and decided what should and should not appear. Your job is to write the brief body as STRUCTURED JSON, with citation arrays linking every claim back to signal ids in the data feed.
+
+{self_research_packet}
 
 PLAN FROM PLANNER:
 - mode: {plan.get("mode")}

@@ -65,6 +65,13 @@ from .strategy_bandit import (  # noqa: F401
 from .shap_attribution import (  # noqa: F401
     maybe_run_attribution, run_attribution_for_strategy,
 )
+from .self_research import (  # noqa: F401
+    apply_shap_to_authority_learner,
+    generate_research_topics,
+    resolve_research_topic,
+    list_open_research_topics,
+    brief_context_packet,
+)
 
 __all__ = [
     "AutoTraderState", "get_state", "is_active", "pause", "resume",
@@ -76,4 +83,7 @@ __all__ = [
     "attribute_close", "attribute_batch", "trigger_to_outcome",
     "StrategyBandit", "StrategyPosterior", "get_bandit",
     "maybe_run_attribution", "run_attribution_for_strategy",
+    "apply_shap_to_authority_learner",
+    "generate_research_topics", "resolve_research_topic",
+    "list_open_research_topics", "brief_context_packet",
 ]

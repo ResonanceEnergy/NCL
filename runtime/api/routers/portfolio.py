@@ -1314,6 +1314,63 @@ async def auto_trader_attribution_run(
     return await run_attribution_for_strategy(brain=brain, strategy=str(strategy))
 
 
+# ── Wave 14K Phase 5 — self-research endpoints ───────────────────
+
+@router.get("/auto-trader/research/topics")
+async def auto_trader_research_topics(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Open research topics — losing-trade clusters the system is
+    failing on. Each topic is a 'what we don't understand' that the
+    next morning brief should help resolve."""
+    from ...portfolio.auto_trader import list_open_research_topics
+    topics = list_open_research_topics()
+    return {"count": len(topics), "topics": topics}
+
+
+@router.post("/auto-trader/research/topics/generate")
+async def auto_trader_research_topics_generate(
+    payload: Optional[dict] = None,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Manually trigger topic-cluster generation. Auto-fires after each
+    SHAP attribution; this endpoint is for on-demand. Body: {lookback_days?}"""
+    from ...portfolio.auto_trader import generate_research_topics
+    lookback = int((payload or {}).get("lookback_days", 14))
+    new_topics = await generate_research_topics(lookback_days=lookback)
+    return {"new_topics": new_topics, "lookback_days": lookback}
+
+
+@router.post("/auto-trader/research/topics/{topic_id}/resolve")
+async def auto_trader_research_topic_resolve(
+    topic_id: str,
+    payload: Optional[dict] = None,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Mark a research topic resolved or dismissed.
+    Body: {resolution_notes?: str, dismiss?: bool}"""
+    from ...portfolio.auto_trader import resolve_research_topic
+    notes = (payload or {}).get("resolution_notes", "")
+    dismiss = bool((payload or {}).get("dismiss", False))
+    result = await resolve_research_topic(
+        topic_id, resolution_notes=notes, dismiss=dismiss,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"Topic {topic_id} not found")
+    return result
+
+
+@router.get("/auto-trader/brief-context-packet")
+async def auto_trader_brief_packet(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Preview the text packet the brief executor prepends — bandit
+    rankings + recent SHAP findings + open research topics."""
+    from ...portfolio.auto_trader import brief_context_packet
+    packet = await brief_context_packet()
+    return {"packet": packet, "char_count": len(packet)}
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Wave 14J out-of-scope finisher endpoints
 # Order PREVIEW (dry-run only — NCL never submits) + backtest replay +
