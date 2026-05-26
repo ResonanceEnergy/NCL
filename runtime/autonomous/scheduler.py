@@ -731,14 +731,20 @@ class AutonomousScheduler:
             brief_prep_loop, brief_council_loop, brief_render_loop,
         )
 
+        # P25 (2026-05-26): attribute is self.brain (set at __init__), NOT
+        # self._brain. The underscore form raises AttributeError at task
+        # start, the loop dies, and the supervisor can't restart because
+        # these names weren't in _task_factories either. Both halves of
+        # the bug fixed below — closures use self.brain and the names get
+        # registered in _task_factories down at line ~789.
         async def _brief_prep():
-            await brief_prep_loop(self._brain)
+            await brief_prep_loop(self.brain)
 
         async def _brief_council():
-            await brief_council_loop(self._brain)
+            await brief_council_loop(self.brain)
 
         async def _brief_render():
-            await brief_render_loop(self._brain)
+            await brief_render_loop(self.brain)
 
         self._tasks.append(asyncio.create_task(_brief_prep(), name="ncl-brief-prep"))
         self._tasks.append(asyncio.create_task(_brief_council(), name="ncl-brief-council"))
@@ -786,6 +792,15 @@ class AutonomousScheduler:
             # stays dead, meaning we lose detection of frozen
             # heartbeats / Rust HNSW deadlocks (the W12 incident class).
             "ncl-stall-watchdog": self._stall_watchdog_loop,
+            # P25 (2026-05-26): Morning Brief Pro 3-stage loops. Without
+            # these entries the supervisor logs "No factory for task
+            # 'ncl-brief-prep' — cannot restart" the moment one of them
+            # raises and stays dead until Brain restart. Wrap each in
+            # a thunk binding self.brain at the call site so the closure
+            # behaves identically to the in-line `_brief_prep` form above.
+            "ncl-brief-prep": lambda: brief_prep_loop(self.brain),
+            "ncl-brief-council": lambda: brief_council_loop(self.brain),
+            "ncl-brief-render": lambda: brief_render_loop(self.brain),
         }
         # 2026-05-22 memory loops (factory registration — only if loaded above)
         try:
