@@ -96,23 +96,44 @@ async def collect_host() -> HostStats:
                 except Exception:
                     pass
                 break
-            if line.startswith("PhysMem:"):
-                # "PhysMem: 24G used (3G wired, 1G compressor), 40G unused."
-                try:
+
+    # Memory via vm_stat — robust across macOS versions (top format varies
+    # widely; Sonoma changed the PhysMem line layout). vm_stat reports in
+    # 4096-byte pages.
+    vm_out = await _run(["/usr/bin/vm_stat"])
+    if vm_out:
+        try:
+            page_size = 4096
+            pages = {}
+            for line in vm_out.split("\n"):
+                if ":" not in line:
+                    continue
+                if "page size of" in line.lower():
                     import re as _re
 
-                    used_m = _re.search(r"(\d+)([KMG])\s*used", line)
-                    unused_m = _re.search(r"(\d+)([KMG])\s*unused", line)
-                    wired_m = _re.search(r"(\d+)([KMG])\s*wired", line)
-                    if used_m:
-                        out.mem_used_gb = _to_gb(used_m.group(1), used_m.group(2))
-                    if unused_m:
-                        out.mem_free_gb = _to_gb(unused_m.group(1), unused_m.group(2))
-                    if wired_m:
-                        out.mem_wired_gb = _to_gb(wired_m.group(1), wired_m.group(2))
-                    out.mem_active_gb = round(out.mem_used_gb - out.mem_wired_gb, 1)
-                except Exception:
+                    ps = _re.search(r"(\d+)", line)
+                    if ps:
+                        page_size = int(ps.group(1))
+                    continue
+                key, _, val = line.partition(":")
+                val = val.strip().rstrip(".")
+                try:
+                    pages[key.strip().lower()] = int(val)
+                except ValueError:
                     pass
+            wired = pages.get("pages wired down", 0)
+            active = pages.get("pages active", 0)
+            inactive = pages.get("pages inactive", 0)
+            compressed = pages.get("pages occupied by compressor", 0)
+            free = pages.get("pages free", 0) + pages.get("pages speculative", 0)
+            used_bytes = (wired + active + compressed) * page_size
+            free_bytes = (free + inactive) * page_size
+            out.mem_wired_gb = round(wired * page_size / (1024 ** 3), 2)
+            out.mem_active_gb = round(active * page_size / (1024 ** 3), 2)
+            out.mem_used_gb = round(used_bytes / (1024 ** 3), 2)
+            out.mem_free_gb = round(free_bytes / (1024 ** 3), 2)
+        except Exception as e:
+            log.debug("[collectors] vm_stat parse: %s", e)
 
     # Disk free via df /
     df_out = await _run(["/bin/df", "-g", "/"])
@@ -230,12 +251,34 @@ def _parse_etime(s: str) -> int:
 # ── TAILSCALE ────────────────────────────────────────────────────────────
 
 
+_TAILSCALE_CANDIDATES = [
+    "/Applications/Tailscale.app/Contents/MacOS/Tailscale",  # Mac App Store install (most common)
+    "/usr/local/bin/tailscale",                              # standalone CLI install
+    "/opt/homebrew/bin/tailscale",                           # Homebrew install
+    "/usr/bin/tailscale",                                    # Linux fallback
+]
+_TAILSCALE_BIN: Optional[str] = None
+
+
+async def _find_tailscale() -> Optional[str]:
+    """Cache the resolved tailscale CLI path on first hit."""
+    global _TAILSCALE_BIN
+    if _TAILSCALE_BIN is not None:
+        return _TAILSCALE_BIN or None
+    for path in _TAILSCALE_CANDIDATES:
+        if os.path.exists(path):
+            _TAILSCALE_BIN = path
+            return path
+    _TAILSCALE_BIN = ""  # mark "we tried, nothing found"
+    return None
+
+
 async def collect_tailscale() -> TailscaleMesh:
     out = TailscaleMesh()
-    raw = await _run(["/usr/local/bin/tailscale", "status", "--json"], timeout=5.0)
-    if not raw:
-        # try Homebrew location too
-        raw = await _run(["/opt/homebrew/bin/tailscale", "status", "--json"], timeout=5.0)
+    bin_path = await _find_tailscale()
+    if not bin_path:
+        return out
+    raw = await _run([bin_path, "status", "--json"], timeout=5.0)
     if not raw:
         return out
 
@@ -329,13 +372,18 @@ def collect_llm_summary(window_minutes: int = 60) -> LLMCallSummary:
                     continue
                 if ts < cutoff:
                     continue
-                cost = float(e.get("cost_usd", 0) or 0)
-                model = e.get("description", "") or e.get("source", "?")
-                # Extract model substring if description has 'claude-...' pattern
-                import re as _re
+                # Cost ledger schema: field is `amount_usd` (not `cost_usd`).
+                # Fall back to cost_usd for forward-compat if it ever appears.
+                cost = float(e.get("amount_usd", e.get("cost_usd", 0)) or 0)
+                # Model lookup priority: metadata.model > detail substring > source
+                meta = e.get("metadata", {}) or {}
+                model_key = meta.get("model")
+                if not model_key:
+                    detail = e.get("detail", "") or e.get("description", "")
+                    import re as _re
 
-                mm = _re.search(r"(claude-[a-z0-9-]+)", model)
-                model_key = mm.group(1) if mm else (e.get("source", "?") or "?")
+                    mm = _re.search(r"(claude-[a-z0-9-]+|gpt-[a-z0-9.-]+)", detail)
+                    model_key = mm.group(1) if mm else (e.get("source", "?") or "?")
                 by_model.setdefault(model_key, {"count": 0, "cost_usd": 0.0})
                 by_model[model_key]["count"] += 1
                 by_model[model_key]["cost_usd"] += cost
