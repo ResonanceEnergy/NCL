@@ -401,9 +401,37 @@ async def build_prep_pack(
     held_task = collect_held_positions(brain)
     wc_task = collect_working_context(brain)
 
-    futures, vix, movers, headlines, polymarket, held, wc = await asyncio.gather(
+    # Wave 14I — Capital Rotation block: sector quadrants + breadth +
+    # style ratios + cycle phase. Each collector is independently
+    # fallable; empty blocks don't fail the pack.
+    async def _rotation_task():
+        try:
+            from .rotation_tracker import build_rotation_snapshot
+            return await build_rotation_snapshot()
+        except Exception as e:
+            log.warning("[brief_prep] rotation snapshot failed: %s", e)
+            return None
+
+    async def _style_task():
+        try:
+            from .style_ratios import build_style_snapshot
+            return await build_style_snapshot()
+        except Exception as e:
+            log.warning("[brief_prep] style ratios failed: %s", e)
+            return None
+
+    async def _cycle_task():
+        try:
+            from .cycle_phase import build_cycle_phase_snapshot
+            return await build_cycle_phase_snapshot()
+        except Exception as e:
+            log.warning("[brief_prep] cycle phase failed: %s", e)
+            return None
+
+    futures, vix, movers, headlines, polymarket, held, wc, rotation, style, cycle = await asyncio.gather(
         futures_task, vix_task, movers_task, headlines_task,
         polymarket_task, held_task, wc_task,
+        _rotation_task(), _style_task(), _cycle_task(),
         return_exceptions=False,
     )
 
@@ -422,6 +450,10 @@ async def build_prep_pack(
         "held_positions": held or [],
         "working_context": wc or {},
         "night_watch_summary": collect_night_watch_summary(),
+        # Wave 14I — Capital Rotation block.
+        "rotation_snapshot": rotation,
+        "style_ratios": style,
+        "cycle_phase": cycle,
     }
     pack["elapsed_s"] = round(time.time() - started, 1)
 

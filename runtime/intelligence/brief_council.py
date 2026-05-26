@@ -47,7 +47,7 @@ _PACK_BUDGET_CHARS = 12000
 
 
 def _macro_prompt(pack: dict) -> str:
-    return f"""You are the MACRO ANALYST on NATRIX's morning brief council. Your job is to read the overnight macro picture and call the direction for today's open.
+    return f"""You are the MACRO ANALYST on NATRIX's morning brief council. Your job is to read the overnight macro picture and call the direction for today's open. Wave 14I adds capital rotation context — use it as a primary input alongside futures and VIX.
 
 PREP PACK:
 {json.dumps({
@@ -57,6 +57,9 @@ PREP PACK:
     "polymarket_leading": pack.get("polymarket_leading"),
     "headlines": pack.get("headlines", [])[:15],
     "night_watch_summary": (pack.get("night_watch_summary") or "")[:2000],
+    "rotation_snapshot": pack.get("rotation_snapshot"),
+    "style_ratios": pack.get("style_ratios"),
+    "cycle_phase": pack.get("cycle_phase"),
 }, default=str)[:_PACK_BUDGET_CHARS]}
 
 Today is {date.today().isoformat()}. Be specific. Cite signal IDs (sig_id field) when referencing news/polymarket items.
@@ -68,8 +71,19 @@ Output ONLY JSON:
   "key_findings": [{{"text": "one sentence", "citations": ["sig_id"]}}],
   "direction_indicators": [
     {{"name": "ES futures", "level_to_watch": "above 4585 = bullish, below 4570 = risk-off", "current": "${{value}}"}},
-    {{"name": "VIX term", "level_to_watch": "backwardation = stress, contango = calm", "current": "..."}}
+    {{"name": "VIX term", "level_to_watch": "backwardation = stress, contango = calm", "current": "..."}},
+    {{"name": "Sector leadership", "level_to_watch": "Leading sectors from RRG quadrant", "current": "..."}},
+    {{"name": "Breadth", "level_to_watch": ">70 = broad, <30 = narrow", "current": "..."}},
+    {{"name": "Cycle phase", "level_to_watch": "early/mid/late/recession", "current": "..."}}
   ],
+  "rotation_regime": {{
+    "current_phase": "early_expansion|mid_cycle|late_cycle|recession|mixed|unknown",
+    "leading_sectors": ["XLE", "XLP", ...],
+    "weakening_sectors": ["XLK", "XLY", ...],
+    "breadth_pct": 64,
+    "active_style_rotations": ["IWM/SPY rotating in (+1.2% 5d)", ...],
+    "one_liner": "Late-cycle with defensives bidding; cyclicals rolling over"
+  }},
   "trade_idea_seeds": [{{"ticker": "SYMBOL", "rationale": "...", "type": "stock|options|futures"}}],
   "watch_list": ["TICKER", ...],
   "confidence": 0.0-1.0
@@ -182,6 +196,7 @@ Synthesis rules:
 3. NO references to pre-2026 dates as forward catalysts. Today is 2026.
 4. Each section text claim must include id= citations from member outputs.
 5. The MARKET OPEN PLAN section is the flagship — make it sharp, actionable, scan-friendly.
+6. ROTATION ALIGNMENT (Wave 14I rule 7d): If the rotation_snapshot in the prep pack identifies Leading sectors, your trade ideas should mostly lean WITH that leadership. If you include trade ideas in Weakening or Lagging sectors, label them as "counter-trend" in the thesis and explain why the catalyst overrides the regime. The Market Open Plan's rotation_regime field MUST reflect the actual current data — don't fabricate a leadership read.
 
 Output ONLY JSON:
 {{

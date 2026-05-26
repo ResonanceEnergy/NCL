@@ -4980,6 +4980,31 @@ async def stocks_scanner_goat(
                 if getattr(meta, "sector", None):
                     r["sector"] = meta.sector
 
+        # Wave 14I — rotation_aligned tag (Leading quadrant check)
+        try:
+            from runtime.intelligence.rotation_tracker import load_latest_rotation
+            _rot = load_latest_rotation()
+            _leading = set(((_rot or {}).get("by_quadrant") or {}).get("Leading") or [])
+        except Exception:
+            _leading = set()
+        _SECTOR_TO_ETF_GOAT = {
+            "Technology": "XLK", "Information Technology": "XLK",
+            "Financials": "XLF", "Financial Services": "XLF",
+            "Energy": "XLE", "Health Care": "XLV", "Healthcare": "XLV",
+            "Industrials": "XLI", "Consumer Staples": "XLP",
+            "Consumer Defensive": "XLP", "Consumer Discretionary": "XLY",
+            "Consumer Cyclical": "XLY", "Materials": "XLB",
+            "Basic Materials": "XLB", "Utilities": "XLU",
+            "Communication Services": "XLC", "Real Estate": "XLRE",
+        }
+        if _leading:
+            for r in results:
+                etf = _SECTOR_TO_ETF_GOAT.get(r.get("sector") or "")
+                r["rotation_aligned"] = bool(etf and etf in _leading)
+                if etf:
+                    r["sector_etf"] = etf
+            scan_meta["rotation_leading_sectors"] = sorted(_leading)
+
         return {
             "results": results,
             "count": len(results),
@@ -5065,7 +5090,7 @@ async def stocks_scanner_bravo(
         if gogo_only:
             results = [r for r in results if r.get("gogo_juice")]
 
-        # Merge names from watchlist, strip exchange suffixes
+        # Merge names + sector from watchlist
         for r in results:
             raw = r["ticker"]
             disp = display_ticker(raw)
@@ -5073,6 +5098,33 @@ async def stocks_scanner_bravo(
             meta = WATCHLIST_MAP.get(raw) or DISPLAY_MAP.get(disp)
             if meta:
                 r["name"] = meta.name
+                if getattr(meta, "sector", None):
+                    r["sector"] = meta.sector
+
+        # Wave 14I — rotation_aligned tag (Leading quadrant check)
+        try:
+            from runtime.intelligence.rotation_tracker import load_latest_rotation
+            _rot = load_latest_rotation()
+            _leading_b = set(((_rot or {}).get("by_quadrant") or {}).get("Leading") or [])
+        except Exception:
+            _leading_b = set()
+        _SECTOR_TO_ETF_BRAVO = {
+            "Technology": "XLK", "Information Technology": "XLK",
+            "Financials": "XLF", "Financial Services": "XLF",
+            "Energy": "XLE", "Health Care": "XLV", "Healthcare": "XLV",
+            "Industrials": "XLI", "Consumer Staples": "XLP",
+            "Consumer Defensive": "XLP", "Consumer Discretionary": "XLY",
+            "Consumer Cyclical": "XLY", "Materials": "XLB",
+            "Basic Materials": "XLB", "Utilities": "XLU",
+            "Communication Services": "XLC", "Real Estate": "XLRE",
+        }
+        if _leading_b:
+            for r in results:
+                etf = _SECTOR_TO_ETF_BRAVO.get(r.get("sector") or "")
+                r["rotation_aligned"] = bool(etf and etf in _leading_b)
+                if etf:
+                    r["sector_etf"] = etf
+            scan_meta["rotation_leading_sectors"] = sorted(_leading_b)
 
         return {
             "results": results,

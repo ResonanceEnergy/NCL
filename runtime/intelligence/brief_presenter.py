@@ -128,6 +128,44 @@ def render_pro_brief(synthesis: dict, pack: dict | None = None) -> dict:
                 else:
                     parts.append(f"  • {_strip_markdown(str(flag))}")
             parts.append("")
+
+        # Wave 14I — ROTATION REGIME sub-block
+        rr = synthesis.get("market_open_plan", {}).get("rotation_regime") or {}
+        if not rr and pack:
+            # Synthesize from prep pack rotation/style/cycle if chair didn't fill it
+            rot = pack.get("rotation_snapshot") or {}
+            cyc = (pack.get("cycle_phase") or {}).get("classification", {})
+            sty = pack.get("style_ratios") or {}
+            rr = {
+                "current_phase": cyc.get("phase"),
+                "leading_sectors": (rot.get("by_quadrant") or {}).get("Leading", []),
+                "weakening_sectors": (rot.get("by_quadrant") or {}).get("Weakening", []),
+                "breadth_pct": (rot.get("breadth") or {}).get("pct"),
+                "active_style_rotations": sty.get("regime_signals", []),
+                "one_liner": rot.get("leadership_summary"),
+            }
+        if rr and any(rr.values()):
+            parts.append("── ROTATION REGIME ──")
+            phase = rr.get("current_phase")
+            if phase:
+                parts.append(f"  • Cycle phase: {phase}")
+            leaders = rr.get("leading_sectors") or []
+            if leaders:
+                parts.append(f"  • Leading sectors: {', '.join(leaders)}")
+            weakening = rr.get("weakening_sectors") or []
+            if weakening:
+                parts.append(f"  • Weakening: {', '.join(weakening)}")
+            breadth = rr.get("breadth_pct")
+            if breadth is not None:
+                state = ("broad" if breadth >= 70 else "narrow" if breadth <= 30 else "neutral")
+                parts.append(f"  • Breadth: {breadth}% sectors above 50d SMA ({state})")
+            style_rotations = rr.get("active_style_rotations") or []
+            for s in style_rotations[:4]:
+                parts.append(f"  • {_strip_markdown(str(s))}")
+            one_liner = rr.get("one_liner")
+            if one_liner:
+                parts.append(f"  • Read: {_strip_markdown(one_liner)}")
+            parts.append("")
         parts.append("")
 
     # ── EXECUTIVE SUMMARY ──
@@ -206,6 +244,11 @@ def render_pro_brief(synthesis: dict, pack: dict | None = None) -> dict:
                 parts.append("")
 
     text = "\n".join(parts)
+
+    # Wave 14I — ensure the rotation_regime block lives in
+    # market_open_plan so iOS can render it as a structured surface.
+    if rr and isinstance(mop, dict) and "rotation_regime" not in mop:
+        mop = {**mop, "rotation_regime": rr}
 
     envelope = {
         "date": today,
