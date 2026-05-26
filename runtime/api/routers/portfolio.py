@@ -187,6 +187,14 @@ async def portfolio_positions(
 
     try:
         positions = pm.get_positions(account_filter=account)
+        # Wave 14J J0b: enrich with operator-set R-fields (entry/stop/
+        # R_dollars/target/thesis/risk_status/position_key). Non-destructive;
+        # missing R-fields surface as risk_status='unset', R_dollars=null.
+        try:
+            from ...portfolio.position_risk_state import enrich_positions_with_risk
+            positions = await enrich_positions_with_risk(positions)
+        except Exception as e:
+            log.warning("[positions] R-field enrichment failed (non-fatal): %s", e)
         return {
             "positions": positions,
             "total_positions": len(positions),
@@ -1069,6 +1077,106 @@ def _find_adapter(pm, name: str):
         if a is not None:
             return a
     return None
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Wave 14J Phase 1 (J0b) — Position risk state (R-fields) endpoints
+# Operator-set entry/stop/R_dollars/target/thesis per position-key.
+# Backed by runtime/portfolio/position_risk_state.py.
+# ──────────────────────────────────────────────────────────────────────
+
+@router.get("/risk-state")
+async def portfolio_risk_state(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """All position-keys with R-fields set, plus portfolio-level aggregations
+    (total_R_at_risk, by_strategy, by_broker). Drives J1a heat-cap math
+    in Wave 14J Phase 2."""
+    from ...portfolio.position_risk_state import get_risk_store
+    store = await get_risk_store()
+    keys = await store.all_keys()
+    state_by_key = await store.get_many(keys)
+    aggregate = await store.aggregate()
+    return {
+        "positions": state_by_key,
+        "aggregate": aggregate,
+    }
+
+
+@router.get("/risk-state/{position_key:path}")
+async def portfolio_risk_state_one(
+    position_key: str,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """R-fields for a single position-key (broker:account:symbol)."""
+    from ...portfolio.position_risk_state import get_risk_store
+    store = await get_risk_store()
+    risk = await store.get(position_key)
+    if risk is None:
+        raise HTTPException(status_code=404, detail=f"No risk state for {position_key}")
+    return risk
+
+
+@router.patch("/risk-state")
+async def portfolio_risk_state_patch(
+    payload: dict,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Set or update R-fields for a position. Partial updates allowed.
+
+    Required: broker, account_id, symbol.
+    Optional: qty, entry_price, stop_price, stop_type
+              (price|atr|volatility|time|thesis_break), stop_basis,
+              target_price, target_basis, thesis, risk_status
+              (unset|at_risk|break_even|profit|stopped_out|closed),
+              metadata (free-form dict; reserve `strategy_tag` for J1a).
+
+    Auto-computes R_dollars = |entry_price - stop_price| * |qty| when all
+    three are present. Auto-flips risk_status from 'unset' to 'at_risk'
+    on first set of entry+stop."""
+    from ...portfolio.position_risk_state import get_risk_store
+    required = ("broker", "account_id", "symbol")
+    missing = [k for k in required if not payload.get(k)]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Missing required: {missing}")
+    store = await get_risk_store()
+    try:
+        result = await store.set(
+            broker=str(payload["broker"]),
+            account_id=str(payload["account_id"]),
+            symbol=str(payload["symbol"]),
+            qty=payload.get("qty"),
+            entry_price=payload.get("entry_price"),
+            stop_price=payload.get("stop_price"),
+            stop_type=payload.get("stop_type"),
+            stop_basis=payload.get("stop_basis"),
+            target_price=payload.get("target_price"),
+            target_basis=payload.get("target_basis"),
+            thesis=payload.get("thesis"),
+            risk_status=payload.get("risk_status"),
+            metadata=payload.get("metadata"),
+        )
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve)) from ve
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"set failed: {e}") from e
+    return result
+
+
+@router.delete("/risk-state/{position_key:path}")
+async def portfolio_risk_state_delete(
+    position_key: str,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Remove R-fields for a position-key (e.g. position closed +
+    archived). Use PATCH with risk_status='closed' instead if you want
+    to keep the record for audit / expectancy attribution."""
+    from ...portfolio.position_risk_state import get_risk_store
+    store = await get_risk_store()
+    ok = await store.clear(position_key)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"No risk state for {position_key}")
+    return {"status": "cleared", "position_key": position_key}
 
 
 # ──────────────────────────────────────────────────────────────────────
