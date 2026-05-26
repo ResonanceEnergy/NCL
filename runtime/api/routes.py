@@ -5005,6 +5005,43 @@ async def stocks_scanner_goat(
                     r["sector_etf"] = etf
             scan_meta["rotation_leading_sectors"] = sorted(_leading)
 
+        # Wave 14J J1a+J1b — risk governor tagging. For each scanner result,
+        # estimate a hypothetical R (1% of price as a rough stop distance ×
+        # 100 share unit), submit to the governor, and attach the decision
+        # so iOS / brief can show whether the trade FITS in the current
+        # heat + drawdown envelope. Soft-tag — does NOT filter out results.
+        try:
+            from runtime.portfolio.risk_governor import check_proposed_trade, heat_summary
+            _gov_heat = await heat_summary()
+            scan_meta["risk_governor"] = {
+                "band": _gov_heat.get("band"),
+                "sizing_multiplier": _gov_heat.get("sizing_multiplier"),
+                "remaining_strategy_R": (_gov_heat.get("by_strategy") or {}).get("goat", {}).get("remaining_R"),
+            }
+            for r in results:
+                px = float(r.get("price") or r.get("last_price") or 0)
+                if px <= 0:
+                    r["governor_decision"] = None
+                    continue
+                # Rough R proxy: 1 share unit × 5% stop distance.
+                # The brief/scanner doesn't yet ship operator-set stops
+                # (that's J1c next). This is a sanity check, not a sizing.
+                hypo_R = px * 0.05
+                dec = await check_proposed_trade(
+                    strategy_tag="goat",
+                    R_dollars_proposed=hypo_R,
+                    symbol=r.get("symbol") or r.get("ticker"),
+                    broker=None,
+                )
+                r["governor_decision"] = {
+                    "decision": dec.get("decision"),
+                    "approved": dec.get("approved"),
+                    "effective_R_dollars": dec.get("effective_R_dollars"),
+                    "proposed_R_dollars": dec.get("proposed_R_dollars"),
+                }
+        except Exception as e:
+            log.debug("[goat] governor tagging failed (non-fatal): %s", e)
+
         return {
             "results": results,
             "count": len(results),
@@ -5125,6 +5162,36 @@ async def stocks_scanner_bravo(
                 if etf:
                     r["sector_etf"] = etf
             scan_meta["rotation_leading_sectors"] = sorted(_leading_b)
+
+        # Wave 14J J1a+J1b — risk governor tagging (same shape as GOAT).
+        try:
+            from runtime.portfolio.risk_governor import check_proposed_trade, heat_summary
+            _gov_heat_b = await heat_summary()
+            scan_meta["risk_governor"] = {
+                "band": _gov_heat_b.get("band"),
+                "sizing_multiplier": _gov_heat_b.get("sizing_multiplier"),
+                "remaining_strategy_R": (_gov_heat_b.get("by_strategy") or {}).get("bravo", {}).get("remaining_R"),
+            }
+            for r in results:
+                px = float(r.get("price") or r.get("last_price") or 0)
+                if px <= 0:
+                    r["governor_decision"] = None
+                    continue
+                hypo_R = px * 0.05
+                dec = await check_proposed_trade(
+                    strategy_tag="bravo",
+                    R_dollars_proposed=hypo_R,
+                    symbol=r.get("symbol") or r.get("ticker"),
+                    broker=None,
+                )
+                r["governor_decision"] = {
+                    "decision": dec.get("decision"),
+                    "approved": dec.get("approved"),
+                    "effective_R_dollars": dec.get("effective_R_dollars"),
+                    "proposed_R_dollars": dec.get("proposed_R_dollars"),
+                }
+        except Exception as e:
+            log.debug("[bravo] governor tagging failed (non-fatal): %s", e)
 
         return {
             "results": results,

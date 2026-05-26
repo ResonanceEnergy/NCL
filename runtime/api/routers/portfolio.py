@@ -1080,6 +1080,63 @@ def _find_adapter(pm, name: str):
 
 
 # ──────────────────────────────────────────────────────────────────────
+# Wave 14J Phase 2 (J1a + J1b) — Risk governor endpoints
+# Single gate composing per-strategy heat caps with the drawdown
+# multiplier. Every consumer (scanners, brief executor, paper trading,
+# iOS dashboard) calls this before proposing new risk.
+# Backed by runtime/portfolio/risk_governor.py.
+# ──────────────────────────────────────────────────────────────────────
+
+@router.get("/risk-governor/heat")
+async def portfolio_risk_governor_heat(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Current heat utilization (% of cap used) by strategy + total.
+    Shape: nav_cad, band, sizing_multiplier, budgets_pct, total (current_R,
+    cap_R, utilization, remaining_R), by_strategy (same shape per bucket).
+    """
+    from ...portfolio.risk_governor import heat_summary
+    return await heat_summary()
+
+
+@router.post("/risk-governor/check")
+async def portfolio_risk_governor_check(
+    payload: dict,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Submit a hypothetical trade for governor approval.
+
+    Required: strategy_tag, R_dollars_proposed.
+    Optional: symbol, broker, nav_cad_override (testing).
+
+    Returns approved/decision/reasons + effective_R_dollars (after
+    drawdown multiplier) + full heat snapshot. Caller decides what to
+    do with the answer — the governor is advisory at the REST surface;
+    scanners + executors call check_proposed_trade() directly + treat
+    `approved=False` as a hard block.
+    """
+    from ...portfolio.risk_governor import check_proposed_trade
+    required = ("strategy_tag", "R_dollars_proposed")
+    missing = [k for k in required if k not in payload]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Missing required: {missing}")
+    try:
+        return await check_proposed_trade(
+            strategy_tag=str(payload["strategy_tag"]),
+            R_dollars_proposed=float(payload["R_dollars_proposed"]),
+            symbol=payload.get("symbol"),
+            broker=payload.get("broker"),
+            nav_cad_override=(
+                float(payload["nav_cad_override"])
+                if payload.get("nav_cad_override") is not None
+                else None
+            ),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"check failed: {e}") from e
+
+
+# ──────────────────────────────────────────────────────────────────────
 # Wave 14J Phase 1 (J0c) — Global drawdown bucket endpoints
 # Single-source-of-truth drawdown band; read by all autonomous loops +
 # scanners + brief pipeline + paper trading BEFORE proposing new sizing.
