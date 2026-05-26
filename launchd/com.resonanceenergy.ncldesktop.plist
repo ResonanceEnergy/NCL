@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.resonanceenergy.ncldesktop</string>
+
+    <!-- Run the binary directly (not via /usr/bin/open) so launchd tracks
+         the actual app PID — required for KeepAlive to detect crashes.
+         Works for menu-bar apps with LSUIElement=YES. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Applications/NCL Desktop.app/Contents/MacOS/NCL Desktop</string>
+    </array>
+
+    <!-- Fire at login + keep alive if killed (Brain crashes shouldn't take
+         the menu-bar app with them). -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+        <key>Crashed</key>
+        <true/>
+    </dict>
+
+    <!-- ProcessType Interactive so it gets foreground scheduling priority
+         (it's a GUI app). -->
+    <key>ProcessType</key>
+    <string>Interactive</string>
+
+    <!-- Throttle restart attempts (no thrash if /Applications/NCL Desktop.app
+         is missing). -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/ncl-desktop.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/ncl-desktop.err.log</string>
+</dict>
+</plist>
