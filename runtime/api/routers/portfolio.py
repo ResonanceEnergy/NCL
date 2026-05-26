@@ -1499,6 +1499,21 @@ async def auto_trader_friction_calibrate(
     return result
 
 
+@router.get("/auto-trader/circuit-breakers")
+async def auto_trader_circuit_breakers(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """K7a: status of the auto-trader's per-dep circuit breakers
+    (drawdown_bucket, risk_governor, trade_idea_tracker, paper_engine).
+    Each shows fails count, open/closed, remaining quarantine seconds."""
+    from ...portfolio.hygiene import all_breaker_statuses
+    all_breakers = all_breaker_statuses()
+    # Filter to auto_trader: prefix to keep the response focused
+    at_breakers = [b for b in all_breakers
+                   if b.get("name", "").startswith("auto_trader:")]
+    return {"count": len(at_breakers), "breakers": at_breakers}
+
+
 @router.get("/auto-trader/dashboard")
 async def auto_trader_dashboard(
     _: None = Depends(verify_strike_token_dep),

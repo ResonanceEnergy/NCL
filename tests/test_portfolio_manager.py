@@ -1931,6 +1931,228 @@ def test_friction_maybe_calibrate_skips_off_interval(tmp_path, monkeypatch):
     asyncio.run(go())
 
 
+# ── Phase 8 K7a: circuit breaker integration ─────────────────────
+
+def test_circuit_breaker_opens_after_3_failures(tmp_path, monkeypatch):
+    """K7a: standard three-strike pattern. Verifies the auto-trader's
+    bound CircuitBreaker behaves as expected when called repeatedly."""
+    from runtime.portfolio.hygiene import CircuitBreaker
+
+    async def go():
+        cb = CircuitBreaker("test_dep", fail_threshold=3, skip_seconds=60)
+        assert cb.is_open() is False
+        cb.record_failure()
+        cb.record_failure()
+        assert cb.is_open() is False  # not yet at threshold
+        cb.record_failure()
+        assert cb.is_open() is True   # crossed threshold
+        # Success resets
+        cb.record_success()
+        assert cb.is_open() is False
+
+    asyncio.run(go())
+
+
+# ── Phase 8 K7b: crash-recovery replay ────────────────────────────
+
+def test_crash_recovery_replays_state_from_disk(tmp_path, monkeypatch):
+    """K7b: state.json + drift_state.json + friction_profiles.json +
+    research_topics.json all survive a simulated process restart."""
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    for mod in list(sys.modules.keys()):
+        if mod.startswith("runtime.portfolio.auto_trader"):
+            del sys.modules[mod]
+
+    from runtime.portfolio.auto_trader import state as st_mod
+    from runtime.portfolio.auto_trader import drift_detector as dd_mod
+    from runtime.portfolio.auto_trader import friction_profile as fp_mod
+    from runtime.portfolio.auto_trader import self_research as sr_mod
+
+    # Point all modules' DATA_DIRs at the tmp tree
+    data_dir = tmp_path / "data" / "portfolio" / "auto_trader"
+    for mod_obj, attr_pairs in [
+        (st_mod, [("DATA_DIR", data_dir), ("STATE_FILE", data_dir / "state.json")]),
+        (dd_mod, [("DATA_DIR", data_dir),
+                  ("STATE_FILE", data_dir / "drift_state.json"),
+                  ("EVENTS_FILE", data_dir / "drift_events.jsonl")]),
+        (fp_mod, [("DATA_DIR", data_dir),
+                  ("STATE_FILE", data_dir / "friction_profiles.json"),
+                  ("CALIB_LOG", data_dir / "friction_calibrations.jsonl")]),
+        (sr_mod, [("DATA_DIR", data_dir),
+                  ("TOPICS_FILE", data_dir / "research_topics.json"),
+                  ("TOPICS_HISTORY", data_dir / "research_topics_history.jsonl")]),
+    ]:
+        for attr, val in attr_pairs:
+            monkeypatch.setattr(mod_obj, attr, val)
+
+    # Reset all singletons / caches
+    st_mod._STATE = None
+    dd_mod._STATE.clear()
+    dd_mod._LOADED = False
+    fp_mod._STATE.clear()
+    fp_mod._LOADED = False
+
+    async def populate():
+        # 1) Auto-trader state: pause it with a reason
+        await st_mod._update(active=True, paused_by="operator",
+                             pause_reason="pre-crash test",
+                             paused_at_iso=st_mod._now_iso())
+        await st_mod.record_tick(evaluated=3, opened=1, rejected=2,
+                                  last_seen_id="abc-pre-crash")
+        # 2) Drift detector: feed some observations
+        for _ in range(10):
+            await dd_mod.update("goat", win=True)
+        # 3) Friction: override
+        await fp_mod.update_profile("goat", slippage_bps=8.5)
+        # 4) Research topic: persist one open
+        from dataclasses import asdict
+        topic = sr_mod.ResearchTopic(
+            topic_id="topic:sector_etf=XLE",
+            title="Test topic", rationale="for crash recovery",
+            cluster_features={"sector_etf": "XLE"},
+            n_losses=3, avg_R=-0.5,
+            example_trade_idea_ids=["x", "y"],
+            status="open", created_at_iso=sr_mod._now_iso(),
+        )
+        sr_mod._persist_topics([asdict(topic)])
+
+    asyncio.run(populate())
+
+    # SIMULATE CRASH: reset every singleton + cache to force disk reload
+    st_mod._STATE = None
+    dd_mod._STATE.clear()
+    dd_mod._LOADED = False
+    fp_mod._STATE.clear()
+    fp_mod._LOADED = False
+
+    async def recover_and_check():
+        # State recovered with pause + counters
+        s = await st_mod.get_state()
+        assert s.active is True
+        assert s.paused_by == "operator"
+        assert s.pause_reason == "pre-crash test"
+        # Counters MAY have rolled-over if UTC midnight crossed during
+        # test — be tolerant about exact values but verify last_seen
+        assert s.last_seen_trade_idea_id == "abc-pre-crash"
+        # Drift detector recovered with n=10
+        ds = await dd_mod.get_strategy_state("goat")
+        assert ds is not None
+        assert ds["n"] == 10
+        assert ds["running_mean"] > 0.5
+        # Friction recovered
+        fp = await fp_mod.get_profile("goat")
+        assert fp.slippage_bps == 8.5
+        # Research topic recovered
+        topics = sr_mod.list_open_research_topics()
+        assert any(t["topic_id"] == "topic:sector_etf=XLE" for t in topics)
+
+    asyncio.run(recover_and_check())
+
+
+# ── Phase 8 K7c: full lifecycle integration ───────────────────────
+
+def test_full_lifecycle_integration(tmp_path, monkeypatch):
+    """K7c: end-to-end flow exercising every wave-14K module.
+
+    1. trade_idea_tracker.record_emission → idea persisted
+    2. trade_idea_tracker.update_outcome("target_hit") → R_multiple computed
+    3. bandit.record_result → posterior updates
+    4. drift_detector.update → STABLE early on
+    5. friction_profile.get + apply_friction_to_payload → entry shifted
+    6. self_research._cluster_losses on synthetic losses → cluster surfaces
+    7. graduation_gate.evaluate → sample-size failure reason
+    Each step verifies the contract the next step depends on, so a
+    regression in any module surfaces here even if its own unit test
+    passes."""
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    monkeypatch.setenv("NCL_GRAD_REQUIRE_CYCLE_OK", "0")
+    monkeypatch.setenv("NCL_DRIFT_MIN_N", "100")  # don't trigger drift in this test
+    for mod in list(sys.modules.keys()):
+        if mod.startswith("runtime.portfolio"):
+            del sys.modules[mod]
+
+    from runtime.portfolio import trade_idea_tracker as tit
+    from runtime.portfolio.auto_trader import (
+        strategy_bandit as sb, drift_detector as dd,
+        friction_profile as fp, graduation_gate as gg,
+        self_research as sr,
+    )
+
+    # Isolate modules with file constants
+    data_dir = tmp_path / "data" / "portfolio" / "auto_trader"
+    monkeypatch.setattr(dd, "DATA_DIR", data_dir)
+    monkeypatch.setattr(dd, "STATE_FILE", data_dir / "drift_state.json")
+    monkeypatch.setattr(dd, "EVENTS_FILE", data_dir / "drift_events.jsonl")
+    monkeypatch.setattr(fp, "DATA_DIR", data_dir)
+    monkeypatch.setattr(fp, "STATE_FILE", data_dir / "friction_profiles.json")
+    monkeypatch.setattr(fp, "CALIB_LOG", data_dir / "friction_calibrations.jsonl")
+    tit._TRACKER = None
+    sb._BANDIT = None
+    dd._STATE.clear(); dd._LOADED = False
+    fp._STATE.clear(); fp._LOADED = False
+
+    async def go():
+        tracker = await tit.get_trade_idea_tracker()
+        bandit = await sb.get_bandit()
+        # STEP 1: emit a trade idea
+        idea = await tracker.record_emission(
+            source="brief", strategy="goat", ticker="NVDA",
+            direction="long", entry_price=100.0, stop_price=95.0,
+            target_price=115.0, R_per_share=5.0, planned_qty=20,
+        )
+        tid = idea["trade_idea_id"]
+
+        # STEP 2: friction injection
+        profile = await fp.get_profile("goat", asset_type="stock")
+        profile.slippage_bps = 50.0  # 0.50% for unambiguous assertion
+        payload = {
+            "symbol": "NVDA", "direction": "long", "asset_type": "stock",
+            "entry_price": 100.0, "quantity": 20, "scanner_data": {},
+        }
+        out = fp.apply_friction_to_payload(payload, profile)
+        assert abs(out["entry_price"] - 100.5) < 1e-6  # paid 50 bps more
+
+        # STEP 3: close the idea as target_hit
+        closed = await tracker.update_outcome(
+            tid, outcome="target_hit", exit_price=115.0,
+        )
+        assert closed is not None
+        assert closed["R_multiple"] is not None
+        assert closed["R_multiple"] > 0  # win
+
+        # STEP 4: bandit records win
+        await bandit.record_result("goat", win=True, R_multiple=closed["R_multiple"])
+        p = await bandit.posterior("goat")
+        assert p["n_observed"] == 1
+        assert p["n_wins"] == 1
+        assert p["mean"] > 0.5  # Beta(2, 1) mean is 2/3
+
+        # STEP 5: drift detector — STABLE early
+        drift_r = await dd.update("goat", win=True)
+        assert drift_r["status"] == "STABLE"  # MIN_N=100, can't fire yet
+
+        # STEP 6: synthetic losing cluster for research topic surfacing
+        losing = [
+            {"trade_idea_id": f"loss-{i}", "ticker": "XOM",
+             "R_multiple": -0.8 - i * 0.1, "source": "brief",
+             "sector_etf": "XLE", "stop_type": "atr",
+             "rotation_quadrant": "Lagging"}
+            for i in range(3)
+        ]
+        clusters = sr._cluster_losses(losing)
+        assert any(c["feature"] == "sector_etf" and c["value"] == "XLE"
+                   for c in clusters)
+
+        # STEP 7: graduation evaluation — sample-size failure (only 1 close)
+        report = await gg.evaluate("goat")
+        sample_crit = next(c for c in report["criteria"]
+                           if c["name"] == "min_sample_size")
+        assert sample_crit["passed"] is False
+        assert report["graduated"] is False
+
+    asyncio.run(go())
+
+
 def test_self_research_topic_id_stable():
     """K4c: same cluster_features always produce same id (idempotency)."""
     from runtime.portfolio.auto_trader.self_research import _topic_id_from_cluster

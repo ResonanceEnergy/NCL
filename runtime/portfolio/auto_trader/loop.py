@@ -159,21 +159,39 @@ async def auto_trader_loop(brain) -> None:
     from ..risk_governor import check_proposed_trade
     from ..trade_idea_tracker import get_trade_idea_tracker
     from ..paper_trading import PaperTradingEngine
+    # Wave 14K Phase 8 K7a — circuit breakers around external deps so a
+    # failing governor / tracker / quote feed doesn't crash the loop or
+    # spam logs. Three-strike pattern: 3 consecutive failures opens the
+    # breaker for 10 min, then auto-resets.
+    from ..hygiene import get_circuit_breaker
 
     paper = PaperTradingEngine()
+    cb_drawdown = await get_circuit_breaker("auto_trader:drawdown_bucket")
+    cb_governor = await get_circuit_breaker("auto_trader:risk_governor")
+    cb_tracker = await get_circuit_breaker("auto_trader:trade_idea_tracker")
+    cb_paper = await get_circuit_breaker("auto_trader:paper_engine")
 
     while True:
         try:
             tick_secs = TICK_MARKET if _is_market_open() else TICK_OFFHOURS
             # 1) Check drawdown band first (sets state side-effect)
-            try:
-                bucket = await get_drawdown_bucket()
-                dd_state = await bucket.get_state()
-                band = dd_state.get("band", "green")
-                await set_drawdown_halt(band == "halt", band=band)
-            except Exception as e:
-                log.warning("[AT-LOOP] drawdown read failed (continuing): %s", e)
+            #    K7a: circuit-breaker wrapped — if drawdown subsystem is
+            #    failing, skip the check but continue the loop (safer to
+            #    keep evaluating than to halt on a degraded sensor).
+            if cb_drawdown.is_open():
+                log.debug("[AT-LOOP] drawdown breaker OPEN, skipping band check")
                 band = None
+            else:
+                try:
+                    bucket = await get_drawdown_bucket()
+                    dd_state = await bucket.get_state()
+                    band = dd_state.get("band", "green")
+                    await set_drawdown_halt(band == "halt", band=band)
+                    cb_drawdown.record_success()
+                except Exception as e:
+                    cb_drawdown.record_failure()
+                    log.warning("[AT-LOOP] drawdown read failed (continuing): %s", e)
+                    band = None
 
             # 2) Active check (state.is_active() ANDs together
             #    active + not paused + not drawdown_halt)
@@ -193,8 +211,21 @@ async def auto_trader_loop(brain) -> None:
                 continue
 
             # 4) Pull recently-emitted ideas
-            tracker = await get_trade_idea_tracker()
-            all_ideas = await tracker.list_by_strategy(None)
+            #    K7a: tracker breaker — if the tracker is broken, we
+            #    have nothing to do this tick; skip to next.
+            if cb_tracker.is_open():
+                log.debug("[AT-LOOP] tracker breaker OPEN, skipping tick")
+                await asyncio.sleep(tick_secs)
+                continue
+            try:
+                tracker = await get_trade_idea_tracker()
+                all_ideas = await tracker.list_by_strategy(None)
+                cb_tracker.record_success()
+            except Exception as e:
+                cb_tracker.record_failure()
+                log.warning("[AT-LOOP] tracker read failed: %s", e)
+                await asyncio.sleep(tick_secs)
+                continue
             # Filter to outcome=="emitted" and issued AFTER last_seen
             last_seen_iso = state.last_seen_trade_idea_id or ""
             # `list_by_strategy` returns ideas sorted by issued_at_iso DESC;
@@ -242,14 +273,27 @@ async def auto_trader_loop(brain) -> None:
                 proposed_R = rps * planned_qty if rps > 0 else 0.0
                 gov = None
                 if proposed_R > 0:
-                    try:
-                        gov = await check_proposed_trade(
-                            strategy_tag=str(strat),
-                            R_dollars_proposed=proposed_R,
-                            symbol=ticker,
+                    # K7a: governor breaker — if the governor is failing,
+                    # default to REJECT (safest: no sizing without a gate).
+                    if cb_governor.is_open():
+                        log.debug(
+                            "[AT-LOOP] governor breaker OPEN, defaulting REJECT for %s",
+                            ticker,
                         )
-                    except Exception as e:
-                        log.warning("[AT-LOOP] governor check failed: %s", e)
+                        gov = {"approved": False,
+                               "decision": "reject",
+                               "reason": "governor circuit-breaker open"}
+                    else:
+                        try:
+                            gov = await check_proposed_trade(
+                                strategy_tag=str(strat),
+                                R_dollars_proposed=proposed_R,
+                                symbol=ticker,
+                            )
+                            cb_governor.record_success()
+                        except Exception as e:
+                            cb_governor.record_failure()
+                            log.warning("[AT-LOOP] governor check failed: %s", e)
 
                 # 6) Apply auto-bar
                 eligible, reason = await auto_open_eligible(idea, gov, policy=policy)
@@ -297,9 +341,17 @@ async def auto_trader_loop(brain) -> None:
                     payload = apply_friction_to_payload(payload, profile)
                 except Exception as e:
                     log.warning("[AT-LOOP] friction injection skipped: %s", e)
+                # K7a: paper-engine breaker — if create_trade is failing
+                # repeatedly we want to stop hammering it.
+                if cb_paper.is_open():
+                    log.debug("[AT-LOOP] paper breaker OPEN, skipping %s open", ticker)
+                    rejected += 1
+                    continue
                 try:
                     pt = paper.create_trade(payload)
+                    cb_paper.record_success()
                 except Exception as e:
+                    cb_paper.record_failure()
                     log.error(
                         "[AT-LOOP] create_trade FAILED for %s: %s", ticker, e,
                     )
