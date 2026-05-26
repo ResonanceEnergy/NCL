@@ -763,6 +763,20 @@ class AutonomousScheduler:
             asyncio.create_task(_drawdown_bucket(), name="ncl-drawdown-bucket")
         )
 
+        # ── Wave 14K Phase 2 — auto-trader decision loop ─────────────
+        # PAPER TRADING ONLY. Default state.active=False; the loop
+        # idles until operator POST /portfolio/auto-trader/resume.
+        # Cadence is internal (60s market / 300s off-hours).
+        # See runtime/portfolio/auto_trader/loop.py.
+        from ..portfolio.auto_trader.loop import auto_trader_loop
+
+        async def _auto_trader():
+            await auto_trader_loop(self.brain)
+
+        self._tasks.append(
+            asyncio.create_task(_auto_trader(), name="ncl-auto-trader-loop")
+        )
+
         # Attach a done-callback to every task so a silent crash (unobserved
         # task exception) gets logged instead of disappearing.
         def _task_done(task: asyncio.Task) -> None:
@@ -817,6 +831,9 @@ class AutonomousScheduler:
             # Wave 14J J0c — global drawdown bucket. Supervisor restart
             # factory mirrors the brief-* lambda pattern.
             "ncl-drawdown-bucket": lambda: drawdown_bucket_loop(self.brain),
+            # Wave 14K Phase 2 — auto-trader decision loop. Same lambda
+            # pattern so supervisor can restart on crash.
+            "ncl-auto-trader-loop": lambda: auto_trader_loop(self.brain),
         }
         # 2026-05-22 memory loops (factory registration — only if loaded above)
         try:

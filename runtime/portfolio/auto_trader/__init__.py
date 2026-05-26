@@ -54,10 +54,12 @@ from .observability import (  # noqa: F401
     get_reasoning_chain,
     list_recent_chains,
 )
+from .loop import auto_trader_loop  # noqa: F401
 
 __all__ = [
     "AutoTraderState", "get_state", "is_active", "pause", "resume",
     "AutoTraderPolicy", "default_policy", "get_policy", "update_policy",
     "auto_open_eligible",
     "record_reasoning_chain", "get_reasoning_chain", "list_recent_chains",
+    "auto_trader_loop",
 ]

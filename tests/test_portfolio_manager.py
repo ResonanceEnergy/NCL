@@ -960,6 +960,54 @@ def test_auto_open_eligible_counter_trend_blocked(tmp_path, monkeypatch):
     asyncio.run(go())
 
 
+def test_auto_trader_loop_idea_to_payload():
+    """K1b: trade_idea_id stitched into paper_trade.scanner_data so
+    Phase 3 outcome attribution can find the originating idea."""
+    from runtime.portfolio.auto_trader.loop import _idea_to_paper_payload
+    idea = {
+        "trade_idea_id": "aaa111",
+        "ticker": "NVDA",
+        "direction": "long",
+        "type": "stock",
+        "strategy_tag": "goat",
+        "thesis": "Blackwell + AI capex",
+        "entry_price": 180.0,
+        "stop_price": 170.0,
+        "target_price": 220.0,
+        "R_per_share": 10.0,
+        "stop_type": "atr",
+        "stop_basis": "2x ATR below 50d SMA",
+        "target_basis": "prior swing high",
+        "sources": ["sig_1", "sig_2"],
+        "issued_at_iso": "2026-05-26T10:00:00+00:00",
+        "rotation_quadrant": "Leading",
+        "rotation_stance": "with_trend",
+        "confidence_pct": 70,
+    }
+    payload = _idea_to_paper_payload(idea, qty=50)
+    assert payload["symbol"] == "NVDA"
+    assert payload["entry_price"] == 180.0
+    assert payload["stop_loss"] == 170.0
+    assert payload["target_1"] == 220.0
+    assert payload["quantity"] == 50
+    assert payload["strategy"] == "goat"
+    # K1b critical assertion: trade_idea_id round-trips into scanner_data
+    assert payload["scanner_data"]["trade_idea_id"] == "aaa111"
+    assert payload["scanner_data"]["sources"] == ["sig_1", "sig_2"]
+    assert payload["scanner_data"]["rotation_stance"] == "with_trend"
+    assert payload["scanner_data"]["R_per_share_at_emit"] == 10.0
+
+
+def test_auto_trader_market_open_classifier():
+    """The loop picks cadence by market-hours; sanity-check the helper
+    even though the gates are governor/drawdown not market-hours."""
+    from runtime.portfolio.auto_trader.loop import _is_market_open
+    from datetime import datetime, timezone
+    # Saturday -> closed
+    sat_noon_utc = datetime(2026, 5, 30, 14, 0, tzinfo=timezone.utc)
+    assert _is_market_open(sat_noon_utc) is False
+
+
 def test_auto_trader_observability_record_and_dedup(tmp_path, monkeypatch):
     monkeypatch.setenv("NCL_BASE", str(tmp_path))
     for mod in list(sys.modules.keys()):
