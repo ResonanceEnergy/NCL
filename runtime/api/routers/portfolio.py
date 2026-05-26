@@ -1080,6 +1080,69 @@ def _find_adapter(pm, name: str):
 
 
 # ──────────────────────────────────────────────────────────────────────
+# Wave 14J Phase 1 (J0c) — Global drawdown bucket endpoints
+# Single-source-of-truth drawdown band; read by all autonomous loops +
+# scanners + brief pipeline + paper trading BEFORE proposing new sizing.
+# Backed by runtime/portfolio/drawdown_bucket.py.
+# ──────────────────────────────────────────────────────────────────────
+
+@router.get("/drawdown")
+async def portfolio_drawdown(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Current portfolio drawdown state. Returns:
+       - current_nav_cad, peak_nav_cad, peak_date
+       - drawdown_pct (negative = below peak)
+       - band ('green'|'caution'|'warning'|'halt')
+       - sizing_multiplier (1.00 / 0.75 / 0.50 / 0.00)
+       - last_transition_at / last_transition_from
+       - manual_peak_override (operator-pinned HWM, optional)
+       - sample_count (snapshots replayed in the lookback window)
+    """
+    from ...portfolio.drawdown_bucket import get_drawdown_state
+    return await get_drawdown_state()
+
+
+@router.post("/drawdown/recompute")
+async def portfolio_drawdown_recompute(
+    pm=Depends(get_portfolio_mgr),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Force an immediate recompute against the current portfolio NAV.
+    Useful for /sync follow-up or operator-initiated state refresh
+    between the 60s scheduler ticks."""
+    from ...portfolio.drawdown_bucket import get_drawdown_bucket
+    pm = _require_manager(pm)
+    summary = pm.get_summary("CAD")
+    current_nav = float(summary.get("total_value", 0) or 0)
+    bucket = await get_drawdown_bucket()
+    return await bucket.compute(current_nav)
+
+
+@router.post("/drawdown/peak-override")
+async def portfolio_drawdown_peak_override(
+    payload: dict,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Operator override — pin the trailing high-water mark to a specific
+    CAD value. Set `peak_nav_cad` to a number to pin; set to null (or
+    omit) to clear the override and revert to snapshot-replayed peak.
+
+    Use case: known deliberate withdrawal or capital injection that
+    would otherwise make the drawdown calculation misleading."""
+    from ...portfolio.drawdown_bucket import get_drawdown_bucket
+    peak_val = payload.get("peak_nav_cad")
+    if peak_val is not None:
+        try:
+            peak_val = float(peak_val)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="peak_nav_cad must be a number or null")
+    note = str(payload.get("note", ""))
+    bucket = await get_drawdown_bucket()
+    return await bucket.set_manual_peak(peak_val, note=note)
+
+
+# ──────────────────────────────────────────────────────────────────────
 # Wave 14J Phase 1 (J0b) — Position risk state (R-fields) endpoints
 # Operator-set entry/stop/R_dollars/target/thesis per position-key.
 # Backed by runtime/portfolio/position_risk_state.py.

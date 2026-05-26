@@ -750,6 +750,19 @@ class AutonomousScheduler:
         self._tasks.append(asyncio.create_task(_brief_council(), name="ncl-brief-council"))
         self._tasks.append(asyncio.create_task(_brief_render(), name="ncl-brief-render"))
 
+        # ── Wave 14J J0c — global drawdown bucket (60s) ──────────────
+        # Single source of truth read by all autonomous loops + scanners
+        # + brief pipeline + paper trading BEFORE proposing new sizing.
+        # See runtime/portfolio/drawdown_bucket.py.
+        from ..portfolio.drawdown_bucket import drawdown_bucket_loop
+
+        async def _drawdown_bucket():
+            await drawdown_bucket_loop(self.brain)
+
+        self._tasks.append(
+            asyncio.create_task(_drawdown_bucket(), name="ncl-drawdown-bucket")
+        )
+
         # Attach a done-callback to every task so a silent crash (unobserved
         # task exception) gets logged instead of disappearing.
         def _task_done(task: asyncio.Task) -> None:
@@ -801,6 +814,9 @@ class AutonomousScheduler:
             "ncl-brief-prep": lambda: brief_prep_loop(self.brain),
             "ncl-brief-council": lambda: brief_council_loop(self.brain),
             "ncl-brief-render": lambda: brief_render_loop(self.brain),
+            # Wave 14J J0c — global drawdown bucket. Supervisor restart
+            # factory mirrors the brief-* lambda pattern.
+            "ncl-drawdown-bucket": lambda: drawdown_bucket_loop(self.brain),
         }
         # 2026-05-22 memory loops (factory registration — only if loaded above)
         try:
