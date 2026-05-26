@@ -1080,6 +1080,134 @@ def _find_adapter(pm, name: str):
 
 
 # ──────────────────────────────────────────────────────────────────────
+# Wave 14J out-of-scope finisher endpoints
+# Order PREVIEW (dry-run only — NCL never submits) + backtest replay +
+# manual-entry adapter + quote-source chain stats.
+# ──────────────────────────────────────────────────────────────────────
+
+@router.post("/orders/preview")
+async def portfolio_orders_preview(
+    payload: dict,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Dry-run a proposed order. Returns governor decision + per-broker
+    payload strings for the OPERATOR to copy into their broker UI.
+    NCL does not submit. Submission is operator-only."""
+    from ...portfolio.order_preview import preview_order
+    required = ("symbol", "side", "qty")
+    missing = [k for k in required if k not in payload]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Missing: {missing}")
+    try:
+        return await preview_order(
+            symbol=str(payload["symbol"]),
+            side=str(payload["side"]),
+            qty=float(payload["qty"]),
+            order_type=str(payload.get("order_type", "market")),
+            limit_price=(
+                float(payload["limit_price"])
+                if payload.get("limit_price") is not None else None
+            ),
+            stop_price=(
+                float(payload["stop_price"])
+                if payload.get("stop_price") is not None else None
+            ),
+            time_in_force=str(payload.get("time_in_force", "DAY")),
+            broker=payload.get("broker"),
+            account_id=payload.get("account_id"),
+            strategy_tag=payload.get("strategy_tag"),
+            trade_idea_id=payload.get("trade_idea_id"),
+            estimated_R_dollars=(
+                float(payload["estimated_R_dollars"])
+                if payload.get("estimated_R_dollars") is not None else None
+            ),
+        )
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve)) from ve
+
+
+@router.get("/backtest/replay")
+async def portfolio_backtest_replay(
+    lookback_days: int = Query(default=90, ge=1, le=365),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Replay historical trade ideas through CURRENT risk_governor
+    config. Counter-factual: what would heat caps + drawdown bands
+    have done if today's config had been in place?"""
+    from ...portfolio.backtest_harness import replay_window
+    return await replay_window(lookback_days=lookback_days)
+
+
+@router.get("/manual/positions")
+async def portfolio_manual_positions(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """List positions from the manual-entry adapter (cold storage etc.)."""
+    from ...portfolio.manual_adapter import get_manual_adapter
+    m = await get_manual_adapter()
+    positions = await m.fetch_positions()
+    accounts = await m.fetch_accounts()
+    return {
+        "accounts": accounts,
+        "positions": positions,
+        "health": m.health(),
+    }
+
+
+@router.post("/manual/position")
+async def portfolio_manual_add_position(
+    payload: dict,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Add a position to the manual-entry adapter."""
+    from ...portfolio.manual_adapter import get_manual_adapter
+    required = ("symbol", "account_id", "quantity")
+    missing = [k for k in required if k not in payload]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Missing: {missing}")
+    m = await get_manual_adapter()
+    return await m.add_position(payload)
+
+
+@router.delete("/manual/position/{symbol}")
+async def portfolio_manual_remove_position(
+    symbol: str,
+    account_id: Optional[str] = Query(default=None),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Remove all positions matching symbol [+ optional account_id]."""
+    from ...portfolio.manual_adapter import get_manual_adapter
+    m = await get_manual_adapter()
+    removed = await m.remove_position(symbol, account_id=account_id)
+    return {"symbol": symbol, "account_id": account_id, "removed": removed}
+
+
+@router.put("/manual/account")
+async def portfolio_manual_upsert_account(
+    payload: dict,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Upsert a manual-entry account."""
+    from ...portfolio.manual_adapter import get_manual_adapter
+    m = await get_manual_adapter()
+    try:
+        return await m.set_account(payload)
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve)) from ve
+
+
+@router.get("/quote-source/stats")
+async def portfolio_quote_source_stats(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Stats from the default quote chain — which sources are serving,
+    miss counts, top-10 most-missed symbols."""
+    from ...portfolio.quote_source import default_quote_chain
+    chain = default_quote_chain()
+    return chain.stats()
+
+
+# ──────────────────────────────────────────────────────────────────────
 # Wave 14J deferred-items finisher endpoints
 # J4b spec-ID + J5a/b/c on-chain journal + J7c slippage + J8d settle.
 # ──────────────────────────────────────────────────────────────────────

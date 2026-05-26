@@ -523,10 +523,12 @@ def test_slippage_arrival_bps_short():
 
 
 def test_slippage_record_and_rollup(tmp_path, monkeypatch):
-    monkeypatch.setenv("NCL_BASE", str(tmp_path))
-    if "runtime.portfolio.slippage_tracker" in sys.modules:
-        del sys.modules["runtime.portfolio.slippage_tracker"]
+    """Patch the module's path constants directly so the test is
+    immune to import-cache pollution from earlier tests."""
     from runtime.portfolio import slippage_tracker as slip
+    test_file = tmp_path / "slippage.jsonl"
+    monkeypatch.setattr(slip, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(slip, "SLIP_FILE", test_file)
 
     async def go():
         tr = slip.SlippageTracker()
@@ -540,8 +542,9 @@ def test_slippage_record_and_rollup(tmp_path, monkeypatch):
             fill_price=200.20, arrival_price=200.00,
             vwap_benchmark_price=200.10, strategy="goat",
         )
+        assert test_file.exists(), f"expected {test_file} written"
         roll = await tr.by_strategy(lookback_days=30)
-        assert "goat" in roll
+        assert "goat" in roll, f"roll keys = {list(roll.keys())}"
         assert roll["goat"]["n_fills"] == 2
         assert roll["goat"]["arrival_mean_bps"] > 0  # both adverse
 
@@ -579,3 +582,208 @@ def test_cash_view_settled_vs_unsettled():
     assert cv["settled_today"] >= 1000  # at least the first equity + crypto
     # Second equity (-500) unsettled
     assert cv["unsettled_outflow"] == -500
+
+
+# ── Out-of-scope finisher tests ─────────────────────────────────
+
+def test_order_preview_validates_inputs():
+    from runtime.portfolio.order_preview import preview_order
+    async def go():
+        # Limit order without limit_price should reject
+        try:
+            await preview_order(symbol="NVDA", side="buy", qty=100,
+                                order_type="limit")
+            raise AssertionError("expected ValueError on missing limit_price")
+        except ValueError:
+            pass
+    asyncio.run(go())
+
+
+def test_order_preview_market_buy(tmp_path, monkeypatch):
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    for mod in [
+        "runtime.portfolio.order_preview",
+        "runtime.portfolio.risk_governor",
+        "runtime.portfolio.drawdown_bucket",
+        "runtime.portfolio.position_risk_state",
+        "runtime.portfolio.tax_compliance",
+        "runtime.portfolio.tax_lot_ledger",
+        "runtime.portfolio.trade_cost_ledger",
+    ]:
+        sys.modules.pop(mod, None)
+    from runtime.portfolio.order_preview import preview_order
+
+    async def go():
+        result = await preview_order(
+            symbol="NVDA", side="buy", qty=100, order_type="market",
+            broker="ibkr", account_id="DU1", strategy_tag="goat",
+        )
+        assert result["is_preview_only"] is True
+        assert result["submission_blocked"] is True
+        # Should never have a 'submitted' flag, ever
+        assert "submitted" not in result
+        # IBKR payload should be present
+        assert "ibkr" in result["submission_payloads"]
+        assert "IS_PREVIEW_ONLY" in result["submission_payloads"]["ibkr"]
+        # All payloads carry the preview-only sentinel
+        for broker, payload in result["submission_payloads"].items():
+            if broker == "note":
+                continue
+            assert "IS_PREVIEW_ONLY" in payload
+
+    asyncio.run(go())
+
+
+def test_order_preview_rejected_governor(tmp_path, monkeypatch):
+    """Sized over the heat cap, the governor should reject."""
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    for mod in [
+        "runtime.portfolio.order_preview",
+        "runtime.portfolio.risk_governor",
+        "runtime.portfolio.drawdown_bucket",
+        "runtime.portfolio.position_risk_state",
+        "runtime.portfolio.tax_compliance",
+        "runtime.portfolio.tax_lot_ledger",
+        "runtime.portfolio.trade_cost_ledger",
+    ]:
+        sys.modules.pop(mod, None)
+    from runtime.portfolio.order_preview import preview_order
+    from runtime.portfolio.drawdown_bucket import get_drawdown_bucket
+
+    async def go():
+        # Reset drawdown to green
+        bucket = await get_drawdown_bucket()
+        await bucket.set_manual_peak(None, note="")
+        await bucket.compute(100000.0)
+        # 50K R proposal — over the 10% total cap at NAV 100K (10K)
+        result = await preview_order(
+            symbol="NVDA", side="buy", qty=100,
+            strategy_tag="goat", broker="ibkr",
+            estimated_R_dollars=50000.0,
+        )
+        assert result["is_preview_only"] is True
+        gov = result.get("governor_decision")
+        assert gov is not None
+        assert gov["approved"] is False
+        # The warnings array should call out the rejection
+        assert any("REJECTED" in w for w in result["warnings"])
+
+    asyncio.run(go())
+
+
+def test_backtest_replay_empty_window(tmp_path, monkeypatch):
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    for mod in [
+        "runtime.portfolio.backtest_harness",
+        "runtime.portfolio.risk_governor",
+        "runtime.portfolio.drawdown_bucket",
+    ]:
+        sys.modules.pop(mod, None)
+    from runtime.portfolio.backtest_harness import replay_window
+
+    async def go():
+        # No ideas file -> graceful empty
+        out = await replay_window(lookback_days=30)
+        assert out["period"]["n_ideas"] == 0
+
+    asyncio.run(go())
+
+
+def test_manual_adapter_lifecycle(tmp_path, monkeypatch):
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    for mod in ["runtime.portfolio.manual_adapter"]:
+        sys.modules.pop(mod, None)
+    from runtime.portfolio.manual_adapter import ManualAdapter
+
+    async def go():
+        m = ManualAdapter()
+        await m.connect()
+        assert m.is_connected() is True
+        # Empty file -> empty cache
+        positions = await m.fetch_positions()
+        assert positions == []
+        # Add a BTC cold-storage position
+        await m.add_position({
+            "symbol": "BTC", "account_id": "cold-1",
+            "quantity": 0.5, "avg_cost": 45000.0, "current_price": 90000.0,
+            "asset_class": "crypto", "currency": "USD",
+        })
+        positions = await m.fetch_positions()
+        assert len(positions) == 1
+        assert positions[0]["symbol"] == "BTC"
+        # Quote fetch returns empty (no feed)
+        quotes = await m.fetch_quotes(["BTC"])
+        assert quotes == {}
+        # Health reports correctly
+        h = m.health()
+        assert h["connected"] is True
+        assert h["positions_cached"] == 1
+        # Remove
+        n = await m.remove_position("BTC")
+        assert n == 1
+        positions = await m.fetch_positions()
+        assert positions == []
+
+    asyncio.run(go())
+
+
+def test_quote_source_static_override():
+    from runtime.portfolio.quote_source import StaticOverrideSource
+
+    async def go():
+        src = StaticOverrideSource({"NVDA": 185.50, "AAPL": 200.0})
+        assert await src.get("NVDA") == 185.50
+        assert await src.get("nvda") == 185.50  # case-insensitive
+        assert await src.get("UNKNOWN") is None
+
+    asyncio.run(go())
+
+
+def test_quote_source_chain_falls_through():
+    from runtime.portfolio.quote_source import QuoteChain, StaticOverrideSource
+
+    async def go():
+        # First source has NVDA but not AAPL; second has AAPL
+        chain = QuoteChain([
+            StaticOverrideSource({"NVDA": 185.0}),
+            StaticOverrideSource({"AAPL": 200.0}),
+        ])
+        assert await chain.get("NVDA") == 185.0
+        assert chain.last_source["NVDA"] == "static_override"
+        assert await chain.get("AAPL") == 200.0
+        assert await chain.get("MISSING") is None
+        assert chain.miss_count["MISSING"] == 1
+
+    asyncio.run(go())
+
+
+def test_streaming_mock_publisher():
+    from runtime.portfolio.streaming_scaffold import (
+        MockDeltaPublisher, PositionDeltaConsumer, DeltaEvent
+    )
+
+    async def go():
+        cache = []
+        consumer = PositionDeltaConsumer(position_cache=cache)
+        pub = MockDeltaPublisher(broker="MOCK")
+        pub.subscribe(consumer.on_delta)
+        await pub.start()
+        # Emit a fill
+        await pub.emit_test(
+            symbol="NVDA", broker="MOCK", account_id="A1",
+            qty_delta=100, new_qty=100, price=185.50,
+        )
+        assert consumer.deltas_applied == 1
+        assert len(cache) == 1
+        assert cache[0]["symbol"] == "NVDA"
+        assert cache[0]["quantity"] == 100
+        # Another delta on same position updates qty
+        await pub.emit_test(
+            symbol="NVDA", broker="MOCK", account_id="A1",
+            qty_delta=-30, new_qty=70, price=186.00,
+        )
+        assert cache[0]["quantity"] == 70
+        assert cache[0]["current_price"] == 186.00
+        await pub.stop()
+
+    asyncio.run(go())
