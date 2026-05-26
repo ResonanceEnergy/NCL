@@ -1080,6 +1080,218 @@ def _find_adapter(pm, name: str):
 
 
 # ──────────────────────────────────────────────────────────────────────
+# Wave 14J Phase 4-8 endpoints (rotation execution, tax, polymarket,
+# telemetry, hygiene). All read-only / advisory.
+# ──────────────────────────────────────────────────────────────────────
+
+@router.get("/rotation/pacing/{ticker}")
+async def portfolio_rotation_pacing(
+    ticker: str,
+    sector_etf: Optional[str] = Query(default=None),
+    days_in_quadrant: Optional[int] = Query(default=None),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """J3a: Pacing plan + breadth veto + stance for a single ticker."""
+    from ...portfolio.rotation_execution import annotate_trade_idea
+    try:
+        from runtime.intelligence.rotation_tracker import load_latest_rotation
+        snap = load_latest_rotation()
+    except Exception:
+        snap = None
+    idea = {
+        "ticker": ticker.upper(),
+        "sector_etf": sector_etf,
+        "days_in_quadrant": days_in_quadrant,
+        "direction": "long",
+    }
+    return annotate_trade_idea(idea, rotation_snapshot=snap)
+
+
+@router.get("/tax/wash-sale-check/{symbol}")
+async def portfolio_tax_wash_check(
+    symbol: str,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """J4a: Check for recent realized losses on `symbol` that would
+    trigger wash-sale disallowance if a new position opens today."""
+    from ...portfolio.tax_compliance import get_wash_sale_ledger
+    led = await get_wash_sale_ledger()
+    flagged = await led.check_open(symbol=symbol)
+    return {"symbol": symbol.upper(), "flagged": len(flagged), "entries": flagged}
+
+
+@router.post("/tax/wash-sale-record")
+async def portfolio_tax_wash_record(
+    payload: dict,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """J4a: Record a realized loss in the cross-account wash-sale ledger."""
+    from ...portfolio.tax_compliance import get_wash_sale_ledger
+    required = ("symbol", "broker", "account_id", "loss_date", "loss_amount")
+    missing = [k for k in required if k not in payload]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Missing: {missing}")
+    led = await get_wash_sale_ledger()
+    return await led.record_loss(
+        symbol=str(payload["symbol"]),
+        broker=str(payload["broker"]),
+        account_id=str(payload["account_id"]),
+        loss_date=str(payload["loss_date"]),
+        loss_amount=float(payload["loss_amount"]),
+        notes=str(payload.get("notes", "")),
+    )
+
+
+@router.get("/tax/lt-cliff")
+async def portfolio_tax_lt_cliff(
+    pm=Depends(get_portfolio_mgr),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """J4c: Positions approaching the long-term holding cliff (>= 340 days)."""
+    from ...portfolio.tax_compliance import lt_cliff_scan
+    pm = _require_manager(pm)
+    positions = pm.get_positions(account_filter="all")
+    flagged = lt_cliff_scan(positions)
+    return {"count": len(flagged), "positions": flagged}
+
+
+@router.post("/tax/earnings-sizer")
+async def portfolio_tax_earnings_sizer(
+    payload: dict,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """J4d: Get size modifier given days_to_earnings.
+    Body: {days_to_earnings: int|null}."""
+    from ...portfolio.tax_compliance import earnings_size_modifier
+    from dataclasses import asdict
+    d = payload.get("days_to_earnings")
+    m = earnings_size_modifier(d if d is None else int(d))
+    return asdict(m)
+
+
+@router.post("/polymarket/kelly")
+async def portfolio_polymarket_kelly(
+    payload: dict,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """J6a: Fractional-Kelly size with resolution-time discount."""
+    from ...portfolio.polymarket_discipline import kelly_size
+    required = ("prob_estimated", "prob_market", "bankroll_usd")
+    missing = [k for k in required if k not in payload]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Missing: {missing}")
+    return kelly_size(
+        prob_estimated=float(payload["prob_estimated"]),
+        prob_market=float(payload["prob_market"]),
+        bankroll_usd=float(payload["bankroll_usd"]),
+        days_to_resolution=(
+            int(payload["days_to_resolution"])
+            if payload.get("days_to_resolution") is not None else None
+        ),
+        fractional=float(payload.get("fractional", 0.25)),
+    )
+
+
+@router.post("/polymarket/cluster-id")
+async def portfolio_polymarket_cluster_id(
+    payload: dict,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """J6b: Derive a resolution_cluster_id from market metadata."""
+    from ...portfolio.polymarket_discipline import cluster_id_from_metadata
+    return {"cluster_id": cluster_id_from_metadata(payload or {})}
+
+
+@router.post("/polymarket/liquidity-cap")
+async def portfolio_polymarket_liquidity_cap(
+    payload: dict,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """J6c: Cap proposed size at N% of opposite-side liquidity."""
+    from ...portfolio.polymarket_discipline import liquidity_cap
+    required = ("proposed_size_usd", "orderbook_depth_usd")
+    missing = [k for k in required if k not in payload]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Missing: {missing}")
+    return liquidity_cap(
+        proposed_size_usd=float(payload["proposed_size_usd"]),
+        orderbook_depth_usd=float(payload["orderbook_depth_usd"]),
+        cap_pct=float(payload.get("cap_pct", 10.0)),
+    )
+
+
+@router.get("/telemetry/risk-adjusted")
+async def portfolio_telemetry_risk_adjusted(
+    lookback_days: int = Query(default=365, ge=2, le=3650),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """J7b: Sharpe / Sortino / Calmar / Recovery Factor from snapshots."""
+    from ...portfolio.telemetry import risk_adjusted_returns
+    return risk_adjusted_returns(lookback_days=lookback_days)
+
+
+@router.get("/telemetry/drift")
+async def portfolio_telemetry_drift(
+    pm=Depends(get_portfolio_mgr),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """J7d: Target-weight drift alerts vs current allocation."""
+    from ...portfolio.telemetry import drift_alerts, load_target_weights
+    pm = _require_manager(pm)
+    summary = pm.get_summary("CAD")
+    target = load_target_weights()
+    alerts = drift_alerts(summary, target=target)
+    return {"target": target, "alerts": alerts, "count": len(alerts)}
+
+
+@router.put("/telemetry/target-weights")
+async def portfolio_telemetry_set_target(
+    payload: dict,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """J7d: Persist operator-set target weights."""
+    from ...portfolio.telemetry import save_target_weights
+    return save_target_weights(payload)
+
+
+@router.get("/hygiene/stale-quotes")
+async def portfolio_hygiene_stale(
+    pm=Depends(get_portfolio_mgr),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """J8a: Tag every position with staleness metadata."""
+    from ...portfolio.hygiene import stale_quote_check
+    pm = _require_manager(pm)
+    positions = pm.get_positions(account_filter="all")
+    out = []
+    for p in positions:
+        s = stale_quote_check(p)
+        s["symbol"] = p.get("symbol")
+        out.append(s)
+    return {"count": len(out), "positions": out}
+
+
+@router.get("/hygiene/auth-expiry")
+async def portfolio_hygiene_auth_expiry(
+    warn_hours: int = Query(default=48, ge=1, le=720),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """J8b: Tokens expiring within `warn_hours` (+ already-expired)."""
+    from ...portfolio.hygiene import auth_expiry_alerts
+    alerts = auth_expiry_alerts(warn_hours=warn_hours)
+    return {"warn_hours": warn_hours, "count": len(alerts), "alerts": alerts}
+
+
+@router.get("/hygiene/circuit-breakers")
+async def portfolio_hygiene_breakers(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """J8c: Per-adapter circuit-breaker statuses."""
+    from ...portfolio.hygiene import all_breaker_statuses
+    return {"breakers": all_breaker_statuses()}
+
+
+# ──────────────────────────────────────────────────────────────────────
 # Wave 14J Phase 3 (J2a + J2c) — Options portfolio Greeks + DTE / pin risk
 # Net delta/gamma/theta/vega across the entire options book, plus 21-DTE
 # management triggers and Friday pin-risk scanner.

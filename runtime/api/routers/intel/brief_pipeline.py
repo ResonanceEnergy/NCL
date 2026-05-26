@@ -453,6 +453,29 @@ def _filter_signals_for_executor(brief, plan: dict, lane_resolvers: dict) -> dic
     return out
 
 
+def _annotate_rotation_execution(executor_out: dict) -> None:
+    """Wave 14J J3a/b/c — apply rotation pacing + breadth veto + stance
+    tagging to each trade idea. Reads today's rotation snapshot and
+    mutates each idea in-place to add:
+        rotation_quadrant, rotation_stance, rotation_pacing,
+        breadth_veto
+    Non-fatal — silently skipped if rotation data isn't available."""
+    ideas = executor_out.get("trade_ideas")
+    if not isinstance(ideas, list):
+        return
+    try:
+        from runtime.intelligence.rotation_tracker import load_latest_rotation
+        from runtime.portfolio.rotation_execution import annotate_trade_idea
+        snap = load_latest_rotation()
+        if snap is None:
+            return
+        for idea in ideas:
+            if isinstance(idea, dict):
+                annotate_trade_idea(idea, rotation_snapshot=snap)
+    except Exception as e:
+        log.debug("[J3] rotation annotation skipped: %s", e)
+
+
 def _stamp_trade_idea_ids(executor_out: dict) -> None:
     """Wave 14J J1c — every trade_idea gets a stable trade_idea_id so the
     J1d expectancy tracker can attribute outcomes. UUID4-derived hex, 16
@@ -1473,6 +1496,9 @@ async def run_brief_pipeline(brief, held_tickers: set[str], api_key: str, lane_r
     # Wave 14J J1c — stamp every trade_idea with a stable UUID so J1d
     # (per-strategy expectancy) can attribute outcomes back to the issue.
     _stamp_trade_idea_ids(executor_out)
+    # Wave 14J J3a/b/c — annotate ideas with rotation pacing + breadth
+    # veto + stance vs current rotation quadrants.
+    _annotate_rotation_execution(executor_out)
     stages.append("executor")
 
     # CRITIQUE — local critic is free; LLM critic is gated separately
