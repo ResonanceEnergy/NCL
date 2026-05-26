@@ -72,6 +72,19 @@ from .self_research import (  # noqa: F401
     list_open_research_topics,
     brief_context_packet,
 )
+from .drift_detector import (  # noqa: F401
+    update as drift_update,
+    get_strategy_state as drift_get_state,
+    all_states as drift_all_states,
+    reset_strategy as drift_reset_strategy,
+    maybe_auto_pause as drift_maybe_auto_pause,
+    STABLE, DRIFT_DOWN, DRIFT_UP,
+)
+from .graduation_gate import (  # noqa: F401
+    evaluate as graduation_evaluate,
+    evaluate_all as graduation_evaluate_all,
+    list_graduated_strategies,
+)
 
 __all__ = [
     "AutoTraderState", "get_state", "is_active", "pause", "resume",
@@ -86,4 +99,10 @@ __all__ = [
     "apply_shap_to_authority_learner",
     "generate_research_topics", "resolve_research_topic",
     "list_open_research_topics", "brief_context_packet",
+    # Wave 14K Phase 6 (K5a/b/c/d)
+    "drift_update", "drift_get_state", "drift_all_states",
+    "drift_reset_strategy", "drift_maybe_auto_pause",
+    "STABLE", "DRIFT_DOWN", "DRIFT_UP",
+    "graduation_evaluate", "graduation_evaluate_all",
+    "list_graduated_strategies",
 ]

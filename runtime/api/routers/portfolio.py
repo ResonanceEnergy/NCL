@@ -1371,6 +1371,72 @@ async def auto_trader_brief_packet(
     return {"packet": packet, "char_count": len(packet)}
 
 
+# ── Wave 14K Phase 6 — drift + graduation endpoints ────────────────
+
+@router.get("/auto-trader/drift")
+async def auto_trader_drift_all(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Per-strategy Page-Hinkley drift detector state. Each entry shows
+    n_observed, running_mean hit rate, m_down/m_up cumulative statistics,
+    recent-window hit rate, last drift signal timestamp + reason."""
+    from ...portfolio.auto_trader import drift_all_states
+    states = await drift_all_states()
+    return {"count": len(states), "strategies": states}
+
+
+@router.get("/auto-trader/drift/{strategy}")
+async def auto_trader_drift_one(
+    strategy: str,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Single-strategy drift state."""
+    from ...portfolio.auto_trader import drift_get_state
+    state = await drift_get_state(strategy)
+    if state is None:
+        raise HTTPException(status_code=404, detail=f"No drift state for {strategy}")
+    return state
+
+
+@router.post("/auto-trader/drift/{strategy}/reset")
+async def auto_trader_drift_reset(
+    strategy: str,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Operator reset (after intentional re-spec). Clears PH statistics +
+    window but preserves lifetime drift counters in the events JSONL."""
+    from ...portfolio.auto_trader import drift_reset_strategy
+    cleared = await drift_reset_strategy(strategy)
+    if not cleared:
+        raise HTTPException(status_code=404, detail=f"No drift state for {strategy}")
+    return {"strategy": strategy, "reset": True}
+
+
+@router.get("/auto-trader/graduation")
+async def auto_trader_graduation_all(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Run graduation gate over every strategy known to trade_idea_tracker.
+    Returns one report per strategy + a _summary block listing which are
+    graduated / failing."""
+    from ...portfolio.auto_trader import graduation_evaluate_all
+    return await graduation_evaluate_all()
+
+
+@router.get("/auto-trader/graduation/{strategy}")
+async def auto_trader_graduation_one(
+    strategy: str,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Multi-criteria graduation report for a single strategy.
+
+    Wave 14K NEVER auto-promotes — this is decision support for the
+    operator. A 'graduated:true' report means all criteria pass and the
+    strategy is a candidate for review, not an instruction to go live."""
+    from ...portfolio.auto_trader import graduation_evaluate
+    return await graduation_evaluate(strategy)
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Wave 14J out-of-scope finisher endpoints
 # Order PREVIEW (dry-run only — NCL never submits) + backtest replay +

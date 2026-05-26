@@ -202,6 +202,27 @@ async def attribute_close(
     except Exception as e:
         log.warning("[AT-ATTR] SHAP trigger skipped (non-fatal): %s", e)
 
+    # 7) Wave 14K Phase 6 K5a + K5b: feed drift detector + auto-pause
+    #    on DRIFT_DOWN transition. Non-blocking — never breaks the close.
+    try:
+        from .drift_detector import update as drift_update, maybe_auto_pause
+        strategy = str(getattr(paper_trade, "strategy", None) or "unknown")
+        drift_result = await drift_update(strategy, win=engine_r > 0)
+        result["drift_status"] = drift_result.get("status")
+        result["drift_transition"] = drift_result.get("transition")
+        if drift_result.get("status") == "DRIFT_DOWN":
+            pause_result = await maybe_auto_pause(strategy, drift_result)
+            result["auto_paused"] = pause_result.get("paused", False)
+            if pause_result.get("paused"):
+                # Emit a high-importance memory unit so the morning brief
+                # sees the drift event in tomorrow's context packet.
+                await _emit_drift_memory_unit(
+                    brain, strategy=strategy, drift_result=drift_result,
+                    pause_reason=pause_result.get("reason", ""),
+                )
+    except Exception as e:
+        log.warning("[AT-ATTR] drift detector skipped (non-fatal): %s", e)
+
     result["ok"] = True
     result["reason"] = "attributed + memory + tracker + bandit updated"
     log.info(
@@ -273,6 +294,51 @@ async def _emit_close_memory_unit(
         log.debug("[AT-ATTR] emoji=%s mem unit emitted for %s", outcome_emoji, symbol)
     except Exception as e:
         log.warning("[AT-ATTR] memory unit emit failed (non-fatal): %s", e)
+
+
+async def _emit_drift_memory_unit(
+    brain,
+    *,
+    strategy: str,
+    drift_result: dict,
+    pause_reason: str,
+) -> None:
+    """K5b: emit portfolio:strategy_drift at importance 90 so the next
+    morning brief sees the regime shift in its context packet. Fire-and-
+    forget. Never raises."""
+    mem = getattr(brain, "memory_store", None)
+    if mem is None or not hasattr(mem, "create_unit"):
+        return
+    try:
+        content = (
+            f"STRATEGY-DRIFT [{strategy}] DRIFT_DOWN detected. "
+            f"running_mean={drift_result['running_mean']:.2%}, "
+            f"recent_hit_rate={drift_result['recent_hit_rate']:.2%}, "
+            f"n_observed={drift_result['n']}. "
+            f"Auto-trader paused. {pause_reason}"
+        )
+        await mem.create_unit(
+            content=content,
+            source="portfolio:strategy_drift",
+            importance=90.0,
+            tags=[
+                "portfolio", "auto_trader", "drift",
+                f"strategy:{strategy}", "DRIFT_DOWN",
+            ],
+            memory_type="semantic",
+            metadata={
+                "strategy": strategy,
+                "drift_status": drift_result.get("status"),
+                "running_mean": drift_result.get("running_mean"),
+                "recent_hit_rate": drift_result.get("recent_hit_rate"),
+                "n": drift_result.get("n"),
+                "pause_reason": pause_reason,
+                "wave": "14K-K5b",
+            },
+        )
+        log.info("[AT-ATTR] strategy_drift memory emitted for %s", strategy)
+    except Exception as e:
+        log.warning("[AT-ATTR] drift memory unit emit failed: %s", e)
 
 
 async def attribute_batch(

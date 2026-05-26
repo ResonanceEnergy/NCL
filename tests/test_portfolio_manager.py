@@ -1478,6 +1478,300 @@ def test_self_research_resolve_topic(tmp_path, monkeypatch):
     asyncio.run(go())
 
 
+# ── Drift detector (Wave 14K Phase 6: K5a + K5b) ──────────────────
+
+def _isolate_drift(tmp_path, monkeypatch):
+    """Helper: drift_detector has module-level Path constants captured at
+    first import; tests need explicit re-pointing. Returns the freshly-
+    imported module with isolated DATA_DIR/STATE_FILE/EVENTS_FILE."""
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    for mod in list(sys.modules.keys()):
+        if mod.startswith("runtime.portfolio.auto_trader.drift_detector"):
+            del sys.modules[mod]
+    from runtime.portfolio.auto_trader import drift_detector as dd
+    data_dir = tmp_path / "data" / "portfolio" / "auto_trader"
+    monkeypatch.setattr(dd, "DATA_DIR", data_dir)
+    monkeypatch.setattr(dd, "STATE_FILE", data_dir / "drift_state.json")
+    monkeypatch.setattr(dd, "EVENTS_FILE", data_dir / "drift_events.jsonl")
+    dd._STATE.clear()
+    dd._LOADED = False
+    return dd
+
+
+def test_drift_detector_stable_on_random_5050(tmp_path, monkeypatch):
+    """K5a: a 50/50 random win/loss stream stays STABLE."""
+    dd = _isolate_drift(tmp_path, monkeypatch)
+
+    async def go():
+        # Alternate W/L for 60 trades — no drift
+        for i in range(60):
+            r = await dd.update("goat", win=bool(i % 2))
+        assert r["status"] == dd.STABLE
+        assert r["n"] == 60
+        # Running mean hovers near 0.5
+        assert 0.40 <= r["running_mean"] <= 0.60
+
+    asyncio.run(go())
+
+
+def test_drift_detector_fires_drift_down_on_losing_streak(tmp_path, monkeypatch):
+    """K5a: 30 wins followed by a losing streak fires DRIFT_DOWN."""
+    # Lower thresholds for test speed
+    monkeypatch.setenv("NCL_DRIFT_PH_LAMBDA", "0.30")
+    monkeypatch.setenv("NCL_DRIFT_MIN_N", "10")
+    dd = _isolate_drift(tmp_path, monkeypatch)
+    # Re-apply env-driven module constants since _isolate_drift was already
+    # called with the new env vars; PH_LAMBDA/MIN_N picked up via os.getenv
+    # at import time, so we re-set explicitly via setattr for safety.
+    monkeypatch.setattr(dd, "PH_LAMBDA", 0.30)
+    monkeypatch.setattr(dd, "MIN_N", 10)
+
+    async def go():
+        # First 30: heavy wins establish high running mean
+        for _ in range(30):
+            await dd.update("bravo", win=True)
+        # Then 15 straight losses → m_down accumulates → DRIFT_DOWN
+        statuses_seen = []
+        for _ in range(15):
+            r = await dd.update("bravo", win=False)
+            statuses_seen.append(r["status"])
+        # At some point during the losing streak the signal should fire
+        assert dd.DRIFT_DOWN in statuses_seen, (
+            f"expected DRIFT_DOWN at some point, got {statuses_seen}"
+        )
+
+    asyncio.run(go())
+
+
+def test_drift_detector_persists_across_reload(tmp_path, monkeypatch):
+    """K5a: drift state survives a module reload (warm-start)."""
+    dd = _isolate_drift(tmp_path, monkeypatch)
+
+    async def go():
+        for _ in range(5):
+            await dd.update("goat", win=True)
+        # Force re-load from disk by clearing the in-memory cache
+        dd._STATE.clear()
+        dd._LOADED = False
+        state = await dd.get_strategy_state("goat")
+        assert state is not None
+        assert state["n"] == 5
+        assert state["running_mean"] > 0.5
+
+    asyncio.run(go())
+
+
+def test_drift_detector_reset(tmp_path, monkeypatch):
+    """K5a: reset_strategy clears PH state but preserves history."""
+    dd = _isolate_drift(tmp_path, monkeypatch)
+
+    async def go():
+        for _ in range(10):
+            await dd.update("goat", win=True)
+        assert (await dd.reset_strategy("goat")) is True
+        state = await dd.get_strategy_state("goat")
+        assert state is not None
+        assert state["n"] == 0  # cleared
+        # Unknown strategy reset returns False
+        assert (await dd.reset_strategy("never_traded")) is False
+
+    asyncio.run(go())
+
+
+def test_drift_detector_maybe_auto_pause(tmp_path, monkeypatch):
+    """K5b: maybe_auto_pause flips state only on DRIFT_DOWN transition."""
+    dd = _isolate_drift(tmp_path, monkeypatch)
+    # Also isolate the AutoTraderState file
+    from runtime.portfolio.auto_trader import state as st
+    state_dir = tmp_path / "data" / "portfolio" / "auto_trader"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(st, "DATA_DIR", state_dir)
+    monkeypatch.setattr(st, "STATE_FILE", state_dir / "state.json")
+    st._STATE = None  # force re-load against the new STATE_FILE
+
+    async def go():
+        # Start the auto-trader active
+        await st._update(active=True, paused_by=None, pause_reason="")
+        # Simulate a DRIFT_DOWN transition
+        drift_result = {
+            "status": "DRIFT_DOWN", "transition": True,
+            "running_mean": 0.25, "recent_hit_rate": 0.10, "n": 50,
+        }
+        result = await dd.maybe_auto_pause("goat", drift_result)
+        assert result["paused"] is True
+        s = await st.get_state()
+        assert s.paused_by == "drift_detector"
+        assert "DRIFT_DOWN" in s.pause_reason
+        # STABLE status doesn't pause
+        result2 = await dd.maybe_auto_pause("goat", {"status": "STABLE"})
+        assert result2["paused"] is False
+        # Non-transition DRIFT_DOWN (already drifting) doesn't re-pause
+        result3 = await dd.maybe_auto_pause("goat", {
+            "status": "DRIFT_DOWN", "transition": False,
+            "running_mean": 0.25, "recent_hit_rate": 0.10, "n": 51,
+        })
+        assert result3["paused"] is False
+
+    asyncio.run(go())
+
+
+# ── Graduation gate (Wave 14K Phase 6: K5c) ───────────────────────
+
+def test_graduation_gate_needs_data(tmp_path, monkeypatch):
+    """K5c: a strategy with no trades fails on sample size first."""
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    monkeypatch.setenv("NCL_GRAD_MIN_N", "30")
+    monkeypatch.setenv("NCL_GRAD_REQUIRE_CYCLE_OK", "0")  # avoid cycle file dep
+    for mod in list(sys.modules.keys()):
+        if mod.startswith("runtime.portfolio"):
+            del sys.modules[mod]
+    from runtime.portfolio.auto_trader import graduation_gate as gg
+
+    async def go():
+        report = await gg.evaluate("never_traded")
+        assert report["graduated"] is False
+        sample_crit = next(c for c in report["criteria"]
+                           if c["name"] == "min_sample_size")
+        assert sample_crit["passed"] is False
+        assert sample_crit["value"] == 0
+        assert "NEEDS DATA" in report["recommendation"]
+
+    asyncio.run(go())
+
+
+def test_graduation_gate_passes_when_all_criteria_met(tmp_path, monkeypatch):
+    """K5c: graduation true when expectancy + bandit + drift all clear."""
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    monkeypatch.setenv("NCL_GRAD_MIN_N", "5")  # low for test
+    monkeypatch.setenv("NCL_GRAD_MIN_HIT_RATE", "0.40")
+    monkeypatch.setenv("NCL_GRAD_MIN_PROFIT_FACTOR", "1.0")
+    monkeypatch.setenv("NCL_GRAD_MIN_SQN", "0.5")
+    monkeypatch.setenv("NCL_GRAD_MIN_EXPECTANCY_R", "0.0")
+    monkeypatch.setenv("NCL_GRAD_MIN_LCB_HIT_RATE", "0.20")
+    monkeypatch.setenv("NCL_GRAD_REQUIRE_CYCLE_OK", "0")
+    for mod in list(sys.modules.keys()):
+        if mod.startswith("runtime.portfolio"):
+            del sys.modules[mod]
+    from runtime.portfolio import trade_idea_tracker as tit
+    from runtime.portfolio.auto_trader import (
+        graduation_gate as gg, strategy_bandit as sb, drift_detector as dd,
+    )
+
+    async def go():
+        # Reset all singletons
+        tit._TRACKER = None
+        sb._BANDIT = None
+        dd._STATE.clear()
+        dd._LOADED = False
+        tracker = await tit.get_trade_idea_tracker()
+        # Emit + close 6 winners
+        for i in range(6):
+            idea = await tracker.record_emission(
+                source="brief", strategy="goat", ticker=f"T{i}",
+                direction="long", entry_price=100.0, stop_price=95.0,
+                target_price=115.0, R_per_share=5.0, planned_qty=10,
+            )
+            await tracker.update_outcome(
+                idea["trade_idea_id"], outcome="target_hit", exit_price=115.0,
+            )
+        # Emit + close 2 losers
+        for i in range(2):
+            idea = await tracker.record_emission(
+                source="brief", strategy="goat", ticker=f"L{i}",
+                direction="long", entry_price=100.0, stop_price=95.0,
+                target_price=115.0, R_per_share=5.0, planned_qty=10,
+            )
+            await tracker.update_outcome(
+                idea["trade_idea_id"], outcome="stopped_out", exit_price=95.0,
+            )
+        # Feed bandit so LCB > 0.20
+        bandit = await sb.get_bandit()
+        for _ in range(6):
+            await bandit.record_result("goat", win=True, R_multiple=3.0)
+        for _ in range(2):
+            await bandit.record_result("goat", win=False, R_multiple=-1.0)
+        report = await gg.evaluate("goat")
+        # 6W/2L → hit rate 0.75, PF=9.0/2.0=4.5, expectancy positive
+        # All criteria should pass.
+        failed = [c["name"] for c in report["criteria"] if not c["passed"]]
+        assert not failed, f"unexpected failures: {failed} — report={report}"
+        assert report["graduated"] is True
+        assert "GRADUATED" in report["recommendation"]
+        assert report["readiness_score"] == 1.0
+
+    asyncio.run(go())
+
+
+def test_graduation_gate_blocks_on_recent_drift(tmp_path, monkeypatch):
+    """K5c: recent DRIFT_DOWN signal blocks graduation."""
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    monkeypatch.setenv("NCL_GRAD_MIN_N", "5")
+    monkeypatch.setenv("NCL_GRAD_MIN_HIT_RATE", "0.40")
+    monkeypatch.setenv("NCL_GRAD_MIN_PROFIT_FACTOR", "1.0")
+    monkeypatch.setenv("NCL_GRAD_MIN_SQN", "0.5")
+    monkeypatch.setenv("NCL_GRAD_MIN_EXPECTANCY_R", "0.0")
+    monkeypatch.setenv("NCL_GRAD_MIN_LCB_HIT_RATE", "0.20")
+    monkeypatch.setenv("NCL_GRAD_REQUIRE_CYCLE_OK", "0")
+    for mod in list(sys.modules.keys()):
+        if mod.startswith("runtime.portfolio"):
+            del sys.modules[mod]
+    from runtime.portfolio.auto_trader import drift_detector as dd
+    from runtime.portfolio.auto_trader import graduation_gate as gg
+
+    async def go():
+        dd._STATE.clear()
+        dd._LOADED = False
+        # Inject a recent DRIFT_DOWN by hand-crafting the state
+        s = dd.PHState(
+            n=50, running_mean=0.4, m_down=0.0, m_up=0.0,
+            last_status="DRIFT_DOWN", last_status_iso=dd._now_iso(),
+            drift_down_count=1, last_drift_iso=dd._now_iso(),
+            last_drift_reason="test injected",
+        )
+        dd._STATE["goat"] = s
+        dd._persist_state()
+        report = await gg.evaluate("goat")
+        drift_crit = next(c for c in report["criteria"]
+                          if c["name"] == "no_recent_drift")
+        assert drift_crit["passed"] is False
+        assert "DRIFT_DOWN" in drift_crit["reason"]
+
+    asyncio.run(go())
+
+
+def test_graduation_gate_evaluate_all_summary(tmp_path, monkeypatch):
+    """K5c: evaluate_all returns _summary with graduated/failing buckets."""
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    monkeypatch.setenv("NCL_GRAD_REQUIRE_CYCLE_OK", "0")
+    for mod in list(sys.modules.keys()):
+        if mod.startswith("runtime.portfolio"):
+            del sys.modules[mod]
+    from runtime.portfolio import trade_idea_tracker as tit
+    from runtime.portfolio.auto_trader import graduation_gate as gg
+
+    async def go():
+        tit._TRACKER = None
+        tracker = await tit.get_trade_idea_tracker()
+        # 3 strategies, all under-sampled — all should fail sample-size
+        for strat in ("goat", "bravo", "polymarket"):
+            idea = await tracker.record_emission(
+                source="brief", strategy=strat, ticker=f"X-{strat}",
+                direction="long", entry_price=100.0, stop_price=95.0,
+                target_price=115.0, R_per_share=5.0, planned_qty=10,
+            )
+            await tracker.update_outcome(
+                idea["trade_idea_id"], outcome="target_hit", exit_price=115.0,
+            )
+        report = await gg.evaluate_all()
+        assert "_summary" in report
+        summary = report["_summary"]
+        assert summary["total_strategies"] == 3
+        assert set(summary["failing"]) == {"goat", "bravo", "polymarket"}
+        assert summary["graduated"] == []
+
+    asyncio.run(go())
+
+
 def test_self_research_topic_id_stable():
     """K4c: same cluster_features always produce same id (idempotency)."""
     from runtime.portfolio.auto_trader.self_research import _topic_id_from_cluster
