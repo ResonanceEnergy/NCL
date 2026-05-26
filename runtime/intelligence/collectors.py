@@ -742,6 +742,29 @@ class PolymarketCollector:
                 if _event_category == "sports" and vol_24h < 500_000:
                     continue  # Skip low-volume sports — not actionable intelligence
 
+                # Wave 14G P17-D — tag event lifecycle status so the executor
+                # can prefer active+leading markets over resolved/expired ones.
+                #   resolved: market has closed (best.end_date < now) — info-only
+                #   active:   market is open, no clear leader
+                #   leading:  market is open AND best outcome has >= 60% prob
+                # The collector already filters closed=false at the API level,
+                # but the gamma feed sometimes serves recently-resolved events
+                # for ~24h after close. We mark them explicitly.
+                from datetime import datetime as __dtnow, timezone as __tz
+                _now_iso = __dtnow.now(__tz.utc)
+                _end_date_str = (best_mkt.get("endDate") or event.get("endDate") or "")
+                _status = "active"
+                try:
+                    if _end_date_str:
+                        from datetime import datetime as __dt
+                        _end = __dt.fromisoformat(_end_date_str.replace("Z", "+00:00"))
+                        if _end < _now_iso:
+                            _status = "resolved"
+                except Exception:
+                    pass
+                if _status == "active" and (yes_price >= 0.60 or yes_price <= 0.40):
+                    _status = "leading"
+
                 signals.append(
                     PredictionMarketSignal(
                         source=SourceType.POLYMARKET,
@@ -768,6 +791,9 @@ class PolymarketCollector:
                             "liquidity": liquidity,
                             "total_volume": total_vol,
                             "num_outcomes": len(markets),
+                            # Wave 14G P17-D — lifecycle tag for executor.
+                            "lifecycle_status": _status,
+                            "end_date": _end_date_str,
                         },
                     )
                 )

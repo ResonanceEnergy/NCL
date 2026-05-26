@@ -64,7 +64,7 @@ import json
 import logging
 import os
 import re
-from typing import Any
+from typing import Any, Optional
 
 log = logging.getLogger(__name__)
 
@@ -306,6 +306,7 @@ Decisions you must make:
    - "short": one-source dominated (e.g. only Reddit), OR <30 total signals, OR market is closed (weekend/holiday).
    - "no-edge": signal feed is empty or pure noise (almost never — only if every scanner failed today).
    With 100+ signals across 5+ sources, mode is "full" — do not pick "short" because individual sectors look quiet.
+   STRICT THRESHOLD (Wave 14G P17-C): if total_signals_in_window > 300 AND distinct_sources >= 3, you MUST pick "full". A brief generated from ~1,000 signals is by definition a full-data day; "short" mode is reserved for genuinely thin slices.
 
 2. themes — 1-4 short narrative themes (3-8 words each) the brief should organize around. Examples: "energy distribution divergence", "tech accumulation late-cycle", "fed-pause repricing", "crypto regulatory headlines".
 
@@ -382,6 +383,26 @@ No preamble, no explanation, just the JSON object."""
     except (TypeError, ValueError):
         target = 4
     plan["trade_idea_count_target"] = min(6, max(0, target))
+
+    # Wave 14G P17-C — hard override: if signal volume is high, force "full"
+    # mode regardless of what the LLM picked. Wave 14G P16 caught a brief
+    # with 978 signals stuck in mode=short — the planner's heuristic was too
+    # cautious. Threshold: > 300 signals + >= 3 distinct sources.
+    try:
+        sig_count = int(condensed.get("total_signals", 0))
+        src_count = int(condensed.get("source_count", 0))
+        if plan.get("mode") == "short" and sig_count > 300 and src_count >= 3:
+            plan["mode"] = "full"
+            # Bump trade_idea_count_target to match — full-mode default is 6.
+            if plan.get("trade_idea_count_target", 0) < 6:
+                plan["trade_idea_count_target"] = 6
+            log.info(
+                "[planner] P17-C override: mode short→full (signals=%d, sources=%d)",
+                sig_count, src_count,
+            )
+    except Exception as e:
+        log.debug("[planner] P17-C override skipped: %s", e)
+
     return plan
 
 
@@ -520,6 +541,10 @@ OUTPUT REQUIREMENTS — strict:
 
 7a. INDIVIDUAL STOCKS OVER SECTOR ETFs: Of the trade ideas you emit, AT MOST ONE may be a broad-market or sector ETF (SPY, QQQ, IWM, DIA, VTI, VOO, VXX, TLT, IEF, XLF, XLK, XLE, XLV, XLI, XLP, XLY, XLB, XLU, XLC, XLRE, GLD, SLV, USO, UNG, ARKK, SMH, SOXX). The rest MUST be individual company stocks (e.g. NVDA, TSLA, AMZN, MSFT, GOOG, AAPL, META, AMD, COIN, PLTR — any named operating company). Sector ETFs are easy to source from options-flow signals but blunt the brief's tactical value — NATRIX trades individual names, not broad sectors. Only break this rule if the entire signal feed genuinely has zero individual-stock catalysts, in which case explain in the thesis why the ETF is the only viable read.
 
+7b. DATE-RECENCY GUARD (Wave 14G P17-B): Today is 2026. Do NOT cite year 2025 or earlier as a forward catalyst. Phrases like "mid-2025 FDA catalyst", "by Q3 2025", "through 2024" describe events in the PAST — they are not actionable forward setups. If a signal feed item references such a date, either drop that claim, rephrase it as historical context, or reject the signal entirely. The Critic will fail any brief that frames a pre-2026 date as upcoming.
+
+7c. POLYMARKET LIFECYCLE (Wave 14G P17-D): Each polymarket signal carries a metadata.lifecycle_status field — "active", "leading", or "resolved". Prefer "leading" markets (one outcome >= 60% probability) for capital-flow and emerging-opportunity references. Avoid citing "resolved" markets as forward catalysts (the event has already happened or expired). If you cite a polymarket signal, lead with the active leading outcome (e.g. "June 30 ceasefire extension at 78% YES") rather than the historical pessimism on an already-resolved earlier outcome.
+
 8. Avoid tickers in held_tickers as NEW entries — label them ADD TO EXISTING in thesis if you want to recommend adding.
 
 9. macro_landscape: keys are the lane names from active_lanes ONLY. No "Signals quiet" stubs.
@@ -621,6 +646,92 @@ _STUB_PATTERNS = re.compile(
 )
 _MD_PATTERN = re.compile(r"\*\*[^*\n]+?\*\*|`[^`\n]+`|^#{1,6}\s", re.MULTILINE)
 
+# Wave 14G P17-E — price-claim extractor + 52-week range fetcher.
+# Match `TICKER ... $NUMBER` where the NUMBER is a plain decimal price
+# (NOT followed by M/K/B/million/billion/% which indicates volume,
+# premium, market cap, or percentage). Filtered further in
+# _extract_price_claims by context substring (rejects matches near
+# 'premium', 'volume', 'flow', 'mcap', 'market cap', 'change_24h').
+_PRICE_CLAIM_PATTERN = re.compile(
+    r"\b([A-Z]{2,5})\b[^.$\n]{0,60}?\$(\d{1,5}(?:\.\d{1,2})?)"
+    r"(?![MKB%])(?![,.]?\d)",
+)
+_PRICE_CLAIM_CONTEXT_BLOCKERS = (
+    "premium", "volume", "flow", "mcap", "market cap", "vol:",
+    "vol ", "imbalance", "open interest", "p/c ratio", "net option",
+    "net call", "net put", "call flow", "put flow", "block trade",
+    "in call", "in put", "in flow",
+)
+# Tickers excluded — too common as words / never quoted as a price
+_PRICE_CLAIM_EXCLUDE = {
+    "US", "USD", "EUR", "GBP", "JPY", "CNY", "RSI", "MACD", "OHLC",
+    "FED", "FOMC", "API", "CPI", "PPI", "GDP", "NFP", "ATR", "VWAP",
+    "TICKER", "TARGET", "ENTRY", "STOP", "MAX", "WHY", "TOPIC",
+    "SOURCES", "STRUCTURE", "THESIS", "OPTIONS", "STOCK", "PLAY",
+    "SETUP", "TIMEFRAME", "PRE", "POST",
+}
+
+
+def _extract_price_claims(texts: list[tuple[str, str]]) -> list[tuple[str, float]]:
+    """Pull (ticker, claimed_price) tuples out of brief text fields."""
+    seen: set[tuple[str, float]] = set()
+    out: list[tuple[str, float]] = []
+    for _path, txt in texts:
+        for m in _PRICE_CLAIM_PATTERN.finditer(txt):
+            sym = m.group(1)
+            if sym in _PRICE_CLAIM_EXCLUDE or len(sym) < 2:
+                continue
+            try:
+                px = float(m.group(2))
+            except ValueError:
+                continue
+            if px <= 0 or px > 100_000:
+                continue  # implausible
+            # P17-F false-positive guard: skip if the matched span sits in
+            # a premium/volume/flow context. Inspect the 80-char window
+            # around the match for blocker substrings.
+            span_lo = max(0, m.start() - 30)
+            span_hi = min(len(txt), m.end() + 30)
+            window = txt[span_lo:span_hi].lower()
+            if any(b in window for b in _PRICE_CLAIM_CONTEXT_BLOCKERS):
+                continue
+            key = (sym, px)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(key)
+    return out
+
+
+_PRICE_RANGE_CACHE: dict[str, Optional[tuple[float, float]]] = {}
+
+
+def _get_price_range_cache() -> dict[str, Optional[tuple[float, float]]]:
+    """Return module-level cache. Cleared on Brain restart; that's fine."""
+    return _PRICE_RANGE_CACHE
+
+
+def _fetch_52w_range(symbol: str) -> Optional[tuple[float, float]]:
+    """Best-effort 52-week (low, high) lookup via yfinance.
+
+    Returns None on any failure (no yfinance, no network, unknown ticker,
+    delisted, etc) — the critic treats None as 'skip this ticker'. We don't
+    want a price lookup failure to block briefs.
+    """
+    try:
+        import yfinance as yf
+    except ImportError:
+        return None
+    try:
+        info = yf.Ticker(symbol).info or {}
+        low = info.get("fiftyTwoWeekLow")
+        high = info.get("fiftyTwoWeekHigh")
+        if low and high and float(low) > 0 and float(high) > 0:
+            return (float(low), float(high))
+    except Exception:
+        pass
+    return None
+
 
 def _local_critique(executor_out: dict, valid_ids: set[str], plan: dict | None = None) -> dict:
     """Pure-Python critic — runs first, cheap, deterministic.
@@ -688,6 +799,87 @@ def _local_critique(executor_out: dict, valid_ids: set[str], plan: dict | None =
     if not executor_out.get("executive_summary"):
         reasons.append("missing executive_summary")
         failed_sections.add("executive_summary")
+
+    # 6) Wave 14G P17-A — Rule 7a ETF-quota enforcement. At most one
+    # broad-market / sector ETF allowed across all trade ideas. Stops
+    # the executor from emitting SPY+IWM+XLF+XLU 4-ETF briefs that
+    # don't match NATRIX's individual-stock trading style.
+    _BROAD_ETFS = {
+        "SPY", "QQQ", "IWM", "DIA", "VTI", "VOO", "VXX", "TLT", "IEF",
+        "XLF", "XLK", "XLE", "XLV", "XLI", "XLP", "XLY", "XLB", "XLU",
+        "XLC", "XLRE", "GLD", "SLV", "USO", "UNG", "ARKK", "SMH", "SOXX",
+    }
+    if trade_ideas:
+        etf_tickers = [
+            (idea.get("ticker") or "").lstrip("$").upper()
+            for idea in trade_ideas
+        ]
+        etf_count = sum(1 for t in etf_tickers if t in _BROAD_ETFS)
+        if etf_count > 1:
+            offenders = [t for t in etf_tickers if t in _BROAD_ETFS]
+            reasons.append(
+                f"trade_ideas has {etf_count} broad-ETF tickers "
+                f"({', '.join(offenders)}); rule 7a allows at most 1"
+            )
+            failed_sections.add("trade_ideas")
+
+    # 7) Wave 14G P17-B — Date-recency check. Today is 2026; any claim
+    # citing year 2025 or earlier as a forward catalyst is stale data
+    # being repackaged as a current opportunity. Flag the brief for
+    # regeneration with a recency hint.
+    _STALE_YEARS = ("2025", "2024", "2023", "2022", "2021", "2020")
+    _texts: list[tuple[str, str]] = []
+    _collect_text_fields(executor_out, _texts)
+    for path, txt in _texts:
+        for stale_year in _STALE_YEARS:
+            if stale_year in txt:
+                # Avoid false positives on things like "fiscal 2025
+                # comparable" or "since 2021 average" — flag only when
+                # the stale year appears alongside future-tense framing
+                # like "by", "through", "upcoming", "mid-".
+                low = txt.lower()
+                if any(p in low for p in (
+                    f"by {stale_year}", f"through {stale_year}",
+                    f"upcoming {stale_year}", f"mid-{stale_year}",
+                    f"mid {stale_year}", f"late {stale_year}",
+                    f"early {stale_year}", f"q1 {stale_year}",
+                    f"q2 {stale_year}", f"q3 {stale_year}",
+                    f"q4 {stale_year}",
+                )):
+                    reasons.append(
+                        f"stale-year reference '{stale_year}' framed as forward "
+                        f"catalyst at {path}: '{txt[:120]}...'"
+                    )
+                    failed_sections.add(path.split(".")[0])
+                    break
+
+    # 8) Wave 14G P17-E — Price sanity-check. Extract ticker price claims
+    # from the brief text (format: "TICKER at $X" / "$TICKER ... $X" /
+    # "TICKER showing ... $X") and flag any that exceed the 52-week range
+    # from a small yfinance lookup. Lazy cache to avoid repeated lookups
+    # in one brief. Failure to fetch range is non-fatal — sanity check
+    # skips that ticker rather than blocking the brief.
+    try:
+        _price_range_cache = _get_price_range_cache()
+        _claims = _extract_price_claims(_texts)
+        for sym, claimed_px in _claims[:20]:  # cap to first 20 to bound cost
+            rng = _price_range_cache.get(sym)
+            if rng is None:
+                rng = _fetch_52w_range(sym)
+                _price_range_cache[sym] = rng
+            if rng is None:
+                continue  # lookup failed — skip rather than reject
+            low, high = rng
+            # Allow 2% headroom for intraday movement / mid-quote variance
+            slack = 0.02
+            if claimed_px > high * (1 + slack) or claimed_px < low * (1 - slack):
+                reasons.append(
+                    f"price-sanity: {sym} claimed at ${claimed_px:.2f} outside "
+                    f"52w range ${low:.2f}–${high:.2f}"
+                )
+                failed_sections.add("key_movements")
+    except Exception as e:
+        log.debug("[critic] price sanity check skipped: %s", e)
 
     ship = len(reasons) == 0
     score = max(0, 100 - len(reasons) * 8)
