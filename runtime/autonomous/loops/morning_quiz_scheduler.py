@@ -130,25 +130,33 @@ def _load_yesterday() -> dict | None:
 
 
 async def _send_ntfy(title: str, body: str) -> None:
-    """Best-effort ntfy push. NCL_NTFY_TOPIC env should be set."""
+    """Best-effort ntfy push. NCL_NTFY_TOPIC env should be set.
+
+    Uses ntfy's JSON POST API so UTF-8 in the title (em-dash, emoji,
+    accented letters) doesn't crash the HTTP header encoder. HTTP
+    headers must be ASCII; the JSON body is UTF-8 safe.
+
+    Fixes the 2026-05-26 06:00 ET crash:
+        [QUIZ-SCHED] ntfy failed: 'ascii' codec can't encode
+        character '\\u2014' in position 13
+    """
     try:
         import httpx
 
         topic = os.getenv("NCL_NTFY_TOPIC", "ncl-natrix-intel-7x9k")
         if not topic:
             return
-        url = f"https://ntfy.sh/{topic}"
+        payload = {
+            "topic": topic,
+            "title": title,
+            "message": body,
+            "priority": 4,  # high (1=min, 5=max)
+            "tags": ["sun_with_face", "books"],
+            "click": "firststrike://journal/morning-quiz",
+        }
         async with httpx.AsyncClient(timeout=10.0) as client:
-            await client.post(
-                url,
-                content=body.encode("utf-8"),
-                headers={
-                    "Title": title,
-                    "Priority": "high",
-                    "Tags": "sun_with_face,books",
-                    "Click": "firststrike://journal/morning-quiz",
-                },
-            )
+            r = await client.post("https://ntfy.sh/", json=payload)
+            r.raise_for_status()
         log.info("[QUIZ-SCHED] ntfy sent: %s", title)
     except Exception as e:
         log.warning("[QUIZ-SCHED] ntfy failed: %s", e)
