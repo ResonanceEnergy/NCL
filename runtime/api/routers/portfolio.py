@@ -1080,6 +1080,83 @@ def _find_adapter(pm, name: str):
 
 
 # ──────────────────────────────────────────────────────────────────────
+# Wave 14J Phase 2 (J1d) — Trade idea tracker / per-strategy expectancy
+# Closed loop: every brief/scanner-emitted idea has a stable trade_idea_id;
+# operator records outcomes; tracker computes hit rate / profit factor /
+# expectancy in R / SQN per strategy.
+# ──────────────────────────────────────────────────────────────────────
+
+@router.get("/trade-ideas")
+async def trade_ideas_list(
+    strategy: Optional[str] = Query(default=None),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """List all tracked trade ideas, newest first. Optional strategy filter."""
+    from ...portfolio.trade_idea_tracker import get_trade_idea_tracker
+    tracker = await get_trade_idea_tracker()
+    ideas = await tracker.list_by_strategy(strategy=strategy)
+    return {"count": len(ideas), "strategy_filter": strategy, "ideas": ideas}
+
+
+@router.get("/trade-ideas/expectancy")
+async def trade_ideas_expectancy(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Per-strategy expectancy stats — the J1d closed-loop scorecard.
+    Returns one block per strategy + an "_all" rollup with:
+    n_emitted, n_closed, n_winners, n_losers, hit_rate,
+    avg_win_R, avg_loss_R, profit_factor, expectancy_R, sqn,
+    avg_holding_days, total_R_realized."""
+    from ...portfolio.trade_idea_tracker import get_trade_idea_tracker
+    tracker = await get_trade_idea_tracker()
+    return await tracker.expectancy_by_strategy()
+
+
+@router.get("/trade-ideas/{trade_idea_id}")
+async def trade_idea_get(
+    trade_idea_id: str,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Fetch a single trade idea by id."""
+    from ...portfolio.trade_idea_tracker import get_trade_idea_tracker
+    tracker = await get_trade_idea_tracker()
+    idea = await tracker.get(trade_idea_id)
+    if idea is None:
+        raise HTTPException(status_code=404, detail=f"Trade idea {trade_idea_id} not found")
+    return idea
+
+
+@router.post("/trade-ideas/{trade_idea_id}/outcome")
+async def trade_idea_outcome(
+    trade_idea_id: str,
+    payload: dict,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Record outcome attribution.
+
+    Required: outcome (one of: taken | stopped_out | target_hit |
+              manually_closed | expired | not_taken | superseded).
+    Optional: exit_price (for R_multiple computation on closed trades),
+              notes."""
+    from ...portfolio.trade_idea_tracker import get_trade_idea_tracker
+    if "outcome" not in payload:
+        raise HTTPException(status_code=400, detail="Missing required field: outcome")
+    tracker = await get_trade_idea_tracker()
+    try:
+        result = await tracker.update_outcome(
+            trade_idea_id,
+            outcome=str(payload["outcome"]),
+            exit_price=(float(payload["exit_price"]) if payload.get("exit_price") is not None else None),
+            notes=str(payload.get("notes", "")),
+        )
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve)) from ve
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"Trade idea {trade_idea_id} not found")
+    return result
+
+
+# ──────────────────────────────────────────────────────────────────────
 # Wave 14J Phase 2 (J1a + J1b) — Risk governor endpoints
 # Single gate composing per-strategy heat caps with the drawdown
 # multiplier. Every consumer (scanners, brief executor, paper trading,

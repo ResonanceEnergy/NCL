@@ -453,6 +453,87 @@ def _filter_signals_for_executor(brief, plan: dict, lane_resolvers: dict) -> dic
     return out
 
 
+def _stamp_trade_idea_ids(executor_out: dict) -> None:
+    """Wave 14J J1c — every trade_idea gets a stable trade_idea_id so the
+    J1d expectancy tracker can attribute outcomes. UUID4-derived hex, 16
+    chars (collision-safe at NCL volume). Preserves any existing id so
+    regenerated briefs keep continuity for ideas the regen kept verbatim.
+
+    Also stamps `issued_at_iso` so the expectancy tracker can compute
+    holding-period stats, and fire-and-forget registers each idea with
+    the J1d tracker module.
+
+    Mutates in-place. No-op on briefs without trade_ideas.
+    """
+    import uuid
+    import asyncio as _asyncio
+    from datetime import datetime, timezone
+
+    ideas = executor_out.get("trade_ideas")
+    if not isinstance(ideas, list):
+        return
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for idea in ideas:
+        if not isinstance(idea, dict):
+            continue
+        if not idea.get("trade_idea_id"):
+            idea["trade_idea_id"] = uuid.uuid4().hex[:16]
+        if not idea.get("issued_at_iso"):
+            idea["issued_at_iso"] = now_iso
+        # J1d: fire-and-forget emission registration. If we can't get
+        # a running loop (e.g. called from a sync test path), skip
+        # silently — the JSON output still carries the id for later
+        # attribution.
+        try:
+            from runtime.portfolio.trade_idea_tracker import (
+                record_trade_idea_emission,
+            )
+            # Map free-form ticker direction-like fields onto the tracker
+            # schema. The brief emits descriptive strings ("entry" /
+            # "stop" / "target") AND numeric counterparts ("entry_price"
+            # / "stop_price" / "target_price"). Use the numeric ones.
+            def _f(k):
+                v = idea.get(k)
+                try:
+                    return float(v) if v is not None else None
+                except (TypeError, ValueError):
+                    return None
+
+            # Strategy bucket via risk_governor normalization
+            from runtime.portfolio.risk_governor import _normalize_strategy
+            strat = _normalize_strategy(
+                idea.get("strategy_tag") or idea.get("type") or "manual"
+            )
+            loop = _asyncio.get_running_loop()
+            loop.create_task(
+                record_trade_idea_emission(
+                    source="brief",
+                    strategy=strat,
+                    ticker=str(idea.get("ticker") or "").upper(),
+                    direction=idea.get("direction"),
+                    entry_price=_f("entry_price"),
+                    stop_price=_f("stop_price"),
+                    target_price=_f("target_price"),
+                    R_per_share=_f("R_per_share"),
+                    planned_qty=_f("planned_qty"),
+                    stop_type=idea.get("stop_type"),
+                    stop_basis=idea.get("stop_basis"),
+                    target_basis=idea.get("target_basis"),
+                    thesis=idea.get("thesis"),
+                    trade_idea_id=idea.get("trade_idea_id"),
+                    metadata={
+                        "type": idea.get("type"),
+                        "sources": idea.get("sources") or [],
+                    },
+                )
+            )
+        except RuntimeError:
+            # No running event loop — sync caller; silently skip.
+            pass
+        except Exception as _e:
+            log.debug("[J1d] emission register skipped: %s", _e)
+
+
 async def _execute_stage(
     plan: dict, slices: dict, held_tickers: set[str], api_key: str
 ) -> dict:
@@ -537,6 +618,34 @@ OUTPUT REQUIREMENTS — strict:
    - futures fields: contract, level_to_watch, direction
    - sources: [signal_id1, signal_id2, ...] — REQUIRED, ≥1 id
 
+   WAVE 14J STOP FRAMEWORK (J1c) — every idea MUST also carry:
+   - entry_price (number, $): the level at which to enter
+   - stop_price (number, $): the hard stop level
+   - stop_type (string): one of "price" (fixed $ level), "atr" (multiple
+     of average true range), "volatility" (IV/realized-vol-derived),
+     "time" (calendar exit if thesis hasn't worked by date X),
+     "thesis_break" (exit on news invalidation, no price level)
+   - stop_basis (string, 1 sentence): how the stop was chosen — e.g.
+     "below 50d SMA at $X", "2x ATR(14) below 20d high", "if Q3
+     guidance comes in below $Y consensus"
+   - target_price (number, $): the level at which to take profit or
+     re-evaluate
+   - target_basis (string, 1 sentence): how the target was chosen
+   - R_per_share (number, $): = |entry_price - stop_price|; the risk
+     unit if 1 share is held. Risk governor multiplies this by an
+     operator-set qty to produce R_dollars for the heat check
+   - planned_qty (integer, optional): suggested share count or contract
+     count if the idea has a natural unit (e.g. 1 condor, 100 shares,
+     5 contracts). If omitted, downstream assumes 100 shares for
+     equity ideas.
+
+   Stop-type guidance: equity momentum (goat) → typically "atr" or
+   "price"; swing setups (bravo) → "price" referencing structural
+   support; options short-premium → "price" at the short strike or
+   "thesis_break" on IV expansion; options long-premium → "time"
+   (close at 21 DTE rule). Stops MUST be set at issue-time, never
+   "TBD" or "decide on entry".
+
 7. TRADE IDEAS QUOTA: if PRE_MARKET_TRADE_IDEAS is in include_sections, you MUST emit EXACTLY {plan.get("trade_idea_count_target", 4)} trade ideas (the planner set this target based on flow data quality). Each idea must cite ≥1 real signal_id. If you genuinely cannot ground that many setups in the data feed, omit the section entirely (set trade_ideas to []) — but the planner already gauged data sufficiency, so dropping below target should be rare. Mix types (some stock, some options, optionally one futures). Prefer focus_tickers but don't repeat the same ticker.
 
 7a. INDIVIDUAL STOCKS OVER SECTOR ETFs: Of the trade ideas you emit, AT MOST ONE may be a broad-market or sector ETF (SPY, QQQ, IWM, DIA, VTI, VOO, VXX, TLT, IEF, XLF, XLK, XLE, XLV, XLI, XLP, XLY, XLB, XLU, XLC, XLRE, GLD, SLV, USO, UNG, ARKK, SMH, SOXX). The rest MUST be individual company stocks (e.g. NVDA, TSLA, AMZN, MSFT, GOOG, AAPL, META, AMD, COIN, PLTR — any named operating company). Sector ETFs are easy to source from options-flow signals but blunt the brief's tactical value — NATRIX trades individual names, not broad sectors. Only break this rule if the entire signal feed genuinely has zero individual-stock catalysts, in which case explain in the thesis why the ETF is the only viable read.
@@ -578,16 +687,26 @@ OUTPUT SHAPE (strict JSON):
       "type": "stock"|"options"|"futures",
       "ticker": "string",
       "thesis": "string",
-      "entry"?: "string",
-      "stop"?: "string",
-      "target": "string",
+      "entry": "string"|null,
+      "stop": "string"|null,
+      "target": "string"|null,
       "timeframe"?: "string",
       "structure"?: "string",
       "max_risk"?: "string",
       "contract"?: "string",
       "level_to_watch"?: "string",
       "direction"?: "string",
-      "sources": ["signal_id", ...]
+      "sources": ["signal_id", ...],
+
+      // Wave 14J stop framework (REQUIRED on every idea)
+      "entry_price": <number>,
+      "stop_price": <number>,
+      "stop_type": "price"|"atr"|"volatility"|"time"|"thesis_break",
+      "stop_basis": "string",
+      "target_price": <number>,
+      "target_basis": "string",
+      "R_per_share": <number>,
+      "planned_qty": <integer, optional>
     }}
   ],
   "polymarket_watch": [{{"text": "string", "citations": ["signal_id"]}}] or null,
@@ -780,6 +899,86 @@ def _local_critique(executor_out: dict, valid_ids: set[str], plan: dict | None =
         sources = idea.get("sources", []) or []
         if not sources:
             reasons.append(f"trade_ideas[{i}] missing sources")
+            failed_sections.add("trade_ideas")
+
+    # 3a) Wave 14J J1c — Stop framework. Every trade idea MUST carry
+    # entry_price + stop_price + stop_type + R_per_share + target_price.
+    # An idea without a stop is an idea without risk control; the brief
+    # should never ship one. stop_basis + target_basis are also required
+    # (1-sentence justification each) — without those the operator can't
+    # judge whether the level makes sense.
+    _VALID_STOP_TYPES = {"price", "atr", "volatility", "time", "thesis_break"}
+    for i, idea in enumerate(trade_ideas):
+        missing = []
+        for fld in ("entry_price", "stop_price", "stop_type", "target_price",
+                    "stop_basis", "target_basis", "R_per_share"):
+            v = idea.get(fld)
+            if v is None or v == "":
+                missing.append(fld)
+        if missing:
+            reasons.append(
+                f"trade_ideas[{i}] ({idea.get('ticker', '?')}) missing J1c "
+                f"stop-framework fields: {missing}"
+            )
+            failed_sections.add("trade_ideas")
+            continue
+        # Type/range sanity
+        try:
+            ep = float(idea["entry_price"])
+            sp = float(idea["stop_price"])
+            tp = float(idea["target_price"])
+            rps = float(idea["R_per_share"])
+            if ep <= 0 or sp <= 0 or tp <= 0:
+                reasons.append(
+                    f"trade_ideas[{i}] ({idea.get('ticker', '?')}) "
+                    f"non-positive price (entry={ep}, stop={sp}, target={tp})"
+                )
+                failed_sections.add("trade_ideas")
+                continue
+            # R_per_share must equal |entry - stop| within 1¢ tolerance
+            computed_R = abs(ep - sp)
+            if abs(rps - computed_R) > 0.01:
+                reasons.append(
+                    f"trade_ideas[{i}] ({idea.get('ticker', '?')}) "
+                    f"R_per_share {rps} != |entry {ep} - stop {sp}| = {computed_R:.4f}"
+                )
+                failed_sections.add("trade_ideas")
+                continue
+            # Direction sanity — for a LONG idea, target > entry > stop
+            # For a SHORT idea, target < entry < stop. Detect direction
+            # from explicit `direction` field if present, else assume
+            # long if target > entry.
+            direction = (idea.get("direction") or "").lower()
+            if direction in ("long", "bullish") or (not direction and tp > ep):
+                if not (sp < ep < tp):
+                    reasons.append(
+                        f"trade_ideas[{i}] ({idea.get('ticker', '?')}) "
+                        f"long-side levels out of order: stop {sp} < entry {ep} < target {tp} expected"
+                    )
+                    failed_sections.add("trade_ideas")
+                    continue
+            elif direction in ("short", "bearish"):
+                if not (tp < ep < sp):
+                    reasons.append(
+                        f"trade_ideas[{i}] ({idea.get('ticker', '?')}) "
+                        f"short-side levels out of order: target {tp} < entry {ep} < stop {sp} expected"
+                    )
+                    failed_sections.add("trade_ideas")
+                    continue
+        except (TypeError, ValueError) as ex:
+            reasons.append(
+                f"trade_ideas[{i}] ({idea.get('ticker', '?')}) "
+                f"price field not parseable: {ex}"
+            )
+            failed_sections.add("trade_ideas")
+            continue
+        # stop_type whitelist
+        if idea.get("stop_type") not in _VALID_STOP_TYPES:
+            reasons.append(
+                f"trade_ideas[{i}] ({idea.get('ticker', '?')}) "
+                f"invalid stop_type {idea.get('stop_type')!r}; "
+                f"must be one of {sorted(_VALID_STOP_TYPES)}"
+            )
             failed_sections.add("trade_ideas")
 
     # 4) Planner trade-idea quota — executor must meet target if section was included.
@@ -1269,6 +1468,9 @@ async def run_brief_pipeline(brief, held_tickers: set[str], api_key: str, lane_r
 
     slices = _filter_signals_for_executor(brief, plan, lane_resolvers)
     executor_out = await _execute_stage(plan, slices, held_tickers, api_key)
+    # Wave 14J J1c — stamp every trade_idea with a stable UUID so J1d
+    # (per-strategy expectancy) can attribute outcomes back to the issue.
+    _stamp_trade_idea_ids(executor_out)
     stages.append("executor")
 
     # CRITIQUE — local critic is free; LLM critic is gated separately
@@ -1289,6 +1491,10 @@ async def run_brief_pipeline(brief, held_tickers: set[str], api_key: str, lane_r
                 executor_out = await _regenerate_stage(
                     executor_out, critic, plan, slices, held_tickers, api_key,
                 )
+                # Re-stamp after regen — regenerated ideas need their own
+                # trade_idea_ids, but preserve any existing ones the
+                # executor kept verbatim across the regen.
+                _stamp_trade_idea_ids(executor_out)
                 stages.append("regenerator")
                 # Re-critique after regen (local-only, cheap)
                 critic = _local_critique(executor_out, valid_ids, plan)
