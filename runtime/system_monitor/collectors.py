@@ -311,15 +311,35 @@ async def collect_tailscale() -> TailscaleMesh:
             if last_handshake_iso:
                 try:
                     from datetime import datetime as _dt
-
-                    lh = _dt.fromisoformat(last_handshake_iso.replace("Z", "+00:00"))
                     from datetime import timezone as _tz
 
-                    last_age = max(0, int((_dt.now(_tz.utc) - lh).total_seconds()))
+                    lh = _dt.fromisoformat(last_handshake_iso.replace("Z", "+00:00"))
+                    # tailscale uses 0001-01-01T00:00:00Z for "never handshaked";
+                    # treat anything pre-2000 as "never" so we don't render
+                    # ~63 billion seconds when subtracting now-epoch from year-1.
+                    if lh.year < 2000:
+                        last_age = -1
+                    else:
+                        last_age = max(0, int((_dt.now(_tz.utc) - lh).total_seconds()))
                 except Exception:
                     pass
+            # Name fallback chain — tailscale sometimes reports HostName as
+            # "localhost" for iOS clients (their device hostname genuinely is
+            # localhost); prefer DNSName's leftmost label in that case.
+            hn = (p.get("HostName") or "").strip()
+            dn = (p.get("DNSName") or "").strip().rstrip(".")
+            os_label = (p.get("OS") or "").strip()
+            name = hn
+            if not name or name.lower() == "localhost":
+                # DNSName looks like "iphone.tail1234.ts.net" — take leftmost label
+                if dn:
+                    name = dn.split(".", 1)[0]
+                elif os_label:
+                    name = f"{os_label}-{pkey[:8]}"
+                else:
+                    name = pkey[:12]
             peers_list.append(TailscalePeer(
-                name=p.get("HostName", "") or p.get("DNSName", "") or pkey[:12],
+                name=name,
                 addr=paddrs[0] if paddrs else "",
                 latency_ms=0.0,  # tailscale status doesn't include latency without --peers
                 last_handshake_secs=last_age,
