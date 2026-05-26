@@ -518,6 +518,8 @@ OUTPUT REQUIREMENTS — strict:
 
 7. TRADE IDEAS QUOTA: if PRE_MARKET_TRADE_IDEAS is in include_sections, you MUST emit EXACTLY {plan.get("trade_idea_count_target", 4)} trade ideas (the planner set this target based on flow data quality). Each idea must cite ≥1 real signal_id. If you genuinely cannot ground that many setups in the data feed, omit the section entirely (set trade_ideas to []) — but the planner already gauged data sufficiency, so dropping below target should be rare. Mix types (some stock, some options, optionally one futures). Prefer focus_tickers but don't repeat the same ticker.
 
+7a. INDIVIDUAL STOCKS OVER SECTOR ETFs: Of the trade ideas you emit, AT MOST ONE may be a broad-market or sector ETF (SPY, QQQ, IWM, DIA, VTI, VOO, VXX, TLT, IEF, XLF, XLK, XLE, XLV, XLI, XLP, XLY, XLB, XLU, XLC, XLRE, GLD, SLV, USO, UNG, ARKK, SMH, SOXX). The rest MUST be individual company stocks (e.g. NVDA, TSLA, AMZN, MSFT, GOOG, AAPL, META, AMD, COIN, PLTR — any named operating company). Sector ETFs are easy to source from options-flow signals but blunt the brief's tactical value — NATRIX trades individual names, not broad sectors. Only break this rule if the entire signal feed genuinely has zero individual-stock catalysts, in which case explain in the thesis why the ETF is the only viable read.
+
 8. Avoid tickers in held_tickers as NEW entries — label them ADD TO EXISTING in thesis if you want to recommend adding.
 
 9. macro_landscape: keys are the lane names from active_lanes ONLY. No "Signals quiet" stubs.

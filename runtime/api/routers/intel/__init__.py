@@ -1114,6 +1114,12 @@ Respond with ONLY the formatted brief. No preamble, no closing remarks, no "Here
         return {
             "status": "generated",
             "date": today,
+            # Wave 14G P15 — surface generated_at in the response. iOS
+            # BriefRenderer displays this as the brief timestamp so the
+            # reader knows when the data was synthesized (vs reading a
+            # stale cached brief). Was already persisted in brief_data
+            # on disk but omitted from the API response.
+            "generated_at": brief_data["generated_at"],
             "brief_id": brief.brief_id,
             "total_signals": brief.total_signals_processed,
             "executive_summary": exec_summary_clean,
