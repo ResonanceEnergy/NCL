@@ -721,6 +721,29 @@ class AutonomousScheduler:
             asyncio.create_task(_ops_monitor(), name="ncl-ops-monitor")
         )
 
+        # ── Morning Brief Pro (Wave 14H) ──
+        # 02:30 ET — ncl-brief-prep:    collect overnight data into pack
+        # 05:00 ET — ncl-brief-council: 4-LLM panel (macro / pulse / flow /
+        #                               technical) + chair synthesis
+        # 05:30 ET — ncl-brief-render:  presentation + market open plan
+        # Falls back to Phase 14D pipeline if any stage errors.
+        from .loops.brief_pro_scheduler import (
+            brief_prep_loop, brief_council_loop, brief_render_loop,
+        )
+
+        async def _brief_prep():
+            await brief_prep_loop(self._brain)
+
+        async def _brief_council():
+            await brief_council_loop(self._brain)
+
+        async def _brief_render():
+            await brief_render_loop(self._brain)
+
+        self._tasks.append(asyncio.create_task(_brief_prep(), name="ncl-brief-prep"))
+        self._tasks.append(asyncio.create_task(_brief_council(), name="ncl-brief-council"))
+        self._tasks.append(asyncio.create_task(_brief_render(), name="ncl-brief-render"))
+
         # Attach a done-callback to every task so a silent crash (unobserved
         # task exception) gets logged instead of disappearing.
         def _task_done(task: asyncio.Task) -> None:

@@ -289,13 +289,88 @@ async def _fetch_finnhub_earnings(horizon_days: int = 35) -> Optional[dict[str, 
     return out
 
 
-async def get_earnings_map(force_refresh: bool = False) -> Optional[dict[str, str]]:
-    """Cached batch earnings map. None when Finnhub unavailable."""
+def _yf_earnings_blocking(tickers: list[str]) -> dict[str, str]:
+    """yfinance fallback for the earnings calendar.
+
+    For each ticker, query yfinance.Ticker(t).calendar (or get_earnings_dates)
+    and return the soonest upcoming date within EARNINGS_REPORT_HORIZON_DAYS.
+    Slower than Finnhub's batch endpoint (one call per ticker) but works
+    without an API key. Used when FINNHUB_API_KEY is unset.
+    """
+    try:
+        import yfinance as yf
+    except ImportError:
+        return {}
+    out: dict[str, str] = {}
+    today = date.today()
+    cutoff_days = EARNINGS_REPORT_HORIZON_DAYS + 5
+    for ticker in tickers:
+        try:
+            t = yf.Ticker(ticker)
+            # Newer yfinance: get_earnings_dates returns DataFrame indexed by date
+            try:
+                ed = t.get_earnings_dates(limit=4)
+                if ed is not None and not ed.empty:
+                    for idx in ed.index:
+                        try:
+                            dt = idx.to_pydatetime().date()
+                        except Exception:
+                            continue
+                        delta = (dt - today).days
+                        if 0 <= delta <= cutoff_days:
+                            out[ticker] = dt.isoformat()
+                            break
+            except Exception:
+                # Older yfinance: t.calendar dict
+                cal = getattr(t, "calendar", None)
+                if cal is not None:
+                    try:
+                        d = cal.get("Earnings Date") if isinstance(cal, dict) else None
+                        if isinstance(d, list) and d:
+                            d = d[0]
+                        if d is not None:
+                            dt = d.date() if hasattr(d, "date") else None
+                            if dt:
+                                delta = (dt - today).days
+                                if 0 <= delta <= cutoff_days:
+                                    out[ticker] = dt.isoformat()
+                    except Exception:
+                        pass
+        except Exception as e:
+            log.debug("yf earnings fetch failed for %s: %s", ticker, e)
+    return out
+
+
+async def _fetch_yf_earnings_async(tickers: list[str]) -> Optional[dict[str, str]]:
+    """Async wrapper. Returns {} (empty map) on total failure, not None,
+    so the caller can distinguish 'no upcoming earnings' from 'data
+    unavailable'."""
+    loop = asyncio.get_event_loop()
+    try:
+        result = await loop.run_in_executor(_executor, _yf_earnings_blocking, tickers)
+        return result or {}
+    except Exception as e:
+        log.warning("yf earnings batch failed: %s", e)
+        return {}
+
+
+async def get_earnings_map(force_refresh: bool = False,
+                            tickers: Optional[list[str]] = None) -> Optional[dict[str, str]]:
+    """Cached batch earnings map.
+
+    Order of preference:
+      1. Finnhub batch (FINNHUB_API_KEY required, fastest)
+      2. yfinance per-ticker (no key required, slower)
+    Returns None only if BOTH paths fail.
+    """
     if not force_refresh:
         cached = _cache_get(_EARNINGS_CACHE_KEY)
         if cached is not None:
             return cached
     data = await _fetch_finnhub_earnings(horizon_days=EARNINGS_REPORT_HORIZON_DAYS + 5)
+    if data is None and tickers:
+        # P19-A — yfinance fallback when Finnhub key missing.
+        data = await _fetch_yf_earnings_async(tickers)
     if data is None:
         return None
     # Override TTL for this specific key — earnings calendar is 6h not 5m
@@ -320,7 +395,11 @@ def days_until(date_str: Optional[str]) -> Optional[int]:
 
 
 def _yf_iv_blocking(ticker: str) -> Optional[float]:
-    """Approximate ATM-IV via yfinance options chain (nearest expiration)."""
+    """Approximate ATM-IV via yfinance options chain (nearest expiration).
+
+    P19-A robustness pass: try multiple yfinance APIs to fetch the spot
+    price since fast_info shape changed in recent versions.
+    """
     try:
         import yfinance as yf
     except ImportError:
@@ -332,7 +411,29 @@ def _yf_iv_blocking(ticker: str) -> Optional[float]:
             return None
         # Nearest expiration
         ch = t.option_chain(exps[0])
-        spot = float((t.fast_info or {}).get("last_price") or 0)
+        spot = 0.0
+        # 1) fast_info (newer yfinance returns FastInfo not dict)
+        try:
+            fi = t.fast_info
+            spot = float(getattr(fi, "last_price", None) or
+                          (fi.get("last_price") if hasattr(fi, "get") else 0) or 0)
+        except Exception:
+            spot = 0
+        # 2) info["currentPrice"] fallback
+        if spot <= 0:
+            try:
+                info = t.info or {}
+                spot = float(info.get("currentPrice") or info.get("regularMarketPrice") or 0)
+            except Exception:
+                pass
+        # 3) Latest history bar
+        if spot <= 0:
+            try:
+                hist = t.history(period="1d")
+                if not hist.empty:
+                    spot = float(hist["Close"].iloc[-1])
+            except Exception:
+                pass
         if spot <= 0:
             return None
         # Pick ATM call by min |strike - spot|

@@ -1182,6 +1182,98 @@ async def update_morning_brief_progress(
     return {"status": "updated", "progress_count": len(data["progress"])}
 
 
+# ────────────────────────────────────────────────────────────────────────
+# Wave 14H — Morning Brief Pro (NightWatch → Council → Presentation)
+# ────────────────────────────────────────────────────────────────────────
+
+
+def _get_brain_lazy():
+    """Lazy import to avoid circular deps at module load."""
+    try:
+        from runtime.api.routes import brain  # type: ignore
+        return brain
+    except Exception:
+        return None
+
+
+@router.get("/intelligence/morning-brief/pro")
+async def get_morning_brief_pro(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Return today's Morning Brief Pro if rendered.
+
+    Returns 404 if the prep + council + presentation flow hasn't run yet
+    today. Use POST /fire to manually trigger.
+    """
+    from runtime.intelligence.brief_presenter import load_latest_pro_brief
+    envelope = load_latest_pro_brief()
+    if envelope is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No pro brief rendered for today. POST /intelligence/morning-brief/pro/fire to build one.",
+        )
+    return envelope
+
+
+@router.get("/intelligence/morning-brief/pro/prep")
+async def get_morning_brief_pro_prep(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Return the raw NightWatch prep pack for today (debug + ops)."""
+    from runtime.intelligence.brief_prep import load_latest_prep_pack
+    pack = load_latest_prep_pack()
+    if pack is None:
+        raise HTTPException(status_code=404, detail="No prep pack for today.")
+    return pack
+
+
+@router.get("/intelligence/morning-brief/pro/council")
+async def get_morning_brief_pro_council(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Return the raw Council member outputs + synthesis for today."""
+    from runtime.intelligence.brief_council import load_latest_council
+    council = load_latest_council()
+    if council is None:
+        raise HTTPException(status_code=404, detail="No council output for today.")
+    return council
+
+
+@router.post("/intelligence/morning-brief/pro/fire")
+async def fire_morning_brief_pro(
+    skip_prep: bool = Query(default=False, description="Reuse today's prep pack if available"),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Manually trigger the full pro brief flow: prep → council → render.
+
+    Tomorrow morning's scheduler runs this automatically; this endpoint is
+    for operator/dev use.
+    """
+    from runtime.intelligence.brief_prep import build_prep_pack, load_latest_prep_pack
+    from runtime.intelligence.brief_council import run_council
+    from runtime.intelligence.brief_presenter import render_pro_brief
+
+    brain = _get_brain_lazy()
+
+    # 1. Prep stage (or reuse)
+    pack = None
+    if skip_prep:
+        pack = load_latest_prep_pack()
+    if pack is None:
+        pack = await build_prep_pack(brain)
+
+    # 2. Council stage
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY not set")
+    synthesis = await run_council(pack, api_key=api_key)
+
+    # 3. Render
+    envelope = render_pro_brief(synthesis, pack=pack)
+
+    return envelope
+
+
 @router.get("/intelligence/briefs")
 async def list_intelligence_briefs(
     limit: int = Query(default=20, ge=1, le=100),

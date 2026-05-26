@@ -4948,16 +4948,27 @@ async def stocks_scanner_goat(
             if aw is not None:
                 _stock_scanner.attach_async_writer(aw)
 
+        import time as _t
+        scan_start = _t.time()
         results, scan_meta = await _stock_scanner.run_goat_scan_enriched(
             tickers,
             include_held=include_held,
             include_earnings_risk=include_earnings_risk,
         )
+        scan_end = _t.time()
+        from datetime import datetime as _dt, timezone as _tz
+        scan_meta["scan_started_at"] = _dt.fromtimestamp(scan_start, _tz.utc).isoformat()
+        scan_meta["scan_completed_at"] = _dt.fromtimestamp(scan_end, _tz.utc).isoformat()
+        scan_meta["scan_duration_s"] = round(scan_end - scan_start, 1)
+
+        # P19-B — drop score=0 entries. They passed liquidity but failed
+        # every alpha gate. Pure noise to the user.
+        results = [r for r in results if r.get("goat_score", 0) > 0]
 
         if min_score > 0:
             results = [r for r in results if r["goat_score"] >= min_score]
 
-        # Merge names from watchlist, strip exchange suffixes
+        # Merge names + sector from watchlist, strip exchange suffixes
         for r in results:
             raw = r["ticker"]
             disp = display_ticker(raw)
@@ -4965,6 +4976,9 @@ async def stocks_scanner_goat(
             meta = WATCHLIST_MAP.get(raw) or DISPLAY_MAP.get(disp)
             if meta:
                 r["name"] = meta.name
+                # P19-B — sector was unpopulated in P18 audit; join from watchlist.
+                if getattr(meta, "sector", None):
+                    r["sector"] = meta.sector
 
         return {
             "results": results,
@@ -5036,6 +5050,15 @@ async def stocks_scanner_bravo(
             include_held=include_held,
             include_earnings_risk=include_earnings_risk,
         )
+
+        scan_end = _tb.time()
+        from datetime import datetime as _dtb, timezone as _tzb
+        scan_meta["scan_started_at"] = _dtb.fromtimestamp(scan_start, _tzb.utc).isoformat()
+        scan_meta["scan_completed_at"] = _dtb.fromtimestamp(scan_end, _tzb.utc).isoformat()
+        scan_meta["scan_duration_s"] = round(scan_end - scan_start, 1)
+
+        # P19-B — drop score=0 entries
+        results = [r for r in results if r.get("bravo_score", 0) > 0]
 
         if min_score > 0:
             results = [r for r in results if r["bravo_score"] >= min_score]

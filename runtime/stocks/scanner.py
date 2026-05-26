@@ -407,7 +407,9 @@ class StockScanner:
             log.debug("portfolio dedup probe failed: %s", e)
 
         # ── Feature 5: earnings calendar (batch) ────────────────────────
-        earnings_map = await enr.get_earnings_map()
+        # P19-A — pass tickers list so the yfinance fallback can fire when
+        # FINNHUB_API_KEY is missing. Previously failed silently.
+        earnings_map = await enr.get_earnings_map(tickers=tickers)
         if earnings_map is None:
             meta["earnings_source"] = "unavailable"
         else:
@@ -469,6 +471,11 @@ class StockScanner:
             # 6A: IVR
             ivr = await enr.compute_ivr(ticker)
             row["ivr"] = round(float(ivr), 1) if ivr is not None else None
+            # P19-A — tag the gate status so consumers know whether IVR was
+            # actually evaluated (False) or silently passed through (True
+            # because data was missing). Was previously silently
+            # bypassing — UI showed "rejects IVR >70" but never enforced.
+            row["ivr_status"] = "available" if ivr is not None else "unavailable"
             if ivr is not None:
                 if is_goat and ivr > enr.GOAT_IVR_MAX:
                     meta["filtered_ivr"] += 1
