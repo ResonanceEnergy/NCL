@@ -1071,6 +1071,83 @@ def _find_adapter(pm, name: str):
     return None
 
 
+# ──────────────────────────────────────────────────────────────────────
+# Wave 14J Phase 1 (J0a) — Trading cost ledger endpoints
+# Mirror of the existing /system/costs surface but for trading costs
+# (commissions, financing, borrow, assignment, gas, exchange, slippage,
+# regulatory). Source module: runtime/portfolio/trade_cost_ledger.py
+# ──────────────────────────────────────────────────────────────────────
+
+@router.get("/trade-costs/today")
+async def trade_costs_today(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Today's trading-cost rollup. Mirrors the in-memory summary held
+    by TradeCostLedger; resets at UTC midnight."""
+    from ...portfolio.trade_cost_ledger import get_trade_cost_ledger
+    ledger = await get_trade_cost_ledger()
+    return await ledger.summary_today()
+
+
+@router.get("/trade-costs/history")
+async def trade_costs_history(
+    days: int = Query(default=30, ge=1, le=365),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Last N days of trading-cost rollups, newest first."""
+    from ...portfolio.trade_cost_ledger import get_trade_cost_ledger
+    ledger = await get_trade_cost_ledger()
+    rows = await ledger.history(days=days)
+    return {"days": days, "entries": rows}
+
+
+@router.get("/trade-costs/ledger")
+async def trade_costs_ledger(
+    limit: int = Query(default=100, ge=1, le=1000),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Raw recent entries from the JSONL ledger (audit / debug)."""
+    from ...portfolio.trade_cost_ledger import get_trade_cost_ledger
+    ledger = await get_trade_cost_ledger()
+    rows = await ledger.recent_entries(limit=limit)
+    return {"limit": limit, "count": len(rows), "entries": rows}
+
+
+@router.post("/trade-costs/record")
+async def trade_costs_record(
+    payload: dict,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Manual record entrypoint. Adapter fill-handlers should call
+    `runtime.portfolio.trade_cost_ledger.record_trade_cost(...)` directly;
+    this endpoint exists so the iOS app + dashboards can backfill
+    historical commissions from broker statements."""
+    from ...portfolio.trade_cost_ledger import record_trade_cost
+    required = ("broker", "action", "amount_usd")
+    missing = [k for k in required if k not in payload]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Missing required fields: {missing}",
+        )
+    try:
+        await record_trade_cost(
+            broker=str(payload["broker"]),
+            action=str(payload["action"]),
+            amount_usd=float(payload["amount_usd"]),
+            symbol=payload.get("symbol"),
+            asset_class=payload.get("asset_class"),
+            account_id=payload.get("account_id"),
+            strategy_tag=payload.get("strategy_tag"),
+            currency=str(payload.get("currency", "USD")),
+            fx_rate=(float(payload["fx_rate"]) if payload.get("fx_rate") is not None else None),
+            metadata=payload.get("metadata"),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"record failed: {e}") from e
+    return {"status": "ok"}
+
+
 @router.get("/crypto")
 async def portfolio_crypto(
     pm=Depends(get_portfolio_mgr),
