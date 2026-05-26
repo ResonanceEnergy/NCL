@@ -274,7 +274,9 @@ def _dedup_risk_alerts(
     """
     if not risk_alerts:
         return []
-    top_token_sets = [_normalize_for_dedup(getattr(s, "title", "") or "") for s in top_signals[:top_n]]
+    top_token_sets = [
+        _normalize_for_dedup(getattr(s, "title", "") or "") for s in top_signals[:top_n]
+    ]
     top_token_sets = [t for t in top_token_sets if t]
 
     deduped: list[str] = []
@@ -563,41 +565,107 @@ async def generate_morning_brief(
         # matching against title+content. Either match qualifies the
         # signal for the lane.
         _PM_KEYS = {
-            "silver", "slv", "xag", "siver",
-            "gold", "gld", "iau", "xau",
-            "gdx", "gdxj",
-            "precious metal", "bullion",
+            "silver",
+            "slv",
+            "xag",
+            "siver",
+            "gold",
+            "gld",
+            "iau",
+            "xau",
+            "gdx",
+            "gdxj",
+            "precious metal",
+            "bullion",
         }
         _PM_SOURCES = {"metals", "precious_metals", "gold", "silver"}
         _OIL_KEYS = {
-            "wti", "brent", "crude", "oil", "uso", "xop", "xle",
-            "opec", "/cl", "energy sector",
+            "wti",
+            "brent",
+            "crude",
+            "oil",
+            "uso",
+            "xop",
+            "xle",
+            "opec",
+            "/cl",
+            "energy sector",
         }
         _OIL_SOURCES = {"energy", "oil", "crude"}
         _RATES_KEYS = {
-            "fomc", "fed ", "federal reserve", "powell", "rate cut",
-            "rate hike", "interest rate", "fed funds", "dot plot",
-            "tapering", "qt ", "quantitative", "jerome", "fedwatch",
-            "cpi", "pce", "ppi", "non-farm",
+            "fomc",
+            "fed ",
+            "federal reserve",
+            "powell",
+            "rate cut",
+            "rate hike",
+            "interest rate",
+            "fed funds",
+            "dot plot",
+            "tapering",
+            "qt ",
+            "quantitative",
+            "jerome",
+            "fedwatch",
+            "cpi",
+            "pce",
+            "ppi",
+            "non-farm",
         }
         _RATES_SOURCES: set[str] = set()  # no dedicated source; keyword-only
         _BONDS_KEYS = {
-            "tlt", "ief", "shy", "bnd", "agg", "yield", "10-year",
-            "10y", "2y", "2-year", "30y", "30-year", "treasury",
-            "treasuries", "bond market", "duration", "ust ",
-            "curve invert", "yield curve",
+            "tlt",
+            "ief",
+            "shy",
+            "bnd",
+            "agg",
+            "yield",
+            "10-year",
+            "10y",
+            "2y",
+            "2-year",
+            "30y",
+            "30-year",
+            "treasury",
+            "treasuries",
+            "bond market",
+            "duration",
+            "ust ",
+            "curve invert",
+            "yield curve",
         }
         _BONDS_SOURCES: set[str] = set()
         _CRYPTO_KEYS = {
-            "bitcoin", "btc", "btcusd", "btc-usd", "$btc",
-            "ethereum", "eth", "ethusd", "eth-usd", "$eth",
-            "xrp", "xrpusd", "ripple",
-            "solana", "sol", "solusd", "$sol",
-            "hedera", "hbar", "hbarusd",
-            "cardano", "ada",
-            "dogecoin", "doge",
-            "stablecoin", "usdc", "usdt",
-            "altcoin", "crypto market", "defi",
+            "bitcoin",
+            "btc",
+            "btcusd",
+            "btc-usd",
+            "$btc",
+            "ethereum",
+            "eth",
+            "ethusd",
+            "eth-usd",
+            "$eth",
+            "xrp",
+            "xrpusd",
+            "ripple",
+            "solana",
+            "sol",
+            "solusd",
+            "$sol",
+            "hedera",
+            "hbar",
+            "hbarusd",
+            "cardano",
+            "ada",
+            "dogecoin",
+            "doge",
+            "stablecoin",
+            "usdc",
+            "usdt",
+            "altcoin",
+            "crypto market",
+            "defi",
         }
         _CRYPTO_SOURCES = {"crypto", "onchain", "ndax", "metamask"}
         # Awarebot writes scanner:goat / scanner:bravo per
@@ -609,10 +677,23 @@ async def generate_morning_brief(
         _BRAVO_KEYS = {"bravo scanner", "bravo:", " bravo ", "bravo swing", "bravo signal"}
         _BRAVO_SOURCES = {"scanner:bravo", "bravo"}
         _FLOW_KEYS = {
-            "unusual whales", "uw flow", "options flow", "dark pool",
-            "block trade", "premium flow", "call premium", "put premium",
-            "net premium", "13f", "institutional", "smart money",
-            "p/c ratio", "call/put", "net flow", "$m flow", "flow alert",
+            "unusual whales",
+            "uw flow",
+            "options flow",
+            "dark pool",
+            "block trade",
+            "premium flow",
+            "call premium",
+            "put premium",
+            "net premium",
+            "13f",
+            "institutional",
+            "smart money",
+            "p/c ratio",
+            "call/put",
+            "net flow",
+            "$m flow",
+            "flow alert",
         }
         _FLOW_SOURCES = {"options_flow", "unusual_whales", "uw"}
 
@@ -647,7 +728,8 @@ async def generate_morning_brief(
             _FLOW_SOURCES,
         )
         market_signals = [
-            s for s in brief.top_signals
+            s
+            for s in brief.top_signals
             if any(k in _src(s) for k in ("market", "stock", "yfinance"))
         ]
         news_signals = [s for s in brief.top_signals if "news" in _src(s)]
@@ -951,6 +1033,7 @@ Respond with ONLY the formatted brief. No preamble, no closing remarks, no "Here
                             return True
                         hay = _haystack(s)
                         return any(k in hay for k in kw_set)
+
                     return resolver
 
                 lane_resolvers = {
@@ -963,7 +1046,10 @@ Respond with ONLY the formatted brief. No preamble, no closing remarks, no "Here
                 }
 
                 pipeline_result = await run_brief_pipeline(
-                    brief, held_tickers, anthropic_key, lane_resolvers,
+                    brief,
+                    held_tickers,
+                    anthropic_key,
+                    lane_resolvers,
                 )
                 topics_text = pipeline_result["text"]
                 pipeline_meta = {
@@ -976,7 +1062,9 @@ Respond with ONLY the formatted brief. No preamble, no closing remarks, no "Here
                     "plan_mode": pipeline_result.get("plan", {}).get("mode"),
                     "active_lanes": pipeline_result.get("plan", {}).get("active_lanes"),
                     "include_sections": pipeline_result.get("plan", {}).get("include_sections"),
-                    "trade_idea_target": pipeline_result.get("plan", {}).get("trade_idea_count_target"),
+                    "trade_idea_target": pipeline_result.get("plan", {}).get(
+                        "trade_idea_count_target"
+                    ),
                     "trade_ideas_emitted": len(
                         pipeline_result.get("executor_out", {}).get("trade_ideas", []) or []
                     ),
@@ -991,7 +1079,8 @@ Respond with ONLY the formatted brief. No preamble, no closing remarks, no "Here
             except Exception as exc:
                 log.warning(
                     "[MORNING-BRIEF] pipeline failed (%s: %r) — falling back to Phase A single-pass",
-                    type(exc).__name__, exc,
+                    type(exc).__name__,
+                    exc,
                 )
                 topics_text = ""
                 pipeline_meta = {"error": f"{type(exc).__name__}: {exc}"}
@@ -1191,6 +1280,7 @@ def _get_brain_lazy():
     """Lazy import to avoid circular deps at module load."""
     try:
         from runtime.api.routes import brain  # type: ignore
+
         return brain
     except Exception:
         return None
@@ -1206,6 +1296,7 @@ async def get_morning_brief_pro(
     today. Use POST /fire to manually trigger.
     """
     from runtime.intelligence.brief_presenter import load_latest_pro_brief
+
     envelope = load_latest_pro_brief()
     if envelope is None:
         raise HTTPException(
@@ -1215,12 +1306,67 @@ async def get_morning_brief_pro(
     return envelope
 
 
+@router.get("/intelligence/rotation")
+async def get_rotation_snapshot(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Return today's capital rotation snapshot for iOS RRG widget.
+
+    Wave 14I roadmap item 10. Single endpoint returning the full picture:
+        sectors        — 11 SPDR sector ETFs with quadrant + RS metrics
+        breadth        — % above 50d SMA + regime label
+        by_quadrant    — Leading / Improving / Weakening / Lagging buckets
+        style_ratios   — IWM/SPY, IWD/IWF, XLU/SPY, RSP/SPY, ARKK/SPY
+        cycle_phase    — early/mid/late/recession + indicators
+        leadership_summary — one-liner read
+    """
+    from runtime.intelligence.cycle_phase import load_latest_cycle
+    from runtime.intelligence.rotation_tracker import load_latest_rotation
+    from runtime.intelligence.style_ratios import load_latest_style
+
+    rotation = load_latest_rotation()
+    style = load_latest_style()
+    cycle = load_latest_cycle()
+
+    if rotation is None and style is None and cycle is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No rotation snapshot for today. Fires nightly at 02:30 ET.",
+        )
+
+    return {
+        "date": (rotation or {}).get("date"),
+        "rotation": rotation,
+        "style_ratios": style,
+        "cycle_phase": cycle,
+    }
+
+
+@router.post("/intelligence/rotation/fire")
+async def fire_rotation_snapshot(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Manually trigger a rotation snapshot build right now (for dev/ops)."""
+    from runtime.intelligence.cycle_phase import build_cycle_phase_snapshot
+    from runtime.intelligence.rotation_tracker import build_rotation_snapshot
+    from runtime.intelligence.style_ratios import build_style_snapshot
+
+    rotation, style, cycle = await asyncio.gather(
+        build_rotation_snapshot(),
+        build_style_snapshot(),
+        build_cycle_phase_snapshot(),
+        return_exceptions=False,
+    )
+    return {"rotation": rotation, "style_ratios": style, "cycle_phase": cycle}
+
+
 @router.get("/intelligence/morning-brief/pro/prep")
 async def get_morning_brief_pro_prep(
     _: None = Depends(verify_strike_token_dep),
 ) -> dict:
     """Return the raw NightWatch prep pack for today (debug + ops)."""
     from runtime.intelligence.brief_prep import load_latest_prep_pack
+
     pack = load_latest_prep_pack()
     if pack is None:
         raise HTTPException(status_code=404, detail="No prep pack for today.")
@@ -1233,6 +1379,7 @@ async def get_morning_brief_pro_council(
 ) -> dict:
     """Return the raw Council member outputs + synthesis for today."""
     from runtime.intelligence.brief_council import load_latest_council
+
     council = load_latest_council()
     if council is None:
         raise HTTPException(status_code=404, detail="No council output for today.")
@@ -1249,8 +1396,8 @@ async def fire_morning_brief_pro(
     Tomorrow morning's scheduler runs this automatically; this endpoint is
     for operator/dev use.
     """
-    from runtime.intelligence.brief_prep import build_prep_pack, load_latest_prep_pack
     from runtime.intelligence.brief_council import run_council
+    from runtime.intelligence.brief_prep import build_prep_pack, load_latest_prep_pack
     from runtime.intelligence.brief_presenter import render_pro_brief
 
     brain = _get_brain_lazy()
@@ -1850,7 +1997,9 @@ async def intelligence_digest(
 
     # Authority filter at digest boundary — same default as morning brief
     filtered_signals = _filter_signals_by_authority(brief.top_signals)
-    top = sorted(filtered_signals, key=lambda s: s.importance_score(), reverse=True)[:top_signal_limit]
+    top = sorted(filtered_signals, key=lambda s: s.importance_score(), reverse=True)[
+        :top_signal_limit
+    ]
 
     # Risk-alert dedup against the top 5 (after filter)
     deduped_risks = _dedup_risk_alerts(brief.risk_alerts, top)
@@ -1895,7 +2044,9 @@ async def intelligence_digest(
             candidate = nw_dir / f"daily-{today_str}.md"
             chosen: Path | None = candidate if candidate.exists() else None
             if chosen is None:
-                md_files = sorted(nw_dir.glob("daily-*.md"), key=lambda p: p.stat().st_mtime, reverse=True)
+                md_files = sorted(
+                    nw_dir.glob("daily-*.md"), key=lambda p: p.stat().st_mtime, reverse=True
+                )
                 chosen = md_files[0] if md_files else None
             if chosen is not None:
                 parsed = _parse_brief(chosen)
@@ -3022,11 +3173,7 @@ def _nightshift_brief_summary(date_dir: Path) -> dict | None:
         "total_duration_hours": float(data.get("total_duration_hours", 0.0) or 0.0),
         "summary": (data.get("summary") or "")[:1000],
         "insights_count": len(insights) if isinstance(insights, list) else 0,
-        "generated_at": (
-            data.get("completed_at")
-            or data.get("timestamp")
-            or ""
-        ),
+        "generated_at": (data.get("completed_at") or data.get("timestamp") or ""),
     }
 
 
@@ -3235,9 +3382,9 @@ async def youtube_reports_by_date(
 # ``tests/test_outcome_endpoint_schema.py`` imports it directly via
 # ``from runtime.api.routers.intel import OutcomeBody``.
 
+from .night_watch import router as _night_watch_router  # noqa: E402
 from .predictions import OutcomeBody  # noqa: E402, F401
 from .predictions import router as _predictions_router  # noqa: E402
-from .night_watch import router as _night_watch_router  # noqa: E402
 
 
 router.include_router(_predictions_router)
