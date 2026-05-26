@@ -47,6 +47,7 @@ from .journal import router as journal_router
 from .life_plan import router as life_plan_router
 from .mandate import router as mandate_router
 from .memory import router as memory_router
+from .ops import router as ops_router
 from .portfolio import router as portfolio_router
 from .pump import router as pump_router
 from .system import router as system_router
@@ -76,6 +77,7 @@ def register_routers(app: FastAPI) -> None:
     app.include_router(journal_router)
     app.include_router(life_plan_router)
     app.include_router(mandate_router)
+    app.include_router(ops_router)
     app.include_router(portfolio_router)
     app.include_router(pump_router)
     app.include_router(feedback_pipeline_router)

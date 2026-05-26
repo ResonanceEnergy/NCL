@@ -708,6 +708,19 @@ class AutonomousScheduler:
             asyncio.create_task(_morning_quiz(), name="ncl-morning-quiz")
         )
 
+        # ── Ops monitor (Wave 14G — desktop) ──
+        # 5s sampler writing into a 60-min ring buffer, fed via
+        # /system/ops/{snapshot,history,stream}. Powers the menu-bar app
+        # + OpsView window. Per docs/DESKTOP_OPTIONS_2026-05-25.md.
+        from ..system_monitor.sampler import run as _ops_monitor_run
+
+        async def _ops_monitor():
+            await _ops_monitor_run(self)
+
+        self._tasks.append(
+            asyncio.create_task(_ops_monitor(), name="ncl-ops-monitor")
+        )
+
         # Attach a done-callback to every task so a silent crash (unobserved
         # task exception) gets logged instead of disappearing.
         def _task_done(task: asyncio.Task) -> None:
