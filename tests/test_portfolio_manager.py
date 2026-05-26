@@ -1772,6 +1772,165 @@ def test_graduation_gate_evaluate_all_summary(tmp_path, monkeypatch):
     asyncio.run(go())
 
 
+# ── Friction profile (Wave 14K Phase 7: K6a + K6b) ────────────────
+
+def _isolate_friction(tmp_path, monkeypatch):
+    """Same isolation pattern as _isolate_drift: re-points module-level
+    file paths and resets state cache."""
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    for mod in list(sys.modules.keys()):
+        if mod.startswith("runtime.portfolio.auto_trader.friction_profile"):
+            del sys.modules[mod]
+    from runtime.portfolio.auto_trader import friction_profile as fp
+    data_dir = tmp_path / "data" / "portfolio" / "auto_trader"
+    monkeypatch.setattr(fp, "DATA_DIR", data_dir)
+    monkeypatch.setattr(fp, "STATE_FILE", data_dir / "friction_profiles.json")
+    monkeypatch.setattr(fp, "CALIB_LOG", data_dir / "friction_calibrations.jsonl")
+    fp._STATE.clear()
+    fp._LOADED = False
+    return fp
+
+
+def test_friction_default_profile_per_asset_type(tmp_path, monkeypatch):
+    """K6a: get_profile creates per-asset-type defaults on first lookup."""
+    fp = _isolate_friction(tmp_path, monkeypatch)
+
+    async def go():
+        # Stock default — low slippage, no partials
+        p_stock = await fp.get_profile("goat", asset_type="stock")
+        assert p_stock.slippage_bps == 3.0
+        assert p_stock.partial_fill_prob == 0.0
+        # Options default — higher slippage, partial-fill enabled
+        p_opt = await fp.get_profile("options_strat", asset_type="options")
+        assert p_opt.slippage_bps == 50.0
+        assert p_opt.partial_fill_prob == 0.05
+        assert p_opt.partial_fill_min_pct == 0.30
+
+    asyncio.run(go())
+
+
+def test_friction_apply_long_adds_adverse_slippage(tmp_path, monkeypatch):
+    """K6a: long entries fill HIGHER than the limit (paid more)."""
+    fp = _isolate_friction(tmp_path, monkeypatch)
+
+    async def go():
+        profile = await fp.get_profile("goat", asset_type="stock")
+        # Override to 100 bps for an unambiguous shift
+        profile.slippage_bps = 100.0  # 1.00%
+        payload = {
+            "symbol": "NVDA", "direction": "long", "asset_type": "stock",
+            "entry_price": 100.0, "quantity": 50, "scanner_data": {},
+        }
+        out = fp.apply_friction_to_payload(payload, profile)
+        # 100 bps = 1% on a $100 entry = $101 fill (adverse for long)
+        assert abs(out["entry_price"] - 101.0) < 1e-6
+        # Friction metadata preserved
+        fr = out["scanner_data"]["friction"]
+        assert fr["applied_bps"] == 100.0
+        assert fr["original_entry_price"] == 100.0
+        assert fr["original_quantity"] == 50.0
+        assert fr["is_partial_fill"] is False
+
+    asyncio.run(go())
+
+
+def test_friction_apply_short_adds_adverse_slippage_other_way(
+    tmp_path, monkeypatch,
+):
+    """K6a: short entries fill LOWER than the limit (got less)."""
+    fp = _isolate_friction(tmp_path, monkeypatch)
+
+    async def go():
+        profile = await fp.get_profile("short_strat", asset_type="stock")
+        profile.slippage_bps = 50.0  # 0.50%
+        payload = {
+            "symbol": "QQQ", "direction": "short", "asset_type": "stock",
+            "entry_price": 200.0, "quantity": 100, "scanner_data": {},
+        }
+        out = fp.apply_friction_to_payload(payload, profile)
+        # 50 bps = 0.50% on a $200 short = $199 fill (worse for short)
+        assert abs(out["entry_price"] - 199.0) < 1e-6
+
+    asyncio.run(go())
+
+
+def test_friction_apply_partial_fill_when_sampled(tmp_path, monkeypatch):
+    """K6a: with partial_fill_prob=1.0, quantity is reduced."""
+    fp = _isolate_friction(tmp_path, monkeypatch)
+
+    async def go():
+        profile = await fp.get_profile("opts", asset_type="options")
+        profile.partial_fill_prob = 1.0  # always partial
+        profile.partial_fill_min_pct = 0.50
+        profile.slippage_bps = 0.0  # isolate qty test from price test
+        payload = {
+            "symbol": "AAPL", "direction": "long", "asset_type": "options",
+            "entry_price": 5.00, "quantity": 100, "scanner_data": {},
+        }
+        # Use deterministic rng with seed
+        import random as r
+        rng = r.Random(42)
+        out = fp.apply_friction_to_payload(payload, profile, rng=rng)
+        # Quantity should be 50-100 (uniform in [50%, 100%] of 100)
+        assert 50 <= out["quantity"] <= 100
+        fr = out["scanner_data"]["friction"]
+        # Whether is_partial_fill is True depends on if frac < 1.0 sampled
+        if out["quantity"] < 100:
+            assert fr["is_partial_fill"] is True
+
+    asyncio.run(go())
+
+
+def test_friction_update_profile_clamps(tmp_path, monkeypatch):
+    """K6a: operator override clamps prob/min_pct to [0, 1]."""
+    fp = _isolate_friction(tmp_path, monkeypatch)
+
+    async def go():
+        p = await fp.update_profile(
+            "goat", slippage_bps=15.0,
+            partial_fill_prob=2.0,        # over-cap
+            partial_fill_min_pct=-0.5,    # under-floor
+        )
+        assert p.slippage_bps == 15.0
+        assert p.partial_fill_prob == 1.0  # clamped to 1
+        assert p.partial_fill_min_pct == 0.0  # clamped to 0
+        # Round trip via all_profiles
+        all_p = await fp.all_profiles()
+        assert "goat" in all_p
+        assert all_p["goat"]["slippage_bps"] == 15.0
+
+    asyncio.run(go())
+
+
+def test_friction_bps_diff_signed_correctly():
+    """K6a: _bps_diff returns positive for adverse-slippage observations."""
+    from runtime.portfolio.auto_trader.friction_profile import _bps_diff
+    # Long: paid $101 vs planned $100 → +100 bps adverse
+    assert abs(_bps_diff(100.0, 101.0, direction="long") - 100.0) < 1e-3
+    # Long: paid $99 vs planned $100 → -100 bps (favorable)
+    assert abs(_bps_diff(100.0, 99.0, direction="long") - (-100.0)) < 1e-3
+    # Short: filled $99 vs planned $100 → +100 bps adverse
+    assert abs(_bps_diff(100.0, 99.0, direction="short") - 100.0) < 1e-3
+    # Zero planned → 0
+    assert _bps_diff(0, 100, direction="long") == 0.0
+
+
+def test_friction_maybe_calibrate_skips_off_interval(tmp_path, monkeypatch):
+    """K6b: only fires when n_closed % CALIB_EVERY_N == 0."""
+    fp = _isolate_friction(tmp_path, monkeypatch)
+    monkeypatch.setattr(fp, "CALIB_EVERY_N", 10)
+
+    async def go():
+        # n=5 with interval=10 → no calibration
+        result = await fp.maybe_calibrate("goat", n_closed=5)
+        assert result is None
+        # n=0 → no calibration
+        result = await fp.maybe_calibrate("goat", n_closed=0)
+        assert result is None
+
+    asyncio.run(go())
+
+
 def test_self_research_topic_id_stable():
     """K4c: same cluster_features always produce same id (idempotency)."""
     from runtime.portfolio.auto_trader.self_research import _topic_id_from_cluster

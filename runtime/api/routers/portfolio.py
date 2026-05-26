@@ -1437,6 +1437,169 @@ async def auto_trader_graduation_one(
     return await graduation_evaluate(strategy)
 
 
+# ── Wave 14K Phase 7 — friction profile + rollup endpoints ─────────
+
+@router.get("/auto-trader/friction")
+async def auto_trader_friction_all(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Per-strategy friction profiles (slippage_bps + partial-fill model).
+    Empty {} until at least one paper trade has been opened or an
+    operator override has been recorded."""
+    from ...portfolio.auto_trader import friction_all_profiles
+    profiles = await friction_all_profiles()
+    return {"count": len(profiles), "profiles": profiles}
+
+
+@router.get("/auto-trader/friction/{strategy}")
+async def auto_trader_friction_one(
+    strategy: str,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Single-strategy friction profile (creates default if missing)."""
+    from ...portfolio.auto_trader import friction_get_profile
+    from dataclasses import asdict
+    p = await friction_get_profile(strategy)
+    return asdict(p)
+
+
+@router.post("/auto-trader/friction/{strategy}")
+async def auto_trader_friction_update(
+    strategy: str,
+    payload: dict,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Operator override of a strategy's friction profile.
+    Body: {slippage_bps?, partial_fill_prob?, partial_fill_min_pct?, asset_type?}."""
+    from ...portfolio.auto_trader import friction_update_profile
+    from dataclasses import asdict
+    p = await friction_update_profile(
+        strategy,
+        slippage_bps=payload.get("slippage_bps"),
+        partial_fill_prob=payload.get("partial_fill_prob"),
+        partial_fill_min_pct=payload.get("partial_fill_min_pct"),
+        asset_type=payload.get("asset_type"),
+    )
+    return asdict(p)
+
+
+@router.post("/auto-trader/friction/{strategy}/calibrate")
+async def auto_trader_friction_calibrate(
+    strategy: str,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """On-demand re-calibration from closed paper trades. Normally fires
+    every NCL_FRICTION_CALIB_EVERY_N closes automatically."""
+    from ...portfolio.auto_trader import friction_calibrate_from_closes
+    result = await friction_calibrate_from_closes(strategy)
+    if result is None:
+        return {"strategy": strategy, "calibrated": False,
+                "reason": "no closed trades to sample"}
+    result["calibrated"] = True
+    return result
+
+
+@router.get("/auto-trader/dashboard")
+async def auto_trader_dashboard(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """One-shot rollup for the iOS Auto-Trader card. Aggregates:
+      - operator state (active/paused/drawdown_halt/counters)
+      - top-5 strategies by Bayesian LCB hit rate
+      - drift signals (count by status across all strategies)
+      - graduation summary (graduated:[..], failing:[..])
+      - open research topics (count)
+      - 5 most-recent closed paper trades w/ R_multiple
+      - friction profile count
+    """
+    from ...portfolio.auto_trader import (
+        get_state, get_bandit, drift_all_states,
+        graduation_evaluate_all, list_open_research_topics,
+        friction_all_profiles,
+    )
+    from ...portfolio.trade_idea_tracker import get_trade_idea_tracker
+    from dataclasses import asdict
+
+    state = await get_state()
+    state_dict = asdict(state)
+
+    # Top strategies by LCB
+    try:
+        bandit = await get_bandit()
+        top_strategies = await bandit.ranked_by_credible_lower_bound(ci=0.95)
+        top_strategies = top_strategies[:5]
+    except Exception as e:
+        top_strategies = []
+        state_dict["top_strategies_error"] = str(e)
+
+    # Drift roll-up
+    try:
+        drift_states = await drift_all_states()
+        drift_counts = {"STABLE": 0, "DRIFT_DOWN": 0, "DRIFT_UP": 0}
+        for s in drift_states.values():
+            drift_counts[s.get("last_status", "STABLE")] = drift_counts.get(
+                s.get("last_status", "STABLE"), 0
+            ) + 1
+        drift_summary = {"counts": drift_counts, "total": len(drift_states)}
+    except Exception as e:
+        drift_summary = {"error": str(e)}
+
+    # Graduation summary
+    try:
+        grad = await graduation_evaluate_all()
+        grad_summary = grad.get("_summary", {})
+    except Exception as e:
+        grad_summary = {"error": str(e)}
+
+    # Open research topics
+    try:
+        topics = list_open_research_topics()
+        topic_summary = {"count": len(topics),
+                         "top_5": [t.get("title", "") for t in topics[:5]]}
+    except Exception as e:
+        topic_summary = {"error": str(e)}
+
+    # Recent closes (last 5)
+    try:
+        tracker = await get_trade_idea_tracker()
+        all_ideas = await tracker.list_by_strategy(None)
+        recent_closes = sorted(
+            [i for i in all_ideas if i.get("closed_at_iso")],
+            key=lambda i: i.get("closed_at_iso", ""), reverse=True,
+        )[:5]
+        recent = [
+            {"trade_idea_id": i.get("trade_idea_id"),
+             "ticker": i.get("ticker"),
+             "strategy": i.get("strategy"),
+             "outcome": i.get("outcome"),
+             "R_multiple": i.get("R_multiple"),
+             "closed_at_iso": i.get("closed_at_iso")}
+            for i in recent_closes
+        ]
+    except Exception as e:
+        recent = []
+        state_dict["recent_closes_error"] = str(e)
+
+    # Friction summary
+    try:
+        profiles = await friction_all_profiles()
+        friction_summary = {"count": len(profiles),
+                            "strategies": list(profiles.keys())}
+    except Exception as e:
+        friction_summary = {"error": str(e)}
+
+    return {
+        "state": state_dict,
+        "top_strategies": top_strategies,
+        "drift": drift_summary,
+        "graduation": grad_summary,
+        "research_topics": topic_summary,
+        "recent_closes": recent,
+        "friction": friction_summary,
+        "wave": "14K-K6c",
+    }
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Wave 14J out-of-scope finisher endpoints
 # Order PREVIEW (dry-run only — NCL never submits) + backtest replay +

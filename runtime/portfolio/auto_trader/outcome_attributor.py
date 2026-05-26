@@ -223,6 +223,22 @@ async def attribute_close(
     except Exception as e:
         log.warning("[AT-ATTR] drift detector skipped (non-fatal): %s", e)
 
+    # 8) Wave 14K Phase 7 K6b: re-calibrate friction profile every N closes.
+    #    Non-blocking — friction failures never break the close path.
+    try:
+        from .friction_profile import maybe_calibrate
+        from .strategy_bandit import get_bandit
+        strategy = str(getattr(paper_trade, "strategy", None) or "unknown")
+        bandit = await get_bandit()
+        p = await bandit.posterior(strategy)
+        n_closed = (p or {}).get("n_observed", 0)
+        calib = await maybe_calibrate(strategy, n_closed=n_closed)
+        if calib:
+            result["friction_recalibrated"] = True
+            result["new_slippage_bps"] = calib.get("new_slippage_bps")
+    except Exception as e:
+        log.warning("[AT-ATTR] friction calibration skipped (non-fatal): %s", e)
+
     result["ok"] = True
     result["reason"] = "attributed + memory + tracker + bandit updated"
     log.info(

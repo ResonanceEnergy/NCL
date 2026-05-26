@@ -85,6 +85,15 @@ from .graduation_gate import (  # noqa: F401
     evaluate_all as graduation_evaluate_all,
     list_graduated_strategies,
 )
+from .friction_profile import (  # noqa: F401
+    FrictionProfile,
+    get_profile as friction_get_profile,
+    update_profile as friction_update_profile,
+    all_profiles as friction_all_profiles,
+    apply_friction_to_payload,
+    calibrate_from_closes as friction_calibrate_from_closes,
+    maybe_calibrate as friction_maybe_calibrate,
+)
 
 __all__ = [
     "AutoTraderState", "get_state", "is_active", "pause", "resume",
@@ -105,4 +114,9 @@ __all__ = [
     "STABLE", "DRIFT_DOWN", "DRIFT_UP",
     "graduation_evaluate", "graduation_evaluate_all",
     "list_graduated_strategies",
+    # Wave 14K Phase 7 (K6a/b/c)
+    "FrictionProfile",
+    "friction_get_profile", "friction_update_profile",
+    "friction_all_profiles", "apply_friction_to_payload",
+    "friction_calibrate_from_closes", "friction_maybe_calibrate",
 ]

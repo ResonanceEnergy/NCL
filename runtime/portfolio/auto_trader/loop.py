@@ -284,6 +284,19 @@ async def auto_trader_loop(brain) -> None:
                 ) or proposed_R
                 qty = max(1, int(effective_R / rps)) if rps > 0 else int(planned_qty)
                 payload = _idea_to_paper_payload(idea, qty)
+                # Wave 14K Phase 7 K6a: apply per-strategy friction
+                # (slippage + partial-fill) before handing to the paper
+                # engine. Non-blocking — if friction lookup fails, open
+                # at the unfricted price.
+                try:
+                    from .friction_profile import (
+                        get_profile, apply_friction_to_payload,
+                    )
+                    asset_type = str(payload.get("asset_type") or "stock")
+                    profile = await get_profile(str(strat), asset_type=asset_type)
+                    payload = apply_friction_to_payload(payload, profile)
+                except Exception as e:
+                    log.warning("[AT-LOOP] friction injection skipped: %s", e)
                 try:
                     pt = paper.create_trade(payload)
                 except Exception as e:
