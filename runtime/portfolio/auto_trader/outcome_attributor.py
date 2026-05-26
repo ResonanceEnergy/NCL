@@ -171,8 +171,39 @@ async def attribute_close(
     )
     result["memory_unit_emitted"] = True
 
+    # 5) Wave 14K Phase 4 K3a: feed the strategy bandit
+    try:
+        from .strategy_bandit import get_bandit
+        bandit = await get_bandit()
+        strategy = getattr(paper_trade, "strategy", None) or "unknown"
+        win = engine_r > 0
+        await bandit.record_result(
+            strategy=str(strategy),
+            win=win,
+            R_multiple=engine_r,
+            trade_idea_id=trade_idea_id,
+        )
+    except Exception as e:
+        log.warning("[AT-ATTR] bandit update skipped (non-fatal): %s", e)
+
+    # 6) Wave 14K Phase 4 K3d: trigger SHAP attribution every N closes
+    try:
+        from .shap_attribution import maybe_run_attribution
+        strategy = str(getattr(paper_trade, "strategy", None) or "unknown")
+        # Use bandit's count as authoritative — same number we just bumped
+        from .strategy_bandit import get_bandit
+        bandit = await get_bandit()
+        p = await bandit.posterior(strategy)
+        n_closed = (p or {}).get("n_observed", 0)
+        if n_closed > 0:
+            await maybe_run_attribution(
+                brain=brain, strategy=strategy, closed_trades_count=n_closed,
+            )
+    except Exception as e:
+        log.warning("[AT-ATTR] SHAP trigger skipped (non-fatal): %s", e)
+
     result["ok"] = True
-    result["reason"] = "attributed + memory + tracker updated"
+    result["reason"] = "attributed + memory + tracker + bandit updated"
     log.info(
         "[AT-ATTR] CLOSED %s (paper_trade_id=%s) outcome=%s exit_price=$%.2f "
         "R=%.2f",

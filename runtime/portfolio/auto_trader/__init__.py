@@ -59,6 +59,12 @@ from .price_feed import price_feed_loop  # noqa: F401
 from .outcome_attributor import (  # noqa: F401
     attribute_close, attribute_batch, trigger_to_outcome,
 )
+from .strategy_bandit import (  # noqa: F401
+    StrategyBandit, StrategyPosterior, get_bandit,
+)
+from .shap_attribution import (  # noqa: F401
+    maybe_run_attribution, run_attribution_for_strategy,
+)
 
 __all__ = [
     "AutoTraderState", "get_state", "is_active", "pause", "resume",
@@ -68,4 +74,6 @@ __all__ = [
     "auto_trader_loop",
     "price_feed_loop",
     "attribute_close", "attribute_batch", "trigger_to_outcome",
+    "StrategyBandit", "StrategyPosterior", "get_bandit",
+    "maybe_run_attribution", "run_attribution_for_strategy",
 ]

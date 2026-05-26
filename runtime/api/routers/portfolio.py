@@ -1221,6 +1221,99 @@ async def auto_trader_reasoning_chain_one(
     return chain
 
 
+# ── Wave 14K Phase 4 — bandit + SHAP endpoints ──────────────────
+
+@router.get("/auto-trader/bandit/posteriors")
+async def auto_trader_bandit_all(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """All strategy posteriors with mean + 95% credible interval +
+    avg R per trade."""
+    from ...portfolio.auto_trader import get_bandit
+    bandit = await get_bandit()
+    return {"posteriors": await bandit.all_posteriors()}
+
+
+@router.get("/auto-trader/bandit/posteriors/{strategy}")
+async def auto_trader_bandit_one(
+    strategy: str,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """One strategy's posterior."""
+    from ...portfolio.auto_trader import get_bandit
+    bandit = await get_bandit()
+    p = await bandit.posterior(strategy)
+    if p is None:
+        raise HTTPException(status_code=404, detail=f"No posterior for {strategy}")
+    return p
+
+
+@router.post("/auto-trader/bandit/sample-arm")
+async def auto_trader_bandit_sample(
+    payload: dict,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Thompson-sample one strategy from a list of candidates. Body:
+    {candidates: [str, ...]}"""
+    from ...portfolio.auto_trader import get_bandit
+    candidates = (payload or {}).get("candidates") or []
+    if not candidates:
+        raise HTTPException(status_code=400, detail="Missing candidates list")
+    bandit = await get_bandit()
+    pick = await bandit.sample_arm(candidates)
+    return {"picked": pick, "candidates": candidates}
+
+
+@router.get("/auto-trader/bandit/ranked")
+async def auto_trader_bandit_ranked(
+    ci: float = Query(default=0.95, ge=0.5, le=0.99),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Strategies ranked by lower 95% CI on win rate (conservative
+    ranking). Brief pipeline can use this to bias trade-idea
+    allocation toward strategies with proven edge."""
+    from ...portfolio.auto_trader import get_bandit
+    bandit = await get_bandit()
+    return {"ci": ci, "ranked": await bandit.ranked_by_credible_lower_bound(ci=ci)}
+
+
+@router.post("/auto-trader/bandit/record-result")
+async def auto_trader_bandit_record(
+    payload: dict,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Manually record a win/loss for a strategy (for backfilling +
+    operator overrides). Auto-trader does this automatically on every
+    paper close — this endpoint is for manual entry only.
+    Body: {strategy, win, R_multiple?, trade_idea_id?}"""
+    from ...portfolio.auto_trader import get_bandit
+    if "strategy" not in payload or "win" not in payload:
+        raise HTTPException(status_code=400, detail="Need strategy + win")
+    bandit = await get_bandit()
+    return await bandit.record_result(
+        strategy=str(payload["strategy"]),
+        win=bool(payload["win"]),
+        R_multiple=float(payload.get("R_multiple") or 0),
+        trade_idea_id=payload.get("trade_idea_id"),
+    )
+
+
+@router.post("/auto-trader/attribution/run")
+async def auto_trader_attribution_run(
+    payload: dict,
+    brain=Depends(get_brain),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Manually trigger SHAP-style attribution for one strategy
+    (auto-triggers every N closed trades; this endpoint is for
+    operator-on-demand). Body: {strategy: str}"""
+    from ...portfolio.auto_trader import run_attribution_for_strategy
+    strategy = (payload or {}).get("strategy")
+    if not strategy:
+        raise HTTPException(status_code=400, detail="Missing 'strategy'")
+    return await run_attribution_for_strategy(brain=brain, strategy=str(strategy))
+
+
 # ──────────────────────────────────────────────────────────────────────
 # Wave 14J out-of-scope finisher endpoints
 # Order PREVIEW (dry-run only — NCL never submits) + backtest replay +

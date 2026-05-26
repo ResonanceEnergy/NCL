@@ -1011,6 +1011,141 @@ def test_outcome_attributor_trigger_mapping():
     assert trigger_to_outcome("") == "manually_closed"
 
 
+def test_strategy_bandit_record_and_posterior(tmp_path, monkeypatch):
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    for mod in list(sys.modules.keys()):
+        if mod.startswith("runtime.portfolio.auto_trader.strategy_bandit"):
+            del sys.modules[mod]
+    from runtime.portfolio.auto_trader import strategy_bandit as sb
+
+    async def go():
+        sb._BANDIT = None
+        bandit = await sb.get_bandit()
+        # Fresh strategy: prior Beta(1, 1) -> mean 0.5
+        await bandit.record_result("goat", win=True, R_multiple=2.0)
+        await bandit.record_result("goat", win=True, R_multiple=1.5)
+        await bandit.record_result("goat", win=False, R_multiple=-1.0)
+        p = await bandit.posterior("goat")
+        # Beta(3, 2): mean = 3/5 = 0.6
+        assert p["alpha"] == 3
+        assert p["beta"] == 2
+        assert abs(p["mean"] - 0.6) < 1e-6
+        assert p["n_observed"] == 3
+        assert p["n_wins"] == 2
+        assert p["n_losses"] == 1
+        # CI is reasonable
+        assert 0 <= p["ci_low_95"] < p["mean"] < p["ci_high_95"] <= 1.0
+        # Sum R-multiple = 2.0 + 1.5 + (-1.0) = 2.5
+        assert abs(p["sum_R_multiple"] - 2.5) < 1e-6
+
+    asyncio.run(go())
+
+
+def test_strategy_bandit_thompson_sample(tmp_path, monkeypatch):
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    for mod in list(sys.modules.keys()):
+        if mod.startswith("runtime.portfolio.auto_trader.strategy_bandit"):
+            del sys.modules[mod]
+    from runtime.portfolio.auto_trader import strategy_bandit as sb
+
+    async def go():
+        sb._BANDIT = None
+        bandit = await sb.get_bandit()
+        # Give "goat" a strong winning record; "bravo" mediocre
+        for _ in range(20):
+            await bandit.record_result("goat", win=True, R_multiple=2.0)
+        for _ in range(20):
+            await bandit.record_result("bravo", win=False, R_multiple=-1.0)
+        # Thompson sample 100x; goat should dominate
+        import random
+        random.seed(42)  # determinism for the test
+        picks = []
+        for _ in range(100):
+            pick = await bandit.sample_arm(["goat", "bravo"])
+            picks.append(pick)
+        goat_share = picks.count("goat") / 100
+        # With α=21,β=1 vs α=1,β=21, goat should win >95% of the time
+        assert goat_share > 0.9, f"goat picked only {goat_share:.0%} of the time"
+
+    asyncio.run(go())
+
+
+def test_strategy_bandit_ranked_by_lcb(tmp_path, monkeypatch):
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    for mod in list(sys.modules.keys()):
+        if mod.startswith("runtime.portfolio.auto_trader.strategy_bandit"):
+            del sys.modules[mod]
+    from runtime.portfolio.auto_trader import strategy_bandit as sb
+
+    async def go():
+        sb._BANDIT = None
+        bandit = await sb.get_bandit()
+        # goat: 8W 2L (mean 0.8, narrow CI)
+        for _ in range(8):
+            await bandit.record_result("goat", win=True, R_multiple=2.0)
+        for _ in range(2):
+            await bandit.record_result("goat", win=False, R_multiple=-1.0)
+        # bravo: 1W 1L (mean 0.5, WIDE CI — small sample)
+        await bandit.record_result("bravo", win=True, R_multiple=2.0)
+        await bandit.record_result("bravo", win=False, R_multiple=-1.0)
+        # newcomer: prior Beta(1,1), n=0
+        ranked = await bandit.ranked_by_credible_lower_bound(
+            candidates=["goat", "bravo", "newcomer"]
+        )
+        # goat should be first (highest LCB)
+        assert ranked[0]["strategy"] == "goat"
+        # newcomer + bravo are weak; both LCB very low
+        assert ranked[0]["lcb"] > ranked[-1]["lcb"]
+
+    asyncio.run(go())
+
+
+def test_shap_attribution_computation():
+    """K3d: synthetic close history should surface the right predictors."""
+    from runtime.portfolio.auto_trader.shap_attribution import _compute_attributions
+    # Construct rows where rotation_aligned==True wins 80%, ==False wins 20%
+    rows = []
+    for i in range(10):
+        rows.append({
+            "features": {"rotation_aligned": "True", "sector_etf": "XLK"},
+            "win": i < 8,   # 8 wins out of 10
+            "R_multiple": 2.0 if i < 8 else -1.0,
+        })
+    for i in range(10):
+        rows.append({
+            "features": {"rotation_aligned": "False", "sector_etf": "XLE"},
+            "win": i < 2,   # 2 wins out of 10
+            "R_multiple": 2.0 if i < 2 else -1.0,
+        })
+    attr = _compute_attributions(rows, min_samples=3)
+    assert attr["n"] == 20
+    assert abs(attr["overall_hit_rate"] - 0.5) < 1e-6  # 10/20
+    # Top positive should be rotation_aligned=True (or sector_etf=XLK)
+    pos_features = [(e["feature"], e["value"]) for e in attr["top_positive"]]
+    assert ("rotation_aligned", "True") in pos_features or ("sector_etf", "XLK") in pos_features
+    # Top negative should be the opposite
+    neg_features = [(e["feature"], e["value"]) for e in attr["top_negative"]]
+    assert ("rotation_aligned", "False") in neg_features or ("sector_etf", "XLE") in neg_features
+
+
+def test_shap_attribution_buckets():
+    """Helpers bucket correctly."""
+    from runtime.portfolio.auto_trader.shap_attribution import (
+        _bucket_days_held, _bucket_hour_utc,
+    )
+    assert _bucket_days_held(0.5) == "intraday"
+    assert _bucket_days_held(2) == "1-3d"
+    assert _bucket_days_held(5) == "4-7d"
+    assert _bucket_days_held(15) == "8-30d"
+    assert _bucket_days_held(45) == "30d+"
+    assert _bucket_days_held(None) == "unknown"
+    # Hours: 14 UTC ≈ 10 ET = open-hour
+    assert _bucket_hour_utc("2026-05-26T14:00:00+00:00") in (
+        "open-hour", "midday"  # depends on minute boundary
+    )
+    assert _bucket_hour_utc(None) == "unknown"
+
+
 def test_outcome_attributor_extract_trade_idea_id():
     """K2b: trade_idea_id must round-trip via scanner_data."""
     from runtime.portfolio.auto_trader.outcome_attributor import extract_trade_idea_id
