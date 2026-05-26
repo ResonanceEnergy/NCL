@@ -380,3 +380,9 @@ Resolved anomalies older than 30 days are moved to `/NCL/shared/intelligence/arc
 - **[reddit/retail_news/bearish]** (95%) SpaceX insiders will get to sell shares earlier than usual after the IPO
 - **[reddit/retail_news/bearish]** (95%) 🔮If you vote NO because "diLuTiOn" you gotta wake up & learn — Voting YES is a vote for ACCRETION, i.e. YOUR NET VALUE INCREASES even if your % ownership of GameStop decreases — RC is asking us to aut
 - **[reddit/retail_news/bullish]** (95%) The Fed's worst inflation fears may be coming true as consumers lose faith in long-term prices—even Trump supporters doubt he can bring relief
+## 2026-05-26 15:14:25Z — 1 anomalies
+- **[market_data/insider_cluster/bearish]** (86%) SE insider cluster: 3 insiders, net -6 ($-2,030,954)
+
+## 2026-05-26 15:35:31Z — 1 anomalies
+- **[options_flow/options_flow/bearish]** (95%) AVGO flow alert: $4,861,826 (1460 contracts)
+

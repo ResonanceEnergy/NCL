@@ -5,12 +5,18 @@
     <key>Label</key>
     <string>com.resonanceenergy.ncldesktop</string>
 
-    <!-- Run the binary directly (not via /usr/bin/open) so launchd tracks
-         the actual app PID — required for KeepAlive to detect crashes.
-         Works for menu-bar apps with LSUIElement=YES. -->
+    <!-- 'open -W -a' launches via LaunchServices (giving the app a proper
+         WindowServer attachment for the MenuBarExtra status item) AND
+         blocks until the app exits, so launchd tracks the app's real
+         lifetime + KeepAlive can detect crashes. Running the binary
+         directly skips the WindowServer attach and the menu bar item
+         never appears for LSUIElement apps. -->
     <key>ProgramArguments</key>
     <array>
-        <string>/Applications/NCL Desktop.app/Contents/MacOS/NCL Desktop</string>
+        <string>/usr/bin/open</string>
+        <string>-W</string>
+        <string>-a</string>
+        <string>/Applications/NCL Desktop.app</string>
     </array>
 
     <!-- Fire at login + keep alive if killed (Brain crashes shouldn't take
