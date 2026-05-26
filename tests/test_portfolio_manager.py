@@ -998,6 +998,40 @@ def test_auto_trader_loop_idea_to_payload():
     assert payload["scanner_data"]["R_per_share_at_emit"] == 10.0
 
 
+def test_outcome_attributor_trigger_mapping():
+    """K2b: PaperTradingEngine trigger names → tracker outcome enum."""
+    from runtime.portfolio.auto_trader.outcome_attributor import trigger_to_outcome
+    assert trigger_to_outcome("stop_hit") == "stopped_out"
+    assert trigger_to_outcome("target_hit") == "target_hit"
+    assert trigger_to_outcome("trailing_stop") == "manually_closed"
+    assert trigger_to_outcome("time_exit") == "expired"
+    assert trigger_to_outcome("manual") == "manually_closed"
+    # Unknown defaults safely
+    assert trigger_to_outcome("unknown_trigger_xxx") == "manually_closed"
+    assert trigger_to_outcome("") == "manually_closed"
+
+
+def test_outcome_attributor_extract_trade_idea_id():
+    """K2b: trade_idea_id must round-trip via scanner_data."""
+    from runtime.portfolio.auto_trader.outcome_attributor import extract_trade_idea_id
+
+    class FakePaperTrade:
+        scanner_data = {"trade_idea_id": "abc123", "source": "brief"}
+
+    assert extract_trade_idea_id(FakePaperTrade()) == "abc123"
+
+    class FakePaperTradeNoIdea:
+        scanner_data = {"source": "brief"}  # no trade_idea_id
+
+    assert extract_trade_idea_id(FakePaperTradeNoIdea()) is None
+
+    class FakePaperTradeEmpty:
+        scanner_data = {}
+
+    assert extract_trade_idea_id(FakePaperTradeEmpty()) is None
+    assert extract_trade_idea_id(None) is None
+
+
 def test_auto_trader_market_open_classifier():
     """The loop picks cadence by market-hours; sanity-check the helper
     even though the gates are governor/drawdown not market-hours."""

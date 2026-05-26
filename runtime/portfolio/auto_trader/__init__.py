@@ -55,6 +55,10 @@ from .observability import (  # noqa: F401
     list_recent_chains,
 )
 from .loop import auto_trader_loop  # noqa: F401
+from .price_feed import price_feed_loop  # noqa: F401
+from .outcome_attributor import (  # noqa: F401
+    attribute_close, attribute_batch, trigger_to_outcome,
+)
 
 __all__ = [
     "AutoTraderState", "get_state", "is_active", "pause", "resume",
@@ -62,4 +66,6 @@ __all__ = [
     "auto_open_eligible",
     "record_reasoning_chain", "get_reasoning_chain", "list_recent_chains",
     "auto_trader_loop",
+    "price_feed_loop",
+    "attribute_close", "attribute_batch", "trigger_to_outcome",
 ]

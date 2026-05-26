@@ -777,6 +777,23 @@ class AutonomousScheduler:
             asyncio.create_task(_auto_trader(), name="ncl-auto-trader-loop")
         )
 
+        # ── Wave 14K Phase 3 — auto-trader price feed ────────────────
+        # Pulls quotes for open paper symbols (30s market / 300s off-
+        # hours), applies to PaperTradingEngine.update_prices(), and
+        # any triggered close events flow through outcome_attributor
+        # back into trade_idea_tracker for expectancy attribution.
+        # Runs even when auto-trader paused — pause stops NEW opens,
+        # not mark-to-market of existing positions.
+        # See runtime/portfolio/auto_trader/price_feed.py.
+        from ..portfolio.auto_trader.price_feed import price_feed_loop
+
+        async def _auto_trader_prices():
+            await price_feed_loop(self.brain)
+
+        self._tasks.append(
+            asyncio.create_task(_auto_trader_prices(), name="ncl-auto-trader-prices")
+        )
+
         # Attach a done-callback to every task so a silent crash (unobserved
         # task exception) gets logged instead of disappearing.
         def _task_done(task: asyncio.Task) -> None:
@@ -834,6 +851,8 @@ class AutonomousScheduler:
             # Wave 14K Phase 2 — auto-trader decision loop. Same lambda
             # pattern so supervisor can restart on crash.
             "ncl-auto-trader-loop": lambda: auto_trader_loop(self.brain),
+            # Wave 14K Phase 3 — auto-trader price feed.
+            "ncl-auto-trader-prices": lambda: price_feed_loop(self.brain),
         }
         # 2026-05-22 memory loops (factory registration — only if loaded above)
         try:
