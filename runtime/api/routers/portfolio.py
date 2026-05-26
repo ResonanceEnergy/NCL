@@ -1080,6 +1080,248 @@ def _find_adapter(pm, name: str):
 
 
 # ──────────────────────────────────────────────────────────────────────
+# Wave 14J deferred-items finisher endpoints
+# J4b spec-ID + J5a/b/c on-chain journal + J7c slippage + J8d settle.
+# ──────────────────────────────────────────────────────────────────────
+
+@router.post("/tax/lot-record")
+async def portfolio_tax_lot_record(
+    payload: dict,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """J4b: Record a new tax lot opened (buy or short-sell)."""
+    from ...portfolio.tax_lot_ledger import get_tax_lot_ledger
+    required = ("symbol", "broker", "account_id", "qty", "cost_basis_per_share")
+    missing = [k for k in required if k not in payload]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Missing: {missing}")
+    led = await get_tax_lot_ledger()
+    return await led.record_open(
+        symbol=str(payload["symbol"]),
+        broker=str(payload["broker"]),
+        account_id=str(payload["account_id"]),
+        qty=float(payload["qty"]),
+        cost_basis_per_share=float(payload["cost_basis_per_share"]),
+        acquisition_date=payload.get("acquisition_date"),
+        notes=str(payload.get("notes", "")),
+        metadata=payload.get("metadata"),
+    )
+
+
+@router.get("/tax/lots/{symbol}")
+async def portfolio_tax_lots(
+    symbol: str,
+    broker: Optional[str] = Query(default=None),
+    account_id: Optional[str] = Query(default=None),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """J4b: List open lots for a symbol (optionally filtered)."""
+    from ...portfolio.tax_lot_ledger import get_tax_lot_ledger
+    led = await get_tax_lot_ledger()
+    lots = await led.open_lots_for(symbol, broker=broker, account_id=account_id)
+    return {"symbol": symbol.upper(), "count": len(lots), "lots": lots}
+
+
+@router.post("/tax/lot-recommend")
+async def portfolio_tax_lot_recommend(
+    payload: dict,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """J4b: Recommend lot-selection sequence for a planned sale.
+    Body: {symbol, qty_to_sell, objective (fifo|lifo|hifo|lofo|lt_only|
+            st_only|max_loss|min_loss), broker?, account_id?}"""
+    from ...portfolio.tax_lot_ledger import get_tax_lot_ledger
+    required = ("symbol", "qty_to_sell")
+    missing = [k for k in required if k not in payload]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Missing: {missing}")
+    led = await get_tax_lot_ledger()
+    try:
+        return await led.recommend_lot_selection(
+            symbol=str(payload["symbol"]),
+            qty_to_sell=float(payload["qty_to_sell"]),
+            objective=str(payload.get("objective", "hifo")),
+            broker=payload.get("broker"),
+            account_id=payload.get("account_id"),
+        )
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve)) from ve
+
+
+@router.post("/tax/lot-sale")
+async def portfolio_tax_lot_sale(
+    payload: dict,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """J4b: After operator confirms sale, decrement lots and emit
+    per-lot realized P&L breakdown.
+    Body: {symbol, lot_consumption: [{lot_id, qty_consumed}],
+           sale_price_per_share, sale_date?}"""
+    from ...portfolio.tax_lot_ledger import get_tax_lot_ledger
+    required = ("symbol", "lot_consumption", "sale_price_per_share")
+    missing = [k for k in required if k not in payload]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Missing: {missing}")
+    led = await get_tax_lot_ledger()
+    return await led.record_sale(
+        symbol=str(payload["symbol"]),
+        lot_consumption=list(payload["lot_consumption"]),
+        sale_price_per_share=float(payload["sale_price_per_share"]),
+        sale_date=payload.get("sale_date"),
+    )
+
+
+@router.post("/onchain/tx-record")
+async def portfolio_onchain_record(
+    payload: dict,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """J5a: Record an on-chain transaction. Idempotent on (chain, tx_hash)."""
+    from ...portfolio.on_chain_journal import get_on_chain_journal
+    required = ("tx_hash", "chain", "wallet", "timestamp_iso", "category",
+                "asset_symbol", "qty")
+    missing = [k for k in required if k not in payload]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Missing: {missing}")
+    j = await get_on_chain_journal()
+    try:
+        return await j.record_tx(
+            tx_hash=str(payload["tx_hash"]),
+            chain=str(payload["chain"]),
+            wallet=str(payload["wallet"]),
+            timestamp_iso=str(payload["timestamp_iso"]),
+            category=str(payload["category"]),
+            asset_symbol=str(payload["asset_symbol"]),
+            qty=float(payload["qty"]),
+            price_at_block_usd=payload.get("price_at_block_usd"),
+            block_number=payload.get("block_number"),
+            contract_address=payload.get("contract_address"),
+            gas_paid_usd=float(payload.get("gas_paid_usd", 0.0)),
+            counterparty=payload.get("counterparty"),
+            notes=str(payload.get("notes", "")),
+            metadata=payload.get("metadata"),
+        )
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve)) from ve
+
+
+@router.get("/onchain/positions")
+async def portfolio_onchain_positions(
+    wallet: Optional[str] = Query(default=None),
+    chain: Optional[str] = Query(default=None),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """J5a/b: Open on-chain positions, optionally filtered."""
+    from ...portfolio.on_chain_journal import get_on_chain_journal
+    j = await get_on_chain_journal()
+    positions = await j.positions_for(wallet=wallet, chain=chain)
+    return {"count": len(positions), "positions": positions}
+
+
+@router.get("/onchain/multichain/{wallet}")
+async def portfolio_onchain_multichain(
+    wallet: str,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """J5b: Multi-chain rollup for one wallet — total qty per symbol
+    across all chains."""
+    from ...portfolio.on_chain_journal import get_on_chain_journal
+    j = await get_on_chain_journal()
+    return await j.aggregate_multichain(wallet)
+
+
+@router.post("/slippage/fill-record")
+async def portfolio_slippage_record(
+    payload: dict,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """J7c: Record a fill with arrival + VWAP benchmarks."""
+    from ...portfolio.slippage_tracker import get_slippage_tracker
+    required = ("fill_id", "symbol", "side", "qty", "fill_price")
+    missing = [k for k in required if k not in payload]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Missing: {missing}")
+    tr = await get_slippage_tracker()
+    return await tr.record_fill(
+        fill_id=str(payload["fill_id"]),
+        symbol=str(payload["symbol"]),
+        side=str(payload["side"]),
+        qty=float(payload["qty"]),
+        fill_price=float(payload["fill_price"]),
+        arrival_price=(
+            float(payload["arrival_price"])
+            if payload.get("arrival_price") is not None else None
+        ),
+        vwap_benchmark_price=(
+            float(payload["vwap_benchmark_price"])
+            if payload.get("vwap_benchmark_price") is not None else None
+        ),
+        timestamp_iso=payload.get("timestamp_iso"),
+        broker=payload.get("broker"),
+        strategy=payload.get("strategy"),
+        trade_idea_id=payload.get("trade_idea_id"),
+        notes=str(payload.get("notes", "")),
+        metadata=payload.get("metadata"),
+    )
+
+
+@router.get("/slippage/by-strategy")
+async def portfolio_slippage_by_strategy(
+    lookback_days: int = Query(default=90, ge=1, le=365),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """J7c: Per-strategy slippage rollup (arrival + VWAP, mean/median/p90)."""
+    from ...portfolio.slippage_tracker import get_slippage_tracker
+    tr = await get_slippage_tracker()
+    rollup = await tr.by_strategy(lookback_days=lookback_days)
+    return {"lookback_days": lookback_days, "by_strategy": rollup}
+
+
+@router.get("/settle/calendar")
+async def portfolio_settle_calendar(
+    asset_class: str = Query(...),
+    trade_date: str = Query(...),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """J8d: settle_date(asset_class, trade_date)."""
+    from ...portfolio.settle_calendar import settle_date
+    sd = settle_date(asset_class, trade_date)
+    return {
+        "asset_class": asset_class,
+        "trade_date": trade_date,
+        "settle_date": sd,
+    }
+
+
+@router.post("/settle/cash-view")
+async def portfolio_settle_cash_view(
+    payload: dict,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """J8d: Compute settled-vs-unsettled cash view from a trade list.
+    Body: {trades: [{asset_class, trade_date, cash_delta}], as_of?}"""
+    from ...portfolio.settle_calendar import cash_view
+    if "trades" not in payload:
+        raise HTTPException(status_code=400, detail="Missing: trades[]")
+    return cash_view(payload["trades"], as_of=payload.get("as_of"))
+
+
+@router.get("/settle/bp-view")
+async def portfolio_settle_bp_view(
+    as_of: Optional[str] = Query(default=None),
+    pm=Depends(get_portfolio_mgr),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """J8d: trade-date BP vs settled-only BP for the portfolio.
+    Uses the live PortfolioManager summary + an empty trades list
+    (POST trades to /settle/cash-view for fuller breakdown)."""
+    from ...portfolio.settle_calendar import bp_view
+    pm = _require_manager(pm)
+    summary = pm.get_summary("CAD")
+    return bp_view(summary, trades=[], as_of=as_of)
+
+
+# ──────────────────────────────────────────────────────────────────────
 # Wave 14J Phase 4-8 endpoints (rotation execution, tax, polymarket,
 # telemetry, hygiene). All read-only / advisory.
 # ──────────────────────────────────────────────────────────────────────

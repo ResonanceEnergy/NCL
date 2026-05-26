@@ -301,3 +301,281 @@ def test_position_risk_store_R_compute(tmp_path, monkeypatch):
         assert r["position_key"] == "ibkr:du1:NVDA"
 
     asyncio.run(go())
+
+
+# ── Mock adapter harness (Wave 14J finisher) ─────────────────────
+
+def test_mock_adapter_basic_flow():
+    from runtime.portfolio.mock_adapter import MockAdapter, make_canned_positions
+
+    async def go():
+        m = MockAdapter(
+            broker_name="MOCK1",
+            canned_positions=make_canned_positions(
+                ("NVDA", 100, "MOCK1", "equity", 180.0),
+                ("AAPL", 50, "MOCK1", "equity", 200.0),
+            ),
+        )
+        assert m.is_connected() is False
+        await m.connect()
+        assert m.is_connected() is True
+        accounts = await m.fetch_accounts()
+        assert len(accounts) == 1
+        positions = await m.fetch_positions()
+        assert len(positions) == 2
+        quotes = await m.fetch_quotes(["NVDA", "AAPL"])
+        assert "NVDA" in quotes
+        await m.disconnect()
+        assert m.is_connected() is False
+
+    asyncio.run(go())
+
+
+def test_mock_adapter_connect_failure():
+    from runtime.portfolio.mock_adapter import MockAdapter, MockBrokerError
+
+    async def go():
+        m = MockAdapter(broker_name="BAD", simulate_connect_failure=True)
+        try:
+            await m.connect()
+        except MockBrokerError:
+            return
+        raise AssertionError("expected MockBrokerError on connect")
+
+    asyncio.run(go())
+
+
+def test_mock_adapter_quote_failure():
+    from runtime.portfolio.mock_adapter import MockAdapter
+
+    async def go():
+        m = MockAdapter(broker_name="QUIET", simulate_quote_failure=True)
+        await m.connect()
+        q = await m.fetch_quotes(["AAPL", "NVDA"])
+        assert q == {}
+
+    asyncio.run(go())
+
+
+def test_mock_adapter_disconnect_after_n():
+    from runtime.portfolio.mock_adapter import MockAdapter, MockBrokerError
+
+    async def go():
+        m = MockAdapter(broker_name="FLAKY", simulate_disconnect_after_n_calls=2)
+        await m.connect()
+        # First two calls succeed
+        await m.fetch_accounts()
+        await m.fetch_positions()
+        # Third should error — adapter went disconnected
+        assert m.is_connected() is False
+        try:
+            await m.fetch_positions()
+            raise AssertionError("expected error after disconnect")
+        except MockBrokerError:
+            pass
+
+    asyncio.run(go())
+
+
+# ── J4b spec-ID lot ledger ─────────────────────────────────────
+
+def test_tax_lot_recommend_hifo(tmp_path, monkeypatch):
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    if "runtime.portfolio.tax_lot_ledger" in sys.modules:
+        del sys.modules["runtime.portfolio.tax_lot_ledger"]
+    from runtime.portfolio import tax_lot_ledger as tll
+
+    async def go():
+        led = tll.TaxLotLedger()
+        await led.record_open(symbol="AAPL", broker="IBKR", account_id="DU1",
+                              qty=100, cost_basis_per_share=150.0,
+                              acquisition_date="2024-01-15")
+        await led.record_open(symbol="AAPL", broker="IBKR", account_id="DU1",
+                              qty=50, cost_basis_per_share=210.0,
+                              acquisition_date="2025-06-01")
+        await led.record_open(symbol="AAPL", broker="IBKR", account_id="DU1",
+                              qty=30, cost_basis_per_share=190.0,
+                              acquisition_date="2025-11-01")
+        rec = await led.recommend_lot_selection(
+            symbol="AAPL", qty_to_sell=80, objective="hifo", broker="IBKR",
+        )
+        # HIFO -> consume 210 first (50 shares), then 190 (30 shares)
+        assert rec["qty_satisfied"] == 80
+        assert len(rec["selection"]) == 2
+        assert rec["selection"][0]["cost_basis_per_share"] == 210.0
+        assert rec["selection"][1]["cost_basis_per_share"] == 190.0
+        assert "IBKR" in rec["method_hint"]
+
+    asyncio.run(go())
+
+
+def test_tax_lot_recommend_fifo(tmp_path, monkeypatch):
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    if "runtime.portfolio.tax_lot_ledger" in sys.modules:
+        del sys.modules["runtime.portfolio.tax_lot_ledger"]
+    from runtime.portfolio import tax_lot_ledger as tll
+
+    async def go():
+        led = tll.TaxLotLedger()
+        await led.record_open(symbol="TSLA", broker="IBKR", account_id="DU1",
+                              qty=20, cost_basis_per_share=200,
+                              acquisition_date="2024-01-01")
+        await led.record_open(symbol="TSLA", broker="IBKR", account_id="DU1",
+                              qty=20, cost_basis_per_share=300,
+                              acquisition_date="2025-01-01")
+        rec = await led.recommend_lot_selection(
+            symbol="TSLA", qty_to_sell=15, objective="fifo",
+        )
+        # FIFO -> consume from earlier lot only
+        assert rec["selection"][0]["cost_basis_per_share"] == 200
+        assert rec["selection"][0]["qty_consumed"] == 15
+
+
+    asyncio.run(go())
+
+
+# ── J5a/b/c on-chain journal ───────────────────────────────────
+
+def test_on_chain_journal_idempotent(tmp_path, monkeypatch):
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    if "runtime.portfolio.on_chain_journal" in sys.modules:
+        del sys.modules["runtime.portfolio.on_chain_journal"]
+    from runtime.portfolio import on_chain_journal as ocj
+
+    async def go():
+        j = ocj.OnChainJournal()
+        await j.record_tx(
+            tx_hash="0xabc", chain="ethereum", wallet="0xdead",
+            timestamp_iso="2026-05-26T10:00:00+00:00",
+            category="buy", asset_symbol="ETH", qty=2.5,
+            price_at_block_usd=3000.0,
+        )
+        # Same tx_hash twice -> dedup, balance not double-counted
+        await j.record_tx(
+            tx_hash="0xabc", chain="ethereum", wallet="0xdead",
+            timestamp_iso="2026-05-26T10:00:00+00:00",
+            category="buy", asset_symbol="ETH", qty=2.5,
+            price_at_block_usd=3000.0,
+        )
+        pos = await j.positions_for(wallet="0xdead")
+        assert len(pos) == 1
+        assert pos[0]["qty"] == 2.5
+        assert pos[0]["avg_cost_basis_usd"] == 3000.0
+
+    asyncio.run(go())
+
+
+def test_on_chain_classify_liquid_stake():
+    from runtime.portfolio.on_chain_journal import classify_asset
+    c = classify_asset("stETH")
+    assert c["is_liquid_staked"] is True
+    assert c["underlying_a"] == "ETH"
+
+
+def test_on_chain_classify_lp():
+    from runtime.portfolio.on_chain_journal import classify_asset
+    c = classify_asset("UNI-V2-USDC-WETH")
+    assert c["is_lp"] is True
+
+
+def test_on_chain_multichain_rollup(tmp_path, monkeypatch):
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    if "runtime.portfolio.on_chain_journal" in sys.modules:
+        del sys.modules["runtime.portfolio.on_chain_journal"]
+    from runtime.portfolio import on_chain_journal as ocj
+
+    async def go():
+        j = ocj.OnChainJournal()
+        # Same wallet, same symbol (USDC) on 2 chains
+        await j.record_tx(tx_hash="t1", chain="ethereum", wallet="0xw",
+                          timestamp_iso="2026-05-01T00:00:00+00:00",
+                          category="buy", asset_symbol="USDC", qty=1000,
+                          price_at_block_usd=1.0)
+        await j.record_tx(tx_hash="t2", chain="arbitrum", wallet="0xw",
+                          timestamp_iso="2026-05-02T00:00:00+00:00",
+                          category="buy", asset_symbol="USDC", qty=500,
+                          price_at_block_usd=1.0)
+        agg = await j.aggregate_multichain("0xw")
+        assert "ethereum" in agg["chains_with_balance"]
+        assert "arbitrum" in agg["chains_with_balance"]
+        usdc = agg["by_symbol"]["USDC"]
+        assert usdc["total_qty"] == 1500.0
+        assert usdc["by_chain"]["ethereum"] == 1000.0
+        assert usdc["by_chain"]["arbitrum"] == 500.0
+
+    asyncio.run(go())
+
+
+# ── J7c slippage tracker ───────────────────────────────────────
+
+def test_slippage_arrival_bps_long():
+    from runtime.portfolio.slippage_tracker import _compute_arrival_bps
+    # buy fill of 100.10 vs arrival 100.00 = +10 bps adverse
+    bps = _compute_arrival_bps(100.10, 100.00, "buy")
+    assert round(bps, 2) == 10.0
+
+
+def test_slippage_arrival_bps_short():
+    from runtime.portfolio.slippage_tracker import _compute_arrival_bps
+    # sell fill of 99.90 vs arrival 100.00 = +10 bps adverse
+    bps = _compute_arrival_bps(99.90, 100.00, "sell")
+    assert round(bps, 2) == 10.0
+
+
+def test_slippage_record_and_rollup(tmp_path, monkeypatch):
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    if "runtime.portfolio.slippage_tracker" in sys.modules:
+        del sys.modules["runtime.portfolio.slippage_tracker"]
+    from runtime.portfolio import slippage_tracker as slip
+
+    async def go():
+        tr = slip.SlippageTracker()
+        await tr.record_fill(
+            fill_id="f1", symbol="NVDA", side="buy", qty=100,
+            fill_price=180.10, arrival_price=180.00,
+            vwap_benchmark_price=180.05, strategy="goat",
+        )
+        await tr.record_fill(
+            fill_id="f2", symbol="AAPL", side="buy", qty=50,
+            fill_price=200.20, arrival_price=200.00,
+            vwap_benchmark_price=200.10, strategy="goat",
+        )
+        roll = await tr.by_strategy(lookback_days=30)
+        assert "goat" in roll
+        assert roll["goat"]["n_fills"] == 2
+        assert roll["goat"]["arrival_mean_bps"] > 0  # both adverse
+
+    asyncio.run(go())
+
+
+# ── J8d trade/settle split ─────────────────────────────────────
+
+def test_settle_date_equity_t1():
+    from runtime.portfolio.settle_calendar import settle_date
+    # 2026-05-26 is Tuesday; equity T+1 -> 2026-05-27
+    assert settle_date("equity", "2026-05-26") == "2026-05-27"
+
+
+def test_settle_date_skips_weekend():
+    from runtime.portfolio.settle_calendar import settle_date
+    # Friday 2026-05-29 + T+1 -> Monday 2026-06-01
+    assert settle_date("equity", "2026-05-29") == "2026-06-01"
+
+
+def test_settle_date_crypto_t0():
+    from runtime.portfolio.settle_calendar import settle_date
+    assert settle_date("crypto", "2026-05-26") == "2026-05-26"
+
+
+def test_cash_view_settled_vs_unsettled():
+    from runtime.portfolio.settle_calendar import cash_view
+    trades = [
+        {"asset_class": "equity", "trade_date": "2026-05-23", "cash_delta": 1000},   # T+1 = 2026-05-26, settled if as_of >= that
+        {"asset_class": "equity", "trade_date": "2026-05-26", "cash_delta": -500},  # T+1 = 2026-05-27, unsettled as of 2026-05-26
+        {"asset_class": "crypto", "trade_date": "2026-05-26", "cash_delta": 200},   # T+0, settled
+    ]
+    cv = cash_view(trades, as_of="2026-05-26")
+    # equity trade from 2026-05-23 settled on 2026-05-26 (assuming biz day Tuesday)
+    assert cv["settled_today"] >= 1000  # at least the first equity + crypto
+    # Second equity (-500) unsettled
+    assert cv["unsettled_outflow"] == -500
