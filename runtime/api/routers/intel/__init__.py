@@ -1084,6 +1084,11 @@ Respond with ONLY the formatted brief. No preamble, no closing remarks, no "Here
         # 6 trade setups + 3 research topics). Persist as `full_brief`
         # for the new iOS renderer; keep `topics` populated for back-
         # compat with any older iOS build still in the field.
+        # Wave 14G P14-A — apply the same markdown strip to executive_summary
+        # that topics_text already gets. Wave 14C's strip pass only covered
+        # `topics`, so `executive_summary` leaked `**HEADLINE DEVELOPMENT**`
+        # markdown into the iOS BriefRenderer.
+        exec_summary_clean = _strip_markdown(brief.executive_summary or "")
         brief_data = {
             "date": today,
             "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -1091,7 +1096,7 @@ Respond with ONLY the formatted brief. No preamble, no closing remarks, no "Here
             "total_signals": brief.total_signals_processed,
             "full_brief": topics_text,
             "topics": topics_text,
-            "executive_summary": brief.executive_summary,
+            "executive_summary": exec_summary_clean,
             # Wave 14A A2 — risk_alerts deduped against top_signals[:5]
             "risk_alerts": deduped_risk_alerts,
             "risk_alerts_raw": brief.risk_alerts,  # pre-dedup, kept for audit
@@ -1111,7 +1116,7 @@ Respond with ONLY the formatted brief. No preamble, no closing remarks, no "Here
             "date": today,
             "brief_id": brief.brief_id,
             "total_signals": brief.total_signals_processed,
-            "executive_summary": brief.executive_summary,
+            "executive_summary": exec_summary_clean,
             "topics": topics_text,
             "full_brief": topics_text,
             # Wave 14A A2 — deduped vs top_signals[:5]
