@@ -656,6 +656,8 @@ OUTPUT REQUIREMENTS — strict:
 
 8. Avoid tickers in held_tickers as NEW entries — label them ADD TO EXISTING in thesis if you want to recommend adding.
 
+8a. SPY -> SPX SUBSTITUTION (Wave 14J J2d): If you propose an OPTIONS idea on SPY, QQQ, or IWM at >= 0.5R risk, ALSO emit an annotation in the thesis pointing out the SPX/NDX/RUT equivalent. SPX/NDX/RUT options qualify for Section 1256 60/40 tax treatment (60% long-term + 40% short-term, regardless of holding period) which cuts effective tax rate from ~37% (ordinary) to ~27% (blended) on identical economic exposure. This is a real opportunity for any premium-selling structure and shows up in thesis text as e.g. "SPX equivalent (1256 60/40 treatment) would be ~10x size at ~10x strike — same delta, better after-tax". Skip this annotation only for sub-0.5R sizes or for SPY/QQQ/IWM EQUITY ideas (stock trades), where 1256 doesn't apply.
+
 9. macro_landscape: keys are the lane names from active_lanes ONLY. No "Signals quiet" stubs.
 
 OUTPUT SHAPE (strict JSON):

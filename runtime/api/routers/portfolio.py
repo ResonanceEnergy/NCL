@@ -1080,6 +1080,117 @@ def _find_adapter(pm, name: str):
 
 
 # ──────────────────────────────────────────────────────────────────────
+# Wave 14J Phase 3 (J2a + J2c) — Options portfolio Greeks + DTE / pin risk
+# Net delta/gamma/theta/vega across the entire options book, plus 21-DTE
+# management triggers and Friday pin-risk scanner.
+# Backed by runtime/portfolio/options_portfolio.py.
+# ──────────────────────────────────────────────────────────────────────
+
+def _spot_lookup_from_positions(positions: list[dict]) -> dict[str, float]:
+    """Build {underlying: spot_price} from any equity rows in the position
+    cache. Best-effort — options positions don't carry their underlying
+    spot, so the operator may need to refresh portfolio sync first."""
+    out: dict[str, float] = {}
+    for p in positions:
+        if not isinstance(p, dict):
+            continue
+        ac = (p.get("asset_class") or "").lower()
+        if ac in ("equity", "stock", "etf"):
+            sym = (p.get("symbol") or "").upper()
+            px = p.get("last_price") or p.get("current_price")
+            if sym and px:
+                try:
+                    out[sym] = float(px)
+                except (TypeError, ValueError):
+                    pass
+    return out
+
+
+@router.get("/options/greeks")
+async def portfolio_options_greeks(
+    pm=Depends(get_portfolio_mgr),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Portfolio-level Greeks aggregation across held options.
+
+    Returns:
+      net: {delta, gamma, theta, vega}
+      by_underlying: {ticker: {delta, gamma, theta, vega}}
+      budgets: {delta_max_abs, gamma_max_abs, vega_max_abs,
+                theta_min_daily, theta_max_daily}
+      flags: [human-readable budget-breach strings]
+      position_count: int
+    """
+    from ...portfolio.options_portfolio import (
+        compute_position_greeks, aggregate_greeks,
+    )
+    pm = _require_manager(pm)
+    positions = pm.get_positions(account_filter="all")
+    spot = _spot_lookup_from_positions(positions)
+    per = compute_position_greeks(positions, spot_lookup=spot)
+    summary = pm.get_summary("CAD")
+    nav_cad = float(summary.get("total_value", 0) or 0)
+    agg = aggregate_greeks(per, nav_cad=nav_cad)
+    return {
+        "as_of": summary.get("last_sync"),
+        "nav_cad": nav_cad,
+        **agg,
+        "by_position": [
+            {
+                "symbol": g.symbol, "underlying": g.underlying,
+                "right": g.right, "strike": g.strike, "expiry": g.expiry,
+                "dte": g.dte, "qty": g.qty, "is_short": g.is_short,
+                "delta": g.delta, "gamma": g.gamma,
+                "theta": g.theta, "vega": g.vega,
+                "broker_greeks": g.broker_greeks,
+            }
+            for g in per
+        ],
+    }
+
+
+@router.get("/options/dte-watch")
+async def portfolio_options_dte_watch(
+    threshold: int = Query(default=21, ge=1, le=90),
+    pm=Depends(get_portfolio_mgr),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """SHORT options within N days of expiry (default 21). Inside this
+    window gamma acceleration overwhelms theta benefit for short-premium
+    structures — close-or-roll review recommended."""
+    from ...portfolio.options_portfolio import dte_watchlist
+    pm = _require_manager(pm)
+    positions = pm.get_positions(account_filter="all")
+    candidates = dte_watchlist(positions, threshold=threshold)
+    return {
+        "threshold_days": threshold,
+        "count": len(candidates),
+        "candidates": candidates,
+    }
+
+
+@router.get("/options/pin-risk")
+async def portfolio_options_pin_risk(
+    pct: float = Query(default=0.5, ge=0.1, le=5.0),
+    pm=Depends(get_portfolio_mgr),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """SHORT options expiring on a Friday within `pct`% of strike. Pin
+    risk = spot close to strike makes assignment ambiguous; force-review
+    these so the operator can decide before the close."""
+    from ...portfolio.options_portfolio import pin_risk_watchlist
+    pm = _require_manager(pm)
+    positions = pm.get_positions(account_filter="all")
+    spot = _spot_lookup_from_positions(positions)
+    flagged = pin_risk_watchlist(positions, spot_lookup=spot, pct=pct)
+    return {
+        "pct_threshold": pct,
+        "count": len(flagged),
+        "candidates": flagged,
+    }
+
+
+# ──────────────────────────────────────────────────────────────────────
 # Wave 14J Phase 2 (J1d) — Trade idea tracker / per-strategy expectancy
 # Closed loop: every brief/scanner-emitted idea has a stable trade_idea_id;
 # operator records outcomes; tracker computes hit rate / profit factor /
