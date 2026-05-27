@@ -254,6 +254,23 @@ class DrawdownBucket:
                 self._state.sizing_multiplier = 1.0
                 await self._persist()
                 return asdict(self._state)
+            # NAV<100 guard — almost certainly a transient data-source
+            # outage (broker adapter disconnected, FX fetch failed, etc).
+            # Reporting a -100% drawdown and halting all trading on the
+            # back of a single bad read is far worse than holding the
+            # last-known good band. Just touch computed_at and bail.
+            if (current_nav_cad or 0) < 100:
+                log.warning(
+                    "[DRAWDOWN] suspicious NAV $%.2f — holding band=%s "
+                    "(peak=$%.2f); skipping band update",
+                    current_nav_cad or 0, self._state.band, peak,
+                )
+                self._state.computed_at = _now_iso()
+                self._state.peak_nav_cad = float(peak)
+                self._state.peak_date = peak_date
+                self._state.sample_count = count
+                await self._persist()
+                return asdict(self._state)
             dd_pct = ((current_nav_cad or 0.0) - peak) / peak * 100.0
             band, mult = _classify(dd_pct)
             prev_band = self._state.band
