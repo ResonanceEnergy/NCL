@@ -72,6 +72,10 @@ class CapabilityCheck:
     import_probe: Optional[str] = None
     # Tags for filtering (e.g. "price_data", "alt_data", "macro")
     tags: list = field(default_factory=list)
+    # If True: missing/degraded just degrades upstream gracefully; no
+    # capability_request MemUnit emitted. For sources where we have a
+    # working fallback (e.g. Finnhub → yfinance).
+    optional: bool = False
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -94,7 +98,7 @@ DEFAULT_CAPABILITIES: list[CapabilityCheck] = [
     CapabilityCheck(
         name="rotation_snapshot",
         description="Daily SPDR sector RRG snapshot from rotation_tracker",
-        file_marker="data/rotation/cycle-{today}.json",
+        file_marker="data/rotation/{today}.json",
         staleness_days_max=2.0,
         tags=["macro", "regime"],
     ),
@@ -102,7 +106,7 @@ DEFAULT_CAPABILITIES: list[CapabilityCheck] = [
         name="cycle_phase",
         description="Business cycle phase classifier (FRED-fed)",
         file_marker="data/rotation/cycle-{today}.json",
-        staleness_days_max=2.0,
+        staleness_days_max=4.0,
         tags=["macro", "regime"],
     ),
     CapabilityCheck(
@@ -119,9 +123,10 @@ DEFAULT_CAPABILITIES: list[CapabilityCheck] = [
     ),
     CapabilityCheck(
         name="finnhub",
-        description="Economic calendar + IEX-style quotes",
+        description="Economic calendar + IEX-style quotes (yfinance fallback in place)",
         env_required=["FINNHUB_API_KEY"],
         tags=["macro", "calendar", "paid_api"],
+        optional=True,
     ),
     CapabilityCheck(
         name="ibkr_market_data",
@@ -203,10 +208,31 @@ def _get_capability_def(name: str) -> Optional[CapabilityCheck]:
 
 
 def _resolve_marker_path(marker: str) -> Path:
-    """Expand {today} placeholder in file marker paths."""
+    """Expand {today} placeholder in file marker paths.
+
+    Strategy: try today's ET date first. If the file doesn't exist,
+    fall back to the most recent file in the parent directory that
+    matches the pattern with {today} replaced by a YYYY-MM-DD glob.
+    This handles snapshot writers that name their file based on the
+    last *trading* day (which can be 1-3 days behind calendar today
+    on weekends/holidays).
+    """
     today = _today_et()
     expanded = marker.format(today=today)
-    return NCL_BASE / expanded
+    primary = NCL_BASE / expanded
+    if primary.exists():
+        return primary
+    # Glob fallback — find most recent match in the parent dir
+    try:
+        glob_pattern = Path(marker.format(today="*")).name
+        parent = (NCL_BASE / expanded).parent
+        if parent.exists():
+            matches = sorted(parent.glob(glob_pattern), reverse=True)
+            if matches:
+                return matches[0]
+    except Exception:
+        pass
+    return primary  # report the today-path as "missing" downstream
 
 
 def _probe_import(module_name: str) -> bool:
@@ -334,6 +360,13 @@ async def check_and_request(
     if result.get("available"):
         return result
     if not ENABLED:
+        return result
+
+    # Optional capabilities (have working fallbacks) — skip the MemUnit
+    # emission entirely. Caller still sees available=False so it can
+    # degrade gracefully.
+    cap_def = _get_capability_def(name)
+    if cap_def and getattr(cap_def, "optional", False):
         return result
 
     # Dedup: only emit MemUnit once per ET date per (capability, module)
