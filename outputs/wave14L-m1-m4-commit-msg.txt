@@ -1,0 +1,116 @@
+Wave 14L M1-M4: tax sizing + basket scanners + backtest + iOS card extension
+
+Four follow-ups from the Wave 14L self-* audit:
+
+M1 — TAX-AWARE POSITION SIZING (tax_sizing.py, ~210 LOC)
+
+Wires the existing tax_compliance helpers into the auto-trader loop:
+
+  WASH SALE CHECK — before opening, WashSaleLedger.check_open(symbol)
+  scans for realized losses in the 30-day window. Conflict + NCL_AT_WASH
+  _BLOCK=1 → block + importance-70 MemUnit "wash sale blocked".
+
+  EARNINGS PROXIMITY MULTIPLIER — earnings_size_modifier returns sizing
+  multipliers based on days-to-earnings + bucket:
+    within 2d: long-prem 0.50, short-prem 0.50, stock 0.75
+    within 7d: long-prem 0.75, short-prem 1.0, stock 1.0
+    beyond:    1.0
+  Bucket classification: long_premium (long option), short_premium
+  (short option / spread / condor), stock.
+
+  REALIZED LOSS RECORDING — outcome_attributor calls record_realized_
+  loss(symbol, broker, account_id, loss_amount) on every losing close so
+  the NEXT open on that ticker triggers the 30-day wash window.
+
+  Wired into auto_trader_loop step 7a (after governor approval, before
+  payload construction). Returns {approved, block_reason, size_mult,
+  adjusted_qty, adjusted_R_dollars, wash_sale_warnings, earnings_notes}.
+
+  Tunables: NCL_AT_TAX_SIZING_ENABLED=1 / NCL_AT_WASH_BLOCK=1 /
+            NCL_AT_TAX_RECORD_LOSSES=1.
+
+M2 — CROSS-ASSET BASKET SCANNERS (quant_scanners.py +200 LOC)
+
+Two new scanners added to the suite (now 7 total):
+
+  crypto_carry — Conservative carry-style scan on configurable crypto
+  watchlist (default BTC/ETH/SOL/XRP). Long when 7d AND 30d ROC > 0
+  AND price > 14d SMA. Auto-emits capability_request for proper
+  perp/funding-rate data (basis trade requires Binance/Bybit/Coinbase
+  Advanced API — not wired yet).
+
+  polymarket_kelly — Reads existing data/intelligence/polymarket cache
+  + data/awarebot/polymarket fallback. Filters to events with implied
+  prob 0.10-0.85, computes Kelly fraction assuming NCL_AT_POLY_EDGE_PP
+  (default 5pp) edge over market price. Half-Kelly for safety. Only
+  emits where positive-Kelly > 1pp.
+
+  Both scanners run in the existing ncl-auto-trader-quant-scan loop
+  (30min market / 2hr off-hours) alongside the 5 equity scanners.
+
+M3 — RECIPE BACKTEST HARNESS (recipe_backtest.py, ~330 LOC)
+
+Replays a recipe's signal_fn against historical OHLCV bars and computes
+hit_rate, expectancy_R, profit_factor, SQN, max_drawdown_R, total_R,
+avg_hold_days, per-trade list.
+
+5 signal functions ported from the live scanners:
+  momentum_breakout — 50-day high break + 150-SMA filter
+  swing_pullback — pullback to 50-SMA inside 200-SMA uptrend
+  mean_reversion_oversold — RSI<30 + Bollinger lower-touch + above 50-SMA
+  gap_fill — 2%+ gap → fade
+  pead_drift — +3% ROC after low-vol consolidation
+
+Simulator walks forward bar-by-bar applying stop_pct/target_pct/max_hold
+exits and records R-multiples. Audit JSONL.
+
+NEW REST:
+  POST /portfolio/auto-trader/backtest
+       Body: {recipe, ticker, days?, stop_pct?, target_pct?, max_hold_bars?}
+  GET  /portfolio/auto-trader/backtest
+       → snapshot + recent 10 runs
+
+Tunables: NCL_AT_BACKTEST_DEFAULT_DAYS=180 /
+          NCL_AT_BACKTEST_STOP_PCT=8 / NCL_AT_BACKTEST_TARGET_PCT=20.
+
+M4 — iOS WAVE 14L SURFACE (AutoTraderDashboard.swift +110 LOC,
+                            AutoTraderView.swift +130 LOC)
+
+4 new cards in AutoTraderView (now 13 total):
+
+  STRATEGY REGISTRY — count per bucket + lottery sources + LEAPS dests
+  PROFIT LADDER     — ARMED indicator + trigger R + roll % + fire count
+  SCOUT ACTIVITY    — last 5 scout ticks (PT / RS / CC / EARN counts)
+  CAPABILITY GAPS   — only-shown-if-gaps; lists each with reason
+                      (warning icon + orange tag + 2-line gap_reason)
+
+Extended AutoTraderDashboard model with:
+  registry: total_recipes / enabled_count / by_bucket / short_dated_lottery / long_dated_swing
+  capabilities: available_count / gap_count / gaps[]
+  scout: last_tick_iso / recent_5_ticks[]
+  ladder: enabled / r_threshold / profit_ratio / total_ever_emitted
+
+3 new struct models: AutoTraderStrategyRecipe, AutoTraderCapabilityGap,
+AutoTraderScoutTick.
+
+VERIFIED LIVE (Brain bounced clean):
+  - GET /quant-scan → 200 with 7 scanner names including crypto_carry +
+    polymarket_kelly
+  - POST /backtest momentum_breakout AAPL 180d → 200, 1 trade, +1.27R
+    (target hit), hit_rate 100%
+  - POST /backtest mean_reversion_oversold NVDA 180d → 200, 0 trades
+    (no signals in window — correctly reported)
+  - GET /capabilities now also includes wash_sale + tax_sizing surface
+  - iOS build green on iPhone 16e sim; AutoTraderView now renders
+    13 cards including the 4 new Wave 14L cards.
+
+LOC ADDED THIS WAVE: ~1,000 (tax_sizing 210 + quant_scanners +200 +
+recipe_backtest 330 + Swift +240 + wiring/REST/exports +50).
+TOTAL REST ENDPOINTS: 5 new (backtest GET+POST, others already present).
+ALL 47 ncl-* scheduler tasks unchanged; 5 dedicated auto-trader loops
+running concurrently.
+
+The full Wave 14L is now COMPLETE + INTEGRATED:
+  L1 (registry) + L2 (7 scanners) + L3 (11 option builders) + L4 (ladder)
+  + L5 (capability registry) + L6 (scout) + M1 (tax) + M2 (basket) +
+  M3 (backtest) + M4 (iOS)

@@ -28,7 +28,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
+
 
 log = logging.getLogger("ncl.intel.brief_prep")
 
@@ -137,8 +138,14 @@ def _yf_overnight_movers_blocking(watchlist: list[str]) -> dict:
             if prev <= 0:
                 continue
             pct = ((last - prev) / prev) * 100
-            rows.append({"ticker": ticker, "last": round(last, 2),
-                         "prev": round(prev, 2), "pct": round(pct, 2)})
+            rows.append(
+                {
+                    "ticker": ticker,
+                    "last": round(last, 2),
+                    "prev": round(prev, 2),
+                    "pct": round(pct, 2),
+                }
+            )
         except Exception:
             continue
     rows.sort(key=lambda r: r["pct"], reverse=True)
@@ -176,6 +183,7 @@ async def collect_headlines(brain) -> list[dict]:
                 if ts:
                     try:
                         from datetime import datetime as _dt
+
                         dt = _dt.fromisoformat(str(ts).replace("Z", "+00:00"))
                         if dt.timestamp() < cutoff_ts:
                             continue
@@ -183,19 +191,23 @@ async def collect_headlines(brain) -> list[dict]:
                         pass
                 category = getattr(s, "category", "")
                 source = getattr(getattr(s, "source", None), "value", "") or ""
-                if not any(k in (category + source).lower() for k in
-                           ("news", "headline", "reuters", "bloomberg", "rss", "x_twitter")):
+                if not any(
+                    k in (category + source).lower()
+                    for k in ("news", "headline", "reuters", "bloomberg", "rss", "x_twitter")
+                ):
                     continue
                 title = (getattr(s, "title", "") or "")[:200]
                 if not title or title.lower() in seen_titles:
                     continue
                 seen_titles.add(title.lower())
-                out.append({
-                    "title": title,
-                    "source": source,
-                    "sig_id": (getattr(s, "signal_id", "") or "")[:8],
-                    "captured_at": str(ts) if ts else None,
-                })
+                out.append(
+                    {
+                        "title": title,
+                        "source": source,
+                        "sig_id": (getattr(s, "signal_id", "") or "")[:8],
+                        "captured_at": str(ts) if ts else None,
+                    }
+                )
                 if len(out) >= 25:
                     break
             except Exception:
@@ -209,6 +221,7 @@ async def collect_headlines(brain) -> list[dict]:
 def collect_options_flow_yesterday() -> dict:
     """Read yesterday's GOAT/BRAVO JSONLs + summarize."""
     from datetime import timedelta
+
     yesterday = (date.today() - timedelta(days=1)).isoformat()
     out = {"goat": [], "bravo": [], "flow_summary": {}}
     for scanner in ("goat", "bravo"):
@@ -225,8 +238,11 @@ def collect_options_flow_yesterday() -> dict:
                         continue
             rows.sort(key=lambda r: r.get(f"{scanner}_score", 0), reverse=True)
             out[scanner] = [
-                {"ticker": r.get("ticker"), "score": r.get(f"{scanner}_score"),
-                 "price": r.get("price")}
+                {
+                    "ticker": r.get("ticker"),
+                    "score": r.get(f"{scanner}_score"),
+                    "price": r.get("price"),
+                }
                 for r in rows[:10]
             ]
         except Exception:
@@ -253,13 +269,15 @@ async def collect_polymarket_leading(brain) -> list[dict]:
                 lifecycle = (meta.get("lifecycle_status") or "").lower()
                 if lifecycle != "leading":
                     continue
-                leading.append({
-                    "title": (getattr(s, "title", "") or "")[:140],
-                    "yes_price": getattr(s, "yes_price", None),
-                    "no_price": getattr(s, "no_price", None),
-                    "volume_24h": getattr(s, "volume_24h", None),
-                    "sig_id": (getattr(s, "signal_id", "") or "")[:8],
-                })
+                leading.append(
+                    {
+                        "title": (getattr(s, "title", "") or "")[:140],
+                        "yes_price": getattr(s, "yes_price", None),
+                        "no_price": getattr(s, "no_price", None),
+                        "volume_24h": getattr(s, "volume_24h", None),
+                        "sig_id": (getattr(s, "signal_id", "") or "")[:8],
+                    }
+                )
                 if len(leading) >= 8:
                     break
             except Exception:
@@ -287,20 +305,71 @@ async def collect_held_positions(brain) -> list[dict]:
 
 
 async def collect_working_context(brain) -> dict:
-    if brain is None:
-        return {}
+    """Pull live WC items. The actual WorkingContext lives on the
+    autonomous scheduler at `autonomous._working_context`, NOT on brain.
+    `get_current()` returns the assembled DailyContext."""
     try:
-        wc = getattr(brain, "working_context", None)
+        wc = None
+        # Try a few places — autonomous scheduler is the source of truth
+        try:
+            from runtime.api.routes import _autonomous as _auton
+
+            if _auton is not None:
+                wc = getattr(_auton, "_working_context", None)
+        except Exception:
+            pass
+        if wc is None and brain is not None:
+            wc = getattr(brain, "_working_context_ref", None) or getattr(
+                brain, "working_context", None
+            )
         if wc is None:
             return {}
-        snap = wc.snapshot() if hasattr(wc, "snapshot") else {}
+
+        # The DailyContext object — produced by .assemble() and cached
+        ctx = wc.get_current() if hasattr(wc, "get_current") else None
+        if ctx is None:
+            # Try assembling now if nothing cached
+            if hasattr(wc, "assemble"):
+                try:
+                    ctx = await wc.assemble()
+                except Exception:
+                    ctx = None
+        if ctx is None:
+            return {}
+
+        # ctx.items is list[ContextItem]; .themes is list[str]
+        raw_items = getattr(ctx, "items", []) or []
+        themes = getattr(ctx, "themes", []) or []
+        snap = {
+            "themes": list(themes),
+            "items": [it.to_dict() for it in raw_items if hasattr(it, "to_dict")],
+        }
+        items = snap.get("items") or []
+        # Pinned bucket — those explicitly flagged
+        pinned = [
+            {"text": (i.get("content") or "")[:200], "category": i.get("category", "")}
+            for i in items
+            if (i.get("category") == "pinned" or i.get("kind") == "pinned")
+        ][:8]
+        # Top items by salience as fallback "what's on the brain right now"
+        top_items = sorted(
+            items,
+            key=lambda i: float(i.get("salience_score", 0) or 0),
+            reverse=True,
+        )[:10]
+        top_payload = [
+            {
+                "text": (i.get("content") or "")[:200],
+                "category": i.get("category", ""),
+                "salience": round(float(i.get("salience_score", 0) or 0), 3),
+            }
+            for i in top_items
+        ]
         return {
             "themes": snap.get("themes", [])[:8],
-            "pinned_priorities": [
-                {"text": (i.get("content") or "")[:200]}
-                for i in (snap.get("items") or [])[:10]
-                if (i.get("category") == "pinned" or i.get("kind") == "pinned")
-            ][:8],
+            "pinned_priorities": pinned,
+            "top_by_salience": top_payload,
+            "total_items": len(items),
         }
     except Exception:
         return {}
@@ -325,12 +394,13 @@ def collect_earnings_today() -> list[dict]:
     today = date.today().isoformat()
     out: list[dict] = []
     try:
-        from runtime.stocks import enrichments as enr  # type: ignore
+        pass  # type: ignore
     except Exception:
         return out
     try:
         # Use the cached map if available
-        from runtime.stocks.enrichments import _cache_get, _EARNINGS_CACHE_KEY  # type: ignore
+        from runtime.stocks.enrichments import _EARNINGS_CACHE_KEY, _cache_get  # type: ignore
+
         cached = _cache_get(_EARNINGS_CACHE_KEY)
         if cached:
             for ticker, dt_str in cached.items():
@@ -345,10 +415,12 @@ def collect_economic_calendar() -> list[dict]:
     """Best-effort macro calendar — Finnhub if key set, otherwise empty."""
     try:
         import os
+
         api_key = os.environ.get("FINNHUB_API_KEY", "")
         if not api_key:
             return []
         import httpx
+
         today = date.today().isoformat()
         url = f"https://finnhub.io/api/v1/calendar/economic?from={today}&to={today}&token={api_key}"
         r = httpx.get(url, timeout=10.0)
@@ -379,37 +451,81 @@ def collect_economic_calendar() -> list[dict]:
 
 # ── Wave 14S — new collectors for the 12-block enriched brief ─────────
 
+
 async def _collect_portfolio_snapshot(brain) -> dict:
-    """Live portfolio aggregate (multi-broker, paper-only when offline)."""
+    """Live broker portfolio first; paper account fallback when offline.
+
+    NATRIX's setup defaults to paper-trading (CLAUDE.md: no live auto-executor).
+    When broker adapters report disconnected, surface the paper account NAV +
+    open positions so the PORTFOLIO block always shows real numbers.
+    """
+    out: dict = {"connected": False}
+    # Try live broker aggregator first
     try:
         from runtime.portfolio.portfolio_manager import get_portfolio_manager
+
         pm = get_portfolio_manager()
-        if pm is None:
-            return {"connected": False}
-        summary = pm.get_summary() if hasattr(pm, "get_summary") else {}
-        return {
-            "connected": True,
-            "total_value_cad": summary.get("total_equity_cad", 0),
-            "total_value_usd": summary.get("total_equity_usd", 0),
-            "fx_rate_usd_cad": summary.get("fx_rate_usd_cad"),
-            "positions_count": summary.get("positions_count", 0),
-            "daily_pl": summary.get("daily_pl"),
-            "daily_pl_pct": summary.get("daily_pl_pct"),
-            "quotes_failed": summary.get("quotes_failed", 0),
-        }
+        if pm is not None:
+            summary = pm.get_summary() if hasattr(pm, "get_summary") else {}
+            total_val = summary.get("total_equity_cad", 0) or summary.get("total_equity_usd", 0)
+            if total_val and total_val > 0:
+                out.update(
+                    {
+                        "connected": True,
+                        "mode": "live_broker",
+                        "total_value_cad": summary.get("total_equity_cad", 0),
+                        "total_value_usd": summary.get("total_equity_usd", 0),
+                        "fx_rate_usd_cad": summary.get("fx_rate_usd_cad"),
+                        "positions_count": summary.get("positions_count", 0),
+                        "daily_pl": summary.get("daily_pl"),
+                        "daily_pl_pct": summary.get("daily_pl_pct"),
+                        "quotes_failed": summary.get("quotes_failed", 0),
+                    }
+                )
+                return out
     except Exception as e:
-        log.debug("[brief_prep] portfolio snapshot failed: %s", e)
-        return {"error": str(e)}
+        log.debug("[brief_prep] live portfolio failed: %s", e)
+
+    # Paper-trading fallback (default mode per CLAUDE.md)
+    try:
+        from runtime.portfolio import paper_routes as _paper
+
+        eng = getattr(_paper, "_engine", None)
+        if eng is not None:
+            stats = eng.get_stats() if hasattr(eng, "get_stats") else {}
+            return {
+                "connected": True,
+                "mode": "paper",
+                "account_balance_usd": stats.get("account_balance", 0),
+                "open_trades": stats.get("open_trades", 0),
+                "closed_trades": stats.get("closed_trades", 0),
+                "win_rate_pct": stats.get("win_rate", 0),
+                "expectancy_r": stats.get("expectancy_r", 0),
+                "profit_factor": stats.get("profit_factor", 0),
+                "open_unrealized_pl": stats.get("open_unrealized_pl", 0)
+                or stats.get("unrealized_pl", 0)
+                or stats.get("open_pl", 0),
+                "total_realized_pl": stats.get("total_realized_pl", 0)
+                or stats.get("realized_pl", 0),
+            }
+    except Exception as e:
+        log.debug("[brief_prep] paper portfolio fallback failed: %s", e)
+        return {"connected": False, "error": str(e)}
+    return out
 
 
 async def _collect_agent_snapshot(brain) -> dict:
     """Auto-trader state, top strategies, recent closes."""
     try:
-        from runtime.portfolio.auto_trader import get_state, get_bandit
+        from runtime.portfolio.auto_trader import get_bandit, get_state
+
         s = await get_state()
         bandit = get_bandit()
-        top_strats = bandit.ranked_by_credible_lower_bound()[:5] \
-            if bandit and hasattr(bandit, "ranked_by_credible_lower_bound") else []
+        top_strats = (
+            bandit.ranked_by_credible_lower_bound()[:5]
+            if bandit and hasattr(bandit, "ranked_by_credible_lower_bound")
+            else []
+        )
         return {
             "active": s.active,
             "paused_by": s.paused_by,
@@ -440,6 +556,7 @@ def _load_latest_scanner_jsonl(name: str, score_key: str, k: int = 5) -> dict:
     """Read the most recent scanners/{name}-YYYY-MM-DD.jsonl + return top-k."""
     try:
         from pathlib import Path as _Path
+
         scan_dir = _Path(NCL_BASE) / "data" / "scanners"
         if not scan_dir.exists():
             return {"count": 0, "items": [], "scan_date": None}
@@ -477,86 +594,268 @@ def _load_latest_scanner_jsonl(name: str, score_key: str, k: int = 5) -> dict:
 
 
 async def _collect_options_flow_now(brain) -> dict:
-    """Latest options-flow snapshot from /portfolio/options-flow source."""
+    """Latest options-flow from agent_signals.jsonl (source=='options_flow').
+
+    Pulls last 24h, groups by ticker, ranks by total premium. Mirrors the
+    parse the /portfolio/options-flow endpoint uses so the brief shows the
+    same numbers the iOS OPTIONS tab does.
+    """
+    import re as _re
+    from datetime import datetime as _dt
+    from datetime import timedelta as _td
+    from datetime import timezone as _tz
+    from pathlib import Path as _Path
+
+    _TITLE_RE = _re.compile(
+        r"^([A-Z][A-Z0-9.]{0,8})\s+flow alert:\s*\$?([\d,]+)\s*\(\s*(\d+)\s*contracts?\)",
+        _re.IGNORECASE,
+    )
+
     try:
-        # The options-flow endpoint reads from awarebot Unusual Whales signal cache
-        from pathlib import Path as _Path
-        of_dir = _Path(NCL_BASE) / "data" / "intelligence" / "options_flow"
-        if not of_dir.exists():
-            return {"count": 0, "rows": []}
-        files = sorted(of_dir.glob("*.json"), reverse=True)
-        if not files:
-            return {"count": 0, "rows": []}
-        data = json.loads(files[0].read_text())
-        rows = data if isinstance(data, list) else data.get("rows", [])
-        return {"count": len(rows), "rows": rows[:5]}
+        sig_file = _Path(NCL_BASE) / "data" / "intelligence" / "agent_signals.jsonl"
+        if not sig_file.exists():
+            return {"count": 0, "rows": [], "source": "agent_signals.jsonl missing"}
+
+        cutoff = _dt.now(_tz.utc) - _td(hours=24)
+        # Tail last ~4MB for perf
+        with sig_file.open("rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            f.seek(max(0, size - 4 * 1024 * 1024))
+            if size > 4 * 1024 * 1024:
+                f.readline()
+            lines = f.read().decode("utf-8", errors="ignore").splitlines()
+
+        per_ticker: dict[str, dict] = {}
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                sig = json.loads(line)
+            except Exception:
+                continue
+            if sig.get("source") != "options_flow":
+                continue
+            ts_str = sig.get("timestamp") or ""
+            if ts_str:
+                try:
+                    ts = _dt.fromisoformat(ts_str.replace("Z", "+00:00"))
+                    if ts < cutoff:
+                        continue
+                except Exception:
+                    pass
+            m = _TITLE_RE.match(sig.get("title") or "")
+            if not m:
+                continue
+            ticker = m.group(1).upper()
+            try:
+                premium = float(m.group(2).replace(",", ""))
+                contracts = int(m.group(3))
+            except Exception:
+                continue
+            row = per_ticker.setdefault(
+                ticker,
+                {
+                    "ticker": ticker,
+                    "total_premium": 0.0,
+                    "trade_count": 0,
+                    "contracts": 0,
+                    "top_premium": 0.0,
+                    "dir": sig.get("direction", "neutral"),
+                },
+            )
+            row["total_premium"] += premium
+            row["trade_count"] += 1
+            row["contracts"] += contracts
+            row["top_premium"] = max(row["top_premium"], premium)
+
+        rows = sorted(per_ticker.values(), key=lambda r: r["total_premium"], reverse=True)[:10]
+        return {
+            "count": len(per_ticker),
+            "lookback_hours": 24,
+            "rows": [
+                {
+                    "ticker": r["ticker"],
+                    "total_premium": round(r["total_premium"], 0),
+                    "trade_count": r["trade_count"],
+                    "contracts": r["contracts"],
+                    "top_single_premium": round(r["top_premium"], 0),
+                    "direction": r["dir"],
+                }
+                for r in rows
+            ],
+        }
     except Exception as e:
         return {"count": 0, "rows": [], "error": str(e)}
 
 
-async def _collect_crypto_movers() -> dict:
-    """Top crypto movers from awarebot crypto signals (CoinGecko/Coinpaprika)."""
+def _yf_crypto_blocking() -> dict:
+    """Direct yfinance fetch of 10 major crypto pairs — CoinGecko-free.
+
+    Awarebot's crypto scanner is disabled per CLAUDE.md (CoinGecko rate
+    limits caused 60s+ delays), so we go to yfinance directly with the
+    same fast_info path the futures collector uses.
+    """
+    out: list[dict] = []
     try:
-        from pathlib import Path as _Path
-        agent_jsonl = _Path(NCL_BASE) / "data" / "intelligence" / "agent_signals.jsonl"
-        if not agent_jsonl.exists():
-            return {"count": 0, "items": []}
-        crypto_signals = []
-        with agent_jsonl.open() as f:
-            for ln in f:
-                try:
-                    sig = json.loads(ln)
-                    src = (sig.get("source") or "").lower()
-                    if "crypto" in src or "coingecko" in src or "coinpaprika" in src:
-                        crypto_signals.append(sig)
-                except Exception:
-                    continue
-        crypto_signals.sort(key=lambda s: s.get("composite_score", 0), reverse=True)
-        return {
-            "count": len(crypto_signals),
-            "items": [
+        import yfinance as yf
+    except ImportError:
+        return {"count": 0, "items": [], "source": "yfinance missing"}
+
+    pairs = [
+        ("BTC-USD", "Bitcoin"),
+        ("ETH-USD", "Ethereum"),
+        ("SOL-USD", "Solana"),
+        ("BNB-USD", "BNB"),
+        ("XRP-USD", "XRP"),
+        ("DOGE-USD", "Dogecoin"),
+        ("ADA-USD", "Cardano"),
+        ("AVAX-USD", "Avalanche"),
+        ("LINK-USD", "Chainlink"),
+        ("MATIC-USD", "Polygon"),
+    ]
+    for sym, name in pairs:
+        try:
+            t = yf.Ticker(sym)
+            hist = t.history(period="2d")
+            if hist.empty or len(hist) < 2:
+                continue
+            last = float(hist["Close"].iloc[-1])
+            prev = float(hist["Close"].iloc[-2])
+            if prev <= 0:
+                continue
+            pct = ((last - prev) / prev) * 100
+            vol = float(hist["Volume"].iloc[-1]) if "Volume" in hist.columns else 0.0
+            out.append(
                 {
-                    "title": s.get("title") or s.get("content", "")[:80],
-                    "source": s.get("source"),
-                    "score": s.get("composite_score"),
+                    "symbol": sym,
+                    "name": name,
+                    "last": round(last, 2 if last >= 1 else 4),
+                    "pct_24h": round(pct, 2),
+                    "volume_24h_usd": round(vol, 0),
                 }
-                for s in crypto_signals[:5]
-            ],
-        }
+            )
+        except Exception:
+            continue
+    # Sort by |%change| desc — surface the biggest movers
+    out.sort(key=lambda r: abs(r["pct_24h"]), reverse=True)
+    return {"count": len(out), "items": out[:8], "source": "yfinance"}
+
+
+async def _collect_crypto_movers() -> dict:
+    """Top crypto movers via yfinance (CoinGecko fallback removed)."""
+    try:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(_executor, _yf_crypto_blocking)
     except Exception as e:
         return {"count": 0, "items": [], "error": str(e)}
 
 
 async def _collect_polymarket_edges() -> dict:
-    """Wave 14R polymarket-agent edge engine output (predictions vs market)."""
+    """Wave 14R polymarket-agent edge engine output (predictions vs market).
+
+    If the edge engine returns 0 (no edges meet threshold today), fall back
+    to surfacing the top-5 highest-volume active polymarket signals from
+    agent_signals.jsonl so the brief always has some polymarket context.
+    """
+    edges_data = []
+    market_cache_count = 0
+    edge_engine_error = None
     try:
         from runtime.portfolio.polymarket_agent.collector_loop import read_today_cache
         from runtime.portfolio.polymarket_agent.edge_engine import compute_edges
+
         markets = read_today_cache()
+        market_cache_count = len(markets) if markets else 0
         edges = compute_edges(markets) if markets else []
-        return {
-            "count": len(edges),
-            "market_cache_count": len(markets),
-            "items": [
-                {
-                    "market_question": e.market_question[:80],
-                    "side": e.side,
-                    "edge_pp": e.edge_pp,
-                    "market_yes_price": e.market_yes_price,
-                    "days_to_resolution": e.days_to_resolution,
-                    "prediction_title": (e.prediction_title or "")[:80],
-                }
-                for e in edges[:5]
-            ],
-        }
+        edges_data = [
+            {
+                "market_question": e.market_question[:80],
+                "side": e.side,
+                "edge_pp": e.edge_pp,
+                "market_yes_price": e.market_yes_price,
+                "days_to_resolution": e.days_to_resolution,
+                "prediction_title": (e.prediction_title or "")[:80],
+            }
+            for e in edges[:5]
+        ]
     except Exception as e:
-        return {"count": 0, "items": [], "error": str(e)}
+        edge_engine_error = str(e)
+
+    # Fallback: top active polymarket signals from agent_signals.jsonl
+    fallback_items = []
+    if not edges_data:
+        try:
+            from datetime import datetime as _dt
+            from datetime import timedelta as _td
+            from datetime import timezone as _tz
+            from pathlib import Path as _Path
+
+            sig_file = _Path(NCL_BASE) / "data" / "intelligence" / "agent_signals.jsonl"
+            if sig_file.exists():
+                cutoff = _dt.now(_tz.utc) - _td(hours=24)
+                # tail last 4MB
+                with sig_file.open("rb") as f:
+                    f.seek(0, 2)
+                    size = f.tell()
+                    f.seek(max(0, size - 4 * 1024 * 1024))
+                    if size > 4 * 1024 * 1024:
+                        f.readline()
+                    lines = f.read().decode("utf-8", errors="ignore").splitlines()
+                poly_signals = []
+                for line in lines:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        sig = json.loads(line)
+                    except Exception:
+                        continue
+                    if sig.get("source") != "polymarket":
+                        continue
+                    ts_str = sig.get("timestamp") or ""
+                    if ts_str:
+                        try:
+                            ts = _dt.fromisoformat(ts_str.replace("Z", "+00:00"))
+                            if ts < cutoff:
+                                continue
+                        except Exception:
+                            pass
+                    meta = sig.get("metadata") or {}
+                    # Skip resolved/dead markets
+                    lc = (meta.get("lifecycle_status") or "").lower()
+                    if lc == "resolved":
+                        continue
+                    poly_signals.append(sig)
+                # Sort by importance (which factors volume) desc
+                poly_signals.sort(key=lambda s: s.get("importance", 0) or 0, reverse=True)
+                fallback_items = [
+                    {
+                        "market_question": (s.get("title") or "")[:90],
+                        "lifecycle": (s.get("metadata") or {}).get("lifecycle_status", "active"),
+                        "importance": s.get("importance"),
+                        "url": s.get("url"),
+                    }
+                    for s in poly_signals[:5]
+                ]
+        except Exception as e:
+            edge_engine_error = (edge_engine_error or "") + f" | fallback: {e}"
+
+    return {
+        "count": len(edges_data) if edges_data else len(fallback_items),
+        "market_cache_count": market_cache_count,
+        "mode": "edges" if edges_data else ("fallback_signals" if fallback_items else "empty"),
+        "items": edges_data if edges_data else fallback_items,
+        "error": edge_engine_error,
+    }
 
 
 async def _collect_predictions_top() -> dict:
     """Top predictions sorted by confidence (Wave 14Q stated_probability)."""
     try:
         from pathlib import Path as _Path
+
         pred_dir = _Path(NCL_BASE) / "data" / "predictions"
         if not pred_dir.exists():
             return {"count": 0, "items": []}
@@ -600,6 +899,7 @@ async def _collect_ytc_recent() -> dict:
     """Recent YouTube Council reports."""
     try:
         from pathlib import Path as _Path
+
         ytc_dir = _Path(NCL_BASE) / "intelligence-scan" / "council-reports"
         if not ytc_dir.exists():
             return {"count": 0, "items": []}
@@ -609,11 +909,15 @@ async def _collect_ytc_recent() -> dict:
         for p in sorted(ytc_dir.rglob("*.md"), reverse=True):
             if p.stat().st_mtime < cutoff:
                 continue
-            reports.append({
-                "filename": p.name,
-                "modified_iso": datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc).isoformat(),
-                "size_bytes": p.stat().st_size,
-            })
+            reports.append(
+                {
+                    "filename": p.name,
+                    "modified_iso": datetime.fromtimestamp(
+                        p.stat().st_mtime, tz=timezone.utc
+                    ).isoformat(),
+                    "size_bytes": p.stat().st_size,
+                }
+            )
             if len(reports) >= 8:
                 break
         return {"count": len(reports), "items": reports}
@@ -623,15 +927,50 @@ async def _collect_ytc_recent() -> dict:
 
 async def _collect_todo_7day(brain) -> dict:
     """Calendar watchlist for next 7 days — pulls from CalendarAgent.
-    build_watchlist returns list[dict] of correlated todos with priority,
-    action, source, context, urgency, energy_aligned."""
+
+    build_watchlist returns [] without moon_phase/cycle_context/brain_client
+    — the moon block produces no todos and every brain-call branch is
+    short-circuited. Supply all three so we get real items.
+    """
     try:
+        from runtime.calendar.lunar import get_cycle_context, get_moon_phase
         from runtime.calendar.watchlist import build_watchlist
-        todos = await build_watchlist()
+
+        # Moon + cycle don't need brain — pure ephemeris.
+        try:
+            moon_phase = get_moon_phase()
+        except Exception:
+            moon_phase = None
+        try:
+            cycle_context = get_cycle_context()
+        except Exception:
+            cycle_context = None
+
+        # Brain-internal HTTP client — watchlist's _sync_brain_call
+        # builds the actual httpx wrapper, it just needs a truthy obj
+        # to short-circuit the "no client" branches.
+        brain_client_proxy = brain  # truthy; downstream uses STRIKE_TOKEN
+
+        todos = await build_watchlist(
+            brain_client=brain_client_proxy,
+            moon_phase=moon_phase,
+            cycle_context=cycle_context,
+        )
         if isinstance(todos, list):
-            # Sort by priority (1=highest, 5=lowest)
-            todos.sort(key=lambda t: (t.get("priority", 5), t.get("urgency", "this_week")))
-            return {"items": todos[:15], "count": len(todos)}
+            # Sort by priority desc (5=highest in this module), then urgency
+            urgency_order = {"now": 0, "today": 1, "this_week": 2}
+            todos.sort(
+                key=lambda t: (
+                    -t.get("priority", 0),
+                    urgency_order.get(t.get("urgency", "today"), 1),
+                )
+            )
+            return {
+                "items": todos[:15],
+                "count": len(todos),
+                "moon_phase": (moon_phase or {}).get("phase_name"),
+                "energy_mode": (moon_phase or {}).get("energy_mode"),
+            }
         return {"items": [], "count": 0}
     except Exception as e:
         return {"items": [], "count": 0, "error": str(e)}
@@ -648,6 +987,7 @@ async def build_prep_pack(
     if watchlist_tickers is None:
         try:
             from runtime.api.routes import WATCHLIST_TICKERS  # type: ignore
+
             watchlist_tickers = list(WATCHLIST_TICKERS or [])
         except Exception:
             watchlist_tickers = []
@@ -667,6 +1007,7 @@ async def build_prep_pack(
     async def _rotation_task():
         try:
             from .rotation_tracker import build_rotation_snapshot
+
             return await build_rotation_snapshot()
         except Exception as e:
             log.warning("[brief_prep] rotation snapshot failed: %s", e)
@@ -675,6 +1016,7 @@ async def build_prep_pack(
     async def _style_task():
         try:
             from .style_ratios import build_style_snapshot
+
             return await build_style_snapshot()
         except Exception as e:
             log.warning("[brief_prep] style ratios failed: %s", e)
@@ -683,18 +1025,45 @@ async def build_prep_pack(
     async def _cycle_task():
         try:
             from .cycle_phase import build_cycle_phase_snapshot
+
             return await build_cycle_phase_snapshot()
         except Exception as e:
             log.warning("[brief_prep] cycle phase failed: %s", e)
             return None
 
     # Wave 14S — 12 new collectors in parallel for richer brief context
-    futures, vix, movers, headlines, polymarket, held, wc, rotation, style, cycle, \
-        portfolio_snap, agent_snap, goat_top, bravo_top, options_flow_now, \
-        crypto_movers, poly_edges, predictions_top, ytc_recent, todo_7day = await asyncio.gather(
-        futures_task, vix_task, movers_task, headlines_task,
-        polymarket_task, held_task, wc_task,
-        _rotation_task(), _style_task(), _cycle_task(),
+    (
+        futures,
+        vix,
+        movers,
+        headlines,
+        polymarket,
+        held,
+        wc,
+        rotation,
+        style,
+        cycle,
+        portfolio_snap,
+        agent_snap,
+        goat_top,
+        bravo_top,
+        options_flow_now,
+        crypto_movers,
+        poly_edges,
+        predictions_top,
+        ytc_recent,
+        todo_7day,
+    ) = await asyncio.gather(
+        futures_task,
+        vix_task,
+        movers_task,
+        headlines_task,
+        polymarket_task,
+        held_task,
+        wc_task,
+        _rotation_task(),
+        _style_task(),
+        _cycle_task(),
         _collect_portfolio_snapshot(brain),
         _collect_agent_snapshot(brain),
         _collect_goat_top(watchlist_tickers),
@@ -720,9 +1089,11 @@ async def build_prep_pack(
             "generated_at_iso": now_iso,
             "source_endpoint": endpoint,
             "item_count": (
-                len(data) if isinstance(data, list)
+                len(data)
+                if isinstance(data, list)
                 else (data.get(count_key) if isinstance(data, dict) and count_key else 1)
-                if isinstance(data, dict) else 0
+                if isinstance(data, dict)
+                else 0
             ),
         }
 
@@ -753,17 +1124,17 @@ async def build_prep_pack(
         "BRAVO": _block("BRAVO", bravo_top, "/stocks/scanner/bravo", "count"),
         "OPTIONS": _block("OPTIONS", options_flow_now, "/portfolio/options-flow"),
         "CRYPTO": _block("CRYPTO", crypto_movers, "intelligence/crypto"),
-        "POLYMARKET": _block(
-            "POLYMARKET", poly_edges, "/portfolio/polymarket-agent/edges"
-        ),
-        "PREDICTIONS": _block(
-            "PREDICTIONS", predictions_top, "/predictions?sort=confidence"
-        ),
+        "POLYMARKET": _block("POLYMARKET", poly_edges, "/portfolio/polymarket-agent/edges"),
+        "PREDICTIONS": _block("PREDICTIONS", predictions_top, "/predictions?sort=confidence"),
         "YTC": _block("YTC", ytc_recent, "/youtube/reports/recent"),
         "CONTEXT": _block(
             "CONTEXT",
-            (wc or {}).get("pinned_priorities", [])[:10]
-            + [{"text": t} for t in (wc or {}).get("themes", [])[:5]],
+            {
+                "pinned": (wc or {}).get("pinned_priorities", [])[:5],
+                "top_by_salience": (wc or {}).get("top_by_salience", [])[:8],
+                "themes": [{"text": t} for t in (wc or {}).get("themes", [])[:5]],
+                "total_items": (wc or {}).get("total_items", 0),
+            },
             "/memory/working-context",
         ),
         "TODO_7DAY": _block("TODO_7DAY", todo_7day, "/calendar/watchlist"),
@@ -774,8 +1145,12 @@ async def build_prep_pack(
     path = PREP_DIR / f"{pack['date']}.json"
     try:
         path.write_text(json.dumps(pack, indent=2, default=str))
-        log.info("[brief_prep] wrote %s (%d bytes, elapsed %.1fs)",
-                 path, path.stat().st_size, pack["elapsed_s"])
+        log.info(
+            "[brief_prep] wrote %s (%d bytes, elapsed %.1fs)",
+            path,
+            path.stat().st_size,
+            pack["elapsed_s"],
+        )
     except Exception as e:
         log.warning("[brief_prep] persist failed: %s", e)
 

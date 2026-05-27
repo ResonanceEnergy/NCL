@@ -1,0 +1,12 @@
+=== GET /portfolio/options/greeks ===
+position_count: 0
+net: {'delta': 0.0, 'gamma': 0.0, 'theta': 0.0, 'vega': 0.0}
+budgets: {'delta_max_abs': 10668.74, 'gamma_max_abs': 7112.494, 'vega_max_abs': 200.0, 'theta_min_daily': 100.0, 'theta_max_daily': 300.0}
+flags: []
+
+=== GET /portfolio/options/dte-watch?threshold=21 ===
+threshold: 21 count: 0
+
+=== GET /portfolio/options/pin-risk?pct=1.0 ===
+pct: 1.0 count: 0
+DONE

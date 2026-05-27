@@ -1,0 +1,21 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.3, pytest-9.0.3, pluggy-1.6.0 -- /opt/homebrew/opt/python@3.14/bin/python3.14
+cachedir: .pytest_cache
+rootdir: /Users/natrix/dev/NCL
+configfile: pyproject.toml
+plugins: asyncio-1.3.0, anyio-4.13.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 59 items / 49 deselected / 10 selected
+
+tests/test_portfolio_manager.py::test_auto_trader_state_lifecycle PASSED [ 10%]
+tests/test_portfolio_manager.py::test_auto_trader_policy_load_and_patch PASSED [ 20%]
+tests/test_portfolio_manager.py::test_auto_open_eligible_pass PASSED     [ 30%]
+tests/test_portfolio_manager.py::test_auto_open_eligible_governor_reject PASSED [ 40%]
+tests/test_portfolio_manager.py::test_auto_open_eligible_breadth_veto PASSED [ 50%]
+tests/test_portfolio_manager.py::test_auto_open_eligible_rr_too_low PASSED [ 60%]
+tests/test_portfolio_manager.py::test_auto_open_eligible_counter_trend_blocked PASSED [ 70%]
+tests/test_portfolio_manager.py::test_auto_trader_loop_idea_to_payload PASSED [ 80%]
+tests/test_portfolio_manager.py::test_auto_trader_market_open_classifier PASSED [ 90%]
+tests/test_portfolio_manager.py::test_auto_trader_observability_record_and_dedup PASSED [100%]
+
+====================== 10 passed, 49 deselected in 1.31s =======================

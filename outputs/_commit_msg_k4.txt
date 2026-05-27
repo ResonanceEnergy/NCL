@@ -1,0 +1,116 @@
+Wave 14K Phase 4: self-learning (K3a + K3b + K3c + K3d)
+
+The system stops just running and starts IMPROVING. Each closed paper
+trade now updates a Bayesian posterior over its strategy's true win
+rate, and every 10 closed trades triggers a SHAP-style attribution
+that surfaces which features actually predicted wins.
+
+============================================================
+K3a — Strategy bandit (runtime/portfolio/auto_trader/strategy_bandit.py, ~270 LOC)
+============================================================
+Beta-Bernoulli per-strategy posteriors + Thompson sampling. Each
+strategy gets a Beta(alpha, beta) posterior over its true win rate.
+Prior: Beta(1, 1) = uniform (NCL_BANDIT_PRIOR_{ALPHA,BETA} env override).
+
+  record_result(strategy, win=True, R_multiple, trade_idea_id)
+    -> alpha += 1 on win, beta += 1 on loss
+       sum_R_multiple accumulated for avg-R-per-trade
+  posterior(strategy) -> {alpha, beta, mean, ci_low_95, ci_high_95,
+                          n_observed, n_wins, n_losses,
+                          sum_R_multiple, avg_R_per_trade}
+  sample_arm(candidates) -> Thompson-sampled strategy choice
+  ranked_by_credible_lower_bound(ci=0.95) -> sorted by LCB
+                                              (conservative ranking)
+
+CI computed via scipy.stats.beta when available; falls back to normal
+approximation otherwise (good for alpha+beta >= 10).
+
+Storage: data/portfolio/auto_trader/bandit_state.json + bandit_history
+.jsonl (every update appended).
+
+============================================================
+K3b — REST endpoints
+============================================================
+runtime/api/routers/portfolio.py +90 LOC:
+
+  GET  /auto-trader/bandit/posteriors             - all strategies
+  GET  /auto-trader/bandit/posteriors/{strategy}  - one
+  POST /auto-trader/bandit/sample-arm             - Thompson choice
+  GET  /auto-trader/bandit/ranked?ci=0.95         - LCB-ranked
+  POST /auto-trader/bandit/record-result          - manual backfill
+  POST /auto-trader/attribution/run               - operator-on-demand SHAP
+
+============================================================
+K3c — Outcome attributor feeds bandit
+============================================================
+outcome_attributor.attribute_close() now ALSO:
+  - Calls bandit.record_result() on every paper close
+  - Then calls maybe_run_attribution() which fires SHAP every N closes
+
+Closes the self-learning loop: brief emits idea -> auto-trader opens
+-> price-feed closes -> bandit updates posterior + maybe SHAP -> next
+brief reads posteriors via /ranked endpoint (or future direct call).
+
+============================================================
+K3d — SHAP-style feature attribution (runtime/portfolio/auto_trader/shap_attribution.py, ~245 LOC)
+============================================================
+NOT the SHAP package — a Shapley-flavored conditional-win-rate analysis
+that does the same job for our schema without the heavyweight dep.
+
+For each feature: hit_rate_given_value vs overall_hit_rate -> lift.
+Mathematically equivalent to marginal Shapley when features are
+independent (approximation for the portfolio-level feedback loop).
+More interpretable than SHAP because the unit is "lift in hit rate"
+rather than "log-odds contribution".
+
+Features analyzed:
+  source / sector_etf / rotation_quadrant / rotation_stance / stop_type
+  issued_hour_bucket (pre-market | open-hour | midday | close-hour)
+  days_held_bucket (intraday | 1-3d | 4-7d | 8-30d | 30d+)
+  direction (long | short)
+
+Triggers every N=10 closed trades per strategy (NCL_BANDIT_SHAP_EVERY_N).
+Minimum samples per value: 3 (NCL_BANDIT_SHAP_MIN_N) to avoid noise.
+
+Output:
+  - top_positive: top-3 (feature, value) most-predictive of wins
+  - top_negative: top-3 most-predictive of losses
+  - persisted to data/portfolio/auto_trader/attribution_history.jsonl
+  - emits portfolio:strategy_learn MemUnit at IMPORTANCE 90
+    so brief pipeline + SourceAuthorityLearner can react
+
+Example memory unit content:
+  STRATEGY-LEARN [goat] after 30 closed paper trades (hit 60%):
+  PREDICTORS OF WINS:
+    rotation_stance=with_trend -> hit 73% (+13% vs avg, n=22, avgR=+1.40)
+    sector_etf=XLK -> hit 80% (+20% vs avg, n=10, avgR=+1.85)
+  PREDICTORS OF LOSSES:
+    rotation_stance=counter_trend -> hit 25% (-35% vs avg, n=4, avgR=-0.80)
+    issued_hour_bucket=close-hour -> hit 30% (-30% vs avg, n=8, avgR=-0.55)
+
+============================================================
+Tests added (+5)
+============================================================
+test_strategy_bandit_record_and_posterior — Beta(alpha,beta) math
+test_strategy_bandit_thompson_sample — goat alpha=21,beta=1 vs bravo
+  alpha=1,beta=21 -> goat picked >90% of 100 samples
+test_strategy_bandit_ranked_by_lcb — strong-evidence wins over
+  small-sample
+test_shap_attribution_computation — rotation_aligned=True predicts
+  wins (80% hit), =False predicts losses (20% hit)
+test_shap_attribution_buckets — days_held + hour buckets
+
+All 5 pass in 1.95s. Total auto-trader tests: 17.
+
+============================================================
+Live-verified post-bounce
+============================================================
+POST record-result goat WIN  -> Beta(2,1) mean=0.667 sumR=2.0
+POST record-result bravo LOSS -> Beta(1,2) mean=0.333 sumR=-1.0
+GET /bandit/ranked -> goat (lcb=0.158) ranked above bravo (lcb=0.013)
+POST /bandit/sample-arm x5 -> {bravo, goat, goat, goat, goat}
+  Thompson exploration is doing its job: 4/5 to leader but 1/5
+  to under-performer keeps the door open
+
+Phase 5 next (self-research): SHAP findings feed back into the morning
+brief prompt + SourceAuthorityLearner authority weights.

@@ -1,0 +1,62 @@
+=== AST checks ===
+AST OK: runtime/portfolio/tax_lot_ledger.py
+AST OK: runtime/portfolio/on_chain_journal.py
+AST OK: runtime/portfolio/slippage_tracker.py
+AST OK: runtime/portfolio/settle_calendar.py
+AST OK: runtime/portfolio/mock_adapter.py
+AST OK: runtime/api/routers/portfolio.py
+AST OK: tests/test_portfolio_manager.py
+
+=== pytest tests/test_portfolio_manager.py ===
+============================= test session starts ==============================
+platform darwin -- Python 3.14.3, pytest-9.0.3, pluggy-1.6.0 -- /opt/homebrew/opt/python@3.14/bin/python3.14
+cachedir: .pytest_cache
+rootdir: /Users/natrix/dev/NCL
+configfile: pyproject.toml
+plugins: asyncio-1.3.0, anyio-4.13.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 41 items
+
+tests/test_portfolio_manager.py::test_risk_governor_strategy_normalization PASSED [  2%]
+tests/test_portfolio_manager.py::test_drawdown_band_classifier PASSED    [  4%]
+tests/test_portfolio_manager.py::test_trade_idea_R_multiple_long PASSED  [  7%]
+tests/test_portfolio_manager.py::test_trade_idea_R_multiple_short PASSED [  9%]
+tests/test_portfolio_manager.py::test_options_dte_watchlist_skips_longs PASSED [ 12%]
+tests/test_portfolio_manager.py::test_options_pin_risk_coercion PASSED   [ 14%]
+tests/test_portfolio_manager.py::test_breadth_veto PASSED                [ 17%]
+tests/test_portfolio_manager.py::test_classify_stance PASSED             [ 19%]
+tests/test_portfolio_manager.py::test_pacing_plan_leading_confirmed PASSED [ 21%]
+tests/test_portfolio_manager.py::test_pacing_plan_lagging PASSED         [ 24%]
+tests/test_portfolio_manager.py::test_lt_cliff_scan PASSED               [ 26%]
+tests/test_portfolio_manager.py::test_earnings_size_modifier_2d PASSED   [ 29%]
+tests/test_portfolio_manager.py::test_earnings_size_modifier_none PASSED [ 31%]
+tests/test_portfolio_manager.py::test_kelly_size_passes_when_no_edge PASSED [ 34%]
+tests/test_portfolio_manager.py::test_kelly_size_with_edge PASSED        [ 36%]
+tests/test_portfolio_manager.py::test_cluster_id_election PASSED         [ 39%]
+tests/test_portfolio_manager.py::test_liquidity_cap_throttle PASSED      [ 41%]
+tests/test_portfolio_manager.py::test_liquidity_cap_under PASSED         [ 43%]
+tests/test_portfolio_manager.py::test_drift_alerts PASSED                [ 46%]
+tests/test_portfolio_manager.py::test_stale_quote_missing_timestamp PASSED [ 48%]
+tests/test_portfolio_manager.py::test_stale_quote_fresh PASSED           [ 51%]
+tests/test_portfolio_manager.py::test_circuit_breaker_opens_after_threshold PASSED [ 53%]
+tests/test_portfolio_manager.py::test_trade_cost_ledger_async PASSED     [ 56%]
+tests/test_portfolio_manager.py::test_position_risk_store_R_compute PASSED [ 58%]
+tests/test_portfolio_manager.py::test_mock_adapter_basic_flow PASSED     [ 60%]
+tests/test_portfolio_manager.py::test_mock_adapter_connect_failure PASSED [ 63%]
+tests/test_portfolio_manager.py::test_mock_adapter_quote_failure PASSED  [ 65%]
+tests/test_portfolio_manager.py::test_mock_adapter_disconnect_after_n PASSED [ 68%]
+tests/test_portfolio_manager.py::test_tax_lot_recommend_hifo PASSED      [ 70%]
+tests/test_portfolio_manager.py::test_tax_lot_recommend_fifo PASSED      [ 73%]
+tests/test_portfolio_manager.py::test_on_chain_journal_idempotent PASSED [ 75%]
+tests/test_portfolio_manager.py::test_on_chain_classify_liquid_stake PASSED [ 78%]
+tests/test_portfolio_manager.py::test_on_chain_classify_lp PASSED        [ 80%]
+tests/test_portfolio_manager.py::test_on_chain_multichain_rollup PASSED  [ 82%]
+tests/test_portfolio_manager.py::test_slippage_arrival_bps_long PASSED   [ 85%]
+tests/test_portfolio_manager.py::test_slippage_arrival_bps_short PASSED  [ 87%]
+tests/test_portfolio_manager.py::test_slippage_record_and_rollup PASSED  [ 90%]
+tests/test_portfolio_manager.py::test_settle_date_equity_t1 PASSED       [ 92%]
+tests/test_portfolio_manager.py::test_settle_date_skips_weekend PASSED   [ 95%]
+tests/test_portfolio_manager.py::test_settle_date_crypto_t0 PASSED       [ 97%]
+tests/test_portfolio_manager.py::test_cash_view_settled_vs_unsettled PASSED [100%]
+
+============================== 41 passed in 1.26s ==============================

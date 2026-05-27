@@ -1,0 +1,18 @@
+AST OK: options_portfolio.py
+AST OK: portfolio.py
+AST OK: brief_pipeline.py
+imports OK
+_is_option OK
+per-position greeks for 2 options:
+  NVDA260609P00180000: delta=62.32 gamma=-6.5842 theta=27.7824 vega=-25.9302 dte=14 short=True
+  AAPL260529P00200000: delta=46.11 gamma=-7.285 theta=36.1059 vega=-7.2212 dte=3 short=True
+net: {'delta': 108.43, 'gamma': -13.8692, 'theta': 63.8883, 'vega': -33.1514}
+by_underlying: {'NVDA': {'delta': 62.32, 'gamma': -6.5842, 'theta': 27.7824, 'vega': -25.9302}, 'AAPL': {'delta': 46.11, 'gamma': -7.285, 'theta': 36.1059, 'vega': -7.2212}}
+budgets: {'delta_max_abs': 15000.0, 'gamma_max_abs': 10000.0, 'vega_max_abs': 200.0, 'theta_min_daily': 100.0, 'theta_max_daily': 300.0}
+flags: ['theta below floor: $+63.89/day vs $100 min target']
+DTE watchlist (2 candidates):
+  AAPL260529P00200000 dte=3 rec=close — gamma cliff
+  NVDA260609P00180000 dte=14 rec=close or roll — inside 21-DTE management window
+Pin risk (1 candidates):
+  AAPL260529P00200000 gap=0.25% days_until=3
+smoke OK

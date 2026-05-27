@@ -1,0 +1,5 @@
+=== bootstrap-claude-md (max-time 90s) ===
+curl: (28) Operation timed out after 90002 milliseconds with 0 bytes received
+
+HTTP 000 90.002851s
+DONE

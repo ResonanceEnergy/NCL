@@ -1,0 +1,46 @@
+=== AST checks ===
+AST OK: runtime/portfolio/rotation_execution.py
+AST OK: runtime/portfolio/tax_compliance.py
+AST OK: runtime/portfolio/polymarket_discipline.py
+AST OK: runtime/portfolio/telemetry.py
+AST OK: runtime/portfolio/hygiene.py
+AST OK: runtime/api/routers/portfolio.py
+AST OK: runtime/api/routers/intel/brief_pipeline.py
+AST OK: tests/test_portfolio_manager.py
+
+=== pytest tests/test_portfolio_manager.py ===
+============================= test session starts ==============================
+platform darwin -- Python 3.14.3, pytest-9.0.3, pluggy-1.6.0 -- /opt/homebrew/opt/python@3.14/bin/python3.14
+cachedir: .pytest_cache
+rootdir: /Users/natrix/dev/NCL
+configfile: pyproject.toml
+plugins: asyncio-1.3.0, anyio-4.13.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 24 items
+
+tests/test_portfolio_manager.py::test_risk_governor_strategy_normalization PASSED [  4%]
+tests/test_portfolio_manager.py::test_drawdown_band_classifier PASSED    [  8%]
+tests/test_portfolio_manager.py::test_trade_idea_R_multiple_long PASSED  [ 12%]
+tests/test_portfolio_manager.py::test_trade_idea_R_multiple_short PASSED [ 16%]
+tests/test_portfolio_manager.py::test_options_dte_watchlist_skips_longs PASSED [ 20%]
+tests/test_portfolio_manager.py::test_options_pin_risk_coercion PASSED   [ 25%]
+tests/test_portfolio_manager.py::test_breadth_veto PASSED                [ 29%]
+tests/test_portfolio_manager.py::test_classify_stance PASSED             [ 33%]
+tests/test_portfolio_manager.py::test_pacing_plan_leading_confirmed PASSED [ 37%]
+tests/test_portfolio_manager.py::test_pacing_plan_lagging PASSED         [ 41%]
+tests/test_portfolio_manager.py::test_lt_cliff_scan PASSED               [ 45%]
+tests/test_portfolio_manager.py::test_earnings_size_modifier_2d PASSED   [ 50%]
+tests/test_portfolio_manager.py::test_earnings_size_modifier_none PASSED [ 54%]
+tests/test_portfolio_manager.py::test_kelly_size_passes_when_no_edge PASSED [ 58%]
+tests/test_portfolio_manager.py::test_kelly_size_with_edge PASSED        [ 62%]
+tests/test_portfolio_manager.py::test_cluster_id_election PASSED         [ 66%]
+tests/test_portfolio_manager.py::test_liquidity_cap_throttle PASSED      [ 70%]
+tests/test_portfolio_manager.py::test_liquidity_cap_under PASSED         [ 75%]
+tests/test_portfolio_manager.py::test_drift_alerts PASSED                [ 79%]
+tests/test_portfolio_manager.py::test_stale_quote_missing_timestamp PASSED [ 83%]
+tests/test_portfolio_manager.py::test_stale_quote_fresh PASSED           [ 87%]
+tests/test_portfolio_manager.py::test_circuit_breaker_opens_after_threshold PASSED [ 91%]
+tests/test_portfolio_manager.py::test_trade_cost_ledger_async PASSED     [ 95%]
+tests/test_portfolio_manager.py::test_position_risk_store_R_compute PASSED [100%]
+
+============================== 24 passed in 1.26s ==============================

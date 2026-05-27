@@ -1,0 +1,51 @@
+=== /system/health/rollup (full keys) ===
+{
+    "timestamp": "2026-05-26T18:54:13.634322+00:00",
+    "overall": "red",
+    "components": {
+        "scheduler": {
+            "status": "red",
+            "active_tasks": 35,
+            "dead_tasks": [
+                "ncl-brief-prep",
+                "ncl-brief-council",
+                "ncl-brief-render"
+            ],
+            "stale_loops": [],
+            "heartbeat_count": 15
+        },
+        "awarebot": {
+            "status": "green",
+            "cycles": 2,
+            "last_scan_at": "2026-05-26T18:51:57.904661+00:00",
+            "last_prediction_at": null,
+            "last_brief_at": "2026-05-26T18:41:00.215876+00:00"
+        },
+        "portfolio": {
+            "status": "yellow",
+            "adapters": {
+                "ibkr": "green",
+                "moomoo": "green",
+                "snaptrade": "green",
+                "ndax": "red",
+                "metamask": "red",
+                "polymarket": "red"
+            },
+            "accounts": 0,
+            "positions": 0,
+            "last_sync": null,
+            "market_open": true
+        },
+        "memory": {
+            "status": "yellow",
+            "units": 16849,
+            "last_consolidation": null
+        },
+        "cost": {
+            "status": "yellow",
+            "today_spent_usd": 16.3063,
+            "platform_cap_usd": 20.0,
+            "pct_of_budget": 81.5,
+            "blocked_sources": []
+        },
+        "calendar": {

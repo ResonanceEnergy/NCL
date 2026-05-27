@@ -1,0 +1,14 @@
+[DRAWDOWN] band transition halt -> green (dd=0.00%, nav=$100000.00, peak=$100000.00 @ 2026-05-26)
+AST OK: risk_governor.py
+AST OK: portfolio.py
+AST OK: routes.py
+imports OK
+normalize tests OK
+default budgets pct: {'total': 10.0, 'goat': 3.0, 'bravo': 2.0, 'options': 4.0, 'polymarket': 1.0, 'manual': 3.0, 'unknown': 3.0}
+goat $500 R: decision=approve approved=True effective_R=$500.0 band=green mult=1.0
+goat $15K R: decision=reject reasons[0]=Total heat would breach cap: current=$1350 + effective=$15000 > total_cap=$10000
+goat $4K R: decision=reject reasons[0]=Strategy 'goat' heat would breach cap: current=$1000 + effective=$4000 > strateg
+iron_condor $3.5K R: decision=approve approved=True
+heat summary: nav=100000.0 band=green mult=1.0 total_util=0.135
+  goat util=0.3333 cap=$3000.0
+smoke OK

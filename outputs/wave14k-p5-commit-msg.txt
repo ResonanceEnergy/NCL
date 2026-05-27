@@ -1,0 +1,77 @@
+Wave 14K Phase 5: self-researching feedback (K4a + K4c + K4d)
+
+Closes the meta-loop: SHAP attributions + bandit posteriors now feed
+BACK into the upstream systems that produced the trade ideas in the
+first place. The auto-trader stops being a one-way consumer of brief
+output and becomes a learner whose findings reshape the next brief.
+
+NEW: runtime/portfolio/auto_trader/self_research.py (~330 LOC)
+
+K4a — apply_shap_to_authority_learner(attribution):
+  Per-source lifts from SHAP top_positive/top_negative push synthetic
+  outcomes into SourceAuthorityLearner. Lift > 0 -> "correct" outcome,
+  lift < 0 -> "wrong". Count = round(|lift| * n), capped at n//2+1.
+  Below-threshold lifts (|lift| < NCL_SHAP_AUTH_THRESHOLD, default 0.10)
+  are skipped — too noisy to act on. Non-source features are ignored.
+  Net effect: sources that PREDICT WINS get authority weight boosts in
+  next morning brief; sources that PREDICT LOSSES get demoted.
+
+K4c — generate_research_topics(lookback_days=14):
+  Pulls recent closed losing trades from trade_idea_tracker, stitches
+  in features from reasoning chains, clusters by (sector_etf, source,
+  stop_type, rotation_quadrant) dimensions. Each cluster with >= 3
+  losses (NCL_RESEARCH_MIN_CLUSTER) becomes a research topic:
+    "Why did 4 XLE-sector trades lose (-0.77R avg)?"
+  Idempotent: same cluster_features hash to same stable topic_id, so
+  re-runs don't duplicate. FIFO eviction at NCL_RESEARCH_MAX_OPEN=12.
+  Persists to data/portfolio/auto_trader/research_topics.json +
+  research_topics_history.jsonl.
+
+K4d — brief_context_packet():
+  Multi-line text packet the brief executor prepends to its prompt.
+  Three blocks:
+    1. STRATEGY EXPECTANCY — top strategies ranked by bandit LCB
+    2. STRATEGY LEARN — latest SHAP top_positive/top_negative per strategy
+    3. OPEN RESEARCH TOPICS — losing-trade clusters awaiting research
+  The brief uses this to bias trade-idea allocation (toward higher-LCB
+  strategies, away from sources/setups matching open research topics).
+
+WIRED:
+  - shap_attribution.run_attribution_for_strategy() now auto-fires K4a
+    + K4c after every SHAP run (non-blocking — never breaks SHAP itself)
+  - brief_pipeline._execute_stage() prepends brief_context_packet()
+    output to the EXECUTOR prompt so every brief sees the latest
+    self-research findings
+  - 4 new REST endpoints on /portfolio:
+      GET  /auto-trader/research/topics                        - list open
+      POST /auto-trader/research/topics/generate               - on-demand
+      POST /auto-trader/research/topics/{topic_id}/resolve     - mark done
+      GET  /auto-trader/brief-context-packet                   - preview
+
+BUGFIX (caught during test authoring):
+  apply_shap_to_authority_learner originally called
+  learner.record_outcome(source=..., outcome=..., ...) — wrong API.
+  Corrected to learner.record(source, outcome, *, delta, notes).
+
+TESTS: 7 new tests in tests/test_portfolio_manager.py:
+  - cluster_losses: 3-loss cluster surfaces, singleton skipped, avgR ok
+  - phrase_topic: title varies by feature dimension (sector/source/stop/rot)
+  - brief_context_packet_empty: clean empty string when no data
+  - brief_context_packet_with_data: 3-section packet renders correctly
+  - apply_shap_to_authority_learner: filters threshold, calls learner.record
+  - resolve_topic: open -> researched + removed from open list, 404 on miss
+  - topic_id_stable: same cluster_features -> stable id (idempotency)
+
+VERIFIED LIVE:
+  Brain bounced clean (no ImportError, no SR-traceback).
+  - GET  /portfolio/auto-trader/research/topics      -> 200 {count:0}
+  - GET  /portfolio/auto-trader/brief-context-packet -> 200 char_count=233
+  - POST /portfolio/auto-trader/research/topics/generate -> 200 new_topics=[]
+  - POST /resolve on missing topic                    -> 404 (expected)
+  All 19 auto-trader tests pass (12 from Phases 1-4 + 7 new Phase 5).
+
+NEXT (Phase 6 — Drift detection + graduation gate):
+  K5a: ADDM on per-strategy hit-rate
+  K5b: auto-pause on drift
+  K5c: multi-criteria graduation gate
+  K5d: GET /portfolio/auto-trader/graduation/{strategy}

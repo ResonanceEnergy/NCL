@@ -1,0 +1,10 @@
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 57 items / 52 deselected / 5 selected
+
+tests/test_portfolio_manager.py::test_auto_open_eligible_pass PASSED     [ 20%]
+tests/test_portfolio_manager.py::test_auto_open_eligible_governor_reject PASSED [ 40%]
+tests/test_portfolio_manager.py::test_auto_open_eligible_breadth_veto PASSED [ 60%]
+tests/test_portfolio_manager.py::test_auto_open_eligible_rr_too_low PASSED [ 80%]
+tests/test_portfolio_manager.py::test_auto_open_eligible_counter_trend_blocked PASSED [100%]
+
+======================= 5 passed, 52 deselected in 1.17s =======================

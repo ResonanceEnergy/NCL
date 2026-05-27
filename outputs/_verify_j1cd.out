@@ -1,0 +1,77 @@
+=== GET /portfolio/trade-ideas (initial) ===
+count: 3
+  f2faaaf9 bravo    AAPL   emitted      R_mult=None
+  6339b9e9 goat     AMD    stopped_out  R_mult=-1.0
+  cb2a6247 goat     NVDA   target_hit   R_mult=2.0
+
+=== GET /portfolio/trade-ideas/expectancy ===
+{
+    "goat": {
+        "n_emitted": 2,
+        "n_closed": 2,
+        "n_winners": 1,
+        "n_losers": 1,
+        "hit_rate": 0.5,
+        "avg_win_R": 2.0,
+        "avg_loss_R": -1.0,
+        "profit_factor": 2.0,
+        "expectancy_R": 0.5,
+        "sqn": 0.3333,
+        "avg_holding_days": 0.0,
+        "total_R_realized": 1.0
+    },
+    "bravo": {
+        "n_emitted": 1,
+        "n_closed": 0,
+        "n_winners": 0,
+        "n_losers": 0,
+        "hit_rate": 0.0,
+        "avg_win_R": 0.0,
+        "avg_loss_R": 0.0,
+        "profit_factor": 0.0,
+        "expectancy_R": 0.0,
+        "sqn": 0.0,
+        "avg_holding_days": 0.0,
+        "total_R_realized": 0
+    },
+    "_all": {
+        "n_emitted": 3,
+        "n_closed": 2,
+        "n_winners": 1,
+        "n_losers": 1,
+        "hit_rate": 0.5,
+        "avg_win_R": 2.0,
+        "avg_loss_R": -1.0,
+        "profit_factor": 2.0,
+        "expectancy_R": 0.5,
+        "sqn": 0.3333,
+
+=== Drive a new outcome via REST ===
+BID=f2faaaf990164412
+{
+    "trade_idea_id": "f2faaaf990164412",
+    "source": "brief",
+    "strategy": "bravo",
+    "ticker": "AAPL",
+    "direction": "long",
+    "entry_price": 195,
+    "stop_price": 188,
+    "target_price": 215,
+    "R_per_share": 7,
+    "planned_qty": null,
+    "stop_type": "price",
+    "stop_basis": "below 50d SMA",
+    "target_basis": "prior all-time-high",
+    "thesis": "Vision Pro 2 demand",
+    "issued_at_iso": "2026-05-26T20:10:36.557480+00:00",
+    "outcome": "target_hit",
+    "closed_at_iso": "2026-05-26T20:11:53.339132+00:00",
+    "exit_price": 209.0,
+    "R_multiple": 2.0,
+
+=== Expectancy after BRAVO close ===
+goat         n_em= 2 n_cl= 2 hit=0.50 expR=+0.50 PF=2.0 SQN=0.33
+bravo        n_em= 1 n_cl= 1 hit=1.00 expR=+2.00 PF=None SQN=0.00
+---all---
+all          n_em= 3 n_cl= 3 hit=0.67 expR=+1.00
+DONE

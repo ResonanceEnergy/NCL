@@ -1,0 +1,15 @@
+platform darwin -- Python 3.14.3, pytest-9.0.3, pluggy-1.6.0 -- /opt/homebrew/opt/python@3.14/bin/python3.14
+cachedir: .pytest_cache
+rootdir: /Users/natrix/dev/NCL
+configfile: pyproject.toml
+plugins: asyncio-1.3.0, anyio-4.13.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 66 items / 61 deselected / 5 selected
+
+tests/test_portfolio_manager.py::test_strategy_bandit_record_and_posterior PASSED [ 20%]
+tests/test_portfolio_manager.py::test_strategy_bandit_thompson_sample PASSED [ 40%]
+tests/test_portfolio_manager.py::test_strategy_bandit_ranked_by_lcb PASSED [ 60%]
+tests/test_portfolio_manager.py::test_shap_attribution_computation PASSED [ 80%]
+tests/test_portfolio_manager.py::test_shap_attribution_buckets PASSED    [100%]
+
+======================= 5 passed, 61 deselected in 1.95s =======================

@@ -1,0 +1,10 @@
+=== AST checks ===
+AST OK: runtime/portfolio/order_preview.py
+AST OK: runtime/portfolio/backtest_harness.py
+AST OK: runtime/portfolio/manual_adapter.py
+AST OK: runtime/portfolio/quote_source.py
+AST OK: runtime/portfolio/streaming_scaffold.py
+AST OK: runtime/api/routers/portfolio.py
+AST OK: tests/test_portfolio_manager.py
+
+=== pytest tests/test_portfolio_manager.py ===

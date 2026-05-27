@@ -1,0 +1,80 @@
+Wave 14N: brief context packet integration + 19 new tests + earnings-fetch await fix
+
+N1 — BRIEF CONTEXT PACKET EXTENSION (self_research.py +60 LOC)
+
+Extended brief_context_packet() with 4 new blocks so tomorrow's morning brief
+executor prompt sees what the auto-trader did yesterday:
+
+  PROFIT LADDER ACTIVITY  — count + sample of recent ladder fires
+                            (lottery R≥+2 → LEAPS deployment)
+  QUANT SCANNER ACTIVITY  — 7-scanner suite emission count last 10 ticks
+  PRO-ACTIVE SCOUT        — last 5 scout ticks (PT / RS / CC / EARN counts)
+  CAPABILITY GAPS         — missing data sources the brief should
+                            acknowledge (e.g. no IVR → don't gate options on IVR)
+
+Wired into the existing brief_context_packet() handler — no new
+endpoint needed. The packet is prepended to the brief executor prompt
+every morning via existing /portfolio/auto-trader/brief-context-packet
+consumer in brief_council.
+
+Live-verified: packet now 1111 chars (was ~400) with all 4 blocks
+rendering when relevant data exists.
+
+N2 — TEST COVERAGE (test_portfolio_manager.py +280 LOC, 19 new tests)
+
+Tests added for Wave 14K/L modules:
+
+  strategy_registry:
+    - loads 23 recipes
+    - short_lottery / long_swing classification
+
+  options_recipes:
+    - PMCC builds 2 legs (long LEAP + short call)
+    - iron_condor builds 4 legs
+    - unknown recipe returns None
+    - strike rounding for $5 underlying intervals
+
+  capability_registry:
+    - lists 11 capabilities
+    - missing-env detection (FRED/Finnhub/Polygon)
+
+  profit_ladder:
+    - skips below R threshold
+    - skips non-lottery strategy
+
+  tax_sizing:
+    - no-wash + no-earnings = passthrough
+    - long_premium vs stock classification
+
+  recipe_backtest:
+    - simulate long target hit (+1.27R)
+    - simulate long stop hit (-1.00R)
+    - simulate time exit (open-to-close R)
+    - lists 5 supported recipes
+
+  council_check:
+    - below-threshold → skipped (no LLM call)
+    - disabled passthrough (kill switch)
+
+All 19 tests pass. Required adding importlib.reload() in council_check
+tests because __init__.py imports council_check at package load —
+monkeypatch.setenv() alone doesn't repopulate module-level ENABLED.
+
+BUG FIX — calendar_gate.py line 145
+
+Found via test RuntimeWarning: get_earnings_map() is async but was being
+called without await. Returned coroutine was treated as dict → fell into
+exception handler → silently no earnings data. Fixed: `await get_earnings_map(...)`.
+Affects earnings-window blocking + tax-sizing earnings-proximity check.
+
+LIVE VERIFIED:
+  - Morning brief fired end-to-end: 5 trade ideas (MU/AMD/QUBT/ASTS/XLK),
+    council confidence 0.78, 1 contradiction resolved, market_open_plan
+    rendered with rotation_regime block.
+  - Pipeline meta: stages=[planner,executor,critic,regenerator],
+    plan_mode=full, target=6 (regen forced because emit=2 < 5 min).
+  - brief-context-packet endpoint live: 1111 chars including N1's
+    QUANT SCANNER ACTIVITY (7 scanners, last tick: pairs=1) + CAPABILITY
+    GAPS (rotation_snapshot, cycle_phase, finnhub missing).
+
+LOC ADDED THIS WAVE: ~340 (self_research +60 + tests +280).

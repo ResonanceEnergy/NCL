@@ -1,0 +1,107 @@
+Wave 14K Phase 3: price feed + outcome attribution (K2a + K2b + K2c + K2d)
+
+Closes the emit -> take -> close -> expectancy loop. With Phase 3,
+when a paper trade hits stop/target/trailing/time, the originating
+trade_idea_tracker entry is automatically updated, per-strategy
+expectancy stats refresh, and a portfolio:paper_trade_closed MemUnit
+fires at importance 80. The brief pipelines next time will see the
+new expectancy numbers and can adjust accordingly.
+
+============================================================
+K2a — Price feed (runtime/portfolio/auto_trader/price_feed.py, ~95 LOC)
+============================================================
+price_feed_loop(brain) runs forever; cadence 30s market / 300s off.
+Each tick:
+  1. paper.get_open_symbols() — skip tick if empty
+  2. For each sym, await default_quote_chain.get(sym) — yfinance-
+     cached fallback chain (J0c-era abstraction)
+  3. Skip tick if ALL symbols quote-failed (don't false-close on
+     a stale data source)
+  4. paper.update_prices({sym: px}) — returns triggered events
+  5. attribute_batch(events) -> outcome_attributor
+
+NB: price feed runs even when auto-trader is paused. Pause stops
+NEW opens (loop.py respects state.is_active()); existing positions
+must still be marked-to-market or stops won't fire when the
+operator pauses mid-day.
+
+Self-healing:
+  - Empty symbols -> skip
+  - All quotes fail -> log + skip (don't kill loop)
+  - update_prices() raises -> log + continue
+  - attribute_batch errors caught per-event in attributor
+
+============================================================
+K2b — Outcome attributor (runtime/portfolio/auto_trader/outcome_attributor.py, ~220 LOC)
+============================================================
+attribute_close(brain, paper_engine, triggered_event) -> dict:
+  1. Look up paper trade by trade_id
+  2. Extract trade_idea_id from paper_trade.scanner_data (K1b stitching)
+  3. Map trigger -> outcome via TRIGGER_TO_OUTCOME:
+       stop_hit      -> stopped_out
+       target_hit    -> target_hit
+       trailing_stop -> manually_closed (profit-locked close)
+       time_exit     -> expired
+       manual        -> manually_closed
+  4. Call trade_idea_tracker.update_outcome(trade_idea_id, outcome,
+     exit_price, notes)
+  5. Reconcile R_multiple between engine + tracker; log
+     [OUTCOME-DRIFT] warning if diff > 1c (the two engines should
+     agree to the penny because they use the same formula on the
+     same numbers)
+  6. Emit portfolio:paper_trade_closed MemUnit (K2c)
+
+If trade has no trade_idea_id (manual / pre-auto-trader trade),
+skip tracker update but still emit memory unit so we have a
+complete record.
+
+attribute_batch(events) processes a list; per-event errors caught
+so one bad close doesn't take down the rest.
+
+============================================================
+K2c — portfolio:paper_trade_closed MemUnit
+============================================================
+Importance 80 (slightly higher than open at 75 — closes are the
+learning signal). Content includes:
+  symbol direction qty, entry -> exit, outcome, R_multiple, P&L,
+  days_held, strategy, trade_idea_id
+Tags: auto_trader, paper_close, strategy:X, ticker:X, outcome:X,
+      win|loss|scratch
+Metadata: all numerical fields for future SHAP analysis in
+Phase 4.
+
+============================================================
+K2d — Scheduler task ncl-auto-trader-prices + factory entry
+============================================================
+runtime/autonomous/scheduler.py:
+  - Task created at startup right after ncl-auto-trader-loop
+  - Factory entry "ncl-auto-trader-prices" registered for supervisor
+    restart on crash (W13/P25 precedent)
+
+============================================================
+Tests added (+2)
+============================================================
+test_outcome_attributor_trigger_mapping — all 5 mappings + unknown fallback
+test_outcome_attributor_extract_trade_idea_id — round-trips via scanner_data
+
+Total auto-trader tests: 12, all passing in 1.22s.
+
+============================================================
+Live-verified post-bounce
+============================================================
+  [AT-LOOP] starting auto-trader decision loop                       ✓
+  [AT-PRICE] starting price-feed loop                                ✓
+  Both loops registered + ticking. Brain healthy.
+
+After Phase 3 the full closed loop is operational:
+  brief emits trade_ideas  (J1c)
+  trade_idea_tracker.record_emission  (J1d)
+  auto_trader_loop opens paper trades  (K1 — Phase 2)
+  price_feed marks-to-market 30s        (K2a)
+  PaperTradingEngine triggers stop/target/trail/time
+  outcome_attributor maps to tracker outcome  (K2b)
+  trade_idea_tracker.update_outcome refreshes expectancy
+  portfolio:paper_trade_closed MemUnit fires  (K2c)
+  per-strategy hit_rate / profit_factor / SQN / expectancy_R update
+
+Phase 4 next (Beta-Bernoulli posteriors + Thompson sampling + SHAP).

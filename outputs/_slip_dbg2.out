@@ -1,0 +1,25 @@
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109649ba0>
+
+    def test_slippage_record_and_rollup(tmp_path, monkeypatch):
+        monkeypatch.setenv("NCL_BASE", str(tmp_path))
+        # Pop the module + any earlier-imported dependent so module-level
+        # path constants recompute under the new NCL_BASE.
+        for mod in list(sys.modules.keys()):
+            if mod.startswith("runtime.portfolio.slippage_tracker"):
+                del sys.modules[mod]
+        from runtime.portfolio import slippage_tracker as slip
+        # Sanity: the module recomputed SLIP_FILE under tmp_path
+>       assert str(tmp_path) in str(slip.SLIP_FILE), (
+            f"slippage_tracker SLIP_FILE={slip.SLIP_FILE} did NOT pick up "
+            f"tmp_path NCL_BASE={tmp_path} — module-level constants polluted"
+        )
+E       AssertionError: slippage_tracker SLIP_FILE=/Users/natrix/dev/NCL/data/portfolio/slippage.jsonl did NOT pick up tmp_path NCL_BASE=/private/tmp/pytest-of-natrix/pytest-13/test_slippage_record_and_rollu0 — module-level constants polluted
+E       assert '/private/tmp/pytest-of-natrix/pytest-13/test_slippage_record_and_rollu0' in '/Users/natrix/dev/NCL/data/portfolio/slippage.jsonl'
+E        +  where '/private/tmp/pytest-of-natrix/pytest-13/test_slippage_record_and_rollu0' = str(PosixPath('/private/tmp/pytest-of-natrix/pytest-13/test_slippage_record_and_rollu0'))
+E        +  and   '/Users/natrix/dev/NCL/data/portfolio/slippage.jsonl' = str(PosixPath('/Users/natrix/dev/NCL/data/portfolio/slippage.jsonl'))
+E        +    where PosixPath('/Users/natrix/dev/NCL/data/portfolio/slippage.jsonl') = <module 'runtime.portfolio.slippage_tracker' from '/Users/natrix/dev/NCL/runtime/portfolio/slippage_tracker.py'>.SLIP_FILE
+
+tests/test_portfolio_manager.py:534: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_portfolio_manager.py::test_slippage_record_and_rollup - Ass...
+========================= 1 failed, 1 passed in 0.92s ==========================

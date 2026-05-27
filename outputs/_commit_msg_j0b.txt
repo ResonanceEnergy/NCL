@@ -1,0 +1,43 @@
+Wave 14J J0b: position risk state (R-fields per position-key)
+
+Tier 0 foundation piece #2 from docs/PORTFOLIO_MANAGER_AUDIT_2026-05-26.md.
+Carries operator-set entry/stop/target/thesis per position-key, persisted
+separately from the volatile broker position cache so R-fields outlive
+sync cycles. Drives J1a heat caps + J1c stop framework + J1d expectancy
+in Wave 14J Phase 2.
+
+New module: runtime/portfolio/position_risk_state.py (~370 LOC)
+  - RiskState dataclass: entry_price, stop_price, stop_type
+    (price|atr|volatility|time|thesis_break), stop_basis, target_price,
+    target_basis, thesis, R_dollars, R_basis_date, risk_status
+    (unset|at_risk|break_even|profit|stopped_out|closed), qty snapshot,
+    last_updated, metadata
+  - position_key = "{broker}:{account_id}:{symbol}" — stable across syncs
+  - PositionRiskStore singleton with async-safe get/set/clear/aggregate
+  - Storage: data/portfolio/position_risk_state.json (current state)
+            data/portfolio/position_risk_state.jsonl (append audit log)
+  - Auto-computes R_dollars = |entry - stop| * |qty| on every set
+  - Auto-flips risk_status from unset to at_risk on first entry+stop set
+  - Partial-update semantics (PATCH-friendly)
+  - enrich_positions_with_risk() merges R-fields into PortfolioManager
+    .get_positions() output — non-destructive, adds position_key +
+    risk_status + R_dollars + stop_price + thesis even when no R-fields
+    set (risk_status=unset, R_dollars=None)
+  - aggregate() returns total_R_at_risk_usd + by_strategy + by_broker
+    (foundation for J1a heat-cap math)
+
+New REST endpoints (runtime/api/routers/portfolio.py +96 LOC):
+  GET    /portfolio/risk-state                - all + aggregate
+  GET    /portfolio/risk-state/{key:path}     - single position
+  PATCH  /portfolio/risk-state                - set/update R-fields
+  DELETE /portfolio/risk-state/{key:path}     - clear
+
+/portfolio/positions now calls enrich_positions_with_risk() before
+returning, so iOS, brief_prep, and scanner is_held checks all see the
+merged shape automatically. Non-fatal fallback.
+
+Live-verified post-bounce:
+  - PATCH AAPL 195/188 x 50 -> R_dollars=350, status=at_risk
+  - aggregate: total_R_at_risk_usd=1350, by_strategy {goat:1000,bravo:350},
+    by_broker {ibkr:1000,moomoo:350}, 2 open positions
+  - /portfolio/positions: 21 cached positions enriched with R-fields

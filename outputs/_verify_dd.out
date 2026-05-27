@@ -1,0 +1,60 @@
+=== GET /portfolio/drawdown (initial) ===
+{
+    "computed_at": "2026-05-26T19:52:19.091103+00:00",
+    "current_nav_cad": 0.0,
+    "peak_nav_cad": 37350.95,
+    "peak_date": "2026-05-21",
+    "drawdown_pct": -100.0,
+    "band": "halt",
+    "sizing_multiplier": 0.0,
+    "lookback_days": 90,
+    "sample_count": 34,
+    "last_transition_at": "2026-05-26T19:52:19.091046+00:00",
+    "last_transition_from": "warning",
+    "manual_peak_override": null,
+    "notes": ""
+}
+
+=== POST /portfolio/drawdown/recompute (live NAV) ===
+{
+    "computed_at": "2026-05-26T19:52:19.132052+00:00",
+    "current_nav_cad": 35585.87,
+    "peak_nav_cad": 37350.95,
+    "peak_date": "2026-05-21",
+    "drawdown_pct": -4.7257,
+    "band": "caution",
+    "sizing_multiplier": 0.75,
+    "lookback_days": 90,
+    "sample_count": 34,
+    "last_transition_at": "2026-05-26T19:52:19.131958+00:00",
+    "last_transition_from": "halt",
+    "manual_peak_override": null,
+    "notes": ""
+}
+
+=== POST /portfolio/drawdown/peak-override (test) ===
+{
+    "computed_at": "2026-05-26T19:52:19.132052+00:00",
+    "current_nav_cad": 35585.87,
+    "peak_nav_cad": 37350.95,
+    "peak_date": "2026-05-21",
+    "drawdown_pct": -4.7257,
+    "band": "caution",
+    "sizing_multiplier": 0.75,
+    "lookback_days": 90,
+    "sample_count": 34,
+    "last_transition_at": "2026-05-26T19:52:19.131958+00:00",
+    "last_transition_from": "halt",
+    "manual_peak_override": 50000.0,
+    "notes": "test override (Wave 14J J0c verify)"
+}
+
+=== POST /portfolio/drawdown/recompute (with override pinned) ===
+nav=$35585.87  peak=$50000.00  dd=-28.8283%  band=halt  mult=0.0
+manual_override=50000.0  notes='test override (Wave 14J J0c verify)'
+
+=== Clear override ===
+override cleared. manual_peak_override: None
+
+=== Verify scheduler task is running ===
+DONE

@@ -1,0 +1,9 @@
+=== AST ===
+OK: runtime/portfolio/auto_trader/__init__.py
+OK: runtime/portfolio/auto_trader/state.py
+OK: runtime/portfolio/auto_trader/policy.py
+OK: runtime/portfolio/auto_trader/observability.py
+OK: runtime/api/routers/portfolio.py
+OK: tests/test_portfolio_manager.py
+
+=== pytest ===

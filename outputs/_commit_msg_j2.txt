@@ -1,0 +1,63 @@
+Wave 14J J2a+J2c+J2d: options Greeks aggregation + 21-DTE + pin risk + SPY-to-SPX
+
+Tier 2 of the audit roadmap — options portfolio risk layer.
+J2b (IV rank/percentile gating) deferred; needs IV history pipeline.
+
+New module: runtime/portfolio/options_portfolio.py (~330 LOC)
+
+J2a — Greeks aggregation
+  compute_position_greeks(): per-position delta/gamma/theta/vega.
+    Uses broker-supplied Greeks when present, otherwise a BS-ish proxy:
+      delta from cumulative-normal of moneyness (m = log(S/K)/(IV*sqrt(T)))
+      gamma from normal pdf at m
+      theta from extrinsic/DTE for shorts, BS proxy otherwise
+      vega proportional to spot * pdf(m) * sqrt(T)
+    Per-share values scaled by qty * 100 (equity multiplier); SHORT
+    positions carry signed qty so theta correctly shows positive for
+    premium-sell positions.
+  aggregate_greeks(): net + by_underlying + budget envelope + flags.
+    Budgets (env-overridable):
+      delta:   +/- NCL_GREEKS_DELTA_PCT (default 30 = 0.30/$NAV)
+      gamma:   +/- NCL_GREEKS_GAMMA_PCT (default 20)
+      vega:    +/- NCL_GREEKS_VEGA_BUDGET dollars (default $200/IV-pt)
+      theta:   NCL_GREEKS_THETA_MIN..MAX dollars/day (default 100..300)
+    Flag strings surface budget breaches in plain English.
+
+J2c — 21-DTE management trigger + pin-risk scanner
+  dte_watchlist(threshold=21): SHORT options within N days of expiry.
+    Recommends "close - gamma cliff" for <=7 DTE, "close or roll - 21-DTE
+    management window" for 8..21 DTE. Gamma acceleration overwhelms theta
+    benefit inside this band for short-premium structures.
+  pin_risk_watchlist(pct=0.5): SHORT options expiring Friday within
+    pct% of strike. Pin risk = spot close to strike makes assignment
+    ambiguous; force-review so operator decides before close. Fixed a
+    parser quirk where parse_option_symbol returns expiry as string in
+    some paths and date in others — _coerce_expiry_date normalizes.
+
+J2d — SPY->SPX substitution prompt
+  brief_pipeline.py executor prompt rule 8a: every OPTIONS idea on
+  SPY/QQQ/IWM at >=0.5R risk must include thesis annotation pointing
+  out the SPX/NDX/RUT equivalent. Section 1256 60/40 tax treatment
+  cuts effective rate from ~37% (ordinary) to ~27% (blended) on
+  identical exposure. Skip for sub-0.5R sizes or stock-only trades.
+
+New REST endpoints (runtime/api/routers/portfolio.py +95 LOC):
+  GET /portfolio/options/greeks       - per-position + net Greeks +
+                                        budgets + flags
+  GET /portfolio/options/dte-watch    - 21-DTE candidates (?threshold=N)
+  GET /portfolio/options/pin-risk     - Friday pin candidates (?pct=N)
+
+Live-verified post-bounce:
+  - smoke tests pass: 2 short puts (NVDA 14 DTE, AAPL 3 DTE Friday)
+  - per-position Greeks computed: NVDA delta 62.32, gamma -6.58 (short
+    gamma), theta +27.78/day (collecting premium), vega -25.93
+  - aggregate: net theta $63.89/day flagged below $100 floor budget
+  - DTE watchlist: 2 candidates, AAPL "close - gamma cliff" (3 DTE),
+    NVDA "close or roll - 21-DTE management window" (14 DTE)
+  - pin risk: AAPL P200 short, spot $200.50, gap 0.25%, days_until=3 -
+    force-review for assignment ambiguity
+  - REST endpoints serve correctly (0 live candidates since no broker
+    options connected, but envelopes + budgets respond against NAV
+    $35K floor)
+
+Wave 14J Phase 3 complete. Phase 4 (rotation execution pacing) next.

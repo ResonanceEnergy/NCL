@@ -1,0 +1,103 @@
+Wave 14K gap-closes: council quorum + predictions per close + EOD summary
+
+Three integration upgrades from the self-* audit, each closing a gap
+where an existing NCL subsystem wasn't yet receiving auto-trader
+signals (or sending second opinions back).
+
+GAP-CLOSE A — Council quorum for high-R opens
+  runtime/portfolio/auto_trader/council_check.py (~155 LOC)
+
+For trades with effective_R >= NCL_AT_COUNCIL_R_THRESHOLD (default
+$1000), spawn a 2-LLM Sonnet+Haiku quorum check from the existing
+runtime/councils/quorum.py infrastructure before committing.
+
+  AGREE_SHORT_CIRCUIT + no VETO token   → approve, log + open
+  AGREE_SHORT_CIRCUIT + VETO token      → veto (either model said "VETO
+                                          here is why")
+  ESCALATE_FULL_COUNCIL                 → veto (disagreement on direction
+                                          = conservative)
+  ERROR_ESCALATE                        → fail-open (env-tunable to
+                                          fail-block)
+
+Spawn cost ~$0.05/trade — only fires on high-R, bounded impact.
+Result attached to reasoning chain regardless. Wired into
+loop._idea_to_paper_payload chain right before the paper_engine
+breaker check.
+
+Tunables (env, no restart):
+  NCL_AT_COUNCIL_R_THRESHOLD=1000   (USD R that triggers)
+  NCL_AT_COUNCIL_ENABLED=1          (master kill)
+  NCL_AT_COUNCIL_FAIL_OPEN=1        (open on quorum failure)
+
+GAP-CLOSE B — Prediction record per paper close
+  runtime/portfolio/auto_trader/outcome_attributor.py (+95 LOC)
+
+Every paper close now writes a data/predictions/pred-auto-<tid>.json
+file mirroring the awarebot:predictor record shape so the existing
+/predictions endpoint surfaces auto-trader closes alongside organic
+predictions. SQLite mirror via predictions_writer.mirror_prediction_
+to_sqlite() + mirror_outcome_to_sqlite() (no-op if NCL_PREDICTIONS_
+SQLITE off).
+
+Outcome mapping:
+  engine_r > 0 → "correct"
+  engine_r < 0 → "incorrect"
+  engine_r = 0 → "partial" (scratch)
+
+Idempotent on trade_idea_id (filename uses pred-auto-<tid> as stable
+suffix; skips if file already exists). Source: auto_trader:paper_close.
+Linked metadata: trade_idea_id, paper_trade_id, symbol, direction,
+strategy, engine_r, outcome_trigger, exit_price, days_held.
+
+Now the operator can see the auto-trader's track record on the iOS
+Predictions tab + the SourceAuthorityLearner can downstream-update
+the per-source authority weights if cited_sources is populated.
+
+GAP-CLOSE C — Daily EOD journal summary at 21:55 ET
+  runtime/portfolio/auto_trader/eod_summary.py (~260 LOC)
+
+New scheduler task ncl-auto-trader-eod fires daily at 21:55 ET (5min
+before the journal_reflection_loop at 22:00 ET). Aggregates:
+  - State: active/paused/drawdown band + day counters
+  - Closes today: count, W/L/S, total R, tickers
+  - Drift signals today (strategy + status + reason)
+  - Graduated strategies
+  - Open research topics count
+  - Council quorum vetoes today
+
+Composes a 1-paragraph narrative and creates a JournalEntry (kind=
+"reflection", importance 75, tags=["auto_trader", "eod",
+"hedge_fund_training"]). The journal store's _bridge_to_memory
+automatically creates a MemUnit so the morning brief's context
+packet sees the daily rollup tomorrow.
+
+Idempotent per ET date (eod_state.json tracks last_emit_date).
+Append-only audit at data/portfolio/auto_trader/eod_summaries.jsonl.
+
+Tunables (env):
+  NCL_AT_EOD_HOUR_ET=21
+  NCL_AT_EOD_MINUTE_ET=55
+
+New REST: POST /portfolio/auto-trader/eod-summary {force:bool}
+
+VERIFIED LIVE: Brain bounced clean.
+  - POST /auto-trader/eod-summary {force:true} → 200 with full summary:
+    {date: 2026-05-26, closes_today: 3 (2W/1L), total_r_today: +3.0,
+     tickers: [AAPL, AMD, NVDA], state.evaluated: 7, state.rejected: 7
+     (calendar+working_context gates working), drift_signals: [],
+     open_research_topics: 0, council_vetoes: 0}
+  - Auto-trader loop ticked successfully at 02:51:25
+  - 3 ncl-auto-trader-* loops registered: loop, prices, eod
+
+Composition impact:
+  - High-R trade ideas now get a $0.05 council sanity check → veto
+    saves cost compared to a $1,800 stop-out
+  - Auto-trader becomes a first-class prediction source visible to the
+    iOS Predictions tab + accuracy stats
+  - Daily reflection engine sees a coherent "today the auto-trader
+    did X" entry instead of scattered per-trade MemUnits
+  - Brief context packet picks up yesterday's EOD narrative through
+    the standard working-context salience path
+
+3 gaps closed from the self-* audit. The 10 self-* mechanisms are
+now fully composing.

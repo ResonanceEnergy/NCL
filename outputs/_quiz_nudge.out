@@ -1,0 +1,10 @@
+=== /journal/morning-quiz/today ===
+{
+    "status": "not_yet_submitted",
+    "date": "2026-05-26"
+}
+
+=== Manually fire morning-quiz ntfy via fixed JSON API ===
+ntfy status: 200
+ntfy body: {"id":"d0r90XokmGea","time":1779830115,"expires":1779873315,"event":"message","topic":"ncl-natrix-intel-7x9k","title":"Morning Quiz — 90s","message":"Today's quiz didn't fire (06:00 nudge crashed on e
+DONE

@@ -1,0 +1,76 @@
+name: FirstStrike
+options:
+  bundleIdPrefix: com.resonanceenergy
+  deploymentTarget:
+    iOS: "16.0"
+    macOS: "14.0"
+  xcodeVersion: "15.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    DEVELOPMENT_TEAM: "N3C5G3SU3T"
+    CODE_SIGN_STYLE: Automatic
+    MARKETING_VERSION: "3.5.0"
+    CURRENT_PROJECT_VERSION: 350
+    INFOPLIST_KEY_CFBundleDisplayName: "First Strike"
+targets:
+  FirstStrike:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: Sources
+        type: group
+      - path: Resources/Assets.xcassets
+    info:
+      path: Sources/Info.plist
+      properties:
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        NSLocalNetworkUsageDescription: "First Strike connects to your Mac Mini via Tailscale to send pump prompts."
+        NSMicrophoneUsageDescription: "First Strike uses the microphone for voice commands — hold to talk, hands-free conversation with the NCL Brain."
+        NSSpeechRecognitionUsageDescription: "First Strike uses speech recognition to convert your voice commands into text prompts for the NCL Brain."
+        UILaunchScreen: {}
+        UIRequiredDeviceCapabilities:
+          - microphone
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.resonanceenergy.firststrike
+        GENERATE_INFOPLIST_FILE: false
+        SWIFT_STRICT_CONCURRENCY: complete
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    entitlements:
+      path: FirstStrike.entitlements
+    scheme:
+      testTargets:
+        - FirstStrikeTests
+  FirstStrikeTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: Tests
+        type: group
+    dependencies:
+      - target: FirstStrike
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.resonanceenergy.firststrike.tests
+  NCLDesktop:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    sources:
+      - path: MacSources
+        type: group
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.resonanceenergy.ncldesktop
+        PRODUCT_NAME: "NCL Desktop"
+        GENERATE_INFOPLIST_FILE: true
+        SWIFT_STRICT_CONCURRENCY: minimal
+        INFOPLIST_KEY_LSUIElement: "YES"
+        INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads: "YES"

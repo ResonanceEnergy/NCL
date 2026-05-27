@@ -1,0 +1,14 @@
+=== bootstrap-claude-md ===
+
+HTTP 000  120.004437s
+
+=== working-context/refresh ===
+
+HTTP 000  60.004618s
+
+=== system/health/rollup (summary) ===
+overall: red
+brain.status: None
+memory.units: None
+scheduler.active_tasks: None
+DONE

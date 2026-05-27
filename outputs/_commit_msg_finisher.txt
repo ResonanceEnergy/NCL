@@ -1,0 +1,154 @@
+Wave 14J FINISHER: J4b spec-ID + J5a-c on-chain + J7c slippage + J8d settle + mock harness
+
+Closes the 5 items explicitly deferred from Wave 14J Phases 4-8. All 41
+unit tests pass (was 24). Five new modules + ~13 new REST endpoints.
+
+============================================================
+J4b — Tax-lot ledger / spec-ID at sale time
+============================================================
+runtime/portfolio/tax_lot_ledger.py (~290 LOC)
+
+TaxLotLedger singleton with JSONL audit + JSON state. Per-lot:
+  lot_id, symbol, broker, account_id, qty (signed), cost_basis_per_share,
+  acquisition_date, qty_remaining, notes, metadata
+
+8 selection objectives: fifo, lifo, hifo, lofo, lt_only, st_only,
+max_loss (=hifo), min_loss (=lofo). Each returns:
+  - selection sequence with per-lot {qty_consumed, cost_basis,
+    acquisition_date, days_held, is_lt_qualified}
+  - broker-specific method_hint (IBKR OrderRef SpecificLots, Moomoo
+    advisory, SnapTrade pass-through)
+
+record_sale() decrements lots after operator confirms; emits per-lot
+realized P&L breakdown with LT-qualified flag.
+
+============================================================
+J5a + J5b + J5c — On-chain transaction journal
+============================================================
+runtime/portfolio/on_chain_journal.py (~320 LOC)
+
+OnChainJournal singleton:
+  - record_tx() per-wallet per-chain; idempotent on (chain, tx_hash)
+  - 12 categories: buy/sell/transfer_in/out/swap/lp_deposit/lp_withdraw/
+    stake/unstake/yield/airdrop/gas
+  - 9 supported chains: ethereum/arbitrum/base/polygon/optimism/bsc/
+    avalanche/solana/bitcoin
+  - Weighted-avg cost basis updated on each inflow
+  - Gas costs tracked separately (basis adjustment for crypto trades)
+
+J5b multi-chain rollup via aggregate_multichain(wallet) — same symbol
+across all chains rolls up to one entry with by_chain breakdown.
+
+J5c LP + liquid-staking detection via classify_asset():
+  - liquid stake: stETH/rETH/cbETH/wstETH/frxETH/sfrxETH/jitoSOL/bSOL/mSOL
+  - LP tokens: UNI-V2-/UNI-V3-/BPT-/CRV-/CAKE-LP-/SLP- prefix match
+
+Storage: data/portfolio/on_chain/{tx_journal.jsonl,positions_state.json}
+
+DELIBERATELY no live Etherscan/Alchemy pull — accepts pre-fetched tx
+rows via record_tx() so operator can CSV-import or wire a future
+fetcher without changing the schema.
+
+============================================================
+J7c — Slippage tracker
+============================================================
+runtime/portfolio/slippage_tracker.py (~190 LOC)
+
+SlippageTracker singleton; per-fill JSONL ledger.
+
+Computes arrival_slippage_bps and vwap_slippage_bps per fill:
+  arrival = (fill - quote_at_submit) / quote_at_submit * 10000  (long)
+  arrival = (quote_at_submit - fill) / quote_at_submit * 10000  (short)
+Positive bps = adverse (paid more / sold lower).
+
+trade_idea_id field wires fills back to originating brief idea so
+per-idea slippage feeds J1d expectancy.
+
+by_strategy(lookback_days) rollup: arrival mean/median/p90,
+vwap mean/median/p90, n_fills, total_notional_usd, plus _all bucket.
+
+============================================================
+J8d — Trade-date / settle-date split
+============================================================
+runtime/portfolio/settle_calendar.py (~170 LOC)
+
+settle_date(asset_class, trade_date) honoring US holidays + weekend
+slide:
+  equity/etf/option/treasury/mutual_fund -> T+1
+  future                                  -> T+0
+  crypto/onchain                          -> T+0
+  polymarket                              -> None (settle-on-resolution)
+
+cash_view(trades, as_of) returns settled_today vs unsettled_inflow/
+outflow vs trade_date_total. By asset class breakdown.
+
+bp_view(summary, trades) computes trade-date BP (broker-reported,
+includes unsettled) vs settled-only BP (subtracts unsettled inflow
+you can't deploy yet).
+
+US holiday calendar 2026-2027 included (20 dates).
+
+============================================================
+Mock adapter test harness
+============================================================
+runtime/portfolio/mock_adapter.py (~150 LOC)
+
+MockAdapter implements PortfolioManager's 7-method adapter interface:
+  connect/disconnect/is_connected/fetch_accounts/fetch_positions/
+  fetch_quotes/health
+
+Failure-simulation knobs:
+  simulate_connect_failure
+  simulate_quote_failure
+  simulate_partial_quotes
+  simulate_disconnect_after_n_calls
+  connect_delay_s
+
+make_canned_positions(*specs) helper — each spec is
+(symbol, qty, broker, asset_class[, price]).
+
+============================================================
+REST endpoints added (+13)
+============================================================
+  POST /portfolio/tax/lot-record
+  GET  /portfolio/tax/lots/{symbol}
+  POST /portfolio/tax/lot-recommend
+  POST /portfolio/tax/lot-sale
+  POST /portfolio/onchain/tx-record
+  GET  /portfolio/onchain/positions
+  GET  /portfolio/onchain/multichain/{wallet}
+  POST /portfolio/slippage/fill-record
+  GET  /portfolio/slippage/by-strategy
+  GET  /portfolio/settle/calendar
+  POST /portfolio/settle/cash-view
+  GET  /portfolio/settle/bp-view
+
+============================================================
+Tests: 24 -> 41 (all passing in 1.26s)
+============================================================
+New cases:
+  test_mock_adapter_basic_flow
+  test_mock_adapter_connect_failure
+  test_mock_adapter_quote_failure
+  test_mock_adapter_disconnect_after_n
+  test_tax_lot_recommend_hifo
+  test_tax_lot_recommend_fifo
+  test_on_chain_journal_idempotent
+  test_on_chain_classify_liquid_stake
+  test_on_chain_classify_lp
+  test_on_chain_multichain_rollup
+  test_slippage_arrival_bps_long
+  test_slippage_arrival_bps_short
+  test_slippage_record_and_rollup
+  test_settle_date_equity_t1
+  test_settle_date_skips_weekend
+  test_settle_date_crypto_t0
+  test_cash_view_settled_vs_unsettled
+
+Wave 14J COMPLETE-COMPLETE: every gap from the original audit doc has
+a corresponding ship-line. Portfolio manager has gone from polling
+aggregator to risk-aware execution-discipline layer with closed-loop
+expectancy, options Greeks, rotation pacing, tax-aware lot selection,
+cross-chain crypto journaling, slippage measurement, settle-date
+awareness, and a mock-adapter test harness covering the broker boundary.
+16 modules in runtime/portfolio/ totaling ~3,800 LOC.

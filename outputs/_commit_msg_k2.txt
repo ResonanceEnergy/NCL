@@ -1,0 +1,95 @@
+Wave 14K Phase 2: auto-trader decision loop (K1a + K1b + K1c + K1d)
+
+The loop. PAPER ONLY. NCL never opens a live order. The loop is
+opt-in OFF until operator POST /portfolio/auto-trader/resume.
+
+============================================================
+K1a — Main decision loop (runtime/portfolio/auto_trader/loop.py, ~230 LOC)
+============================================================
+auto_trader_loop(brain) runs forever; tick cadence 60s market /
+300s off-hours via _is_market_open(). Each tick:
+
+  1. Read drawdown_bucket.get_state(); call state.set_drawdown_halt(
+     band == "halt", band=band) — composes K0c auto-pause
+  2. await is_active() — sleep if paused (operator OR drawdown halt)
+  3. Day-cap check: state.ideas_opened_today >= policy.max_opens_per_day
+  4. Pull trade_idea_tracker.list_by_strategy(None), filter to:
+       outcome == "emitted"
+       AND issued_at_iso > state.last_seen_trade_idea_id
+     Sort oldest-first (FIFO)
+  5. For each candidate (capped at policy.max_opens_per_tick):
+     a. Compute hypothetical R_dollars = R_per_share * planned_qty,
+        call risk_governor.check_proposed_trade()
+     b. policy.auto_open_eligible(idea, gov)
+     c. If REJECT: record reasoning chain with policy_check.eligible=False
+        + log + bump rejected counter
+     d. If APPROVE:
+        - qty = max(1, effective_R / R_per_share)
+        - Convert idea -> paper_trade payload via _idea_to_paper_payload
+        - paper.create_trade(payload)
+        - record_reasoning_chain() with paper_trade_id linked
+        - update_paper_trade_id() back-link in observability
+        - tracker.update_outcome("taken")
+        - emit portfolio:auto_trade_opened MemUnit (K1c)
+        - cooldown sleep if multiple ideas this tick
+  6. state.record_tick(evaluated, opened, rejected, last_seen_id)
+
+Idempotent on trade_idea_id (tracker.update_outcome + observability
+both dedup). Restart-safe via state.json persistence.
+
+============================================================
+K1b — trade_idea_id <-> paper_trade.scanner_data stitching
+============================================================
+_idea_to_paper_payload() puts trade_idea_id + source + issued_at_iso
++ sources[] + stop_type/basis + target_basis + R_per_share_at_emit +
+rotation_quadrant/stance + slippage_profile into the paper_trade's
+scanner_data dict. Phase 3's outcome attributor reads scanner_data
+.trade_idea_id on close to call tracker.update_outcome() on the
+originating idea.
+
+============================================================
+K1c — portfolio:auto_trade_opened MemUnit emission
+============================================================
+_emit_open_memory_unit() fires at importance 75 with tags portfolio /
+auto_trader / paper_open + strategy + ticker. Metadata carries
+trade_idea_id, paper_trade_id, ticker, strategy, effective_R_dollars,
+governor decision, wave=14K-K1c. Fire-and-forget; never blocks loop
+on memory write.
+
+============================================================
+K1d — Scheduler task ncl-auto-trader-loop + factory entry
+============================================================
+runtime/autonomous/scheduler.py:
+  - Task created at startup right after ncl-drawdown-bucket
+  - Factory entry registered ("ncl-auto-trader-loop": lambda) so
+    supervisor can restart on crash (W13/P25 precedent)
+
+============================================================
+Tests added (+2)
+============================================================
+test_auto_trader_loop_idea_to_payload — K1b critical assertion that
+  trade_idea_id round-trips into payload.scanner_data
+test_auto_trader_market_open_classifier — _is_market_open() weekend sanity
+
+Total auto-trader tests now 10, all passing in 1.31s.
+
+============================================================
+Live-verified post-bounce
+============================================================
+  [AT-LOOP] starting auto-trader decision loop                       ✓
+  [AT-STATE] loaded — active=True paused_by=operator drawdown_halt=False
+  Then K0c auto-flip on first tick:
+    drawdown_halt_pause: true, drawdown_halt_band: "halt"
+  /auto-trader/status:
+    is_active: false (correct — operator-paused AND drawdown halt)
+    state.active: true, paused_by: "operator", drawdown_halt_pause: true
+  The loop is REGISTERED, RUNNING, and TICKING — but DOING NOTHING
+  because both safety gates are blocking. This is the designed
+  safe-default behavior.
+
+To activate (when operator is ready):
+  1. POST /auto-trader/resume         — clears operator pause
+  2. Wait for drawdown band to flip back to non-halt (auto-clears)
+     OR manually reset drawdown override via /portfolio/drawdown/peak-override
+
+Phase 2 complete. Phase 3 (price feed + outcome attribution) next.

@@ -1,0 +1,209 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.3, pytest-9.0.3, pluggy-1.6.0 -- /opt/homebrew/opt/python@3.14/bin/python3.14
+cachedir: .pytest_cache
+rootdir: /Users/natrix/dev/NCL
+configfile: pyproject.toml
+plugins: asyncio-1.3.0, anyio-4.13.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 57 items / 54 deselected / 3 selected
+
+tests/test_portfolio_manager.py::test_auto_trader_state_lifecycle PASSED [ 33%]
+tests/test_portfolio_manager.py::test_auto_trader_policy_load_and_patch FAILED [ 66%]
+tests/test_portfolio_manager.py::test_auto_trader_observability_record_and_dedup PASSED [100%]
+
+=================================== FAILURES ===================================
+____________________ test_auto_trader_policy_load_and_patch ____________________
+
+tmp_path = PosixPath('/private/tmp/pytest-of-natrix/pytest-24/test_auto_trader_policy_load_a0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10961a060>
+
+    def test_auto_trader_policy_load_and_patch(tmp_path, monkeypatch):
+        monkeypatch.setenv("NCL_BASE", str(tmp_path))
+        for mod in list(sys.modules.keys()):
+            if mod.startswith("runtime.portfolio.auto_trader"):
+                del sys.modules[mod]
+        from runtime.portfolio.auto_trader import policy as at_policy
+
+        async def go():
+            at_policy._POLICY = None
+            p = await at_policy.get_policy()
+            assert p.revision >= 1
+            assert p.min_R_R_ratio == 1.5
+            # Patch
+            p2 = await at_policy.update_policy(
+                {"min_R_R_ratio": 2.0, "max_opens_per_day": 20},
+                updated_by="test",
+            )
+            assert p2.min_R_R_ratio == 2.0
+            assert p2.max_opens_per_day == 20
+            assert p2.revision == p.revision + 1
+            # Unknown field rejected
+            try:
+                await at_policy.update_policy({"foo_bar_baz": 99})
+                raise AssertionError("expected ValueError on unknown field")
+            except ValueError:
+                pass
+
+>       asyncio.run(go())
+
+tests/test_portfolio_manager.py:826:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+main = <coroutine object test_auto_trader_policy_load_and_patch.<locals>.go at 0x10f31aec0>
+
+    def run(main, *, debug=None, loop_factory=None):
+        """Execute the coroutine and return the result.
+
+        This function runs the passed coroutine, taking care of
+        managing the asyncio event loop, finalizing asynchronous
+        generators and closing the default executor.
+
+        This function cannot be called when another asyncio event loop is
+        running in the same thread.
+
+        If debug is True, the event loop will be run in debug mode.
+        If loop_factory is passed, it is used for new event loop creation.
+
+        This function always creates a new event loop and closes it at the end.
+        It should be used as a main entry point for asyncio programs, and should
+        ideally only be called once.
+
+        The executor is given a timeout duration of 5 minutes to shutdown.
+        If the executor hasn't finished within that duration, a warning is
+        emitted and the executor is closed.
+
+        Example:
+
+            async def main():
+                await asyncio.sleep(1)
+                print('hello')
+
+            asyncio.run(main())
+        """
+        if events._get_running_loop() is not None:
+            # fail fast with short traceback
+            raise RuntimeError(
+                "asyncio.run() cannot be called from a running event loop")
+
+        with Runner(debug=debug, loop_factory=loop_factory) as runner:
+>           return runner.run(main)
+                   ^^^^^^^^^^^^^^^^
+
+/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/runners.py:204:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <asyncio.runners.Runner object at 0x10f32d950>
+coro = <coroutine object test_auto_trader_policy_load_and_patch.<locals>.go at 0x10f31aec0>
+
+    def run(self, coro, *, context=None):
+        """Run code in the embedded event loop."""
+        if events._get_running_loop() is not None:
+            # fail fast with short traceback
+            raise RuntimeError(
+                "Runner.run() cannot be called from a running event loop")
+
+        self._lazy_init()
+
+        if not coroutines.iscoroutine(coro):
+            if inspect.isawaitable(coro):
+                async def _wrap_awaitable(awaitable):
+                    return await awaitable
+
+                coro = _wrap_awaitable(coro)
+            else:
+                raise TypeError('An asyncio.Future, a coroutine or an '
+                                'awaitable is required')
+
+        if context is None:
+            context = self._context
+
+        task = self._loop.create_task(coro, context=context)
+
+        if (threading.current_thread() is threading.main_thread()
+            and signal.getsignal(signal.SIGINT) is signal.default_int_handler
+        ):
+            sigint_handler = functools.partial(self._on_sigint, main_task=task)
+            try:
+                signal.signal(signal.SIGINT, sigint_handler)
+            except ValueError:
+                # `signal.signal` may throw if `threading.main_thread` does
+                # not support signals (e.g. embedded interpreter with signals
+                # not registered - see gh-91880)
+                sigint_handler = None
+        else:
+            sigint_handler = None
+
+        self._interrupt_count = 0
+        try:
+>           return self._loop.run_until_complete(task)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/runners.py:127:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <_UnixSelectorEventLoop running=False closed=True debug=False>
+future = <Task finished name='Task-4' coro=<test_auto_trader_policy_load_and_patch.<locals>.go() done, defined at /Users/natrix...0, revision=2, updated_at_iso='2026-05-26T22:04:38.678695+00:00', updated_by='test', notes='', metadata={}).revision")>
+
+    def run_until_complete(self, future):
+        """Run until the Future is done.
+
+        If the argument is a coroutine, it is wrapped in a Task.
+
+        WARNING: It would be disastrous to call run_until_complete()
+        with the same coroutine twice -- it would wrap it in two
+        different Tasks and that can't be good.
+
+        Return the Future's result, or raise its exception.
+        """
+        self._check_closed()
+        self._check_running()
+
+        new_task = not futures.isfuture(future)
+        future = tasks.ensure_future(future, loop=self)
+        if new_task:
+            # An exception is raised if the future didn't complete, so there
+            # is no need to log the "destroy pending task" message
+            future._log_destroy_pending = False
+
+        future.add_done_callback(_run_until_complete_cb)
+        try:
+            self.run_forever()
+        except:
+            if new_task and future.done() and not future.cancelled():
+                # The coroutine raised a BaseException. Consume the exception
+                # to not log a warning, the caller doesn't have access to the
+                # local task.
+                future.exception()
+            raise
+        finally:
+            future.remove_done_callback(_run_until_complete_cb)
+        if not future.done():
+            raise RuntimeError('Event loop stopped before Future completed.')
+
+>       return future.result()
+               ^^^^^^^^^^^^^^^
+
+/opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/base_events.py:719:
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    async def go():
+        at_policy._POLICY = None
+        p = await at_policy.get_policy()
+        assert p.revision >= 1
+        assert p.min_R_R_ratio == 1.5
+        # Patch
+        p2 = await at_policy.update_policy(
+            {"min_R_R_ratio": 2.0, "max_opens_per_day": 20},
+            updated_by="test",
+        )
+        assert p2.min_R_R_ratio == 2.0
+        assert p2.max_opens_per_day == 20
+>       assert p2.revision == p.revision + 1
+E       AssertionError: assert 2 == (2 + 1)
+E        +  where 2 = AutoTraderPolicy(require_governor_approved=True, block_on_drawdown_halt=True, block_on_breadth_veto=True, require_stop_price=True, require_target_price=True, require_R_per_share=True, require_source_citations=True, min_R_R_ratio=2.0, min_stop_distance_pct=0.5, max_stop_distance_pct=15.0, require_thesis_min_chars=20, valid_stop_types=('price', 'atr', 'volatility', 'time', 'thesis_break'), goat_require_with_trend=True, options_require_high_iv_rank=False, polymarket_require_kelly_positive=True, allow_counter_trend=False, counter_trend_max_R_dollars=200.0, use_confidence_as_size_multiplier=True, min_confidence_pct=0, max_opens_per_tick=3, max_opens_per_day=20, cooldown_seconds_after_open=30, revision=2, updated_at_iso='2026-05-26T22:04:38.678695+00:00', updated_by='test', notes='', metadata={}).revision
+E        +  and   2 = AutoTraderPolicy(require_governor_approved=True, block_on_drawdown_halt=True, block_on_breadth_veto=True, require_stop_price=True, require_target_price=True, require_R_per_share=True, require_source_citations=True, min_R_R_ratio=2.0, min_stop_distance_pct=0.5, max_stop_distance_pct=15.0, require_thesis_min_chars=20, valid_stop_types=('price', 'atr', 'volatility', 'time', 'thesis_break'), goat_require_with_trend=True, options_require_high_iv_rank=False, polymarket_require_kelly_positive=True, allow_counter_trend=False, counter_trend_max_R_dollars=200.0, use_confidence_as_size_multiplier=True, min_confidence_pct=0, max_opens_per_tick=3, max_opens_per_day=20, cooldown_seconds_after_open=30, revision=2, updated_at_iso='2026-05-26T22:04:38.678695+00:00', updated_by='test', notes='', metadata={}).revision
+
+tests/test_portfolio_manager.py:818: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_portfolio_manager.py::test_auto_trader_policy_load_and_patch
+================== 1 failed, 2 passed, 54 deselected in 0.96s ==================

@@ -1,0 +1,8 @@
+AST OK: trade_cost_ledger.py
+AST OK: portfolio.py
+imports OK
+summary today total: 0.001 entries: 1
+by_broker: {'SMOKE': 0.001}
+by_action: {'commission': 0.001}
+recent_count: 1
+smoke OK

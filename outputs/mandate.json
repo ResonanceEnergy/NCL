@@ -1,0 +1,6 @@
+{
+  "content": "MANDATE - NCL Hedge Fund Manager in Training. As of 2026-05-26, NCL operates a paper-trading account that mirrors NATRIX's live portfolio: starting NAV $36,149 CAD across 22 positions (21 from live snapshot + 1 baseline) spanning IBKR, Moomoo, and Wealthsimple. The mandate is to MAXIMIZE CAPITAL through stocks and options trading using self-research, self-learning, self-analysis, and self-management. Risk per trade: 5% of NAV (~$1,800). Max 8 opens per day, 2 per tick. Stocks + options allowed. Counter-trend trades blocked by default. The auto-trader runs the full Wave 14K closed loop: brief emits ideas -> friction-injected paper opens -> mark-to-market -> outcome attribution -> Beta-Bernoulli bandit + SHAP attribution + Page-Hinkley drift detection -> self-research generates topics -> brief context packet biases tomorrow's allocation -> graduation gate publishes readiness reports. ABSOLUTE CONSTRAINT: NCL never places live orders. Paper-trading only. Graduation is decision support; promotion to live remains operator-only. Strategies tagged 'snapshot' are the baseline being benchmarked against new auto-trader trades.",
+  "source": "natrix:mandate:hedge_fund_in_training",
+  "importance": 100,
+  "tags": ["natrix", "mandate", "auto_trader", "hedge_fund_training", "wave_14K", "paper_only", "maximize_capital"]
+}

@@ -1,0 +1,12 @@
+=== /health ===
+{"status":"ok"}
+=== /system/health/rollup ===
+overall: red
+brain: None
+memory.units: None status: None
+scheduler.active_tasks: None status: None
+=== /intelligence/rotation (live verify) ===
+date: 2026-05-26
+benchmark: SPY breadth.pct: 81.8
+by_quadrant: {'Leading': ['XLK'], 'Weakening': [], 'Improving': ['XLV', 'XLRE', 'XLY', 'XLI', 'XLU'], 'Lagging': ['XLE', 'XLP', 'XLF', 'XLC', 'XLB']}
+cycle.phase: late_cycle confidence: 1.0

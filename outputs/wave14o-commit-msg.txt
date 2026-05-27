@@ -1,0 +1,63 @@
+Wave 14O: capability registry hardening (rotation marker fix + optional flag) + iOS BacktestCard
+
+CAPABILITY REGISTRY HARDENING (capability_registry.py)
+
+Three issues found during Wave 14N brief-context-packet verification:
+
+  1. rotation_snapshot.file_marker was incorrectly set to
+     "data/rotation/cycle-{today}.json" — that's the cycle_phase file.
+     Rotation snapshots are written as "data/rotation/{today}.json"
+     (no prefix). Fixed.
+
+  2. _resolve_marker_path was strictly checking today's-date file,
+     but rotation_tracker names its output file based on the last
+     TRADING day (which can be 1-3 days behind calendar today on
+     weekends/holidays). Result: capability was reported missing
+     even when fresh data existed under a different date.
+
+     Fix: glob fallback — if today's exact path doesn't exist, find
+     the most recent file in the parent directory matching the
+     pattern with {today} replaced by a YYYY-MM-DD glob. Staleness
+     check downstream still catches genuinely-stale files.
+
+  3. cycle_phase.staleness_days_max bumped 2.0 → 4.0 — the FRED
+     pipeline can be delayed over long weekends; 2 days was too
+     tight.
+
+  4. New CapabilityCheck.optional flag — for capabilities with a
+     working fallback (Finnhub → yfinance for earnings), missing
+     state degrades gracefully without emitting tool:capability_
+     request MemUnits every loop. Finnhub marked optional=True.
+
+  Live impact: capability gaps dropped 3 → 1 (the remaining 1 is
+  finnhub, which is now optional so it no longer emits noise).
+  rotation_snapshot + cycle_phase both report available=true.
+
+iOS BACKTEST CARD (AutoTraderView.swift +200 LOC)
+
+New BacktestCard subview appended to AutoTraderView. Form:
+
+  - RECIPE picker (5 supported: momentum_breakout, swing_pullback,
+    mean_reversion_oversold, gap_fill, pead_drift)
+  - TICKER text field (auto-uppercase on iOS)
+  - LOOKBACK segmented picker (30 / 60 / 90 / 180 / 365 days)
+  - STOP %  slider (2-20%)
+  - TGT %   slider (5-50%)
+  - RUN BACKTEST button → POST /portfolio/auto-trader/backtest
+
+Result block (renders after run):
+
+  recipe + ticker title, two rows of 4 stat tiles:
+    TRADES / HIT % / EXP-R / PF
+    SQN / MAX-DD / TOTAL-R / AVG-HOLD
+
+  Operator can vet recipe expectancy against historical data from
+  the phone before letting it run live in paper.
+
+BacktestResult struct parses both flat-stats and {stats: {...}}
+response shapes for forward-compat.
+
+Build green iPhone 16e sim, installed and launched.
+
+LOC ADDED: ~240 (capability_registry hardening ~25 + Swift
+BacktestCard ~200 + plumbing ~15).

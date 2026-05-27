@@ -1,0 +1,54 @@
+Wave 14J J0c: global drawdown bucket (single source of truth)
+
+Tier 0 foundation piece #3 from docs/PORTFOLIO_MANAGER_AUDIT_2026-05-26.md.
+Closes out Phase 1. With trading cost ledger (J0a) + R-fields (J0b) +
+drawdown bucket (J0c) in place, Wave 14J Phase 2 (heat caps + stops +
+expectancy) has the substrate it needs to bind to.
+
+The whole point of this module: throttle enforcement happens in ONE
+place. Adding a new scanner doesn't require re-implementing drawdown
+logic — the scanner just reads get_sizing_multiplier_sync() before
+proposing a size.
+
+New module: runtime/portfolio/drawdown_bucket.py (~330 LOC)
+  - DrawdownState dataclass: computed_at, current_nav_cad, peak_nav_cad,
+    peak_date, drawdown_pct, band, sizing_multiplier, lookback_days,
+    sample_count, last_transition_at, last_transition_from,
+    manual_peak_override, notes
+  - Bands (negative drawdown_pct -> band -> sizing multiplier):
+      green     0% to -3%     1.00
+      caution  -3% to -7%     0.75
+      warning  -7% to -12%    0.50
+      halt     worse than -12% 0.00
+  - HWM source: trailing 90 days of data/portfolio/snapshots.jsonl
+    (matches snapshot retention window). Current NAV also counted as
+    HWM candidate so a new portfolio high doesn't report paper drawdown.
+  - Manual operator override (set_manual_peak) for known capital injection
+    / withdrawal events that otherwise mislead the calc.
+  - Persisted to data/health/drawdown.json
+  - On band transition: emits portfolio:drawdown_band_change MemUnit
+    via brain.memory_store at importance 95 (NATRIX tier)
+  - get_sizing_multiplier_sync() — cheap synchronous accessor for hot-
+    path callers; fails open (multiplier=1.0) on cold start
+
+Scheduler integration (runtime/autonomous/scheduler.py +14 LOC):
+  - New task ncl-drawdown-bucket running every 60s (read NAV from
+    portfolio_mgr.get_summary, recompute, persist)
+  - Factory entry registered so the supervisor can restart it if it
+    ever dies (mirrors the W13/P25 pattern that bit us on brief-pro)
+
+New REST endpoints (runtime/api/routers/portfolio.py +60 LOC):
+  GET  /portfolio/drawdown                 - current band state
+  POST /portfolio/drawdown/recompute       - force immediate recompute
+  POST /portfolio/drawdown/peak-override   - operator HWM pin / clear
+
+Smoke tests + live verification all pass:
+  - classifier: -2.5 -> green, -3.5 -> caution, -7.5 -> warning, -12.5 -> halt
+  - snapshot replay loaded 34 entries, peak \$37,350.95 on 2026-05-21
+  - live NAV \$35,585.87 vs peak \$37,350.95 -> -4.73% -> caution band -> mult 0.75
+  - manual override \$50K + nav \$35,585 -> -28.83% -> halt -> mult 0.0
+  - [DRAWDOWN] loop started — 60s cadence confirmed in stderr log
+
+Phase 1 (J0a/J0b/J0c) DONE. Phase 2 (J1a heat caps, J1b throttle, J1c
+stop framework, J1d expectancy) is next — every one of those is now
+unblocked.

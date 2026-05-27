@@ -13,11 +13,12 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
-import os
+from typing import Optional
+
 
 log = logging.getLogger("ncl.intel.brief_presenter")
 
@@ -59,15 +60,34 @@ def _render_block(name: str, data) -> list[str]:
     try:
         if name == "PORTFOLIO":
             d = data if isinstance(data, dict) else {}
-            if d.get("connected"):
+            mode = d.get("mode", "")
+            if not d.get("connected"):
+                lines.append("  (brokers disconnected, paper engine unavailable)")
+            elif mode == "paper":
+                bal = float(d.get("account_balance_usd") or 0)
+                open_pl = float(d.get("open_unrealized_pl") or 0)
+                realized = float(d.get("total_realized_pl") or 0)
+                wr = float(d.get("win_rate_pct") or 0)
+                exp_r = float(d.get("expectancy_r") or 0)
+                pf = float(d.get("profit_factor") or 0)
                 lines.append(
-                    f"  NAV ${d.get('total_value_cad', 0):,.0f} CAD "
-                    f"(${d.get('total_value_usd', 0):,.0f} USD), "
-                    f"positions={d.get('positions_count', 0)}, "
-                    f"daily_pl={d.get('daily_pl_pct', 0)}%"
+                    f"  PAPER NAV ${bal:,.0f} USD · "
+                    f"open={d.get('open_trades', 0)} closed={d.get('closed_trades', 0)} · "
+                    f"win-rate {wr:.1f}% · exp {exp_r:+.2f}R · PF {pf:.2f}"
                 )
+                if open_pl or realized:
+                    lines.append(
+                        f"  unreal PL ${open_pl:+,.0f} · " f"realized PL ${realized:+,.0f}"
+                    )
             else:
-                lines.append("  (brokers disconnected — paper-only context)")
+                cad = float(d.get("total_value_cad") or 0)
+                usd = float(d.get("total_value_usd") or 0)
+                pl_pct = float(d.get("daily_pl_pct") or 0)
+                lines.append(
+                    f"  NAV ${cad:,.0f} CAD (${usd:,.0f} USD) · "
+                    f"positions={d.get('positions_count', 0)} · "
+                    f"daily_pl={pl_pct:+.2f}%"
+                )
         elif name == "AGENT":
             d = data if isinstance(data, dict) else {}
             active = d.get("active", False)
@@ -129,40 +149,76 @@ def _render_block(name: str, data) -> list[str]:
         elif name == "OPTIONS":
             d = data if isinstance(data, dict) else {}
             rows = d.get("rows", [])
+            lookback = d.get("lookback_hours", 24)
             if not rows:
-                lines.append("  (no flow data)")
+                lines.append(f"  (no flow data — last {lookback}h)")
             else:
-                for r in rows[:5]:
+                lines.append(f"  Top tickers by total premium (last {lookback}h):")
+                for r in rows[:6]:
+                    prem = float(r.get("total_premium") or 0)
+                    top = float(r.get("top_single_premium") or 0)
                     lines.append(
-                        f"  • {r.get('ticker', '?')} "
-                        f"call/put={r.get('call_put_ratio', '?')} "
-                        f"premium=${r.get('total_premium_usd', 0):,.0f}"
+                        f"  • {(r.get('ticker') or '?'):6s} "
+                        f"premium=${prem:>11,.0f} "
+                        f"trades={r.get('trade_count', 0):>3d} "
+                        f"top=${top:>10,.0f} "
+                        f"dir={r.get('direction', 'neu')}"
                     )
         elif name == "CRYPTO":
             d = data if isinstance(data, dict) else {}
-            for it in (d.get("items") or [])[:5]:
-                lines.append(
-                    f"  • {it.get('title', '')[:70]} (score {it.get('score', 0):.2f})"
-                )
+            items = d.get("items") or []
+            src = d.get("source", "?")
+            if not items:
+                lines.append(f"  (no crypto data — source: {src})")
+            else:
+                lines.append(f"  Top {len(items)} crypto movers (24h, sorted by |%change|):")
+                for it in items[:8]:
+                    pct = float(it.get("pct_24h") or 0)
+                    arrow = "▲" if pct >= 0 else "▼"
+                    last = float(it.get("last") or 0)
+                    name_label = (it.get("name") or it.get("symbol") or "?")[:14]
+                    lines.append(
+                        f"  • {name_label:14s} {it.get('symbol', ''):10s} "
+                        f"${last:>10,.2f}  {arrow} {pct:+5.2f}%"
+                    )
         elif name == "POLYMARKET":
             d = data if isinstance(data, dict) else {}
-            for it in (d.get("items") or [])[:5]:
-                lines.append(
-                    f"  • {it.get('side', '?')} {it.get('edge_pp', 0):.1f}pp edge — "
-                    f"{it.get('market_question', '')[:60]} "
-                    f"(market=${it.get('market_yes_price', 0):.2f}, "
-                    f"{it.get('days_to_resolution', '?')}d)"
-                )
+            mode = d.get("mode", "edges")
+            items = d.get("items") or []
+            if not items:
+                lines.append(f"  (no polymarket data — mode: {mode})")
+            elif mode == "edges":
+                for it in items[:5]:
+                    edge = float(it.get("edge_pp") or 0)
+                    price = float(it.get("market_yes_price") or 0)
+                    lines.append(
+                        f"  • {it.get('side', '?')} {edge:+.1f}pp edge — "
+                        f"{(it.get('market_question') or '')[:60]} "
+                        f"(market=${price:.2f}, "
+                        f"{it.get('days_to_resolution', '?')}d)"
+                    )
+            else:
+                # fallback_signals mode: show top active markets by importance
+                lines.append("  (no edges; showing top active polymarket signals)")
+                for it in items[:5]:
+                    imp = float(it.get("importance") or 0)
+                    lines.append(
+                        f"  • [{it.get('lifecycle', 'active'):>7s}] "
+                        f"imp={imp:>5.1f} — "
+                        f"{(it.get('market_question') or '')[:70]}"
+                    )
         elif name == "PREDICTIONS":
             d = data if isinstance(data, dict) else {}
             for it in (d.get("items") or [])[:5]:
                 conf = it.get("confidence") or it.get("stated_probability") or 0
                 window = it.get("forecast_window_days")
                 window_str = f"{window}d" if window else "no-window"
-                title_or_topic = (it.get("title")
-                                  or it.get("description", "")
-                                  or it.get("topic", "")
-                                  or "(no title)")[:70]
+                title_or_topic = (
+                    it.get("title")
+                    or it.get("description", "")
+                    or it.get("topic", "")
+                    or "(no title)"
+                )[:70]
                 lines.append(
                     f"  • {it.get('direction', '?'):8s} {conf:.0%} ({window_str}) — {title_or_topic}"
                 )
@@ -172,14 +228,36 @@ def _render_block(name: str, data) -> list[str]:
                 ts = (it.get("modified_iso") or "")[11:16]
                 lines.append(f"  • {ts} {it.get('filename', '')[:70]}")
         elif name == "CONTEXT":
-            items = data if isinstance(data, list) else []
-            for it in items[:10]:
-                if isinstance(it, dict):
-                    txt = (it.get("text") or it.get("content") or it.get("title") or "")[:80]
-                    if txt:
-                        lines.append(f"  • {txt}")
-                elif it:
-                    lines.append(f"  • {str(it)[:80]}")
+            # data is dict: {pinned, top_by_salience, themes, total_items}
+            d = data if isinstance(data, dict) else {}
+            total = d.get("total_items", 0)
+            pinned = d.get("pinned") or []
+            top = d.get("top_by_salience") or []
+            themes = d.get("themes") or []
+            lines.append(f"  ({total} items in working_context — top by salience):")
+            if pinned:
+                lines.append("  📌 PINNED:")
+                for it in pinned[:5]:
+                    if isinstance(it, dict):
+                        txt = (it.get("text") or it.get("content") or "")[:90]
+                        if txt:
+                            lines.append(f"    • {txt}")
+            if top:
+                for it in top[:8]:
+                    if isinstance(it, dict):
+                        txt = (it.get("text") or it.get("content") or "")[:90]
+                        sal = float(it.get("salience") or 0)
+                        cat = (it.get("category") or "")[:6]
+                        if txt:
+                            lines.append(f"  • [{cat:6s} sal={sal:.2f}] {txt}")
+            if themes:
+                theme_strs = [
+                    (t.get("text") if isinstance(t, dict) else str(t))[:30] for t in themes[:6]
+                ]
+                # Filter thread:* UUID noise
+                theme_strs = [t for t in theme_strs if not t.startswith("thread:")][:5]
+                if theme_strs:
+                    lines.append(f"  🏷  themes: {' · '.join(theme_strs)}")
         elif name == "TODO_7DAY":
             d = data if isinstance(data, dict) else {}
             items = d.get("items") or d.get("todos") or []
@@ -233,7 +311,9 @@ def render_pro_brief(synthesis: dict, pack: dict | None = None) -> dict:
         if wtw:
             parts.append("── WHAT TO WATCH ──")
             for i, item in enumerate(wtw, 1):
-                txt = _strip_markdown(item.get("text") or item if isinstance(item, dict) else str(item))
+                txt = _strip_markdown(
+                    item.get("text") or item if isinstance(item, dict) else str(item)
+                )
                 parts.append(f"{i}. {txt}")
             parts.append("")
 
@@ -258,8 +338,12 @@ def render_pro_brief(synthesis: dict, pack: dict | None = None) -> dict:
         ms = mop.get("momentum_signals") or {}
         if ms:
             parts.append("── MOMENTUM SIGNALS (first 30 min) ──")
-            for cat in ("gap_up_watch", "gap_down_reversal_candidates",
-                        "rvol_3x_list", "orb_candidates"):
+            for cat in (
+                "gap_up_watch",
+                "gap_down_reversal_candidates",
+                "rvol_3x_list",
+                "orb_candidates",
+            ):
                 tickers = ms.get(cat) or []
                 if tickers:
                     pretty = cat.replace("_", " ").upper()
@@ -308,7 +392,7 @@ def render_pro_brief(synthesis: dict, pack: dict | None = None) -> dict:
                 parts.append(f"  • Weakening: {', '.join(weakening)}")
             breadth = rr.get("breadth_pct")
             if breadth is not None:
-                state = ("broad" if breadth >= 70 else "narrow" if breadth <= 30 else "neutral")
+                state = "broad" if breadth >= 70 else "narrow" if breadth <= 30 else "neutral"
                 parts.append(f"  • Breadth: {breadth}% sectors above 50d SMA ({state})")
             style_rotations = rr.get("active_style_rotations") or []
             for s in style_rotations[:4]:
@@ -355,7 +439,11 @@ def render_pro_brief(synthesis: dict, pack: dict | None = None) -> dict:
         parts.append("PRE-MARKET TRADE IDEAS")
         for i, idea in enumerate(ideas, 1):
             typ = (idea.get("type") or "stock").upper()
-            label = "OPTIONS PLAY" if typ == "OPTIONS" else ("FUTURES" if typ == "FUTURES" else "STOCK SETUP")
+            label = (
+                "OPTIONS PLAY"
+                if typ == "OPTIONS"
+                else ("FUTURES" if typ == "FUTURES" else "STOCK SETUP")
+            )
             parts.append(f"\n{label} {i}")
             parts.append(f"TICKER: {idea.get('ticker', '?')}")
             if idea.get("structure"):
@@ -405,9 +493,18 @@ def render_pro_brief(synthesis: dict, pack: dict | None = None) -> dict:
         parts.append("═══════════════════════════════════════════════════════")
         parts.append("")
         for block_name in (
-            "PORTFOLIO", "AGENT", "ROTATION", "GOAT", "BRAVO",
-            "OPTIONS", "CRYPTO", "POLYMARKET", "PREDICTIONS",
-            "YTC", "CONTEXT", "TODO_7DAY",
+            "PORTFOLIO",
+            "AGENT",
+            "ROTATION",
+            "GOAT",
+            "BRAVO",
+            "OPTIONS",
+            "CRYPTO",
+            "POLYMARKET",
+            "PREDICTIONS",
+            "YTC",
+            "CONTEXT",
+            "TODO_7DAY",
         ):
             block = pack.get(block_name)
             if not block:

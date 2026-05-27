@@ -1,0 +1,84 @@
+Wave 14K Phase 8: self-healing + tests + docs (K7a/b/c/d)
+
+Closes Wave 14K. The auto-trader now has circuit breakers around
+every external dep, a verified crash-recovery story, a full lifecycle
+integration test, and a Wave 14K summary in CLAUDE.md.
+
+K7a — Circuit breakers around external deps. Wired the existing
+hygiene.CircuitBreaker (Wave 14J J8c) around 4 external deps in the
+auto-trader loop:
+
+  auto_trader:drawdown_bucket      — band-check fails fall through
+                                     (degraded sensor better than halt)
+  auto_trader:risk_governor        — failure defaults to REJECT
+                                     (safest: no sizing without gate)
+  auto_trader:trade_idea_tracker   — failure skips the entire tick
+                                     (nothing to do without ideas)
+  auto_trader:paper_engine         — failure stops re-hammering the engine
+
+Each breaker uses the standard 3-strike pattern: 3 consecutive
+failures opens the breaker for 600s, then auto-resets on next call.
+
+New REST endpoint:
+  GET /portfolio/auto-trader/circuit-breakers
+      Returns the live status of all 4 auto_trader:* breakers
+      (fails count, open/closed, remaining quarantine seconds).
+
+K7b — Crash-recovery replay test. New
+test_crash_recovery_replays_state_from_disk verifies that
+  - state.json (active flag + pause reason + counters + last_seen_id)
+  - drift_state.json (PH statistics + observation count)
+  - friction_profiles.json (per-strategy slippage_bps overrides)
+  - research_topics.json (open topic queue)
+all survive a simulated process restart. Test pattern: populate all
+four subsystems, force every singleton to None / clear every loaded
+cache (simulates fresh import after a crash), then verify lazy-load
+from disk returns the same state.
+
+K7c — Full lifecycle integration test. New
+test_full_lifecycle_integration exercises every Wave 14K module in
+the order they fire in production:
+  1. trade_idea_tracker.record_emission        (idea persisted)
+  2. friction_profile.apply_friction_to_payload (entry shifted 50 bps)
+  3. trade_idea_tracker.update_outcome(target_hit) (R_multiple computed)
+  4. strategy_bandit.record_result              (posterior updated)
+  5. drift_detector.update                      (STABLE early on)
+  6. self_research._cluster_losses              (synthetic cluster surfaces)
+  7. graduation_gate.evaluate                   (sample-size failure)
+Each step verifies the contract the next step depends on, so a
+regression in any module surfaces here even if its own unit test
+passes.
+
+K7d — CLAUDE.md updated with the full Wave 14K summary: 8-phase
+build, ~2,500 LOC across 11 modules, 21 REST endpoints, 40 named
+scheduler tasks (was 35, +8 across 14H/14I/14J/14K), 40 auto-trader
+tests all green. Hard line preserved + repeated: NCL never places
+live orders, paper-trading only, graduation is decision support
+not auto-promotion.
+
+VERIFIED LIVE: Brain bounced clean.
+  - GET /portfolio/auto-trader/circuit-breakers -> 200 with 4
+    auto_trader:* breakers in fails=0 / is_open=false / threshold=3
+    / skip=600s — proves the loop initialized them at startup.
+
+TESTS: 4 new tests (1 K7a + 1 K7b + 1 K7c + 1 baseline picked up by
+keyword match). All 40 auto-trader tests green.
+
+WAVE 14K COMPLETE. The auto-trader is a fully-closed self-learning
+self-researching self-healing loop:
+  brief emits trade_ideas
+    → auto_trader_loop opens paper trades (with friction)
+      → price_feed marks-to-market
+        → outcome_attributor on triggers
+          → bandit + tracker update
+            → drift detector (auto-pause on DRIFT_DOWN)
+              → SHAP attribution every 10 closes
+                → strategy_learn MemUnit at importance 90
+                  → self_research feeds back into next brief
+                    + friction profile re-calibrates
+                      + graduation gate publishes readiness reports
+                        + circuit breakers shield every external dep
+
+NEXT WAVES: open. Possibilities include a CLAUDE.md-trimming pass
+(>1,500 lines now), iOS PaperTradingView surfacing the
+/auto-trader/dashboard payload, or fresh research directions.

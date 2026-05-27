@@ -1,0 +1,133 @@
+Wave 14L L1+L4: strategy registry (23 recipes) + profit ladder (50% to LEAPS)
+
+The auto-trader is no longer a 6-bucket generalist. It now has a full
+named strategy registry with per-recipe metadata, and the NATRIX-
+specific profit-ladder meta-strategy that converts short-dated lottery
+wins into long-dated LEAPS swings.
+
+L1 — STRATEGY REGISTRY (runtime/portfolio/auto_trader/strategy_registry.py)
+
+23 named recipes spanning:
+
+  Stock directional (7):
+    momentum_breakout (goat)        — 150SMA + ATR stop, hold 3d
+    swing_pullback (bravo)          — pullback-to-200SMA, hold 10d
+    mean_reversion_oversold (bravo) — RSI<30 + Bollinger touch
+    gap_fill (goat)                 — pre-mkt gap fade, intraday
+    pead_drift (bravo)              — post-earnings 20d drift
+    pairs_stat_arb (bravo)          — cointegrated z-score >2
+    sector_rotation (bravo)         — RRG Leading-quadrant rotate
+
+  Options — short-dated lottery (profit-ladder SOURCE, 2):
+    lottery_calls_short_dated       — <30 DTE OTM calls
+    lottery_puts_short_dated        — <30 DTE OTM puts
+
+  Options — long-dated swing (profit-ladder DESTINATION, 2):
+    leaps_long_dated                — 120-540 DTE LEAPS
+    pmcc                            — Poor Man's Covered Call
+
+  Options — defined-risk spreads (5):
+    vertical_bull_call / vertical_bear_put
+    iron_condor_low_vol             — high-IVR entry, 4-leg
+    straddle_earnings               — low-IVR pre-earnings ATM
+    calendar_vol_term               — sell front / buy back
+
+  Options — income (2):
+    covered_call_income             — on snapshot holdings
+    csp_income                      — wheel strategy
+
+  Copy + alt (3):
+    whale_copy_options_flow         — Unusual Whales follow
+    polymarket_kelly                — Kelly-sized prediction markets
+    crypto_carry                    — funding-rate basis
+
+  Special (2):
+    snapshot                        — live portfolio mirror
+    manual                          — operator-initiated
+
+Each recipe carries: asset_type, direction, vol_regime, dte_min/max,
+leg_count, max_R_pct_nav (per-recipe cap, separate from bucket budget),
+typical_hold_days, profit_target_R, description, tags, enabled flag.
+
+Two helper queries surface the profit-ladder SOURCE + DESTINATION sets:
+  list_short_dated_lottery_recipes() → ['lottery_calls_short_dated']
+  list_long_dated_swing_recipes()    → ['leaps_long_dated']
+
+Backward compatible — every existing strategy_tag still maps to its
+bucket via normalize_strategy_via_registry() which falls back to
+risk_governor._normalize_strategy().
+
+Operator overrides persist to data/portfolio/auto_trader/
+strategy_registry_state.json (additive — defaults stay code-resident).
+
+L4 — PROFIT LADDER (runtime/portfolio/auto_trader/profit_ladder.py)
+
+THE NATRIX-specific "aggressive growing with short dated options then
+converting those wins in to long dated options" pattern, encoded.
+
+Flow:
+  outcome_attributor.attribute_close fires on stop/target/manual
+    ↓
+  After bandit + SHAP + drift + friction + prediction-record writes,
+  maybe_ladder_from_close checks 4 gates:
+    1. ladder enabled (NCL_AT_LADDER_ENABLED=1)
+    2. source idempotency (not already laddered)
+    3. engine_r ≥ NCL_AT_LADDER_R_THRESHOLD (default +2.0R)
+    4. source recipe ∈ short_dated_lottery set
+    5. realized_profit ≥ NCL_AT_LADDER_MIN_PROFIT_USD ($50)
+    6. destination recipe (leaps_long_dated) enabled
+    ↓
+  If all pass, emit NEW TradeIdea via tracker:
+    source = "profit_ladder"
+    strategy = "leaps_long_dated" (configurable)
+    ticker = same underlying
+    direction = same as closed
+    R_per_share = 5% underlying (conservative LEAP premium estimate)
+    planned_qty = max(1, ladder_R / R_per_share)
+    R-dollars budget = 50% of realized profit (configurable)
+    stop_basis = "thesis break OR underlying breaks pre-ladder swing"
+    target_basis = "30% underlying move within 120-365 DTE"
+    metadata.source_trade_idea_id = original
+    metadata.profit_ladder = True
+    ↓
+  New idea flows through normal loop: governor → calendar gate →
+    working_context gate → policy → friction → council quorum (if R≥$1k!)
+    → paper open.
+
+Idempotent on source trade_idea_id (eliminated set persisted to
+ladder_state.json). Audit JSONL at ladder_emissions.jsonl. MemUnit at
+importance 85 documenting the ladder event ("PROFIT LADDER fired:
+NVDA long lottery_calls_short_dated closed +3.20R ($640). Rolled 50%
+into new leaps_long_dated trade idea abc12345 ($320 R, 120-365 DTE
+target)").
+
+Tunables (env, no restart):
+  NCL_AT_LADDER_ENABLED=1
+  NCL_AT_LADDER_R_THRESHOLD=2.0
+  NCL_AT_LADDER_PROFIT_RATIO=0.50
+  NCL_AT_LADDER_MIN_PROFIT_USD=50
+  NCL_AT_LADDER_DTE_MIN=120
+  NCL_AT_LADDER_DTE_MAX=365
+  NCL_AT_LADDER_DESTINATION=leaps_long_dated
+
+NEW REST ENDPOINTS:
+  GET   /portfolio/auto-trader/strategies           → list all recipes
+  GET   /portfolio/auto-trader/strategies/{name}    → single recipe
+  PATCH /portfolio/auto-trader/strategies/{name}    → operator override
+  GET   /portfolio/auto-trader/ladder               → config + recent 10
+
+DASHBOARD ROLLUP now returns 12 keys (added registry + ladder):
+  wave: "14L-L1+L4"
+  registry: {total_recipes:23, enabled_count:23, by_bucket:..., by_asset_type:..., short_dated_lottery:[...], long_dated_swing:[...]}
+  ladder: {enabled:true, r_threshold:2.0, profit_ratio:0.5, destination_recipe:"leaps_long_dated", total_laddered_ever:0, recent_10_emissions:[...]}
+
+VERIFIED LIVE: Brain bounced clean.
+  - GET /auto-trader/strategies → 200 with all 23 recipes
+  - GET /auto-trader/ladder → 200 with config snapshot
+  - GET /auto-trader/dashboard → 200 with new registry + ladder keys
+
+NEXT (deferred from Wave 14L roadmap):
+  L2 — Quant scanner suite (pairs/mean-reversion/PEAD/factor/whale-flow)
+  L3 — Options strategy library (recipe-based multi-leg builders)
+  L5 — Tool-request + capability awareness
+  L6 — Pro-active scout loop (5min: profit targets / regime shifts / CC opportunities)

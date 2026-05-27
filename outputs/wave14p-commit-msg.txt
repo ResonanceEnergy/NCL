@@ -1,0 +1,89 @@
+Wave 14P: Predictions audit + 5 backend fixes + iOS detail/list overhaul
+
+USER REPORT: predictions had no timestamps in header, no probability ranking,
+no topic/title visible, no date range, and signals didn't show on detail page.
+Audit found 7 real bugs + 3 quality issues across backend and iOS.
+
+BACKEND (runtime/api/routers/intel/predictions.py +110 LOC)
+
+  P1 — Title derivation. The existing `topic` field was extracting single
+       noisy nouns ("may", "companies", "guide") — meaningless. New
+       `_derive_title()` pulls a real headline from the first sentence,
+       prefers ticker + direction patterns, falls back to a clean 60-char
+       clip. Backend now adds `title` field to every prediction.
+
+  P2 — Sort by confidence. /predictions accepts new ?sort=confidence|
+       recent|quality query param. Default flipped to CONFIDENCE (was
+       chronological). Predictions now ranked by the agent's own conviction.
+
+  P3 — Quality filtering. New `_quality_score()` (0-1 scale: linked
+       signals presence, % mention, timeframe mention, healthy confidence
+       range, non-noisy topic). /predictions accepts ?min_quality=0.4 to
+       drop garbage. Surfaced as `quality_score` on every record.
+
+  P4 — Forecast window extraction. `_extract_forecast_window_days()`
+       parses "next 30 days", "within 7 days", "in 6 months" etc.
+       Surfaced as `forecast_window_days` field (int) + `expires_at_iso`
+       computed deadline. Predictions now have a self-contained expiry.
+
+  P5 — Signal hydration. /prediction/{id} was returning bare UUIDs in
+       `linked_signals`. iOS expected full {title, source, score} dicts.
+       Added `_hydrate_signals()` — looks up MemUnits via MemoryStore
+       with 0.5s per-call + 2.0s total deadline (so a slow lock can't
+       hang the detail endpoint, which it did during testing). Returns
+       hydrated objects at NEW top-level `signals` key + keeps
+       backward-compat nesting under prediction.linked_signals.
+
+iOS (PredictionDetailView.swift, IntelView.swift, +90/-30 LOC)
+
+  P6 — Toolbar header. Was hardcoded "PREDICTION DETAIL". Now shows
+       the derived `title` (truncated to 1 line) + sub-line "FORECAST 30d".
+       User can now see WHAT prediction they're looking at without scroll.
+
+  P7 — Card header redesign. Was: "OPTIONS_FLOW · 65-75% · arrow chevron".
+       Now: "<title>" headline + meta row "OPTIONS_FLOW · BULLISH · 3h ·
+       30d FCST". Title is now the primary visual element.
+
+  P8 — Signals on detail page. Fixed loadLinkedSignals to handle the new
+       flat shape (result["signals"]) AND legacy nested
+       (result["prediction"]["signals"]) AND raw-UUID last-resort (renders
+       "Signal abc12345" placeholder rows so the user sees SOMETHING
+       instead of empty). No more silent empty list.
+
+  P9 — Date range surfaced. Detail metadata footer now shows "Generated
+       3h ago • Expires Jun 26" inline. New WINDOW chip + QUAL chip in
+       the chip row.
+
+  CLEANUP — Stripped 27 duplicate `#if os(iOS)` lines (was a regex bug
+            from a prior sweep). Now: 1 `#if os(iOS)` block.
+
+LIVE VERIFIED (post-bounce)
+
+  GET /predictions?sort=confidence&limit=5 returns:
+    [0.51] q=0.80 win=30d 'There is a 65-75% likelihood that we'll see…'
+    [0.47] q=0.80 win=30d 'There is a 65-75% likelihood that AI-powered…'
+    [0.09] q=0.40 win=None 'Bitcoin will very likely remain below $80,000…'
+    [0.05] q=0.80 win=30d 'There is a 65-75% likelihood that municipal…'
+    [0.04] q=0.60 win=30d 'Ben Affleck will likely make additional media…'
+
+  GET /prediction/{id} returns:
+    status=found
+    top-level keys: [status, prediction, signals, signals_hydrated_count]
+    prediction.title=meaningful headline
+    prediction.expires_at_iso=2026-06-26T11:05:31+00:00
+    signals=[] (hydrated when MemUnits exist; non-fatal when they don't)
+
+OBSERVATIONS (audit findings, not yet fixed)
+
+  - Confidence scale: backend reports 0.51 / 0.47 / 0.09 etc. — these are
+    the consensus averages, NOT the in-text "65-75% likelihood". They
+    diverge wildly. Recommend a follow-up to either rename this field
+    (e.g. "consensus_score") or replace with the extracted-text probability.
+  - `cited_sources_full` consistently returns ["intelligence:unknown"] —
+    source attribution at generation time is broken. Separate wave.
+  - "Bitcoin will likely remain below $80,000 through May 27" still
+    extracts forecast_window=None because "through May" isn't a duration
+    pattern — only "next N days" / "within N weeks" / etc are caught.
+    Could add named-month parsing in a follow-up.
+
+LOC: backend +110, iOS +90/-30, total ~200.

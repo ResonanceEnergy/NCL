@@ -1,0 +1,117 @@
+Wave 14J out-of-scope finisher: order-preview (NOT auto-exec) + backtest + manual + quote-source + streaming scaffold
+
+NATRIX requested the 5 items I had explicitly excluded as out-of-scope.
+Auto-executor stays excluded — that's a hard rule (system financial-action
+policy + literature unanimous). The other 4 ship in scoped/safe forms.
+
+Tests: 41 -> 49 passing. Brain healthy post-bounce.
+
+============================================================
+NOT BUILT: live auto-executor / order routing
+============================================================
+Hard line. System prompt: "never execute a trade, place an order, send
+money, or initiate a transfer on the user's behalf - always ask the user
+to perform those actions themselves." The audit-doc literature (Trading-
+R1, Frontiers AI survey, QuantInsti) is unanimous: LLM-augmented systems
+should keep order placement on the human side. The order_preview module
+below is the safe substitute.
+
+============================================================
+order_preview.py (~210 LOC) — DRY-RUN ONLY
+============================================================
+preview_order() takes a proposed trade and returns a complete dry-run
+report:
+  - is_preview_only: True (always)
+  - submission_blocked: True (always)
+  - governor_decision: composed risk_governor check
+  - wash_sale_flags: cross-account loss check (J4a)
+  - lot_impact_preview: HIFO recommendation for sells (J4b)
+  - estimated_commission_usd: from trade_cost_ledger median (J0a)
+  - submission_payloads: per-broker IBKR/Moomoo/SnapTrade strings
+    formatted for the OPERATOR to COPY-PASTE into the broker UI
+  - Every payload starts with `# IS_PREVIEW_ONLY = True` sentinel
+
+NCL has no credentials to submit and will never submit. Submission is
+operator-only via the broker's own ticket. This makes the human-in-the-
+loop pattern a single copy-paste instead of authoring orders from scratch.
+
+============================================================
+backtest_harness.py (~150 LOC)
+============================================================
+NOT a strategy R&D backtester. ONE thing: counter-factual replay of
+trade_idea_tracker history through the CURRENT risk_governor config.
+"What would my P&L look like if today's heat caps + drawdown bands had
+been in place over the past N days?"
+
+replay_window(lookback_days=90) reads trade_ideas.jsonl + snapshots.jsonl;
+re-runs each idea through check_proposed_trade() with the NAV at issue
+date. Outputs original_R vs replayed_R + per-strategy delta + blocked +
+throttled lists. Tunes heat caps without flying blind.
+
+============================================================
+manual_adapter.py (~170 LOC)
+============================================================
+The audit said 6 brokers is saturated. True for live brokers — but cold
+storage (hardware wallet Bitcoin), paper certificates, employer pre-IPO
+stock, private placements all exist in real portfolios. Manual adapter
+fits the same 7-method interface as the 6 broker adapters so it slots
+in alongside them.
+
+Storage: data/portfolio/manual_holdings.json (operator-maintained, file
+edits or REST CRUD via /portfolio/manual/{positions,position,account}).
+fetch_quotes() returns empty so the quote fallback chain takes over.
+
+============================================================
+quote_source.py (~160 LOC)
+============================================================
+Abstraction layer for the quote-fill chain (broker fast_info ->
+yfinance -> cached -> None). NOT a new paid feed (audit said premature).
+What this gives us: when the day comes that we wire Polygon/IEX, it's a
+one-file change instead of touching every adapter.
+
+QuoteSource protocol + StaticOverrideSource + YFinanceSource + CachedSource
++ QuoteChain composite with per-source stats (last_source, miss_count).
+default_quote_chain() returns a process-wide singleton chain.
+
+============================================================
+streaming_scaffold.py (~150 LOC)
+============================================================
+NOT a live WebSocket subscriber. The BASE CLASS that an opt-in adapter
+(IBKR updateEvent, Moomoo push) can subclass when J7c slippage data
+shows the 60s polling lag matters.
+
+PositionDeltaPublisher (abstract) + PositionDeltaConsumer (applies
+deltas to cache + optional re-check callback) + MockDeltaPublisher for
+tests. Zero live streams open today; opt-in only.
+
+============================================================
+REST endpoints (+8)
+============================================================
+  POST   /portfolio/orders/preview
+  GET    /portfolio/backtest/replay?lookback_days=N
+  GET    /portfolio/manual/positions
+  POST   /portfolio/manual/position
+  DELETE /portfolio/manual/position/{symbol}
+  PUT    /portfolio/manual/account
+  GET    /portfolio/quote-source/stats
+
+============================================================
+Tests added (8 new)
+============================================================
+  test_order_preview_validates_inputs
+  test_order_preview_market_buy        — asserts is_preview_only=True +
+                                          IS_PREVIEW_ONLY sentinel in
+                                          every payload
+  test_order_preview_rejected_governor — governor reject visible in
+                                          warnings array
+  test_backtest_replay_empty_window
+  test_manual_adapter_lifecycle
+  test_quote_source_static_override
+  test_quote_source_chain_falls_through
+  test_streaming_mock_publisher
+
+Plus a fix to test_slippage_record_and_rollup so it uses
+monkeypatch.setattr on the module constants directly (immune to
+sys.modules cache pollution from earlier tests).
+
+49/49 tests pass in 0.96s. Wave 14J 100% complete.

@@ -1,0 +1,93 @@
+Wave 14K hardening: calendar awareness + working-context gate + dashboard
+
+Three integration upgrades that wire the auto-trader into the rest of
+NCL instead of letting it run in isolation. Each upgrade adds one new
+module + a loop-tick gate + a dashboard surface so iOS can see it.
+
+#1 — CALENDAR AWARENESS (calendar_gate.py, ~190 LOC)
+
+New module reads compiled brain events (FOMC/OPEX/quad-witching/VIX
+expiry) + per-ticker earnings dates and blocks new opens within
+configurable day windows:
+
+  NCL_AT_BLOCK_FOMC_D=1
+  NCL_AT_BLOCK_OPEX_D=1
+  NCL_AT_BLOCK_VIX_D=0
+  NCL_AT_BLOCK_EARNINGS_D=2
+
+24h disk cache keyed by ticker. Wired into auto_trader_loop right
+after governor check + before policy auto-bar. Rejected ideas get a
+full reasoning_chain entry tagged "calendar: ...". Non-blocking on
+fetch failure (degraded to no-info, not crash).
+
+  New REST: GET /portfolio/auto-trader/calendar
+  Dashboard rollup gains `calendar` block (upcoming/blocking_now)
+
+Why: one FOMC-day blowup wipes weeks of compounding. Cheap insurance.
+
+#3 — WORKING-CONTEXT GATE (working_context_gate.py, ~180 LOC)
+
+Reads data/working_context/today.json every 5min (cached), filters to
+NATRIX-tier items (importance >= 80), extracts tickers via regex and
+checks two intent patterns per per-pinned item:
+
+  - BLOCK_PATTERNS (avoid/ban/no trades on/skip) → reject the open
+  - ALIGN_PATTERNS (watch/load up/long/buy/bullish) → annotate the
+    chain with alignment (informational, doesn't gate)
+
+Per-tick check happens between calendar gate and policy auto-bar.
+Non-blocking on read failure.
+
+  New REST: GET /portfolio/auto-trader/working-context?ticker=NVDA
+  Dashboard rollup gains `working_context` block (high-authority
+  item count + source list)
+
+Why: NATRIX's mandate (importance 100, NATRIX tier) was planted in
+memory but the auto-trader loop never read it. Now the mandate
+actually influences per-trade decisions, not just tomorrow's brief.
+
+#2 — iOS AUTO-TRADER CARD (FirstStrike side)
+
+  New iOS files:
+    Sources/Models/AutoTraderDashboard.swift (160 LOC) — 5 models +
+      one composite parser for /dashboard + /circuit-breakers
+    Sources/Views/Portfolio/AutoTraderView.swift (350 LOC) — 9 cards:
+      STATE (active/paused, today counters, last tick)
+      TOP STRATEGIES (Bayesian LCB ranked)
+      DRIFT (Page-Hinkley counts)
+      GRADUATION (graduated/failing buckets)
+      CALENDAR (upcoming + blocking)
+      WORKING CONTEXT (high-auth count + sources)
+      RECENT CLOSES (R-multiple per close)
+      FRICTION (calibrated strategy count)
+      OPEN RESEARCH TOPICS
+      CIRCUIT BREAKERS (only shown if any open)
+
+  Wired into PaperTradingView.filterBar — new "Auto" button (cyan
+  brain icon) opens AutoTraderView as a sheet. NavigationView wrapped
+  with iOS-only navigationBarTitleDisplayMode for Mac compat.
+
+  iOS build: green on iPhone 16e simulator; installed + launched.
+
+DASHBOARD ROLLUP (backend changes)
+
+/portfolio/auto-trader/dashboard now returns 9 top-level keys (was 7):
+  state, top_strategies, drift, graduation, research_topics,
+  recent_closes, friction, calendar (NEW), working_context (NEW)
+  wave: "14K-K6c-hardening1+3"
+
+VERIFIED LIVE (Brain bounced clean):
+  - GET /auto-trader/calendar         → 200 (970 events in 14d window,
+    0 currently blocking — next FOMC 2026-06-16 is 20d away)
+  - GET /auto-trader/working-context?ticker=NVDA → 200 (50 items
+    loaded, 50 high-authority, NVDA check blocked:false)
+  - GET /auto-trader/dashboard        → 200 with new calendar +
+    working_context blocks present
+  - iOS build: green on iPhone 16e sim
+  - Loop's per-tick gates non-blocking on failure (verified by
+    walking through the code path)
+
+NEXT (deferred from the audit):
+  - Council quorum spawn for high-effective-R ideas (~15 min)
+  - Predictions record per paper close (~1 hr)
+  - Daily journal "auto-trader EOD summary" entry (~1 hr)

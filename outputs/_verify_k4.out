@@ -1,0 +1,59 @@
+=== GET /auto-trader/bandit/posteriors (initial — empty until trades close) ===
+{
+    "posteriors": {}
+}
+
+=== POST /auto-trader/bandit/record-result (synthetic goat WIN) ===
+{
+    "strategy": "goat",
+    "alpha": 2.0,
+    "beta": 1.0,
+    "n_observed": 1,
+    "n_wins": 1,
+    "n_losses": 0,
+    "sum_R_multiple": 2.0,
+    "last_update_iso": "2026-05-26T22:31:17.735031+00:00"
+}
+
+=== POST /auto-trader/bandit/record-result (synthetic bravo LOSS) ===
+{
+    "strategy": "bravo",
+    "alpha": 1.0,
+    "beta": 2.0,
+    "n_observed": 1,
+    "n_wins": 0,
+    "n_losses": 1,
+    "sum_R_multiple": -1.0,
+    "last_update_iso": "2026-05-26T22:31:17.789558+00:00"
+}
+
+=== GET /auto-trader/bandit/ranked ===
+{
+    "ci": 0.95,
+    "ranked": [
+        {
+            "strategy": "goat",
+            "lcb": 0.1581,
+            "ucb": 0.9874,
+            "mean": 0.6667,
+            "n_observed": 1,
+            "avg_R_per_trade": 2.0
+        },
+        {
+            "strategy": "bravo",
+            "lcb": 0.0126,
+            "ucb": 0.8419,
+            "mean": 0.3333,
+            "n_observed": 1,
+            "avg_R_per_trade": -1.0
+        }
+    ]
+}
+
+=== POST /auto-trader/bandit/sample-arm goat vs bravo ===
+  pick: bravo
+  pick: goat
+  pick: goat
+  pick: goat
+  pick: goat
+DONE

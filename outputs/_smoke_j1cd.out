@@ -1,0 +1,14 @@
+AST OK: trade_idea_tracker.py
+AST OK: brief_pipeline.py
+AST OK: portfolio.py
+imports OK
+R_multiple tests OK
+holding_days test OK
+emitted: cb2a62471b3d4d76 goat emitted
+emitted 3 ideas, ids: ['cb2a62471b3d4d76', '6339b9e92f0d48d1', 'f2faaaf990164412']
+closed NVDA at $200: R_multiple=2.0 outcome=target_hit
+closed AMD at $132: R_multiple=-1.0 outcome=stopped_out
+goat stats: n_closed=2 hit_rate=0.5 avg_win_R=2.0 avg_loss_R=-1.0 expectancy_R=0.5 profit_factor=2.0
+bravo stats: n_emitted=1 n_closed=0
+_all: n_emitted=3 n_closed=2
+smoke OK

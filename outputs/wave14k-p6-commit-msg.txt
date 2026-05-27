@@ -1,0 +1,110 @@
+Wave 14K Phase 6: drift detection + graduation gate (K5a/b/c/d)
+
+Closes the safety-rail loop. The auto-trader can now detect when a
+strategy's edge has decayed and auto-pause itself; can produce a
+multi-criteria readiness report so the operator has decision-grade
+evidence before any (always-manual) live promotion; never auto-
+promotes anything.
+
+NEW: runtime/portfolio/auto_trader/drift_detector.py (~280 LOC)
+
+K5a — Per-strategy Page-Hinkley concept-drift detector on the win/loss
+stream. Each closed paper trade is fed in as 1/0; the canonical
+incremental sample mean (Welford) is the reference; m_down + m_up
+cumulative test statistics track below-mean and above-mean drift.
+Either statistic crossing PH_LAMBDA (default 0.50) raises a signal
+and resets that arm. MIN_N=20 observation warmup avoids signals from
+sample noise.
+
+  States: STABLE / DRIFT_DOWN / DRIFT_UP
+  Tunables: NCL_DRIFT_PH_DELTA, NCL_DRIFT_PH_LAMBDA,
+            NCL_DRIFT_MIN_N, NCL_DRIFT_WINDOW
+  Storage: data/portfolio/auto_trader/drift_state.json (warm-start)
+           data/portfolio/auto_trader/drift_events.jsonl (audit)
+
+K5b — Auto-pause hook in outcome_attributor: after every paper close,
+drift_detector.update() runs; on a STABLE→DRIFT_DOWN transition,
+maybe_auto_pause flips AutoTraderState.paused_by="drift_detector"
+and emits a portfolio:strategy_drift MemUnit at importance 90 so the
+next morning brief sees the regime shift in its context packet.
+Existing paper trades continue to mark-to-market and close normally;
+only NEW openings are blocked. Non-blocking failure (drift errors
+never break the close path).
+
+NEW: runtime/portfolio/auto_trader/graduation_gate.py (~290 LOC)
+
+K5c — Multi-criteria readiness report. 8 criteria, each returns
+{passed, value, threshold, reason, weight}:
+
+  1. min_sample_size      (weight 3 — no other criterion meaningful
+                           without it) — N ≥ 50 closed paper trades
+  2. min_hit_rate         — ≥ 45%
+  3. min_profit_factor    — ≥ 1.5
+  4. min_sqn              — Van Tharp SQN ≥ 1.7
+  5. min_expectancy_R     — ≥ 0.10R per trade
+  6. min_lcb_hit_rate     — Bayesian lower 95% credible bound ≥ 0.40
+                           (accounts for sample-size uncertainty)
+  7. no_recent_drift      — no DRIFT_DOWN signal within last 14 days
+  8. cycle_phase_confident— cycle_phase confidence ≥ 0.35
+                           (mixed regimes block graduation)
+
+Graduated == ALL criteria pass. Weighted readiness_score for partial-
+credit visibility. evaluate_all() rolls up across every strategy known
+to trade_idea_tracker with a _summary {graduated:[..], failing:[..]}.
+
+  Tunables: NCL_GRAD_MIN_N, NCL_GRAD_MIN_HIT_RATE,
+            NCL_GRAD_MIN_PROFIT_FACTOR, NCL_GRAD_MIN_SQN,
+            NCL_GRAD_MIN_EXPECTANCY_R, NCL_GRAD_MIN_LCB_HIT_RATE,
+            NCL_GRAD_MAX_DRIFT_RECENT, NCL_GRAD_REQUIRE_CYCLE_OK
+
+CRITICAL: "Graduated" is decision support, not an instruction. Wave 14K
+NEVER auto-promotes. The "no live executor" rule from Wave 14J is
+fully intact — order_preview formats for copy-paste, paper_trading
+for autonomous trading.
+
+K5d — 5 new REST endpoints on /portfolio:
+
+  GET  /auto-trader/drift                            — all strategies' PH state
+  GET  /auto-trader/drift/{strategy}                 — single-strategy state
+  POST /auto-trader/drift/{strategy}/reset           — operator reset
+  GET  /auto-trader/graduation                       — every strategy
+  GET  /auto-trader/graduation/{strategy}            — single report
+
+WIRED:
+  - outcome_attributor.attribute_close() now runs drift detector +
+    maybe_auto_pause after every close (non-blocking)
+  - auto_trader/__init__.py exports K5a/b/c/d helpers
+  - portfolio.py router gains the 5 endpoints above
+
+BUGFIX: switched drift detector reference from an EWMA bootstrap to
+the canonical incremental sample mean (Welford). The EWMA was too
+sticky on the first observation, drifting m_up under alternating data
+and producing false positives on stationary 50/50 streams. The Welford
+update is unbiased and self-correcting.
+
+TESTS: 9 new tests in tests/test_portfolio_manager.py covering:
+  - Drift detector: STABLE on 50/50 random, DRIFT_DOWN on losing
+    streak, warm-start persistence, reset semantics, auto-pause
+    transition + non-transition behavior
+  - Graduation gate: needs-data path, all-pass path, drift-blocks path,
+    evaluate_all summary
+
+Plus a shared _isolate_drift(tmp_path, monkeypatch) helper that
+correctly re-points DATA_DIR/STATE_FILE/EVENTS_FILE per test (avoiding
+the module-constant capture trap from earlier waves).
+
+All 29 auto-trader tests pass (12 P1-3 + 7 P5 + 5 P6 drift + 4 P6 grad
++ 1 cross).
+
+VERIFIED LIVE: Brain bounced clean.
+  - GET  /portfolio/auto-trader/drift            -> 200 {count:0}
+  - GET  /portfolio/auto-trader/drift/unknown    -> 404 (expected)
+  - POST /portfolio/auto-trader/drift/x/reset    -> 404 (expected)
+  - GET  /portfolio/auto-trader/graduation/goat  -> 200 graduated:false
+       (real data: 2 closed paper trades, fails min_sample_size correctly)
+  - GET  /portfolio/auto-trader/graduation       -> 200 with goat report
+
+NEXT (Phase 7 — Realistic frictions + iOS surface):
+  K6a: Friction profile injection on paper-trade open
+  K6b: Per-strategy friction calibration from observed live-vs-paper drift
+  K6c: iOS PaperTradingView (Mac + iOS) — auto-trader live status

@@ -1,0 +1,71 @@
+curl: (28) Operation timed out after 5005 milliseconds with 0 bytes received
+curl: (28) Operation timed out after 5003 milliseconds with 0 bytes received
+=== GET /portfolio/risk-governor/heat ===
+{
+    "nav_cad": 30000.0,
+    "band": "halt",
+    "sizing_multiplier": 0.0,
+    "budgets_pct": {
+        "total": 10.0,
+        "goat": 3.0,
+        "bravo": 2.0,
+        "options": 4.0,
+        "polymarket": 1.0,
+        "manual": 3.0,
+        "unknown": 3.0
+    },
+    "total": {
+        "current_R": 1350.0,
+        "cap_R": 3000.0,
+        "utilization": 0.45,
+        "remaining_R": 1650.0
+    },
+    "by_strategy": {
+        "goat": {
+            "current_R": 1000.0,
+            "cap_R": 900.0,
+            "utilization": 1.1111,
+            "remaining_R": 0.0
+        },
+        "bravo": {
+            "current_R": 350.0,
+            "cap_R": 600.0,
+            "utilization": 0.5833,
+            "remaining_R": 250.0
+        },
+        "options": {
+            "current_R": 0.0,
+            "cap_R": 1200.0,
+            "utilization": 0.0,
+            "remaining_R": 1200.0
+        },
+        "polymarket": {
+            "current_R": 0.0,
+            "cap_R": 300.0,
+            "utilization": 0.0,
+            "remaining_R": 300.0
+        },
+        "manual": {
+            "current_R": 0.0,
+            "cap_R": 900.0,
+            "utilization": 0.0,
+            "remaining_R": 900.0
+        },
+        "unknown": {
+            "current_R": 0.0,
+            "cap_R": 900.0,
+            "utilization": 0.0,
+            "remaining_R": 900.0
+        }
+    }
+}
+
+=== POST /portfolio/risk-governor/check goat 500 R, NAV=100K ===
+decision: throttle approved: True
+reason: Approved with throttle: drawdown band=caution -> multiplier=0.75. Proposed R $500 -> effective R $375.
+effective_R: 375.0
+
+=== POST /portfolio/risk-governor/check bravo 4K R (breaches cap), NAV=100K ===
+decision: reject approved: False
+reason: Strategy 'bravo' heat would breach cap: current=$350 + effective=$3000 > strategy_cap=$2000 (2.0% of NAV $100000).
+DONE

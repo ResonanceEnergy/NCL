@@ -1,0 +1,87 @@
+Wave 14K Phase 7: realistic frictions + iOS dashboard surface (K6a/b/c)
+
+Closes the realism + visibility loop. Paper trades now reflect the
+slippage and partial-fill risk a live order would face; the friction
+model self-calibrates from observed close data; the iOS Auto-Trader
+card has a single rollup endpoint to consume.
+
+NEW: runtime/portfolio/auto_trader/friction_profile.py (~300 LOC)
+
+K6a — Per-strategy FrictionProfile {slippage_bps, partial_fill_prob,
+partial_fill_min_pct, asset_type}. Per-asset-type defaults:
+  stock:   3 bps, 0% partial
+  options: 50 bps, 5% partial (min 30% qty)
+  crypto:  10 bps, 0% partial
+  futures: 15 bps, 0% partial
+
+apply_friction_to_payload() injects realistic friction at open time:
+  - LONG entries fill HIGHER than the limit by slippage_bps (paid more)
+  - SHORT entries fill LOWER than the limit (got less)
+  - Probability-gated partial fills reduce quantity to a sampled
+    fraction in [partial_fill_min_pct, 1.0]
+  - Original entry_price + quantity preserved in scanner_data.friction
+    for K6b calibration to read back
+
+Wired into loop._idea_to_paper_payload — every auto-trader open now
+gets per-strategy friction applied before hitting the paper engine.
+Non-blocking (open succeeds at unfricted price if friction lookup
+fails).
+
+K6b — calibrate_from_closes(strategy, window=50): reads recent closed
+paper trades, extracts the applied_bps from scanner_data.friction
+metadata, EMA-blends into the profile's slippage_bps with learning_
+rate (default 0.1). Per-strategy n_observed counter + last 50 bps
+samples preserved for audit.
+
+maybe_calibrate(strategy, n_closed) auto-fires every
+NCL_FRICTION_CALIB_EVERY_N (default 10) closes per strategy, called
+from outcome_attributor.attribute_close after the bandit/SHAP/drift
+chain. Persists to friction_profiles.json + appends each calibration
+to friction_calibrations.jsonl.
+
+K6c — New /auto-trader/dashboard rollup endpoint for iOS consumption:
+ONE call returns operator state, top-5 strategies by Bayesian LCB,
+drift status counts, graduation summary, open research topics count,
+5 most-recent closes (with R_multiple), friction profile count + list.
+iOS PaperTradingView (or a new AutoTraderCard view) can render the
+full auto-trader status from this single endpoint.
+
+5 new REST endpoints on /portfolio:
+  GET  /auto-trader/friction                          - all profiles
+  GET  /auto-trader/friction/{strategy}               - single (auto-default)
+  POST /auto-trader/friction/{strategy}               - operator override
+  POST /auto-trader/friction/{strategy}/calibrate     - on-demand re-calib
+  GET  /auto-trader/dashboard                         - iOS rollup
+
+(/auto-trader/status from Phase 1 unchanged — original
+operator-state endpoint stays pristine for backward compatibility.)
+
+TESTS: 7 new tests in tests/test_portfolio_manager.py covering:
+  - per-asset-type defaults (stock vs options)
+  - long-side adverse slippage applied correctly
+  - short-side adverse slippage applied in opposite direction
+  - partial-fill sampling with deterministic rng
+  - operator override clamps prob/min_pct to [0, 1]
+  - _bps_diff signed correctness (long vs short)
+  - maybe_calibrate gating (only fires on interval)
+
+Shared _isolate_friction helper mirrors the _isolate_drift pattern
+from Phase 6 to safely re-point module-level Path constants per test.
+
+All 36 auto-trader tests pass.
+
+VERIFIED LIVE: Brain bounced clean.
+  - GET  /portfolio/auto-trader/friction          -> 200 {count:0}
+  - GET  /portfolio/auto-trader/friction/goat     -> 200 (auto-default 3 bps)
+  - POST /portfolio/auto-trader/friction/goat     -> 200 (override 7.5 bps)
+  - POST /portfolio/auto-trader/friction/goat/calibrate -> 200 no-closes path
+  - GET  /portfolio/auto-trader/dashboard         -> 200 8-key rollup with
+       live data: 2 strategies failing graduation, 1 friction profile (goat),
+       3 recent closes, 2 strategies in bandit, drift counts {S:0, D:0, U:0}
+
+NEXT (Phase 8 — Self-healing + tests + docs):
+  K7a: Circuit breakers around every external dep (quote, governor,
+       tracker)
+  K7b: Crash recovery test (replay ledger from snapshot)
+  K7c: tests/test_auto_trader.py — full lifecycle integration test
+  K7d: Update CLAUDE.md with Wave 14K summary

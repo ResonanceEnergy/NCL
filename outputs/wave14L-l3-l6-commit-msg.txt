@@ -1,0 +1,130 @@
+Wave 14L L3+L6: options recipe library (11 builders) + pro-active scout loop
+
+The agent is now multi-leg-aware AND originating ideas (not just consuming).
+The recipe library knows how to build proper option structures from a
+ticker + price; the scout loop continuously scans open positions + holdings
++ regime + earnings for action opportunities.
+
+L3 — OPTIONS RECIPE LIBRARY (runtime/portfolio/auto_trader/options_recipes.py)
+
+11 multi-leg builders, each exposed as build_<recipe>(underlying, price, ...):
+
+  lottery_calls_short_dated   → 1 leg, 5-delta OTM call, <30 DTE
+  lottery_puts_short_dated    → 1 leg, 5-delta OTM put, <30 DTE
+  leaps_long_dated            → 1 leg, 80-delta deep ITM (call or put), 270d
+  pmcc                        → 2 legs: long ITM LEAP + short OTM monthly
+  vertical_bull_call          → 2 legs: long ATM call + short OTM call
+  vertical_bear_put           → 2 legs: long ATM put + short OTM put
+  iron_condor_low_vol         → 4 legs: short put spread + short call spread
+  straddle_earnings           → 2 legs: long ATM call + long ATM put
+  calendar_vol_term           → 2 legs: short front-month + long back-month
+  covered_call_income         → 1 leg: short OTM call (on N owned shares)
+  csp_income                  → 1 leg: short OTM put (cash-secured)
+
+Each returns an OptionStructure with:
+  - recipe_name, underlying
+  - legs: list[OptionLeg] {side, option_type, strike, dte_target, qty, action, delta_target, description}
+  - direction (long/short/neutral)
+  - max_risk_per_share + max_reward_per_share (for R-multiple math)
+  - target_dte_min/max bounds
+  - vol_regime_target (high_iv / low_iv / any)
+  - notes
+
+Helper _round_strike() applies typical option-strike spacing:
+  $0.50 below $25, $1 below $200, $5 above.
+
+build_structure(recipe_name, ...) is the dispatcher; returns None for
+non-option recipes (stock-only ones don't need leg construction).
+
+Tunables (env, no restart):
+  NCL_AT_LOTTERY_DELTA=0.10
+  NCL_AT_LEAPS_DELTA=0.80
+  NCL_AT_VERTICAL_WIDTH_PCT=5
+  NCL_AT_IC_WING_WIDTH_PCT=5
+  NCL_AT_IC_BODY_PCT=10
+
+L6 — PRO-ACTIVE SCOUT LOOP (runtime/portfolio/auto_trader/scout.py)
+
+NEW ncl-auto-trader-scout scheduler task (5min market / 30min off-hours).
+Originates trade ideas + MemUnits from 4 checks:
+
+  CHECK 1 — Profit-Target Hits
+    Walks all open paper trades. Any unrealized R >= recipe.profit_target_R
+    OR PROFIT_R_MIN (default 2.0R) emits importance-80 MemUnit
+    "profit-target candidate. Consider close or trail-stop tighten."
+
+  CHECK 2 — Regime Shift
+    Reads last two data/rotation/*.json files. Diffs Leading-quadrant
+    sector sets. Any DEMOTED/PROMOTED transition → importance-85 MemUnit
+    so morning brief sees regime change. Idempotent per ET date.
+
+  CHECK 3 — Covered-Call Opportunities
+    Reads live portfolio positions. Any stock holding ≥CC_MIN_SHARES (100)
+    with NO existing open covered_call_income paper trade → emits
+    importance-75 MemUnit suggesting the recipe with estimated premium.
+    Idempotent per ET date.
+
+  CHECK 4 — Earnings Defensive Flags
+    For each open paper trade ticker, checks earnings within
+    EARNINGS_WINDOW_D (5d) via calendar_gate's earnings fetcher.
+    Hit → importance-90 MemUnit "consider close or roll or hedge."
+    Idempotent per ET date.
+
+The scout DOES NOT auto-close positions. It emits suggestions that
+flow through normal operator review or trigger the existing ladder/
+auto-trader paths. Non-blocking on any check failure (degraded mode
+logs warning, continues).
+
+State (idempotency): scout_state.json
+Audit: scout_events.jsonl (every tick logged)
+
+Tunables (env):
+  NCL_AT_SCOUT_ENABLED=1
+  NCL_AT_SCOUT_TICK_MARKET=300       (5min market hours)
+  NCL_AT_SCOUT_TICK_OFFHOURS=1800    (30min off-hours)
+  NCL_AT_SCOUT_PROFIT_R_MIN=2.0
+  NCL_AT_SCOUT_EARNINGS_WINDOW_D=5
+  NCL_AT_SCOUT_CC_MIN_SHARES=100
+
+INTEGRATION
+
+  Scheduler:
+    ncl-auto-trader-scout task spawned at startup + supervisor factory
+    entry for restart on crash. Total auto-trader loops: 4
+    (loop, prices, eod, scout).
+
+  Dashboard rollup (/portfolio/auto-trader/dashboard):
+    +2 new keys: scout (recent 10 ticks + last_tick_iso), and registry
+    bumped to L1+L3+L4+L6 wave version. Total 13 top-level keys.
+
+  NEW REST ENDPOINTS:
+    GET   /portfolio/auto-trader/options-recipes
+          → list 11 builder names + count
+    POST  /portfolio/auto-trader/options-recipes/{name}/preview
+          Body: {underlying, underlying_price, ...extras}
+          → returns the OptionStructure (multi-leg payload preview)
+    GET   /portfolio/auto-trader/scout
+          → scout snapshot (enabled, tick cadence, recent 10 events)
+    POST  /portfolio/auto-trader/scout/tick
+          → force a scout tick on demand
+
+VERIFIED LIVE (Brain bounced clean):
+  - GET /options-recipes → 200 with 11 builders
+  - POST /options-recipes/pmcc/preview NVDA $185.50
+    → long ITM LEAP call $154 (270d) + short OTM monthly call $195 (30d)
+       max_risk=$38.03/sh, max_reward=$2.97/sh, dte 60-540, "any" vol
+  - POST /scout/tick → 200 (4 checks all returned 0; expected — small portfolio
+    with no profit targets yet, no regime shift today, snapshot positions
+    are options not stocks so no CC opportunities, no earnings in next 5d)
+  - Scout loop ticked twice (auto + force) → audit JSONL has 2 entries
+  - GET /dashboard → 200 with wave "14L-L1+L3+L4+L6" and 13 keys
+
+The agent is now genuinely PRO-ACTIVE — even when the brief doesn't
+emit ideas, the scout originates them from open state every 5 min.
+And when the brief emits an options idea like "vertical_bull_call AAPL",
+the registry knows the recipe spec + the library knows how to build
+the actual 2-leg structure with strikes and DTEs.
+
+NEXT (L2 + L5 deferred):
+  L2 — Quant scanner suite (pairs/mean-reversion/PEAD/factor/whale-flow)
+  L5 — Tool-request + capability awareness MemUnit emissions

@@ -1,0 +1,21 @@
+[DRAWDOWN] band transition green -> halt (dd=-100.00%, nav=$0.00, peak=$37350.95 @ 2026-05-21)
+[DRAWDOWN] band transition halt -> green (dd=0.00%, nav=$50000.00, peak=$50000.00 @ 2026-05-26)
+[DRAWDOWN] band transition green -> warning (dd=-10.00%, nav=$45000.00, peak=$50000.00 @ 2026-05-21)
+AST OK: drawdown_bucket.py
+AST OK: scheduler.py
+AST OK: portfolio.py
+imports OK
+classifier tests OK
+snapshot replay: peak=$37350.95 on 2026-05-21 from 33 samples
+  nav=$    0.00  peak=$37350.95  dd= -100.00%  band=halt      mult=0.0
+  nav=$50000.00  peak=$50000.00  dd=   +0.00%  band=green     mult=1.0
+  nav=$49000.00  peak=$49000.00  dd=   +0.00%  band=green     mult=1.0
+  nav=$47000.00  peak=$47000.00  dd=   +0.00%  band=green     mult=1.0
+  nav=$44000.00  peak=$44000.00  dd=   +0.00%  band=green     mult=1.0
+  nav=$41000.00  peak=$41000.00  dd=   +0.00%  band=green     mult=1.0
+  nav=$55000.00  peak=$55000.00  dd=   +0.00%  band=green     mult=1.0
+after override: manual_peak=50000.0 notes='smoke override'
+after recompute @ nav=45000 with override 50000: dd=-10.0% band=warning
+override cleared: manual_peak=None
+sync multiplier: 0.5
+smoke OK

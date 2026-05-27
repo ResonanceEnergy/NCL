@@ -1,0 +1,116 @@
+Wave 14J Phases 4-8: rotation execution + tax + polymarket + telemetry + hygiene + tests
+
+Hammer-batch closing out the remaining phases of the Wave 14J roadmap
+(docs/PORTFOLIO_MANAGER_AUDIT_2026-05-26.md). 24/24 unit tests pass.
+Five new modules + ~14 new REST endpoints + first test suite for the
+portfolio subsystem (previously 0 tests).
+
+============================================================
+PHASE 4 — Rotation execution (J3a + J3b + J3c)
+============================================================
+runtime/portfolio/rotation_execution.py (~220 LOC)
+  - pacing_plan(): 1/3 initial / 1/3 confirm / 1/3 retest. Leading
+    requires N-day confirmation (default 5). Lagging quadrant -> 0
+    eligible stages (any entry there is counter-trend).
+  - breadth_veto_check(): suppresses with-trend rotation entries
+    when breadth < 40% above 50d SMA (env: NCL_BREADTH_VETO_PCT).
+  - classify_stance(): with_trend / counter_trend / neutral from
+    sector_etf + direction vs current Leading/Lagging quadrants.
+  - annotate_trade_idea(): wires all three into the brief output.
+  Brief pipeline _annotate_rotation_execution() runs after executor
+  and regenerator, so every trade idea ships with rotation_quadrant,
+  rotation_stance, rotation_pacing, breadth_veto fields.
+
+============================================================
+PHASE 5 — Tax compliance (J4a + J4c + J4d) (J4b deferred)
+============================================================
+runtime/portfolio/tax_compliance.py (~250 LOC)
+  - WashSaleLedger: append-only JSONL of realized losses; check_open()
+    flags new positions on symbols with losses inside the 61-day
+    window. CROSS-ACCOUNT (broker + account_id don't matter — IRS
+    aggregates same-taxpayer accounts).
+  - lt_cliff_scan(): positions with cost_basis_date in (340, 366)
+    days flagged; sorted by days_to_lt_qualified.
+  - earnings_size_modifier(days_to_earnings): within 2d halves long-
+    premium + caps short-premium; within 7d trims long-prem 25%.
+
+============================================================
+PHASE 6 — Polymarket discipline (J6a + J6b + J6c)
+============================================================
+runtime/portfolio/polymarket_discipline.py (~210 LOC)
+  - kelly_size(): fractional Kelly (default 0.25) + 1/sqrt(days)
+    resolution-time discount. Returns {edge, kelly_fraction,
+    fractional_kelly, time_discount, size_usd, side, reasons}.
+  - cluster_id_from_metadata(): 8 regex patterns deriving stable
+    cluster IDs (election_potus_2028, fed_rates_2026, sports_nfl_2026,
+    ai_milestone_gpt5, btc_price_300k, etc.). Multiple markets on
+    the same event aggregate into one exposure cap.
+  - liquidity_cap(): position size <= cap_pct% of opposite-side
+    orderbook depth (default 10%). Throttles down with reason text.
+
+============================================================
+PHASE 7 — Telemetry (J7b + J7d) (J7a already in trade_idea_tracker)
+============================================================
+runtime/portfolio/telemetry.py (~220 LOC)
+  - risk_adjusted_returns(): Sharpe / Sortino / Calmar / Recovery
+    Factor / max DD / current DD from snapshots.jsonl. Annualized
+    via sqrt(252) scaling, risk-free 4.5% (NCL_RISK_FREE_RATE).
+  - drift_alerts(): operator-configured target weights vs current
+    allocation; emits TRIM/ADD action per bucket > tolerance.
+  - load/save_target_weights(): persisted JSON.
+
+============================================================
+PHASE 8 — Hygiene + tests (J8a + J8b + J8c + J9a)
+============================================================
+runtime/portfolio/hygiene.py (~230 LOC)
+  - stale_quote_check(): per-asset-class thresholds (equity 60s
+    RTH, crypto 30s, on-chain 3600s, polymarket 300s) with off-hours
+    multiplier; returns stale_age_seconds + is_stale + note.
+  - auth_expiry_alerts(): scans data/portfolio/auth_tokens.json for
+    tokens expiring within warn_hours (default 48).
+  - CircuitBreaker: generalized 3-strike/10-min skip. get_circuit_breaker
+    singleton per adapter. all_breaker_statuses() for observability.
+
+tests/test_portfolio_manager.py (~280 LOC)
+  - 24 tests covering risk governor, drawdown classifier, trade-idea
+    R-multiple (long+short), options DTE/pin coercion, rotation
+    pacing+stance+breadth, LT cliff, earnings sizer, Kelly, cluster
+    ids, liquidity cap, drift alerts, stale quote, circuit breaker,
+    trade cost ledger (async tmpdir), position risk store (async
+    tmpdir).
+  - First test file in tests/ covering the portfolio subsystem.
+  - All 24 pass in 1.26s.
+
+============================================================
+REST endpoints added (runtime/api/routers/portfolio.py + ~190 LOC)
+============================================================
+  GET  /portfolio/rotation/pacing/{ticker}
+  GET  /portfolio/tax/wash-sale-check/{symbol}
+  POST /portfolio/tax/wash-sale-record
+  GET  /portfolio/tax/lt-cliff
+  POST /portfolio/tax/earnings-sizer
+  POST /portfolio/polymarket/kelly
+  POST /portfolio/polymarket/cluster-id
+  POST /portfolio/polymarket/liquidity-cap
+  GET  /portfolio/telemetry/risk-adjusted
+  GET  /portfolio/telemetry/drift
+  PUT  /portfolio/telemetry/target-weights
+  GET  /portfolio/hygiene/stale-quotes
+  GET  /portfolio/hygiene/auth-expiry
+  GET  /portfolio/hygiene/circuit-breakers
+
+Deferred (out of scope for this batch):
+  - J4b spec-ID at sale time (per-broker complexity)
+  - J5a-c crypto on-chain tx journal + multi-chain (Etherscan pull)
+  - J7c slippage tracker (needs live execution)
+  - J8d trade-date / settle-date split (larger architectural change)
+  - Adapter-mock test harness for the 6 brokers (separate test wave)
+
+Wave 14J COMPLETE. Portfolio manager went from polling-aggregator-only
+to a risk-aware execution layer with: heat caps + drawdown throttle in
+a single gate; stop framework + R-multiple expectancy on every idea;
+options Greeks + DTE management + pin scanner; rotation pacing + breadth
+veto + counter-trend bucket; cross-account wash-sale ledger + LT cliff +
+earnings sizer; Polymarket Kelly + liquidity discipline; risk-adjusted
+returns + drift alerts; stale-quote + auth-expiry + circuit breakers.
+24 tests where there were 0.

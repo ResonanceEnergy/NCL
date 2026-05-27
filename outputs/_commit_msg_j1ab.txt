@@ -1,0 +1,72 @@
+Wave 14J J1a+J1b: risk governor (heat caps + drawdown throttle, single gate)
+
+Tier 1 Phase 2 piece #1. Composes J0b R-fields + J0c drawdown bucket
+into ONE check_proposed_trade() entrypoint that every scanner / brief /
+paper-trade calls before proposing new risk. The whole point of a single
+gate: a new scanner cannot accidentally skip half of the check.
+
+New module: runtime/portfolio/risk_governor.py (~340 LOC)
+  Decision tree (first-match wins):
+    1. band == halt           -> REJECT (mult=0)
+    2. proposed effective R   -> if zero, REJECT
+    3. total cap breached     -> REJECT
+    4. strategy cap breached  -> REJECT
+    5. else                   -> APPROVE or THROTTLE (if mult<1)
+
+  Return shape:
+    approved (bool), decision (approve|throttle|reject), reasons[],
+    proposed_R_dollars, effective_R_dollars (after multiplier),
+    strategy_tag, strategy_bucket, nav_cad, band, sizing_multiplier,
+    heat {current_total_R, total_cap_R, by_strategy_current_R,
+          by_strategy_cap_R, remaining_total_R, remaining_strategy_R}
+
+  Default per-strategy budgets (% of NAV, env-overridable):
+    total           10%  NCL_HEAT_TOTAL_PCT
+    goat             3%  NCL_HEAT_GOAT_PCT
+    bravo            2%  NCL_HEAT_BRAVO_PCT
+    options          4%  NCL_HEAT_OPTIONS_PCT
+    polymarket       1%  NCL_HEAT_POLYMARKET_PCT
+    manual/unknown   3%  NCL_HEAT_{MANUAL,UNKNOWN}_PCT
+
+  Strategy tag normalization (case-insensitive):
+    goat | momentum               -> goat
+    bravo | swing                 -> bravo
+    options | theta | strangle |
+      condor | put_credit | etc.  -> options
+    polymarket | prediction       -> polymarket
+    manual                        -> manual
+    else                          -> unknown
+
+  NAV floor NCL_HEAT_NAV_FLOOR_CAD (default 30000) ensures dev / pre-
+  connect environments still produce usable decisions.
+
+New REST endpoints (runtime/api/routers/portfolio.py +60 LOC):
+  GET  /portfolio/risk-governor/heat   - current utilization snapshot
+  POST /portfolio/risk-governor/check  - hypothetical trade approval
+
+Scanner integration (runtime/api/routes.py +70 LOC):
+  Both /stocks/scanner/goat and /stocks/scanner/bravo now compute a
+  hypothetical R per result (5% of price as a placeholder stop until
+  J1c lands operator-set stops) and attach:
+    result.governor_decision = {decision, approved, effective_R_dollars,
+                                proposed_R_dollars}
+    scan._meta.risk_governor = {band, sizing_multiplier,
+                                remaining_strategy_R}
+  Soft-tag — does NOT filter results out. iOS + brief consume the tag
+  to display whether a setup FITS in the current envelope.
+
+Live-verified post-bounce:
+  - smoke tests pass: normalize maps 7 aliases correctly; trade approval
+    paths approve under cap, reject at total breach, reject at strategy
+    breach, options bucket uses higher 4% cap
+  - REST: POST /check goat $500 R at NAV $100K -> throttle (band=caution
+    multiplier=0.75) -> effective_R $375
+  - REST: POST /check bravo $4K R -> reject ("Strategy bravo heat would
+    breach cap: current $350 + effective $3000 > strategy_cap $2000")
+  - GET /heat: shows total_R $1350/$3000 = 45% util, goat 111% over its
+    $900 cap, bravo 58% of $600 cap (legacy state from J0b tests)
+
+Next in Phase 2: J1c (stop framework on every trade idea — entry, stop
+price, stop type, target on every brief trade_idea + scanner result),
+J1d (per-strategy expectancy tracker — closed loop trade_idea_id ->
+outcome -> win rate / profit factor / expectancy in R / SQN).

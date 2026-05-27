@@ -1,0 +1,70 @@
+=== GET /portfolio/risk-state (initial — should have NVDA from smoke) ===
+curl: (28) Operation timed out after 8006 milliseconds with 0 bytes received
+Expecting value: line 1 column 1 (char 0)
+
+=== PATCH /portfolio/risk-state (set AAPL) ===
+{
+    "position_key": "moomoo:m1:AAPL",
+    "broker": "moomoo",
+    "account_id": "m1",
+    "symbol": "AAPL",
+    "qty": 50.0,
+    "entry_price": 195.0,
+    "stop_price": 188.0,
+    "stop_type": "price",
+    "stop_basis": "below 50d SMA",
+    "target_price": 215.0,
+    "target_basis": null,
+    "thesis": "Buyback acceleration + Vision Pro 2",
+    "R_dollars": 350.0,
+    "R_basis_date": "2026-05-26",
+    "risk_status": "at_risk",
+    "last_updated": "2026-05-26T19:47:51.233832+00:00",
+    "metadata": {
+        "strategy_tag": "bravo"
+    }
+}
+
+=== GET /portfolio/risk-state/moomoo:m1:AAPL ===
+{
+    "position_key": "moomoo:m1:AAPL",
+    "broker": "moomoo",
+    "account_id": "m1",
+    "symbol": "AAPL",
+    "qty": 50.0,
+    "entry_price": 195.0,
+    "stop_price": 188.0,
+    "stop_type": "price",
+    "stop_basis": "below 50d SMA",
+    "target_price": 215.0,
+    "target_basis": null,
+    "thesis": "Buyback acceleration + Vision Pro 2",
+    "R_dollars": 350.0,
+    "R_basis_date": "2026-05-26",
+    "risk_status": "at_risk",
+    "last_updated": "2026-05-26T19:47:51.233832+00:00",
+    "metadata": {
+        "strategy_tag": "bravo"
+    }
+}
+
+=== GET /portfolio/risk-state aggregate (should show 2 positions, sum R) ===
+aggregate: {
+  "total_R_at_risk_usd": 1350.0,
+  "by_strategy": {
+    "goat": 1000.0,
+    "bravo": 350.0
+  },
+  "by_broker": {
+    "ibkr": 1000.0,
+    "moomoo": 350.0
+  },
+  "open_positions_with_risk": 2,
+  "total_keys_tracked": 2
+}
+position count: 2
+
+=== /portfolio/positions has R-field enrichment (no live positions, but the shape is exercised) ===
+total_positions: 21
+first position keys include: ['R_dollars', 'position_key', 'risk_status', 'stop_price', 'thesis']
+DONE

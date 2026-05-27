@@ -1,0 +1,130 @@
+Wave 14L L2+L5: quant scanner suite (5 scanners) + capability registry
+
+THE Wave 14L roadmap is COMPLETE. The agent now has:
+  • L1 — 23 named strategy recipes with per-recipe metadata
+  • L2 — 5 quant scanners actively originating trade ideas
+  • L3 — 11 multi-leg option recipe builders
+  • L4 — Profit ladder rolling short-dated wins into LEAPS
+  • L5 — Self-aware capability registry that flags gaps
+  • L6 — Pro-active scout loop scanning open state every 5min
+
+L2 — QUANT SCANNER SUITE (runtime/portfolio/auto_trader/quant_scanners.py)
+
+5 scanners running as ncl-auto-trader-quant-scan scheduler task
+(30min market / 2hr off-hours). Each scanner:
+  1. Calls capability_registry.check_and_request → if dep missing,
+     auto-emits importance-95 tool:capability_request MemUnit + returns []
+  2. Runs its quant logic against env-configurable WATCHLIST
+     (default: SPY QQQ IWM NVDA TSLA AAPL MSFT AMD GOOG META AMZN
+      SLV GLD XLE XLF XLK)
+  3. Emits trade_ideas via trade_idea_tracker.record_emission with
+     source="quant:<scanner_name>"
+
+Scanners shipped:
+
+  mean_reversion_scanner — RSI<14 + Bollinger lower-touch on uptrending
+                            (price > 50d SMA). Long with stop 3% below
+                            lower BB, target at mid BB.
+
+  pead_scanner            — Post-earnings drift: ticker reported ≤5d ago
+                            with +3%+ 1d ROC → long 20d drift, stop 7%,
+                            target +20%.
+
+  factor_scanner          — Long Leading-quadrant sector ETFs from
+                            rotation_tracker with positive 5d rs_momentum.
+
+  pairs_scanner           — 5 default cointegrated pairs (XLE/XOM, XLK/MSFT,
+                            XLF/JPM, GLD/SLV, SPY/QQQ). 60-day price-ratio
+                            z-score > 2 → long the cheap leg.
+
+  whale_flow_scanner      — Stub awaiting UNUSUAL_WHALES_API_KEY. Calls
+                            check_and_request → emits capability_request
+                            on every tick until key is configured.
+
+Each scanner has its own embedded RSI/Bollinger/z-score math
+(no scipy dep). All yfinance fetches are asyncio.to_thread-wrapped to
+keep the event loop alive.
+
+L5 — CAPABILITY REGISTRY (runtime/portfolio/auto_trader/capability_registry.py)
+
+The agent's self-awareness layer. 11 capabilities seeded:
+
+  yfinance              free, import probe
+  earnings_calendar     module probe → runtime.stocks.enrichments
+  rotation_snapshot     file marker → data/rotation/{today}.json (2d max)
+  cycle_phase           file marker → data/rotation/cycle-{today}.json
+  ivr_data              soft signal, often unavailable
+  unusual_whales        env required → UNUSUAL_WHALES_API_KEY
+  finnhub               env required → FINNHUB_API_KEY
+  ibkr_market_data      env + module → IBKR_HOST/PORT/CLIENT_ID + ib_insync
+  polymarket            module probe → httpx
+  coingecko             module probe → httpx
+  fred                  optional FRED_API_KEY for some series
+
+check_capability(name) is the hot-path API. Returns
+{available, status, last_check_iso, gap_reason, missing_env, marker_age_days}
+with status one of: ok / missing_env / missing_module / stale_marker /
+missing_marker / unknown / disabled_check.
+
+check_and_request(name, brain=..., requesting_module=...) is the
+combined check + auto-MemUnit on gap. Dedupes per (capability, module,
+ET date) so a stuck gap doesn't spam the memory store. Emitted MemUnit
+has source="tool:capability_request" + tags including
+capability:<name> and requested_by:<module>.
+
+list_gaps() returns currently-unavailable capabilities for the iOS
+"Capability Gaps" card.
+
+INTEGRATION:
+  Scheduler: ncl-auto-trader-quant-scan task spawned at startup +
+    supervisor factory entry. Total auto-trader scheduler tasks: 5
+    (loop, prices, eod, scout, quant-scan).
+
+  Dashboard rollup gains 2 new keys: capabilities + quant_scan.
+  Wave bumped to "14L-L1-L6-complete". Total 15 top-level keys.
+
+  NEW REST endpoints:
+    GET   /portfolio/auto-trader/capabilities?only_gaps=BOOL
+          → 11 capability defs + current status + summary
+    GET   /portfolio/auto-trader/quant-scan
+          → snapshot (enabled, cadence, watchlist, scanner names,
+             recent 10 ticks)
+    POST  /portfolio/auto-trader/quant-scan/tick
+          → force a scan on demand
+
+VERIFIED LIVE (Brain bounced clean):
+  - GET /capabilities?only_gaps=true → 200, surfaces 3 real gaps:
+    rotation_snapshot (today's marker missing), cycle_phase (same file),
+    finnhub (missing FINNHUB_API_KEY). 8 of 11 capabilities available.
+  - POST /quant-scan/tick → 200 in <60s. Scanners ran:
+    mean_reversion: 0 found / 0 emitted
+    pead: 0 found / 0 emitted (no earnings in last 5d in watchlist)
+    factor: 0 found / 0 emitted (rotation snapshot capability missing,
+            scanner correctly degraded + emitted capability_request)
+    pairs: 1 FOUND / 1 EMITTED (z-score crossed 2.0 on one pair —
+           agent originated its first quant trade idea!)
+    whale_flow: 0 found / 0 emitted (UW key missing, capability_request
+                emitted as expected)
+  - GET /dashboard → wave "14L-L1-L6-complete", 15 keys
+  - 1 trade idea now sitting in trade_idea_tracker, awaiting next
+    auto-trader loop tick to walk through governor + calendar +
+    working_context + policy + friction + council quorum + paper open.
+
+WAVE 14L COMPLETE. The agent is now genuinely:
+  - MULTI-STRATEGY (23 recipes, 6 buckets)
+  - MULTI-LEG (11 option recipe builders)
+  - SELF-COMPOUNDING (profit ladder rolls wins to LEAPS at 50%)
+  - SELF-RESEARCHING (closes feed bandit + SHAP + drift + research topics)
+  - PRO-ACTIVE (scout originates ideas every 5min)
+  - QUANT-FED (5 scanners originating ideas every 30min)
+  - SELF-AWARE (capability registry flags its own data gaps)
+  - SELF-INTERRUPTING (drift auto-pause, drawdown halt, council quorum veto)
+  - SELF-HEALING (4 circuit breakers, supervisor restart, idempotent JSONL)
+  - SELF-SCHEDULING (5 dedicated auto-trader loops + 38 other NCL loops)
+
+Total LOC added across Wave 14L: ~3,300 (registry 410 + ladder 320 +
+options_recipes 400 + scout 360 + capability_registry 320 +
+quant_scanners 500 + wiring/REST/dashboard ~500). 6 new REST endpoints.
+
+NCL never places live orders. Paper-only. The "no live executor" rule
+from Wave 14J is intact through all of 14K + 14L.

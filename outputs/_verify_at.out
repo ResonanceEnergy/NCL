@@ -1,0 +1,37 @@
+=== GET /auto-trader/status (default: inactive) ===
+{
+    "is_active": false,
+    "state": {
+        "active": false,
+        "paused_by": null,
+        "pause_reason": "",
+        "paused_at_iso": null,
+        "drawdown_halt_pause": false,
+        "drawdown_halt_band": null,
+        "drawdown_halt_at_iso": null,
+        "last_loop_tick_iso": null,
+        "last_seen_trade_idea_id": null,
+        "ideas_evaluated_today": 0,
+        "ideas_opened_today": 0,
+        "ideas_rejected_today": 0,
+        "counters_date_utc": "2026-05-26"
+    }
+}
+
+=== GET /auto-trader/policy ===
+revision: 1
+min_R_R_ratio: 1.5
+max_opens_per_day: 12
+allow_counter_trend: False
+
+=== POST /auto-trader/eligibility-check (passing idea) ===
+{"eligible":true,"reason":"passed auto-bar","policy_rev":1}
+
+=== POST /auto-trader/eligibility-check (governor-rejected halt band) ===
+{"eligible":false,"reason":"governor: Drawdown band=halt","policy_rev":1}
+
+=== POST /auto-trader/resume ===
+{"active":true,"paused_by":null,"drawdown_halt_pause":false}
+
+=== POST /auto-trader/pause ===
+{"paused_by":"operator","pause_reason":"verify-test","paused_at_iso":"2026-05-26T22:08:09.226914+00:00"}DONE

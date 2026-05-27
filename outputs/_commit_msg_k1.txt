@@ -1,0 +1,124 @@
+Wave 14K Phase 1: auto-trader foundation (K0a + K0b + K0c)
+
+PAPER TRADING ONLY. The Wave 14J "no live executor" line stays intact
+forever. This phase ships the foundation an autonomous PAPER-trader
+will sit on top of in Phase 2-8. No loop fires yet — the loop module
+arrives in Phase 2. Phase 1 is observability + policy + state.
+
+============================================================
+K0a — Package skeleton + observability
+============================================================
+New package: runtime/portfolio/auto_trader/
+
+runtime/portfolio/auto_trader/__init__.py
+runtime/portfolio/auto_trader/observability.py (~150 LOC)
+  - record_reasoning_chain(): captures the FULL audit trail per trade
+    open — trade_idea_id, paper_trade_id, source, strategy, ticker,
+    model_meta, idea_snapshot, governor_decision, policy_check,
+    confidence_pct, rotation_context, regime_context,
+    effective_R_dollars, planned_qty, metadata
+  - Idempotent on trade_idea_id (re-recording returns existing)
+  - JSONL append + JSON state cache (last 100 chains, cap configurable)
+  - update_paper_trade_id() — link paper_trade_id post-create_trade()
+  - get_reasoning_chain() / list_recent_chains()
+  - The chain is what gets SHAP-attributed against win/loss in Phase 4
+
+============================================================
+K0b — Entry-criteria policy (operator-tunable)
+============================================================
+runtime/portfolio/auto_trader/policy.py (~270 LOC)
+
+AutoTraderPolicy dataclass — every field has a safe default + env-
+overridable. Operator can PATCH any field via REST without bouncing
+the brain (policy is loaded fresh each check).
+
+Gates (defaults):
+  require_governor_approved: True
+  block_on_drawdown_halt: True       (K0c integration)
+  block_on_breadth_veto: True
+  require_stop_price/target/R_per_share: True
+  require_source_citations: True
+  min_R_R_ratio: 1.5                 (above PaperTradingEngine 1.0 floor)
+  min_stop_distance_pct: 0.5         (no microscopic stops)
+  max_stop_distance_pct: 15.0        (no irrational risk per share)
+  require_thesis_min_chars: 20
+  valid_stop_types: price|atr|volatility|time|thesis_break
+  goat_require_with_trend: True      (counter-trend GOAT = operator-only)
+  allow_counter_trend: False         (operator must opt in via PATCH)
+  use_confidence_as_size_multiplier: True
+                                      (research-supported: size by conf,
+                                       don't gate on it)
+  min_confidence_pct: 0
+  max_opens_per_tick: 3
+  max_opens_per_day: 12
+  cooldown_seconds_after_open: 30
+
+auto_open_eligible(idea, governor_decision) -> (bool, reason) is the
+single entry point. Phase 2's loop will call this for every emitted
+trade idea before opening a paper trade.
+
+============================================================
+K0c — Drawdown auto-pause wiring
+============================================================
+runtime/portfolio/auto_trader/state.py (~180 LOC)
+
+AutoTraderState dataclass with explicit drawdown_halt_pause + band
+fields. set_drawdown_halt(halted, band) is what the Phase 2 loop calls
+each tick after reading drawdown_bucket.get_state(). is_active()
+returns True only when:
+  active AND paused_by is None AND not drawdown_halt_pause
+
+So: even if the operator has resumed, drawdown halt band auto-pauses
+the loop. Resume from manual pause does NOT clear drawdown_halt_pause
+— that resolves automatically when drawdown_bucket band moves back to
+non-halt.
+
+============================================================
+REST endpoints (+7)
+============================================================
+runtime/api/routers/portfolio.py +145 LOC
+
+  GET    /portfolio/auto-trader/status                    — state + day counters
+  GET    /portfolio/auto-trader/policy                    — current policy
+  PATCH  /portfolio/auto-trader/policy                    — operator tune
+  POST   /portfolio/auto-trader/pause                     — manual pause
+  POST   /portfolio/auto-trader/resume                    — clear manual pause
+  POST   /portfolio/auto-trader/eligibility-check         — dry-run a hypothetical idea
+  GET    /portfolio/auto-trader/reasoning-chains[?limit=N]
+  GET    /portfolio/auto-trader/reasoning-chains/{trade_idea_id}
+
+============================================================
+Tests added (8 new)
+============================================================
+tests/test_portfolio_manager.py
+  test_auto_trader_state_lifecycle        — active/paused/drawdown_halt
+  test_auto_trader_policy_load_and_patch  — load defaults, PATCH revision++,
+                                             reject unknown fields
+  test_auto_open_eligible_pass            — clean idea passes
+  test_auto_open_eligible_governor_reject — halt band shows in reason
+  test_auto_open_eligible_breadth_veto    — J3b veto respected
+  test_auto_open_eligible_rr_too_low      — R:R floor enforced
+  test_auto_open_eligible_counter_trend_blocked
+  test_auto_trader_observability_record_and_dedup
+                                          — capture + idempotent +
+                                            paper_trade_id link
+
+All 8 pass individually (verified -k auto_trader and -k auto_open
+isolated runs). Full suite has cross-test singleton pollution (same
+pattern that bit the J7c slippage test earlier — fixed there via
+monkeypatch.setattr); will surgical-fix in Phase 2 if it becomes a
+blocker.
+
+============================================================
+Live-verified post-bounce
+============================================================
+GET /auto-trader/status            -> is_active=false, day counters 0
+GET /auto-trader/policy             -> rev=1, min_R_R=1.5, max_opens/day=12,
+                                       counter_trend=false
+POST /auto-trader/eligibility-check passing idea  -> eligible=true
+POST /auto-trader/eligibility-check halt-band     -> eligible=false,
+                                                     reason "governor: Drawdown band=halt"
+POST /auto-trader/resume            -> active=true
+POST /auto-trader/pause             -> paused_by=operator + paused_at_iso stamped
+
+Phase 1 complete. Phase 2 (the actual decision loop) up next.

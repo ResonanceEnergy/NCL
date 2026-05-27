@@ -386,3 +386,6 @@ Resolved anomalies older than 30 days are moved to `/NCL/shared/intelligence/arc
 ## 2026-05-26 15:35:31Z — 1 anomalies
 - **[options_flow/options_flow/bearish]** (95%) AVGO flow alert: $4,861,826 (1460 contracts)
 
+## 2026-05-27 02:45:30Z — 2 anomalies
+- **[market_data/insider_cluster/bullish]** (86%) BRKH insider cluster: 3 insiders, net +6 ($0)
+- **[reddit/retail_gain/bullish]** (95%) AMD +$11M

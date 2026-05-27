@@ -1,0 +1,101 @@
+Wave 14R: Polymarket Agent — autonomous paper-bet loop (paper only)
+
+Mirrors Wave 14K auto-trader pattern but specialized for binary 0/1
+prediction-market outcomes. HARD CONSTRAINT: paper bets only, never
+live money — same Anthropic policy line as the equity auto-trader.
+
+ARCHITECTURE — 7 backend modules in runtime/portfolio/polymarket_agent/
+
+R1  state.py             operator-controlled active/paused (default OFF)
+                         + daily counters + paper bankroll ($1000 start)
+    capability_registry  polymarket entry updated with marker file
+                         + 2d staleness check
+
+R2  collector_loop.py    ncl-poly-collector (15min market / 60min off)
+                         persists Gamma API output to
+                         data/intelligence/polymarket/{today}.json
+                         (the file the Wave 14L scanner expected but
+                         never had — DOA fix). Dedup-merges across
+                         intra-day fetches by slug.
+
+R3  edge_engine.py       For each active market, find best-overlapping
+                         recent prediction (≥2 shared topic tokens).
+                         edge_pp = |stated_probability - market_yes_price|*100
+                         Threshold: 10pp default (env-tunable). Returns
+                         EdgeOpportunity sorted desc by edge.
+                         THIS IS THE REAL EDGE ENGINE — replaces the
+                         hardcoded 5pp guess in Wave 14L M2.
+
+R4  paper_engine.py      Binary 0/1 PolymarketPaperEngine. open_bet,
+                         resolve_bet (YES_WON / NO_WON / CANCELLED),
+                         close_manual at current price. Storage:
+                         bets.jsonl append-only + open_bets.json
+                         snapshot. Auto-loads on first call.
+
+R5  loop.py              TWO loops:
+                         poly_decision_loop  (5min/30min) — reads
+                         cache → compute_edges → kelly_size +
+                         cluster heat cap + bankroll cap → open bet
+                         poly_resolution_loop (5min) — checks open
+                         bets vs endDate; closes at terminal price
+                         when market lifecycle=resolved. Feeds
+                         bandit.record_result(strategy="polymarket_edge")
+                         for self-learning.
+
+R6  eod_summary.py       Daily attribution: bets placed/resolved,
+                         W/L, realized P/L, cluster breakdown,
+                         calibration (mean edge vs actual hit rate).
+                         Emits importance-70 MemUnit.
+
+NEW REST under /portfolio/polymarket-agent/*:
+  GET  /dashboard         15-key rollup for iOS PolymarketAgentView
+  GET  /state             current operator state
+  POST /pause + /resume   operator toggles
+  GET  /edges?limit=20    live opportunity list (what next tick would see)
+  GET  /bets?status=...   open|closed|all paper bets
+  POST /bets              manual paper bet (powers iOS PAPER BET button)
+  POST /bets/{id}/close   manual close at current price
+  POST /collect-now       operator-triggered Gamma fetch
+  GET  /eod-summary       today's attribution + lifetime stats
+
+SCHEDULER: 3 new ncl-poly-* tasks registered in _task_factories
+(supervisor-restartable):
+  ncl-poly-collector   15min/60min
+  ncl-poly-loop        5min/30min
+  ncl-poly-resolution  5min
+
+Default policy:
+  bankroll              $1000 starting paper
+  kelly_fractional      0.25 (variance-cut)
+  max_stake_pct_bankroll 5%  (per-bet)
+  cluster_cap_pct        10% (per-cluster aggregate)
+  max_opens_per_tick    2
+  max_opens_per_day     8
+  min_edge_pp           10
+  min_stake_usd         $5
+
+CALIBRATION FLYWHEEL — beyond the bets themselves, every resolved bet
+now feeds back into the predictions module's accuracy record. Within
+~90 days you'll have a Brier score per topic showing whether the
+prediction engine should be trusted at 70% or treated as a coin flip
+— a feedback loop the equity auto-trader can't provide (too much
+per-trade noise).
+
+LIVE VERIFIED:
+  - ncl-poly-collector ticked within 22s of bounce, wrote
+    data/intelligence/polymarket/2026-05-27.json (will grow on each
+    15min fetch)
+  - /polymarket-agent/state returns full state dict (bankroll=$1000,
+    active=false)
+  - /polymarket-agent/edges returns 0 (sparse Gamma fetch this tick,
+    will accumulate)
+  - Agent OFF by default — operator must POST /resume to begin
+
+iOS — Sources/Views/Portfolio/PolymarketAgentView.swift (+340 LOC)
+  - New AGENT sub-tab inside PLYMKT (between MAIN and PLANKTONXD)
+  - 5 cards: STATE (bankroll/counters/PAUSE-RESUME) + TOP EDGES +
+    OPEN BETS + RECENT RESOLUTIONS + LIFETIME CALIBRATION
+  - Header has "fetch now" + refresh buttons
+  - Build green iPhone 16e sim + physical iPhone + iPad
+
+LOC: backend ~1,200 (7 modules + REST + scheduler), iOS ~340.

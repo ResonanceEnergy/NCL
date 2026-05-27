@@ -1,0 +1,10 @@
+AST OK: position_risk_state.py
+AST OK: portfolio.py
+imports OK
+unit tests OK
+set result keys: ['R_basis_date', 'R_dollars', 'account_id', 'broker', 'entry_price', 'last_updated', 'metadata', 'position_key', 'qty', 'risk_status', 'stop_basis', 'stop_price', 'stop_type', 'symbol', 'target_basis', 'target_price', 'thesis']
+R_dollars: 1000.0 expected 1000.0
+enriched[0]: {'symbol': 'NVDA', 'risk_status': 'at_risk', 'R_dollars': 1000.0, 'stop_price': 170.0, 'thesis': 'Q3 data-center growth + Blackwell ramp', 'position_key': 'ibkr:du123:NVDA'}
+enriched[1]: {'symbol': 'AAPL', 'risk_status': 'unset', 'R_dollars': None, 'position_key': 'moomoo:m1:AAPL'}
+aggregate: {'total_R_at_risk_usd': 1000.0, 'by_strategy': {'goat': 1000.0}, 'by_broker': {'ibkr': 1000.0}, 'open_positions_with_risk': 1, 'total_keys_tracked': 1}
+smoke OK

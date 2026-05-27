@@ -1,0 +1,91 @@
+Wave 14J J1c+J1d: stop framework on every trade idea + closed-loop expectancy tracker
+
+Tier 1 Phase 2 piece #2 + #3. Closes the brief/scanner -> outcome ->
+expectancy loop so we can finally tell whether a strategy is actually
+profitable in R, not just whether it shipped a brief.
+
+============================================================
+J1c — Stop framework (mandatory entry/stop/target on every idea)
+============================================================
+
+runtime/api/routers/intel/brief_pipeline.py
+  Schema (executor prompt + output JSON):
+    - entry_price (number, $) REQUIRED
+    - stop_price (number, $) REQUIRED
+    - stop_type (price|atr|volatility|time|thesis_break) REQUIRED
+    - stop_basis (string, 1 sentence) REQUIRED
+    - target_price (number, $) REQUIRED
+    - target_basis (string, 1 sentence) REQUIRED
+    - R_per_share (number, $ = |entry-stop|) REQUIRED
+    - planned_qty (integer) OPTIONAL
+    - trade_idea_id (16-char UUID hex) auto-stamped
+    - issued_at_iso (UTC iso8601) auto-stamped
+
+  Stop-type guidance baked into the prompt: equity momentum (goat) =>
+  "atr" or "price"; swing (bravo) => "price" referencing structural
+  support; short-premium options => "price" at short strike or
+  "thesis_break"; long-premium options => "time" (21 DTE rule).
+
+  Critic enforcement: brief regenerates if any idea is missing any of
+  the 7 required fields, or if R_per_share != |entry-stop| within 1c,
+  or if long-side levels are out of order (stop<entry<target), or if
+  short-side levels are out of order (target<entry<stop), or if
+  stop_type isn't in the whitelist.
+
+  _stamp_trade_idea_ids() runs after both _execute_stage and
+  _regenerate_stage. Stamps trade_idea_id + issued_at_iso. Fire-and-
+  forget calls record_trade_idea_emission() into the J1d tracker so
+  every emitted idea is registered for future outcome attribution.
+
+============================================================
+J1d — Per-strategy expectancy tracker (closed loop)
+============================================================
+
+runtime/portfolio/trade_idea_tracker.py (~410 LOC)
+  TradeIdea dataclass: trade_idea_id, source, strategy, ticker,
+  direction, entry/stop/target prices, R_per_share, planned_qty,
+  stop_type/basis, target_basis, thesis, issued_at_iso, outcome,
+  closed_at_iso, exit_price, R_multiple, holding_days, notes, metadata
+
+  Storage:
+    data/portfolio/trade_ideas.jsonl       append-only audit log
+    data/portfolio/trade_ideas_state.json  current state (last-write-wins)
+
+  Outcome states (8): emitted | taken | stopped_out | target_hit |
+  manually_closed | expired | not_taken | superseded
+
+  R_multiple computation:
+    long  : (exit - entry) / R_per_share
+    short : (entry - exit) / R_per_share
+
+  Expectancy stats per strategy + _all rollup:
+    n_emitted, n_closed, n_winners, n_losers
+    hit_rate = n_winners / n_closed
+    avg_win_R, avg_loss_R, total_R_realized
+    profit_factor = sum_wins_R / |sum_losses_R|
+    expectancy_R = hit_rate * avg_win_R - (1-hit_rate) * |avg_loss_R|
+    sqn = Van Tharp: sqrt(N) * mean(R_multiples) / stdev(R_multiples)
+    avg_holding_days (mean across closed trades)
+
+REST endpoints (runtime/api/routers/portfolio.py):
+  GET  /portfolio/trade-ideas[?strategy=goat]
+  GET  /portfolio/trade-ideas/expectancy
+  GET  /portfolio/trade-ideas/{trade_idea_id}
+  POST /portfolio/trade-ideas/{trade_idea_id}/outcome
+       body: {outcome, exit_price?, notes?}
+
+============================================================
+Live-verified post-bounce:
+============================================================
+  - smoke tests pass: 3 ideas emitted across goat+bravo, 2 closed
+    (NVDA +2R win, AMD -1R loss), expectancy stats: goat hit_rate=0.5,
+    avg_win_R=2.0, avg_loss_R=-1.0, expectancy_R=+0.5, profit_factor=2.0
+  - REST /trade-ideas/expectancy returns full per-strategy + _all
+  - REST POST /outcome: closed bravo AAPL at exit_price=209
+    (entry 195, R_per_share 7) -> R_multiple=2.0 (computed correctly)
+  - After close: bravo n_closed=1 hit_rate=1.0 expectancy_R=+2.0
+    (no losses yet, profit_factor=None by div-by-zero guard)
+  - _all rollup: 3 emitted, 3 closed, hit_rate 0.67, expectancy_R +1.0
+
+Wave 14J Phase 2 complete. Phase 3 (options Greeks aggregation,
+IV rank gating, 21-DTE management, SPY->SPX substitution) next.

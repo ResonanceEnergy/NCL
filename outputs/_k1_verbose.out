@@ -1,0 +1,55 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.14.3, pytest-9.0.3, pluggy-1.6.0 -- /opt/homebrew/opt/python@3.14/bin/python3.14
+cachedir: .pytest_cache
+rootdir: /Users/natrix/dev/NCL
+configfile: pyproject.toml
+plugins: asyncio-1.3.0, anyio-4.13.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 57 items
+
+tests/test_portfolio_manager.py::test_risk_governor_strategy_normalization PASSED [  1%]
+tests/test_portfolio_manager.py::test_drawdown_band_classifier PASSED    [  3%]
+tests/test_portfolio_manager.py::test_trade_idea_R_multiple_long PASSED  [  5%]
+tests/test_portfolio_manager.py::test_trade_idea_R_multiple_short PASSED [  7%]
+tests/test_portfolio_manager.py::test_options_dte_watchlist_skips_longs PASSED [  8%]
+tests/test_portfolio_manager.py::test_options_pin_risk_coercion PASSED   [ 10%]
+tests/test_portfolio_manager.py::test_breadth_veto PASSED                [ 12%]
+tests/test_portfolio_manager.py::test_classify_stance PASSED             [ 14%]
+tests/test_portfolio_manager.py::test_pacing_plan_leading_confirmed PASSED [ 15%]
+tests/test_portfolio_manager.py::test_pacing_plan_lagging PASSED         [ 17%]
+tests/test_portfolio_manager.py::test_lt_cliff_scan PASSED               [ 19%]
+tests/test_portfolio_manager.py::test_earnings_size_modifier_2d PASSED   [ 21%]
+tests/test_portfolio_manager.py::test_earnings_size_modifier_none PASSED [ 22%]
+tests/test_portfolio_manager.py::test_kelly_size_passes_when_no_edge PASSED [ 24%]
+tests/test_portfolio_manager.py::test_kelly_size_with_edge PASSED        [ 26%]
+tests/test_portfolio_manager.py::test_cluster_id_election PASSED         [ 28%]
+tests/test_portfolio_manager.py::test_liquidity_cap_throttle PASSED      [ 29%]
+tests/test_portfolio_manager.py::test_liquidity_cap_under PASSED         [ 31%]
+tests/test_portfolio_manager.py::test_drift_alerts PASSED                [ 33%]
+tests/test_portfolio_manager.py::test_stale_quote_missing_timestamp PASSED [ 35%]
+tests/test_portfolio_manager.py::test_stale_quote_fresh PASSED           [ 36%]
+tests/test_portfolio_manager.py::test_circuit_breaker_opens_after_threshold PASSED [ 38%]
+tests/test_portfolio_manager.py::test_trade_cost_ledger_async PASSED     [ 40%]
+tests/test_portfolio_manager.py::test_position_risk_store_R_compute PASSED [ 42%]
+tests/test_portfolio_manager.py::test_mock_adapter_basic_flow PASSED     [ 43%]
+tests/test_portfolio_manager.py::test_mock_adapter_connect_failure PASSED [ 45%]
+tests/test_portfolio_manager.py::test_mock_adapter_quote_failure PASSED  [ 47%]
+tests/test_portfolio_manager.py::test_mock_adapter_disconnect_after_n PASSED [ 49%]
+tests/test_portfolio_manager.py::test_tax_lot_recommend_hifo PASSED      [ 50%]
+tests/test_portfolio_manager.py::test_tax_lot_recommend_fifo PASSED      [ 52%]
+tests/test_portfolio_manager.py::test_on_chain_journal_idempotent PASSED [ 54%]
+tests/test_portfolio_manager.py::test_on_chain_classify_liquid_stake PASSED [ 56%]
+tests/test_portfolio_manager.py::test_on_chain_classify_lp PASSED        [ 57%]
+tests/test_portfolio_manager.py::test_on_chain_multichain_rollup PASSED  [ 59%]
+tests/test_portfolio_manager.py::test_slippage_arrival_bps_long PASSED   [ 61%]
+tests/test_portfolio_manager.py::test_slippage_arrival_bps_short PASSED  [ 63%]
+tests/test_portfolio_manager.py::test_slippage_record_and_rollup PASSED  [ 64%]
+tests/test_portfolio_manager.py::test_settle_date_equity_t1 PASSED       [ 66%]
+tests/test_portfolio_manager.py::test_settle_date_skips_weekend PASSED   [ 68%]
+tests/test_portfolio_manager.py::test_settle_date_crypto_t0 PASSED       [ 70%]
+tests/test_portfolio_manager.py::test_cash_view_settled_vs_unsettled PASSED [ 71%]
+tests/test_portfolio_manager.py::test_order_preview_validates_inputs PASSED [ 73%]
+tests/test_portfolio_manager.py::test_order_preview_market_buy PASSED    [ 75%]
+tests/test_portfolio_manager.py::test_order_preview_rejected_governor PASSED [ 77%]
+tests/test_portfolio_manager.py::test_backtest_replay_empty_window PASSED [ 78%]
+tests/test_portfolio_manager.py::test_manual_adapter_lifecycle

@@ -1,0 +1,74 @@
+=== /portfolio/trade-costs/today ===
+{
+    "date": "2026-05-26",
+    "total_usd": 0.001,
+    "entries": 1,
+    "by_broker": {
+        "SMOKE": 0.001
+    },
+    "by_action": {
+        "commission": 0.001
+    },
+    "by_strategy": {
+        "smoke_test": 0.001
+    },
+    "by_asset_class": {
+        "equity": 0.001
+    }
+}
+
+=== POST /portfolio/trade-costs/record (live ping) ===
+{"status":"ok"}
+=== /portfolio/trade-costs/ledger?limit=5 ===
+{
+    "limit": 5,
+    "count": 2,
+    "entries": [
+        {
+            "timestamp": "2026-05-26T19:42:11.041416+00:00",
+            "date": "2026-05-26",
+            "broker": "SMOKE",
+            "action": "commission",
+            "amount_usd": 0.001,
+            "symbol": "SMOKE",
+            "asset_class": "equity",
+            "strategy_tag": "smoke_test",
+            "metadata": {
+                "smoke": true,
+                "wave": "14J-J0a"
+            }
+        },
+        {
+            "timestamp": "2026-05-26T19:43:31.302779+00:00",
+            "date": "2026-05-26",
+            "broker": "IBKR",
+            "action": "commission",
+            "amount_usd": 0.65,
+            "symbol": "NVDA",
+            "asset_class": "equity",
+            "strategy_tag": "goat",
+            "metadata": {
+                "first_strike_test": true,
+                "fill_id": "x9k2"
+
+=== /portfolio/trade-costs/today (after) ===
+{
+    "date": "2026-05-26",
+    "total_usd": 0.651,
+    "entries": 2,
+    "by_broker": {
+        "SMOKE": 0.001,
+        "IBKR": 0.65
+    },
+    "by_action": {
+        "commission": 0.651
+    },
+    "by_strategy": {
+        "smoke_test": 0.001,
+        "goat": 0.65
+    },
+    "by_asset_class": {
+        "equity": 0.651
+    }
+}
+DONE
