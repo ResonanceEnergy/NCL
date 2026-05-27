@@ -409,7 +409,15 @@ class StockScanner:
         # ── Feature 5: earnings calendar (batch) ────────────────────────
         # P19-A — pass tickers list so the yfinance fallback can fire when
         # FINNHUB_API_KEY is missing. Previously failed silently.
-        earnings_map = await enr.get_earnings_map(tickers=tickers)
+        # Wave 14R fix — extract from results (this fn takes `results` not
+        # `tickers`; prior code referenced an undefined `tickers` var
+        # and the whole scanner raised NameError on every call).
+        scan_tickers = sorted({
+            (r.get("ticker") or "").upper().strip()
+            for r in results
+            if r.get("ticker")
+        })
+        earnings_map = await enr.get_earnings_map(tickers=scan_tickers)
         if earnings_map is None:
             meta["earnings_source"] = "unavailable"
         else:

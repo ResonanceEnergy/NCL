@@ -5107,6 +5107,8 @@ async def stocks_scanner_bravo(
             if aw is not None:
                 _stock_scanner.attach_async_writer(aw)
 
+        import time as _tb
+        scan_start = _tb.time()
         results, scan_meta = await _stock_scanner.run_bravo_scan_enriched(
             tickers,
             include_held=include_held,
