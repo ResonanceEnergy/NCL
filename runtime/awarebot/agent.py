@@ -3393,10 +3393,16 @@ Focus on what requires attention or action."""
                             if getattr(s, "source_platform", None)
                         }
                     )
+                    # Wave 14Q: only include signals that have a real
+                    # source_platform — never emit the bogus
+                    # "intelligence:unknown" placeholder. If all signals
+                    # are missing platform, leave empty so the detail
+                    # endpoint can hydrate from MemoryStore at read time.
                     cited_sources_full = sorted(
                         {
-                            f"intelligence:{(getattr(s, 'source_platform', '') or 'unknown').strip().lower()}"  # noqa: E501
+                            f"intelligence:{(getattr(s, 'source_platform', '') or '').strip().lower()}"  # noqa: E501
                             for s in cluster_signals
+                            if getattr(s, "source_platform", None)
                         }
                     )
                     pred_data = {

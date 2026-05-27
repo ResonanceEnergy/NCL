@@ -256,25 +256,163 @@ def _derive_title(pred: dict) -> str:
     return first_sentence
 
 
+_MONTHS = {
+    "january": 1, "jan": 1, "february": 2, "feb": 2, "march": 3, "mar": 3,
+    "april": 4, "apr": 4, "may": 5, "june": 6, "jun": 6, "july": 7, "jul": 7,
+    "august": 8, "aug": 8, "september": 9, "sept": 9, "sep": 9, "october": 10,
+    "oct": 10, "november": 11, "nov": 11, "december": 12, "dec": 12,
+}
+_NAMED_MONTH_RE = re.compile(
+    r"(?:through|by|until|before|ending|end of)\s+"
+    r"(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
+    r"jul(?:y)?|aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|"
+    r"dec(?:ember)?)(?:\s+(\d{1,2}))?(?:,?\s+(\d{4}))?",
+    re.IGNORECASE,
+)
+_QUARTER_RE = re.compile(
+    r"(?:by|through|until|end of)\s+(?:end of\s+)?(?:q|quarter\s+)([1-4])",
+    re.IGNORECASE,
+)
+_YEAR_END_RE = re.compile(
+    r"(?:by|through|until)\s+(?:end[- ]of[- ]year|year[- ]end|EOY)",
+    re.IGNORECASE,
+)
+_NEXT_QUARTER_RE = re.compile(r"\b(?:next|coming)\s+quarter\b", re.IGNORECASE)
+_NEXT_MONTH_RE = re.compile(r"\b(?:next|coming)\s+month\b", re.IGNORECASE)
+_NEXT_WEEK_RE = re.compile(r"\b(?:next|coming)\s+week\b", re.IGNORECASE)
+
+
 def _extract_forecast_window_days(text: str) -> Optional[int]:
-    """Parse text for a forecast horizon. Returns days, or None."""
+    """Parse text for a forecast horizon. Returns days, or None.
+
+    Wave 14Q: Now handles:
+      - "next/within/in N days/weeks/months/quarters" (original)
+      - "through May 27" / "by June 30" — named month + day
+      - "by Q3" / "end of quarter 2"
+      - "by end of year" / "EOY"
+      - "next quarter" → 90d, "next month" → 30d, "next week" → 7d
+    """
     if not text:
         return None
+    from datetime import timedelta
+    today = datetime.now(timezone.utc).date()
+
+    # 1. Original duration pattern (most precise — try first)
     m = _FORECAST_WINDOW_RE.search(text)
-    if not m:
+    if m:
+        n = int(m.group(1))
+        unit = m.group(2).lower()
+        if "hour" in unit:
+            return max(1, n // 24)
+        if "day" in unit:
+            return n
+        if "week" in unit:
+            return n * 7
+        if "month" in unit:
+            return n * 30
+        if "quarter" in unit:
+            return n * 90
+
+    # 2. Named month: "through May 27", "by June 30", "by end of December"
+    m = _NAMED_MONTH_RE.search(text)
+    if m:
+        try:
+            month_str = m.group(1).lower()
+            month = _MONTHS.get(month_str)
+            if month:
+                day = int(m.group(2)) if m.group(2) else 28  # default to month-end-ish
+                year = int(m.group(3)) if m.group(3) else today.year
+                from datetime import date as _date
+                target = _date(year, month, min(day, 28))
+                # If target is in the past for current year, assume next year
+                if target < today:
+                    target = _date(year + 1, month, min(day, 28))
+                delta = (target - today).days
+                # Allow 0 (same-day expiry) up to a 2-year sanity cap
+                if 0 <= delta < 730:
+                    return max(delta, 1)  # report ≥1 so iOS shows "1d" not "0d"
+        except (ValueError, TypeError):
+            pass
+
+    # 3. "by Q3" / "by end of quarter 2"
+    m = _QUARTER_RE.search(text)
+    if m:
+        try:
+            q = int(m.group(1))
+            from datetime import date as _date
+            # Quarter end: Mar 31, Jun 30, Sep 30, Dec 31
+            q_end_month = q * 3
+            q_end_day = {3: 31, 6: 30, 9: 30, 12: 31}[q_end_month]
+            target = _date(today.year, q_end_month, q_end_day)
+            if target < today:
+                target = _date(today.year + 1, q_end_month, q_end_day)
+            return (target - today).days
+        except (ValueError, KeyError):
+            pass
+
+    # 4. "by end of year" / "EOY"
+    if _YEAR_END_RE.search(text):
+        from datetime import date as _date
+        return (_date(today.year, 12, 31) - today).days
+
+    # 5. "next quarter/month/week"
+    if _NEXT_QUARTER_RE.search(text):
+        return 90
+    if _NEXT_MONTH_RE.search(text):
+        return 30
+    if _NEXT_WEEK_RE.search(text):
+        return 7
+
+    return None
+
+
+# Wave 14Q: extract the in-text probability claim (e.g. "65-75%" → 70)
+_STATED_PROB_RE = re.compile(
+    r"(\d{1,3})\s*(?:-|–|to)\s*(\d{1,3})\s*%|(\d{1,3})\s*%",
+)
+
+
+def _extract_stated_probability(text: str) -> Optional[float]:
+    """Pull the prediction's own stated probability from the description.
+
+    Returns midpoint as a 0-1 float. "65-75% likelihood" → 0.70.
+    "95% confidence" → 0.95. Ignores percentages that are clearly NOT
+    likelihood (price moves, growth rates) by requiring the word
+    'likely', 'probability', 'chance', 'likelihood', 'confidence' nearby
+    or by being the first % mentioned in the first sentence.
+    """
+    if not text:
         return None
-    n = int(m.group(1))
-    unit = m.group(2).lower()
-    if "hour" in unit:
-        return max(1, n // 24)
-    if "day" in unit:
-        return n
-    if "week" in unit:
-        return n * 7
-    if "month" in unit:
-        return n * 30
-    if "quarter" in unit:
-        return n * 90
+    # Restrict to the first 200 chars — the headline claim, not later qualifiers
+    head = text[:200]
+    likelihood_context = re.compile(
+        r"(\d{1,3})\s*(?:-|–|to)\s*(\d{1,3})\s*%[\s\w]*?"
+        r"(?:likely|probability|chance|likelihood|confidence|odds)",
+        re.IGNORECASE,
+    )
+    m = likelihood_context.search(head)
+    if m:
+        lo, hi = int(m.group(1)), int(m.group(2))
+        return round((lo + hi) / 200.0, 3)
+    # Single-value "95% confidence" / "70% likely"
+    single_ctx = re.compile(
+        r"(\d{1,3})\s*%[\s\w]*?(?:likely|probability|chance|likelihood|confidence|odds)",
+        re.IGNORECASE,
+    )
+    m = single_ctx.search(head)
+    if m:
+        pct = int(m.group(1))
+        if 0 < pct <= 100:
+            return round(pct / 100.0, 3)
+    # Bare range like "65-75%" in the headline — assume likelihood unless followed by $ / shares
+    bare_range = re.search(r"(\d{1,3})\s*(?:-|–|to)\s*(\d{1,3})\s*%", head)
+    if bare_range:
+        lo, hi = int(bare_range.group(1)), int(bare_range.group(2))
+        # Reject if it's a price/volume context
+        tail = head[bare_range.end(): bare_range.end() + 30].lower()
+        if any(w in tail for w in ("growth", "gain", "drop", "decline", "increase", "decrease", "yield", "return")):
+            return None
+        return round((lo + hi) / 200.0, 3)
     return None
 
 
@@ -440,6 +578,18 @@ async def list_predictions(
             window_days,
         )
         p["quality_score"] = _quality_score(p, desc or "")
+
+        # Wave 14Q: stated probability from text — overrides confusing
+        # consensus average for the user-facing "confidence" display.
+        stated = _extract_stated_probability(desc or "")
+        p["stated_probability"] = stated
+        # The consensus average from the predictor (model agreement score)
+        # is preserved under its own name so we never lose either signal.
+        p["consensus_score"] = p.get("confidence", 0)
+        # `confidence` now means "the prediction's own conviction" — the
+        # stated probability if it exists, else the consensus average.
+        if stated is not None:
+            p["confidence"] = stated
 
     # Filter by min_quality first
     filtered = [p for p in predictions if isinstance(p, dict) and p.get("quality_score", 0) >= min_quality]
@@ -1008,7 +1158,7 @@ async def get_prediction_detail(
                     preds = [data]
                 for pred in preds:
                     if pred.get("prediction_id") == prediction_id:
-                        # Wave 14P: enrich the same way the list endpoint does
+                        # Wave 14P+Q: enrich the same way the list endpoint does
                         # so the iOS detail view sees a consistent shape.
                         desc = _extract_prediction_description(pred)
                         if desc:
@@ -1025,9 +1175,31 @@ async def get_prediction_detail(
                             window_days,
                         )
                         pred["quality_score"] = _quality_score(pred, desc or "")
+                        # Wave 14Q: stated probability + preserve consensus
+                        stated = _extract_stated_probability(desc or "")
+                        pred["stated_probability"] = stated
+                        pred["consensus_score"] = pred.get("confidence", 0)
+                        if stated is not None:
+                            pred["confidence"] = stated
                         # Hydrate linked signal UUIDs to full {id, title, source, score} objects
                         sig_ids = pred.get("linked_signals") or []
                         hydrated = await _hydrate_signals(brain, sig_ids, max_n=10)
+                        # Wave 14Q: if upstream cited_sources_full is broken
+                        # (the common ["intelligence:unknown"] case), rebuild
+                        # it from the hydrated signal sources.
+                        existing_sources = pred.get("cited_sources_full") or []
+                        if not existing_sources or existing_sources == ["intelligence:unknown"]:
+                            real_sources = sorted({
+                                (s.get("source") or "").strip()
+                                for s in hydrated
+                                if s.get("source")
+                            })
+                            if real_sources:
+                                pred["cited_sources_full"] = real_sources
+                                pred["cited_sources_platform"] = sorted({
+                                    src.split(":", 1)[-1] if ":" in src else src
+                                    for src in real_sources
+                                })
                         # Return BOTH nested (for back-compat) AND flat signals
                         # (so iOS doesn't need to dig through .prediction.signals).
                         return {
