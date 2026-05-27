@@ -622,22 +622,19 @@ async def _collect_ytc_recent() -> dict:
 
 
 async def _collect_todo_7day(brain) -> dict:
-    """Calendar watchlist for next 7 days — pulls from CalendarAgent."""
+    """Calendar watchlist for next 7 days — pulls from CalendarAgent.
+    build_watchlist returns list[dict] of correlated todos with priority,
+    action, source, context, urgency, energy_aligned."""
     try:
         from runtime.calendar.watchlist import build_watchlist
-        wl = await build_watchlist(window_days=7) if callable(build_watchlist) else {}
-        return wl if isinstance(wl, dict) else {"items": []}
+        todos = await build_watchlist()
+        if isinstance(todos, list):
+            # Sort by priority (1=highest, 5=lowest)
+            todos.sort(key=lambda t: (t.get("priority", 5), t.get("urgency", "this_week")))
+            return {"items": todos[:15], "count": len(todos)}
+        return {"items": [], "count": 0}
     except Exception as e:
-        # Fallback: read calendar/watchlist endpoint output if persisted
-        try:
-            from pathlib import Path as _Path
-            cal_dir = _Path(NCL_BASE) / "data" / "calendar"
-            files = sorted(cal_dir.glob("watchlist-*.json"), reverse=True) if cal_dir.exists() else []
-            if files:
-                return json.loads(files[0].read_text())
-        except Exception:
-            pass
-        return {"items": [], "error": str(e)}
+        return {"items": [], "count": 0, "error": str(e)}
 
 
 async def build_prep_pack(
@@ -764,7 +761,10 @@ async def build_prep_pack(
         ),
         "YTC": _block("YTC", ytc_recent, "/youtube/reports/recent"),
         "CONTEXT": _block(
-            "CONTEXT", (wc or {}).get("items", [])[:10], "/memory/working-context"
+            "CONTEXT",
+            (wc or {}).get("pinned_priorities", [])[:10]
+            + [{"text": t} for t in (wc or {}).get("themes", [])[:5]],
+            "/memory/working-context",
         ),
         "TODO_7DAY": _block("TODO_7DAY", todo_7day, "/calendar/watchlist"),
     }

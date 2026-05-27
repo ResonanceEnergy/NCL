@@ -103,15 +103,28 @@ def _render_block(name: str, data) -> list[str]:
             if not items:
                 lines.append(f"  (no fresh scan — last scan {scan_date})")
             else:
-                lines.append(f"  Top {len(items)} from {scan_date} scan:")
+                # Wave 14S+1: dedup by ticker (scanner JSONL has multiple
+                # intraday snapshots per ticker). Take the best score
+                # per ticker, keep top 5 unique.
+                seen: dict = {}
                 for it in items:
-                    score = it.get("score", 0)
+                    tk = it.get("ticker") or ""
+                    if not tk:
+                        continue
+                    cur = seen.get(tk)
+                    if cur is None or (it.get("score") or 0) > (cur.get("score") or 0):
+                        seen[tk] = it
+                unique = sorted(seen.values(), key=lambda r: r.get("score") or 0, reverse=True)[:5]
+                lines.append(f"  Top {len(unique)} (unique tickers) from {scan_date} scan:")
+                for it in unique:
+                    score = float(it.get("score") or 0)
+                    price = float(it.get("price") or 0)
+                    stop = float(it.get("stop_loss") or 0)
+                    target = float(it.get("target_1") or 0)
                     aligned = "✓rotation" if it.get("rotation_aligned") else ""
                     lines.append(
-                        f"  • {it.get('ticker', '?'):6s} score={score:.0f} "
-                        f"@ ${it.get('price', 0):.2f} "
-                        f"stop ${it.get('stop_loss', 0):.2f} "
-                        f"target ${it.get('target_1', 0):.2f} {aligned}"
+                        f"  • {(it.get('ticker') or '?'):6s} score={score:.0f} "
+                        f"@ ${price:.2f} stop ${stop:.2f} target ${target:.2f} {aligned}"
                     )
         elif name == "OPTIONS":
             d = data if isinstance(data, dict) else {}
@@ -144,9 +157,14 @@ def _render_block(name: str, data) -> list[str]:
             d = data if isinstance(data, dict) else {}
             for it in (d.get("items") or [])[:5]:
                 conf = it.get("confidence") or it.get("stated_probability") or 0
+                window = it.get("forecast_window_days")
+                window_str = f"{window}d" if window else "no-window"
+                title_or_topic = (it.get("title")
+                                  or it.get("description", "")
+                                  or it.get("topic", "")
+                                  or "(no title)")[:70]
                 lines.append(
-                    f"  • {it.get('direction', '?'):8s} {conf:.0%} ({it.get('forecast_window_days', '?')}d) — "
-                    f"{(it.get('title') or '')[:70]}"
+                    f"  • {it.get('direction', '?'):8s} {conf:.0%} ({window_str}) — {title_or_topic}"
                 )
         elif name == "YTC":
             d = data if isinstance(data, dict) else {}
@@ -157,9 +175,11 @@ def _render_block(name: str, data) -> list[str]:
             items = data if isinstance(data, list) else []
             for it in items[:10]:
                 if isinstance(it, dict):
-                    txt = (it.get("content") or it.get("title") or "")[:80]
-                    sal = it.get("salience_score", 0)
-                    lines.append(f"  • [{sal:.2f}] {txt}")
+                    txt = (it.get("text") or it.get("content") or it.get("title") or "")[:80]
+                    if txt:
+                        lines.append(f"  • {txt}")
+                elif it:
+                    lines.append(f"  • {str(it)[:80]}")
         elif name == "TODO_7DAY":
             d = data if isinstance(data, dict) else {}
             items = d.get("items") or d.get("todos") or []
@@ -167,9 +187,12 @@ def _render_block(name: str, data) -> list[str]:
                 lines.append("  (no scheduled items)")
             for it in items[:10]:
                 if isinstance(it, dict):
-                    date_s = it.get("date") or it.get("scheduled_date") or "?"
-                    title = it.get("title") or it.get("text") or it.get("content") or "?"
-                    lines.append(f"  • {date_s}  {title[:70]}")
+                    pri = it.get("priority", "?")
+                    urg = it.get("urgency", "")
+                    action = it.get("action") or it.get("title") or it.get("text") or "?"
+                    src = it.get("source", "")
+                    src_tag = f" [{src}]" if src else ""
+                    lines.append(f"  • P{pri} {urg:9s} {action[:60]}{src_tag}")
                 else:
                     lines.append(f"  • {str(it)[:80]}")
     except Exception as e:
