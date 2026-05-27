@@ -119,6 +119,26 @@ DEFAULT_RECIPES: list[StrategyRecipe] = [
         description="RSI<30 + Bollinger lower band touch on uptrending stock",
         tags=["mean_reversion", "rsi", "bollinger"],
     ),
+    # Wave 14S — auto-emitted by the GOAT scanner (Felix Friends 6-rule trend)
+    # when goat_score >= NCL_SCANNER_AUTO_EMIT_MIN_GOAT (default 80).
+    StrategyRecipe(
+        name="goat_trend",
+        bucket="goat", asset_type="stock", direction="long",
+        leg_count=1, max_R_pct_nav=2.5, typical_hold_days=60,
+        profit_target_R=2.0,
+        description="GOAT Academy 6-rule trend-following: above 150-SMA + 50-SMA rising + RSI 40-70 + volume surge + breakout",
+        tags=["trend_following", "goat_academy", "scanner_emit"],
+    ),
+    # Wave 14S — auto-emitted by the BRAVO scanner (Johnny Bravo / Stenzel)
+    # when bravo_score >= NCL_SCANNER_AUTO_EMIT_MIN_BRAVO (default 75).
+    StrategyRecipe(
+        name="bravo_swing",
+        bucket="bravo", asset_type="stock", direction="long",
+        leg_count=1, max_R_pct_nav=2.0, typical_hold_days=15,
+        profit_target_R=2.0,
+        description="Johnny Bravo MA-stack swing: SMA-9 > EMA-20 > SMA-180 aligned, green candle above SMA-9",
+        tags=["swing", "bravo", "ma_stack", "scanner_emit"],
+    ),
     StrategyRecipe(
         name="gap_fill",
         bucket="goat", asset_type="stock", direction="either",

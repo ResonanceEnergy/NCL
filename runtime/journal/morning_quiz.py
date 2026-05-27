@@ -90,7 +90,14 @@ class MorningQuiz(BaseModel):
     mood_word: str = Field(default="", max_length=40)
 
     # Q2 — single top priority
-    top_priority: str = Field(..., min_length=1, max_length=300)
+    # Wave 14S: dropped min_length=1 — the daily template ships with
+    # top_priority="" (operator fills it on submit). The submission
+    # endpoint enforces non-empty separately so the operator can't
+    # submit a blank quiz. Without this fix, every fresh template
+    # raised ValidationError on read.
+    top_priority: str = Field(default="", max_length=300)
+    is_template: bool = Field(default=False, description="True if this is an un-submitted template")
+    carried_forward_from: str = Field(default="", description="Date this template carried context from")
 
     # Q3 — 0-3 supporting tasks
     supporting_tasks: list[str] = Field(default_factory=list, max_length=5)

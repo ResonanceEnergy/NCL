@@ -49,6 +49,134 @@ def _cite(citations) -> str:
     return f" (id={','.join(ids)})"
 
 
+def _render_block(name: str, data) -> list[str]:
+    """Wave 14S — render one of the 12 context blocks as plain text lines.
+    Strict data-only renderer. Every value comes from the cached pack,
+    no LLM in this path. If pack is empty/missing, returns []."""
+    lines: list[str] = []
+    if data is None or (isinstance(data, (list, dict)) and not data):
+        return lines
+    try:
+        if name == "PORTFOLIO":
+            d = data if isinstance(data, dict) else {}
+            if d.get("connected"):
+                lines.append(
+                    f"  NAV ${d.get('total_value_cad', 0):,.0f} CAD "
+                    f"(${d.get('total_value_usd', 0):,.0f} USD), "
+                    f"positions={d.get('positions_count', 0)}, "
+                    f"daily_pl={d.get('daily_pl_pct', 0)}%"
+                )
+            else:
+                lines.append("  (brokers disconnected — paper-only context)")
+        elif name == "AGENT":
+            d = data if isinstance(data, dict) else {}
+            active = d.get("active", False)
+            paused = d.get("paused_by")
+            state = "ACTIVE" if active else (f"PAUSED · {paused}" if paused else "OFF")
+            it = d.get("ideas_today", {})
+            lines.append(
+                f"  state={state}, today: "
+                f"eval={it.get('evaluated', 0)} open={it.get('opened', 0)} "
+                f"reject={it.get('rejected', 0)}"
+            )
+            for s in (d.get("top_strategies_lcb") or [])[:3]:
+                if isinstance(s, dict):
+                    lines.append(
+                        f"  • {s.get('strategy', '?')}: "
+                        f"LCB={s.get('lcb', 0):.0%} n={s.get('n', 0)}"
+                    )
+        elif name == "ROTATION":
+            d = data if isinstance(data, dict) else {}
+            quads = d.get("by_quadrant", {}) if isinstance(d.get("by_quadrant"), dict) else {}
+            lead = quads.get("Leading", []) if isinstance(quads, dict) else []
+            weak = quads.get("Weakening", []) if isinstance(quads, dict) else []
+            br = d.get("breadth", {}) if isinstance(d.get("breadth"), dict) else {}
+            lines.append(
+                f"  Leading: {', '.join(lead) or 'none'} | "
+                f"Weakening: {', '.join(weak) or 'none'} | "
+                f"Breadth: {br.get('pct', 0)}% above 50d ({br.get('regime', '?')})"
+            )
+        elif name in ("GOAT", "BRAVO"):
+            d = data if isinstance(data, dict) else {}
+            scan_date = d.get("scan_date", "?")
+            items = d.get("items", [])
+            if not items:
+                lines.append(f"  (no fresh scan — last scan {scan_date})")
+            else:
+                lines.append(f"  Top {len(items)} from {scan_date} scan:")
+                for it in items:
+                    score = it.get("score", 0)
+                    aligned = "✓rotation" if it.get("rotation_aligned") else ""
+                    lines.append(
+                        f"  • {it.get('ticker', '?'):6s} score={score:.0f} "
+                        f"@ ${it.get('price', 0):.2f} "
+                        f"stop ${it.get('stop_loss', 0):.2f} "
+                        f"target ${it.get('target_1', 0):.2f} {aligned}"
+                    )
+        elif name == "OPTIONS":
+            d = data if isinstance(data, dict) else {}
+            rows = d.get("rows", [])
+            if not rows:
+                lines.append("  (no flow data)")
+            else:
+                for r in rows[:5]:
+                    lines.append(
+                        f"  • {r.get('ticker', '?')} "
+                        f"call/put={r.get('call_put_ratio', '?')} "
+                        f"premium=${r.get('total_premium_usd', 0):,.0f}"
+                    )
+        elif name == "CRYPTO":
+            d = data if isinstance(data, dict) else {}
+            for it in (d.get("items") or [])[:5]:
+                lines.append(
+                    f"  • {it.get('title', '')[:70]} (score {it.get('score', 0):.2f})"
+                )
+        elif name == "POLYMARKET":
+            d = data if isinstance(data, dict) else {}
+            for it in (d.get("items") or [])[:5]:
+                lines.append(
+                    f"  • {it.get('side', '?')} {it.get('edge_pp', 0):.1f}pp edge — "
+                    f"{it.get('market_question', '')[:60]} "
+                    f"(market=${it.get('market_yes_price', 0):.2f}, "
+                    f"{it.get('days_to_resolution', '?')}d)"
+                )
+        elif name == "PREDICTIONS":
+            d = data if isinstance(data, dict) else {}
+            for it in (d.get("items") or [])[:5]:
+                conf = it.get("confidence") or it.get("stated_probability") or 0
+                lines.append(
+                    f"  • {it.get('direction', '?'):8s} {conf:.0%} ({it.get('forecast_window_days', '?')}d) — "
+                    f"{(it.get('title') or '')[:70]}"
+                )
+        elif name == "YTC":
+            d = data if isinstance(data, dict) else {}
+            for it in (d.get("items") or [])[:5]:
+                ts = (it.get("modified_iso") or "")[11:16]
+                lines.append(f"  • {ts} {it.get('filename', '')[:70]}")
+        elif name == "CONTEXT":
+            items = data if isinstance(data, list) else []
+            for it in items[:10]:
+                if isinstance(it, dict):
+                    txt = (it.get("content") or it.get("title") or "")[:80]
+                    sal = it.get("salience_score", 0)
+                    lines.append(f"  • [{sal:.2f}] {txt}")
+        elif name == "TODO_7DAY":
+            d = data if isinstance(data, dict) else {}
+            items = d.get("items") or d.get("todos") or []
+            if not items:
+                lines.append("  (no scheduled items)")
+            for it in items[:10]:
+                if isinstance(it, dict):
+                    date_s = it.get("date") or it.get("scheduled_date") or "?"
+                    title = it.get("title") or it.get("text") or it.get("content") or "?"
+                    lines.append(f"  • {date_s}  {title[:70]}")
+                else:
+                    lines.append(f"  • {str(it)[:80]}")
+    except Exception as e:
+        lines.append(f"  (render error: {e})")
+    return lines
+
+
 def render_pro_brief(synthesis: dict, pack: dict | None = None) -> dict:
     """Render the council synthesis into the brief envelope.
 
@@ -242,6 +370,37 @@ def render_pro_brief(synthesis: dict, pack: dict | None = None) -> dict:
                 if t.get("investigate"):
                     parts.append(f"INVESTIGATE: {_strip_markdown(t['investigate'])}")
                 parts.append("")
+
+    # ── Wave 14S — 12 context blocks, each with timestamp + provenance ──
+    # Pull from the prep pack (passed in by the council runner). Every
+    # section gets a header line: "── {NAME} (generated_at: ..., source: ...) ──"
+    # so the operator can verify the data is fresh and trace it to its source.
+    # Anti-hallucination: blocks render straight from cached data, NOT LLM output.
+    if pack and isinstance(pack, dict):
+        parts.append("═══════════════════════════════════════════════════════")
+        parts.append("DAILY CONTEXT — full picture (12 blocks, timestamped, sourced)")
+        parts.append("═══════════════════════════════════════════════════════")
+        parts.append("")
+        for block_name in (
+            "PORTFOLIO", "AGENT", "ROTATION", "GOAT", "BRAVO",
+            "OPTIONS", "CRYPTO", "POLYMARKET", "PREDICTIONS",
+            "YTC", "CONTEXT", "TODO_7DAY",
+        ):
+            block = pack.get(block_name)
+            if not block:
+                continue
+            data = block.get("data") if isinstance(block, dict) else block
+            ts = block.get("generated_at_iso", "")[:19] if isinstance(block, dict) else ""
+            src = block.get("source_endpoint", "") if isinstance(block, dict) else ""
+            count = block.get("item_count", 0) if isinstance(block, dict) else None
+            cnt_str = f" · {count} items" if count else ""
+            parts.append(f"── {block_name} (as of {ts}Z · src: {src}{cnt_str}) ──")
+            rendered = _render_block(block_name, data)
+            if rendered:
+                parts.extend(rendered)
+            else:
+                parts.append("  (no data)")
+            parts.append("")
 
     text = "\n".join(parts)
 

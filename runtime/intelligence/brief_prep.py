@@ -377,6 +377,269 @@ def collect_economic_calendar() -> list[dict]:
 # ─────────────────────────────────────────────────────────────────────────
 
 
+# ── Wave 14S — new collectors for the 12-block enriched brief ─────────
+
+async def _collect_portfolio_snapshot(brain) -> dict:
+    """Live portfolio aggregate (multi-broker, paper-only when offline)."""
+    try:
+        from runtime.portfolio.portfolio_manager import get_portfolio_manager
+        pm = get_portfolio_manager()
+        if pm is None:
+            return {"connected": False}
+        summary = pm.get_summary() if hasattr(pm, "get_summary") else {}
+        return {
+            "connected": True,
+            "total_value_cad": summary.get("total_equity_cad", 0),
+            "total_value_usd": summary.get("total_equity_usd", 0),
+            "fx_rate_usd_cad": summary.get("fx_rate_usd_cad"),
+            "positions_count": summary.get("positions_count", 0),
+            "daily_pl": summary.get("daily_pl"),
+            "daily_pl_pct": summary.get("daily_pl_pct"),
+            "quotes_failed": summary.get("quotes_failed", 0),
+        }
+    except Exception as e:
+        log.debug("[brief_prep] portfolio snapshot failed: %s", e)
+        return {"error": str(e)}
+
+
+async def _collect_agent_snapshot(brain) -> dict:
+    """Auto-trader state, top strategies, recent closes."""
+    try:
+        from runtime.portfolio.auto_trader import get_state, get_bandit
+        s = await get_state()
+        bandit = get_bandit()
+        top_strats = bandit.ranked_by_credible_lower_bound()[:5] \
+            if bandit and hasattr(bandit, "ranked_by_credible_lower_bound") else []
+        return {
+            "active": s.active,
+            "paused_by": s.paused_by,
+            "ideas_today": {
+                "evaluated": s.ideas_evaluated_today,
+                "opened": s.ideas_opened_today,
+                "rejected": s.ideas_rejected_today,
+            },
+            "top_strategies_lcb": top_strats,
+            "last_loop_tick_iso": s.last_loop_tick_iso,
+        }
+    except Exception as e:
+        log.debug("[brief_prep] agent snapshot failed: %s", e)
+        return {"error": str(e)}
+
+
+async def _collect_goat_top(watchlist: list) -> dict:
+    """Latest persisted GOAT scan + top 5 candidates."""
+    return _load_latest_scanner_jsonl("goat", "goat_score", k=5)
+
+
+async def _collect_bravo_top(watchlist: list) -> dict:
+    """Latest persisted BRAVO scan + top 5 candidates."""
+    return _load_latest_scanner_jsonl("bravo", "bravo_score", k=5)
+
+
+def _load_latest_scanner_jsonl(name: str, score_key: str, k: int = 5) -> dict:
+    """Read the most recent scanners/{name}-YYYY-MM-DD.jsonl + return top-k."""
+    try:
+        from pathlib import Path as _Path
+        scan_dir = _Path(NCL_BASE) / "data" / "scanners"
+        if not scan_dir.exists():
+            return {"count": 0, "items": [], "scan_date": None}
+        files = sorted(scan_dir.glob(f"{name}-*.jsonl"), reverse=True)
+        if not files:
+            return {"count": 0, "items": [], "scan_date": None}
+        items = []
+        with files[0].open() as f:
+            for ln in f:
+                try:
+                    items.append(json.loads(ln))
+                except Exception:
+                    continue
+        items.sort(key=lambda r: r.get(score_key, 0), reverse=True)
+        return {
+            "count": len(items),
+            "scan_date": files[0].stem.split("-", 1)[-1],
+            "items": [
+                {
+                    "ticker": r.get("ticker"),
+                    "score": r.get(score_key),
+                    "price": r.get("price"),
+                    "stop_loss": r.get("stop_loss"),
+                    "target_1": r.get("target_1"),
+                    "signal": r.get("signal_label"),
+                    "rotation_aligned": r.get("rotation_aligned"),
+                    "sector": r.get("sector"),
+                }
+                for r in items[:k]
+            ],
+        }
+    except Exception as e:
+        log.debug("[brief_prep] scanner load %s failed: %s", name, e)
+        return {"count": 0, "items": [], "error": str(e)}
+
+
+async def _collect_options_flow_now(brain) -> dict:
+    """Latest options-flow snapshot from /portfolio/options-flow source."""
+    try:
+        # The options-flow endpoint reads from awarebot Unusual Whales signal cache
+        from pathlib import Path as _Path
+        of_dir = _Path(NCL_BASE) / "data" / "intelligence" / "options_flow"
+        if not of_dir.exists():
+            return {"count": 0, "rows": []}
+        files = sorted(of_dir.glob("*.json"), reverse=True)
+        if not files:
+            return {"count": 0, "rows": []}
+        data = json.loads(files[0].read_text())
+        rows = data if isinstance(data, list) else data.get("rows", [])
+        return {"count": len(rows), "rows": rows[:5]}
+    except Exception as e:
+        return {"count": 0, "rows": [], "error": str(e)}
+
+
+async def _collect_crypto_movers() -> dict:
+    """Top crypto movers from awarebot crypto signals (CoinGecko/Coinpaprika)."""
+    try:
+        from pathlib import Path as _Path
+        agent_jsonl = _Path(NCL_BASE) / "data" / "intelligence" / "agent_signals.jsonl"
+        if not agent_jsonl.exists():
+            return {"count": 0, "items": []}
+        crypto_signals = []
+        with agent_jsonl.open() as f:
+            for ln in f:
+                try:
+                    sig = json.loads(ln)
+                    src = (sig.get("source") or "").lower()
+                    if "crypto" in src or "coingecko" in src or "coinpaprika" in src:
+                        crypto_signals.append(sig)
+                except Exception:
+                    continue
+        crypto_signals.sort(key=lambda s: s.get("composite_score", 0), reverse=True)
+        return {
+            "count": len(crypto_signals),
+            "items": [
+                {
+                    "title": s.get("title") or s.get("content", "")[:80],
+                    "source": s.get("source"),
+                    "score": s.get("composite_score"),
+                }
+                for s in crypto_signals[:5]
+            ],
+        }
+    except Exception as e:
+        return {"count": 0, "items": [], "error": str(e)}
+
+
+async def _collect_polymarket_edges() -> dict:
+    """Wave 14R polymarket-agent edge engine output (predictions vs market)."""
+    try:
+        from runtime.portfolio.polymarket_agent.collector_loop import read_today_cache
+        from runtime.portfolio.polymarket_agent.edge_engine import compute_edges
+        markets = read_today_cache()
+        edges = compute_edges(markets) if markets else []
+        return {
+            "count": len(edges),
+            "market_cache_count": len(markets),
+            "items": [
+                {
+                    "market_question": e.market_question[:80],
+                    "side": e.side,
+                    "edge_pp": e.edge_pp,
+                    "market_yes_price": e.market_yes_price,
+                    "days_to_resolution": e.days_to_resolution,
+                    "prediction_title": (e.prediction_title or "")[:80],
+                }
+                for e in edges[:5]
+            ],
+        }
+    except Exception as e:
+        return {"count": 0, "items": [], "error": str(e)}
+
+
+async def _collect_predictions_top() -> dict:
+    """Top predictions sorted by confidence (Wave 14Q stated_probability)."""
+    try:
+        from pathlib import Path as _Path
+        pred_dir = _Path(NCL_BASE) / "data" / "predictions"
+        if not pred_dir.exists():
+            return {"count": 0, "items": []}
+        # Look at last 48h of prediction files
+        cutoff = time.time() - (48 * 3600)
+        preds = []
+        for f in pred_dir.glob("pred-*.json"):
+            if f.stat().st_mtime < cutoff:
+                continue
+            try:
+                d = json.loads(f.read_text())
+                if isinstance(d, dict):
+                    preds.append(d)
+                elif isinstance(d, list):
+                    preds.extend(d)
+            except Exception:
+                continue
+        preds.sort(
+            key=lambda p: (p.get("confidence", 0) or p.get("stated_probability", 0) or 0),
+            reverse=True,
+        )
+        return {
+            "count": len(preds),
+            "items": [
+                {
+                    "title": p.get("title") or p.get("description", "")[:80],
+                    "confidence": p.get("confidence"),
+                    "stated_probability": p.get("stated_probability"),
+                    "direction": p.get("direction"),
+                    "forecast_window_days": p.get("forecast_window_days"),
+                    "topic": p.get("topic"),
+                }
+                for p in preds[:5]
+            ],
+        }
+    except Exception as e:
+        return {"count": 0, "items": [], "error": str(e)}
+
+
+async def _collect_ytc_recent() -> dict:
+    """Recent YouTube Council reports."""
+    try:
+        from pathlib import Path as _Path
+        ytc_dir = _Path(NCL_BASE) / "intelligence-scan" / "council-reports"
+        if not ytc_dir.exists():
+            return {"count": 0, "items": []}
+        cutoff = time.time() - (36 * 3600)
+        reports = []
+        # Per-date subfolders
+        for p in sorted(ytc_dir.rglob("*.md"), reverse=True):
+            if p.stat().st_mtime < cutoff:
+                continue
+            reports.append({
+                "filename": p.name,
+                "modified_iso": datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc).isoformat(),
+                "size_bytes": p.stat().st_size,
+            })
+            if len(reports) >= 8:
+                break
+        return {"count": len(reports), "items": reports}
+    except Exception as e:
+        return {"count": 0, "items": [], "error": str(e)}
+
+
+async def _collect_todo_7day(brain) -> dict:
+    """Calendar watchlist for next 7 days — pulls from CalendarAgent."""
+    try:
+        from runtime.calendar.watchlist import build_watchlist
+        wl = await build_watchlist(window_days=7) if callable(build_watchlist) else {}
+        return wl if isinstance(wl, dict) else {"items": []}
+    except Exception as e:
+        # Fallback: read calendar/watchlist endpoint output if persisted
+        try:
+            from pathlib import Path as _Path
+            cal_dir = _Path(NCL_BASE) / "data" / "calendar"
+            files = sorted(cal_dir.glob("watchlist-*.json"), reverse=True) if cal_dir.exists() else []
+            if files:
+                return json.loads(files[0].read_text())
+        except Exception:
+            pass
+        return {"items": [], "error": str(e)}
+
+
 async def build_prep_pack(
     brain,
     watchlist_tickers: Optional[list[str]] = None,
@@ -428,12 +691,43 @@ async def build_prep_pack(
             log.warning("[brief_prep] cycle phase failed: %s", e)
             return None
 
-    futures, vix, movers, headlines, polymarket, held, wc, rotation, style, cycle = await asyncio.gather(
+    # Wave 14S — 12 new collectors in parallel for richer brief context
+    futures, vix, movers, headlines, polymarket, held, wc, rotation, style, cycle, \
+        portfolio_snap, agent_snap, goat_top, bravo_top, options_flow_now, \
+        crypto_movers, poly_edges, predictions_top, ytc_recent, todo_7day = await asyncio.gather(
         futures_task, vix_task, movers_task, headlines_task,
         polymarket_task, held_task, wc_task,
         _rotation_task(), _style_task(), _cycle_task(),
+        _collect_portfolio_snapshot(brain),
+        _collect_agent_snapshot(brain),
+        _collect_goat_top(watchlist_tickers),
+        _collect_bravo_top(watchlist_tickers),
+        _collect_options_flow_now(brain),
+        _collect_crypto_movers(),
+        _collect_polymarket_edges(),
+        _collect_predictions_top(),
+        _collect_ytc_recent(),
+        _collect_todo_7day(brain),
         return_exceptions=False,
     )
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    def _block(name: str, data, endpoint: str, count_key: str = None):
+        """Wrap a block with timestamp + provenance for the brief executor.
+        Hallucination guard: every claim in the brief should cite a
+        block_id that exists in this prep pack."""
+        return {
+            "block_id": name,
+            "data": data,
+            "generated_at_iso": now_iso,
+            "source_endpoint": endpoint,
+            "item_count": (
+                len(data) if isinstance(data, list)
+                else (data.get(count_key) if isinstance(data, dict) and count_key else 1)
+                if isinstance(data, dict) else 0
+            ),
+        }
 
     pack = {
         "date": date.today().isoformat(),
@@ -454,6 +748,25 @@ async def build_prep_pack(
         "rotation_snapshot": rotation,
         "style_ratios": style,
         "cycle_phase": cycle,
+        # ── Wave 14S — 12 new context blocks for the full daily picture ─
+        "PORTFOLIO": _block("PORTFOLIO", portfolio_snap, "/portfolio/summary"),
+        "AGENT": _block("AGENT", agent_snap, "/portfolio/auto-trader/dashboard"),
+        "ROTATION": _block("ROTATION", rotation, "/intelligence/rotation"),
+        "GOAT": _block("GOAT", goat_top, "/stocks/scanner/goat", "count"),
+        "BRAVO": _block("BRAVO", bravo_top, "/stocks/scanner/bravo", "count"),
+        "OPTIONS": _block("OPTIONS", options_flow_now, "/portfolio/options-flow"),
+        "CRYPTO": _block("CRYPTO", crypto_movers, "intelligence/crypto"),
+        "POLYMARKET": _block(
+            "POLYMARKET", poly_edges, "/portfolio/polymarket-agent/edges"
+        ),
+        "PREDICTIONS": _block(
+            "PREDICTIONS", predictions_top, "/predictions?sort=confidence"
+        ),
+        "YTC": _block("YTC", ytc_recent, "/youtube/reports/recent"),
+        "CONTEXT": _block(
+            "CONTEXT", (wc or {}).get("items", [])[:10], "/memory/working-context"
+        ),
+        "TODO_7DAY": _block("TODO_7DAY", todo_7day, "/calendar/watchlist"),
     }
     pack["elapsed_s"] = round(time.time() - started, 1)
 

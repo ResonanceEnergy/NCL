@@ -545,6 +545,98 @@ class StockScanner:
             meta["enqueued_memory"] = 0
 
         meta["returned_count"] = len(out)
+
+        # ── Wave 14S: auto-emit high-score results to trade_idea_tracker ──
+        # GOAT scores >= NCL_SCANNER_AUTO_EMIT_MIN_GOAT (default 80)
+        # or BRAVO scores >= NCL_SCANNER_AUTO_EMIT_MIN_BRAVO (default 75)
+        # become trade_ideas that flow through the same auto-trader gate
+        # chain as quant/brief/scout ideas. Idempotent per ticker per day
+        # (the tracker's emission dedup handles repeat triggers).
+        try:
+            import os as _os
+            auto_emit_enabled = _os.getenv(
+                "NCL_SCANNER_AUTO_EMIT_ENABLED", "1",
+            ) not in ("0", "false", "False")
+            if auto_emit_enabled and out:
+                min_goat = float(_os.getenv("NCL_SCANNER_AUTO_EMIT_MIN_GOAT", "80"))
+                min_bravo = float(_os.getenv("NCL_SCANNER_AUTO_EMIT_MIN_BRAVO", "75"))
+                emit_threshold = min_goat if is_goat else min_bravo
+                score_key = "goat_score" if is_goat else "bravo_score"
+                strategy_tag = "goat_trend" if is_goat else "bravo_swing"
+                from runtime.portfolio.trade_idea_tracker import (
+                    get_trade_idea_tracker,
+                )
+                tracker = await get_trade_idea_tracker()
+                emitted_count = 0
+                emitted_ids: list[str] = []
+                for row in out:
+                    score = float(row.get(score_key, 0) or 0)
+                    if score < emit_threshold:
+                        continue
+                    # Skip rows we just dropped because they're already held
+                    if row.get("held_in_portfolio") and not include_held:
+                        continue
+                    try:
+                        entry = float(row.get("price") or 0)
+                        stop = float(row.get("stop_loss") or 0)
+                        target = float(row.get("target_1") or row.get("target") or 0)
+                        if not (entry > 0 and stop > 0 and target > 0):
+                            continue
+                        R_per_share = abs(entry - stop)
+                        if R_per_share <= 0:
+                            continue
+                        rec = await tracker.record_emission(
+                            source=scanner_name,
+                            strategy=strategy_tag,
+                            ticker=row.get("ticker"),
+                            direction="long",
+                            entry_price=entry,
+                            stop_price=stop,
+                            target_price=target,
+                            R_per_share=round(R_per_share, 4),
+                            stop_type="atr_2x" if is_goat else "ma_break",
+                            stop_basis=(
+                                "GOAT: 2x ATR below entry"
+                                if is_goat
+                                else "BRAVO: 1.5x ATR below SMA-9"
+                            ),
+                            target_basis=(
+                                f"GOAT target_1 +{round((target/entry - 1) * 100, 1)}%"
+                                if is_goat
+                                else "BRAVO target = first prior swing high"
+                            ),
+                            thesis=(
+                                f"{strategy_tag.upper()} score={score:.0f} "
+                                f"sector={row.get('sector', '?')}"
+                            ),
+                            metadata={
+                                "scanner": scanner_name,
+                                "score": score,
+                                "score_key": score_key,
+                                "rotation_aligned": row.get("rotation_aligned"),
+                                "sector_etf": row.get("sector_etf"),
+                                "wave": "14S-S1",
+                            },
+                        )
+                        tid = rec.get("trade_idea_id") if rec else None
+                        if tid:
+                            emitted_count += 1
+                            emitted_ids.append(tid)
+                    except Exception as e:
+                        log.debug("auto-emit %s failed: %s", row.get("ticker"), e)
+                meta["auto_emitted_count"] = emitted_count
+                meta["auto_emitted_ids"] = emitted_ids
+                meta["auto_emit_threshold"] = emit_threshold
+                if emitted_count:
+                    log.info(
+                        "[SCANNER-EMIT] %s sent %d high-score ideas to auto-trader "
+                        "(threshold=%s)",
+                        scanner_name, emitted_count, emit_threshold,
+                    )
+        except Exception as e:
+            log.warning("scanner auto-emit pass failed (%s): %s", scanner_name, e)
+            meta["auto_emit_error"] = str(e)
+
         return out, meta
 
     async def fetch_quotes(self, tickers: List[str]) -> List[Dict[str, Any]]:
