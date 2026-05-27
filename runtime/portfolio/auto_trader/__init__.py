@@ -109,6 +109,20 @@ from .eod_summary import (  # noqa: F401
     emit_eod_summary,
     eod_summary_loop,
 )
+from .strategy_registry import (  # noqa: F401
+    StrategyRecipe,
+    get_recipe,
+    list_recipes,
+    list_short_dated_lottery_recipes,
+    list_long_dated_swing_recipes,
+    update_recipe,
+    normalize_strategy_via_registry,
+    registry_summary,
+)
+from .profit_ladder import (  # noqa: F401
+    maybe_ladder_from_close,
+    ladder_summary,
+)
 
 __all__ = [
     "AutoTraderState", "get_state", "is_active", "pause", "resume",
@@ -139,4 +153,10 @@ __all__ = [
     "check_working_context", "working_context_summary",
     # Wave 14K gap-closes — council quorum + EOD summary
     "check_high_r_open", "emit_eod_summary", "eod_summary_loop",
+    # Wave 14L L1 — strategy registry (20+ named recipes)
+    "StrategyRecipe", "get_recipe", "list_recipes",
+    "list_short_dated_lottery_recipes", "list_long_dated_swing_recipes",
+    "update_recipe", "normalize_strategy_via_registry", "registry_summary",
+    # Wave 14L L4 — profit ladder
+    "maybe_ladder_from_close", "ladder_summary",
 ]

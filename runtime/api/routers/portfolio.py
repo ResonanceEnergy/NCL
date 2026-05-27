@@ -1524,6 +1524,65 @@ async def auto_trader_calendar(
     return await calendar_summary()
 
 
+@router.get("/auto-trader/strategies")
+async def auto_trader_strategies_list(
+    asset_type: Optional[str] = None,
+    enabled_only: bool = True,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """List all named strategy recipes. Optional filters: asset_type, enabled_only.
+    20+ recipes spanning stock/options/polymarket/crypto."""
+    from ...portfolio.auto_trader import list_recipes
+    from dataclasses import asdict
+    recipes = await list_recipes(asset_type=asset_type, enabled_only=enabled_only)
+    return {
+        "count": len(recipes),
+        "recipes": [asdict(r) for r in recipes],
+    }
+
+
+@router.get("/auto-trader/strategies/{name}")
+async def auto_trader_strategy_get(
+    name: str,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Single recipe lookup."""
+    from ...portfolio.auto_trader import get_recipe
+    from dataclasses import asdict
+    r = await get_recipe(name)
+    if r is None:
+        raise HTTPException(status_code=404, detail=f"Recipe {name} not found")
+    return asdict(r)
+
+
+@router.patch("/auto-trader/strategies/{name}")
+async def auto_trader_strategy_patch(
+    name: str,
+    payload: dict,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Operator override of a recipe. Body: any subset of StrategyRecipe fields."""
+    from ...portfolio.auto_trader import update_recipe
+    from dataclasses import asdict
+    try:
+        r = await update_recipe(name, **payload)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if r is None:
+        raise HTTPException(status_code=404, detail=f"Recipe {name} not found")
+    return asdict(r)
+
+
+@router.get("/auto-trader/ladder")
+async def auto_trader_ladder_status(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Profit-ladder snapshot — config + recent 10 emissions + cumulative
+    realized/laddered $."""
+    from ...portfolio.auto_trader import ladder_summary
+    return await ladder_summary()
+
+
 @router.post("/auto-trader/eod-summary")
 async def auto_trader_eod_summary_trigger(
     payload: Optional[dict] = None,
@@ -1572,7 +1631,7 @@ async def auto_trader_dashboard(
         get_state, get_bandit, drift_all_states,
         graduation_evaluate_all, list_open_research_topics,
         friction_all_profiles, calendar_summary,
-        working_context_summary,
+        working_context_summary, registry_summary, ladder_summary,
     )
     from ...portfolio.trade_idea_tracker import get_trade_idea_tracker
     from dataclasses import asdict
@@ -1657,6 +1716,18 @@ async def auto_trader_dashboard(
     except Exception as e:
         wc = {"error": str(e)}
 
+    # Strategy registry summary (Wave 14L L1)
+    try:
+        registry = await registry_summary()
+    except Exception as e:
+        registry = {"error": str(e)}
+
+    # Profit-ladder summary (Wave 14L L4)
+    try:
+        ladder = await ladder_summary()
+    except Exception as e:
+        ladder = {"error": str(e)}
+
     return {
         "state": state_dict,
         "top_strategies": top_strategies,
@@ -1667,7 +1738,9 @@ async def auto_trader_dashboard(
         "friction": friction_summary,
         "calendar": calendar,
         "working_context": wc,
-        "wave": "14K-K6c-hardening1+3",
+        "registry": registry,
+        "ladder": ladder,
+        "wave": "14L-L1+L4",
     }
 
 

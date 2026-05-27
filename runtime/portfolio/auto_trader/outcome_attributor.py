@@ -241,6 +241,31 @@ async def attribute_close(
     except Exception as e:
         log.warning("[AT-ATTR] prediction record write skipped: %s", e)
 
+    # 7.6) Wave 14L L4 — Profit Ladder: if this was a short-dated lottery
+    #      win, emit a follow-on long-dated LEAP trade idea at 50% of
+    #      realized profit. Idempotent on source trade_idea_id.
+    try:
+        from .profit_ladder import maybe_ladder_from_close
+        ladder_result = await maybe_ladder_from_close(
+            brain=brain,
+            paper_trade=paper_trade,
+            closed_idea={
+                "trade_idea_id": trade_idea_id,
+                "strategy": getattr(paper_trade, "strategy", None),
+                "ticker": getattr(paper_trade, "symbol", None),
+                "direction": getattr(paper_trade, "direction", None),
+                "entry_price": getattr(paper_trade, "entry_price", None),
+            },
+            engine_r=engine_r,
+            exit_price=exit_price,
+        )
+        if ladder_result and ladder_result.get("emitted"):
+            result["ladder_emitted"] = True
+            result["ladder_new_trade_idea_id"] = ladder_result.get("new_trade_idea_id")
+            result["ladder_R_dollars"] = ladder_result.get("ladder_R_dollars")
+    except Exception as e:
+        log.warning("[AT-ATTR] profit ladder skipped (non-fatal): %s", e)
+
     # 8) Wave 14K Phase 7 K6b: re-calibrate friction profile every N closes.
     #    Non-blocking — friction failures never break the close path.
     try:
