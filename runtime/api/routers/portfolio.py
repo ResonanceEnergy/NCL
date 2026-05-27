@@ -1627,6 +1627,44 @@ async def auto_trader_scout_status(
     return await scout_summary()
 
 
+@router.get("/auto-trader/capabilities")
+async def auto_trader_capabilities(
+    only_gaps: bool = False,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Wave 14L L5 — capability registry: 11 dependencies tracked +
+    availability + freshness. ?only_gaps=true shows only unavailable."""
+    from ...portfolio.auto_trader import (
+        list_capabilities, list_gaps, capability_refresh_all,
+    )
+    summary = await capability_refresh_all()
+    caps = await (list_gaps() if only_gaps else list_capabilities())
+    return {
+        "summary": summary,
+        "capabilities": caps,
+        "count": len(caps),
+    }
+
+
+@router.get("/auto-trader/quant-scan")
+async def auto_trader_quant_scan_status(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Wave 14L L2 — quant scanner suite snapshot (5 scanners)."""
+    from ...portfolio.auto_trader import quant_scan_summary
+    return await quant_scan_summary()
+
+
+@router.post("/auto-trader/quant-scan/tick")
+async def auto_trader_quant_scan_force_tick(
+    _: None = Depends(verify_strike_token_dep),
+    brain=Depends(get_brain),
+) -> dict:
+    """Force a quant-scan tick on demand. Runs all 5 scanners."""
+    from ...portfolio.auto_trader import quant_scan_tick
+    return await quant_scan_tick(brain)
+
+
 @router.post("/auto-trader/scout/tick")
 async def auto_trader_scout_force_tick(
     _: None = Depends(verify_strike_token_dep),
@@ -1686,7 +1724,7 @@ async def auto_trader_dashboard(
         graduation_evaluate_all, list_open_research_topics,
         friction_all_profiles, calendar_summary,
         working_context_summary, registry_summary, ladder_summary,
-        scout_summary,
+        scout_summary, capability_summary, quant_scan_summary,
     )
     from ...portfolio.trade_idea_tracker import get_trade_idea_tracker
     from dataclasses import asdict
@@ -1789,6 +1827,18 @@ async def auto_trader_dashboard(
     except Exception as e:
         scout = {"error": str(e)}
 
+    # Capability registry summary (Wave 14L L5)
+    try:
+        capabilities = await capability_summary()
+    except Exception as e:
+        capabilities = {"error": str(e)}
+
+    # Quant scanner suite summary (Wave 14L L2)
+    try:
+        quant = await quant_scan_summary()
+    except Exception as e:
+        quant = {"error": str(e)}
+
     return {
         "state": state_dict,
         "top_strategies": top_strategies,
@@ -1802,7 +1852,9 @@ async def auto_trader_dashboard(
         "registry": registry,
         "ladder": ladder,
         "scout": scout,
-        "wave": "14L-L1+L3+L4+L6",
+        "capabilities": capabilities,
+        "quant_scan": quant,
+        "wave": "14L-L1-L6-complete",
     }
 
 

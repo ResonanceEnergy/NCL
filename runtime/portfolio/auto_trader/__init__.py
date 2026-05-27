@@ -130,6 +130,14 @@ from .options_recipes import (  # noqa: F401
 from .scout import (  # noqa: F401
     scout_tick, scout_loop, scout_summary,
 )
+from .capability_registry import (  # noqa: F401
+    check_capability, check_and_request,
+    list_capabilities, list_gaps, refresh_all as capability_refresh_all,
+    capability_summary,
+)
+from .quant_scanners import (  # noqa: F401
+    quant_scan_tick, quant_scan_loop, quant_scan_summary,
+)
 
 __all__ = [
     "AutoTraderState", "get_state", "is_active", "pause", "resume",
@@ -171,4 +179,10 @@ __all__ = [
     "list_builders", "builder_count",
     # Wave 14L L6 — pro-active scout loop
     "scout_tick", "scout_loop", "scout_summary",
+    # Wave 14L L5 — capability registry + tool-request
+    "check_capability", "check_and_request",
+    "list_capabilities", "list_gaps", "capability_refresh_all",
+    "capability_summary",
+    # Wave 14L L2 — quant scanner suite
+    "quant_scan_tick", "quant_scan_loop", "quant_scan_summary",
 ]

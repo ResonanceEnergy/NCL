@@ -818,6 +818,18 @@ class AutonomousScheduler:
             asyncio.create_task(_auto_trader_scout(), name="ncl-auto-trader-scout")
         )
 
+        # Wave 14L L2 — quant scanner suite (30min market / 2hr off-hours).
+        # 5 scanners (mean_reversion, pead, factor, pairs, whale_flow)
+        # originate trade ideas in parallel to the morning brief.
+        from ..portfolio.auto_trader.quant_scanners import quant_scan_loop
+
+        async def _auto_trader_quant_scan():
+            await quant_scan_loop(self.brain)
+
+        self._tasks.append(
+            asyncio.create_task(_auto_trader_quant_scan(), name="ncl-auto-trader-quant-scan")
+        )
+
         # Attach a done-callback to every task so a silent crash (unobserved
         # task exception) gets logged instead of disappearing.
         def _task_done(task: asyncio.Task) -> None:
@@ -887,6 +899,11 @@ class AutonomousScheduler:
                 "runtime.portfolio.auto_trader.scout",
                 fromlist=["scout_loop"],
             ).scout_loop(self.brain),
+            # Wave 14L L2 — quant scanner suite (30min market / 2hr off).
+            "ncl-auto-trader-quant-scan": lambda: __import__(
+                "runtime.portfolio.auto_trader.quant_scanners",
+                fromlist=["quant_scan_loop"],
+            ).quant_scan_loop(self.brain),
         }
         # 2026-05-22 memory loops (factory registration — only if loaded above)
         try:
