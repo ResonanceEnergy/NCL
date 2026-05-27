@@ -202,6 +202,160 @@ def _extract_prediction_description(pred: dict) -> str:
     return text.strip()
 
 
+# ── Wave 14P helpers ───────────────────────────────────────────────────────
+
+# Match "next 30 days", "within 7 days", "by Q3", "through May 27", "in 6 months", etc.
+_FORECAST_WINDOW_RE = re.compile(
+    r"(?:next|within|over|in|by|through|over the next)\s+"
+    r"(\d+)\s*(day|days|week|weeks|month|months|hour|hours|quarter|quarters)",
+    re.IGNORECASE,
+)
+_NOISE_TITLE_WORDS = frozenset({
+    "may", "the", "and", "or", "if", "but", "in", "on", "at", "for", "of",
+    "to", "with", "as", "by", "from", "is", "was", "are", "were", "be",
+    "general", "unknown", "various", "things", "stuff", "various",
+    "today", "guide", "companies", "content", "people", "this", "that",
+    "these", "those", "it", "its", "an", "a",
+})
+
+
+def _derive_title(pred: dict) -> str:
+    """Derive a meaningful human-readable title from a prediction.
+
+    The existing ``topic`` field is often garbage (a noisy first word like
+    "may", "companies", "guide") because it was extracted by frequency
+    rather than by topical meaning. Strategy:
+      1. If pred has a clean ``title`` field, use it.
+      2. Find the FIRST CONCRETE NOUN-PHRASE in the description:
+         tickers ($AAPL / AAPL stock), proper nouns, %, dollar amounts.
+      3. Build a 6-10 word abstract: "<subject> — <direction> <prob>".
+      4. Fallback: first 60 chars of description, trimmed at word boundary.
+    """
+    existing = pred.get("title")
+    if isinstance(existing, str) and len(existing) >= 6:
+        return existing
+    desc = _extract_prediction_description(pred) or pred.get("consensus", "")
+    desc = desc.strip()
+    if not desc:
+        return "Untitled prediction"
+    # Extract first sentence
+    first_sentence = re.split(r"[.!?]\s+", desc, 1)[0]
+    first_sentence = first_sentence.strip()
+    # Prefer ticker / company name / "%" mention as anchor
+    ticker_m = re.search(r"\b([A-Z]{2,5})\b(?:\s+(?:stock|will|is|may|expected))", first_sentence)
+    pct_m = re.search(r"(\d{1,3}(?:-\d{1,3})?%)", first_sentence)
+    direction = pred.get("direction", "")
+    if ticker_m and pct_m:
+        return f"{ticker_m.group(1)} — {direction.capitalize()} ({pct_m.group(1)})".strip(" —()")
+    if ticker_m:
+        return f"{ticker_m.group(1)} — {direction.capitalize()}".strip(" —")
+    # Truncate first sentence to ~60 chars at a word boundary
+    if len(first_sentence) > 60:
+        clipped = first_sentence[:60].rsplit(" ", 1)[0]
+        return clipped + "…"
+    return first_sentence
+
+
+def _extract_forecast_window_days(text: str) -> Optional[int]:
+    """Parse text for a forecast horizon. Returns days, or None."""
+    if not text:
+        return None
+    m = _FORECAST_WINDOW_RE.search(text)
+    if not m:
+        return None
+    n = int(m.group(1))
+    unit = m.group(2).lower()
+    if "hour" in unit:
+        return max(1, n // 24)
+    if "day" in unit:
+        return n
+    if "week" in unit:
+        return n * 7
+    if "month" in unit:
+        return n * 30
+    if "quarter" in unit:
+        return n * 90
+    return None
+
+
+def _compute_expires_at(timestamp_iso: str, window_days: Optional[int]) -> Optional[str]:
+    """Compute a deadline ISO timestamp given prediction time + window."""
+    if not timestamp_iso or not window_days:
+        return None
+    try:
+        from datetime import timedelta
+        ts = datetime.fromisoformat(timestamp_iso.replace("Z", "+00:00"))
+        return (ts + timedelta(days=window_days)).isoformat()
+    except Exception:
+        return None
+
+
+def _quality_score(pred: dict, desc: str) -> float:
+    """0-1 score. Flags low-quality predictions for filtering.
+
+      +0.2 if linked_signals >= 3
+      +0.2 if description mentions a % probability
+      +0.2 if description mentions a concrete timeframe
+      +0.2 if confidence in healthy range (0.35-0.92)
+      +0.2 if not in a degenerate-topic blocklist
+    """
+    score = 0.0
+    if len(pred.get("linked_signals") or []) >= 3:
+        score += 0.20
+    if re.search(r"\d{1,3}\s*%", desc or ""):
+        score += 0.20
+    if _extract_forecast_window_days(desc or "") is not None:
+        score += 0.20
+    conf = pred.get("confidence", 0) or 0
+    if 0.35 <= conf <= 0.92:
+        score += 0.20
+    topic = (pred.get("topic") or "").lower().strip()
+    if topic and topic not in _NOISE_TITLE_WORDS:
+        score += 0.20
+    return round(score, 2)
+
+
+async def _hydrate_signals(brain, signal_ids: list, max_n: int = 10) -> list[dict]:
+    """Look up signal UUIDs in MemoryStore and return display-ready dicts.
+
+    Each returned dict: {id, title, source, score, created_at}.
+    Silent on individual lookup failure (returns partial list).
+    Bounded by a 2-second total deadline so a slow MemoryStore lock can
+    never block the detail endpoint.
+    """
+    if not signal_ids or brain is None:
+        return []
+    mem = getattr(brain, "memory_store", None)
+    if mem is None or not hasattr(mem, "get_unit"):
+        return []
+
+    async def _one(sid):
+        try:
+            unit = await asyncio.wait_for(mem.get_unit(sid), timeout=0.5)
+            if unit is None:
+                return None
+            content = getattr(unit, "content", "") or ""
+            title = content if len(content) <= 100 else content[:100].rsplit(" ", 1)[0] + "…"
+            return {
+                "id": sid,
+                "title": title,
+                "source": getattr(unit, "source", "") or "",
+                "score": getattr(unit, "importance", 0) or 0,
+                "created_at": getattr(unit, "created_at", "") or "",
+            }
+        except (asyncio.TimeoutError, Exception):
+            return None
+
+    try:
+        results = await asyncio.wait_for(
+            asyncio.gather(*[_one(sid) for sid in signal_ids[:max_n]]),
+            timeout=2.0,
+        )
+    except asyncio.TimeoutError:
+        return []
+    return [r for r in results if r is not None]
+
+
 @router.post("/prediction")
 async def run_prediction(
     topic: str,
@@ -217,6 +371,8 @@ async def run_prediction(
 @router.get("/predictions")
 async def list_predictions(
     limit: int = Query(default=20, ge=1, le=100),
+    sort: str = Query(default="confidence", regex="^(confidence|recent|quality)$"),
+    min_quality: float = Query(default=0.0, ge=0.0, le=1.0),
     _: None = Depends(verify_strike_token_dep),
 ) -> dict:
     """List recent predictions — returns cached predictions from disk (fast).
@@ -255,14 +411,9 @@ async def list_predictions(
             except Exception:
                 pass
 
-    predictions.sort(
-        key=lambda p: p.get("timestamp", p.get("generated_at", "")),
-        reverse=True,
-    )
-
-    sliced = predictions[:limit]
-
-    for p in sliced:
+    # Enrich every record first (descriptions, titles, windows, quality)
+    # so that sort + filter operate on the post-derived fields.
+    for p in predictions:
         if not isinstance(p, dict):
             continue
         desc = _extract_prediction_description(p)
@@ -280,14 +431,41 @@ async def list_predictions(
         if "linked_signals" not in p or not isinstance(p.get("linked_signals"), list):
             p["linked_signals"] = []
 
+        # Wave 14P: meaningful derived fields
+        p["title"] = _derive_title(p)
+        window_days = _extract_forecast_window_days(desc or "")
+        p["forecast_window_days"] = window_days
+        p["expires_at_iso"] = _compute_expires_at(
+            p.get("timestamp", "") or p.get("generated_at", ""),
+            window_days,
+        )
+        p["quality_score"] = _quality_score(p, desc or "")
+
+    # Filter by min_quality first
+    filtered = [p for p in predictions if isinstance(p, dict) and p.get("quality_score", 0) >= min_quality]
+
+    # Sort by requested key
+    if sort == "confidence":
+        filtered.sort(key=lambda p: p.get("confidence", 0) or 0, reverse=True)
+    elif sort == "quality":
+        filtered.sort(key=lambda p: p.get("quality_score", 0) or 0, reverse=True)
+    else:  # recent
+        filtered.sort(
+            key=lambda p: p.get("timestamp", p.get("generated_at", "")),
+            reverse=True,
+        )
+
+    sliced = filtered[:limit]
+
     return {
         "status": "ok",
         "predictions": sliced,
         "total": len(predictions),
         "_meta": {
-            "filter_applied": {"limit": limit},
+            "filter_applied": {"limit": limit, "sort": sort, "min_quality": min_quality},
             "raw_count": len(predictions),
             "filtered_count": len(sliced),
+            "low_quality_dropped": len(predictions) - len(filtered),
             "dedup_count": 0,
         },
     }
@@ -830,7 +1008,34 @@ async def get_prediction_detail(
                     preds = [data]
                 for pred in preds:
                     if pred.get("prediction_id") == prediction_id:
-                        return {"status": "found", "prediction": pred}
+                        # Wave 14P: enrich the same way the list endpoint does
+                        # so the iOS detail view sees a consistent shape.
+                        desc = _extract_prediction_description(pred)
+                        if desc:
+                            pred["description"] = desc
+                        if not pred.get("models"):
+                            pred["models"] = _extract_prediction_models(pred)
+                        if not pred.get("direction"):
+                            pred["direction"] = _classify_prediction_direction(desc or "")
+                        pred["title"] = _derive_title(pred)
+                        window_days = _extract_forecast_window_days(desc or "")
+                        pred["forecast_window_days"] = window_days
+                        pred["expires_at_iso"] = _compute_expires_at(
+                            pred.get("timestamp", "") or pred.get("generated_at", ""),
+                            window_days,
+                        )
+                        pred["quality_score"] = _quality_score(pred, desc or "")
+                        # Hydrate linked signal UUIDs to full {id, title, source, score} objects
+                        sig_ids = pred.get("linked_signals") or []
+                        hydrated = await _hydrate_signals(brain, sig_ids, max_n=10)
+                        # Return BOTH nested (for back-compat) AND flat signals
+                        # (so iOS doesn't need to dig through .prediction.signals).
+                        return {
+                            "status": "found",
+                            "prediction": pred,
+                            "signals": hydrated,
+                            "signals_hydrated_count": len(hydrated),
+                        }
             except Exception:
                 pass
 
