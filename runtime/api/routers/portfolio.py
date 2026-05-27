@@ -1524,6 +1524,21 @@ async def auto_trader_calendar(
     return await calendar_summary()
 
 
+@router.post("/auto-trader/eod-summary")
+async def auto_trader_eod_summary_trigger(
+    payload: Optional[dict] = None,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Manual trigger for the EOD summary. Normally fires at 21:55 ET
+    automatically via ncl-auto-trader-eod scheduler task. Body: {force?: bool}."""
+    from ...portfolio.auto_trader import emit_eod_summary
+    force = bool((payload or {}).get("force", False))
+    result = await emit_eod_summary(force=force)
+    if result is None:
+        return {"emitted": False, "reason": "already emitted today (pass force=true to override)"}
+    return {"emitted": True, "summary": result}
+
+
 @router.get("/auto-trader/working-context")
 async def auto_trader_working_context(
     ticker: Optional[str] = None,

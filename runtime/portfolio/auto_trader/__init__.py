@@ -102,6 +102,13 @@ from .working_context_gate import (  # noqa: F401
     check_working_context,
     working_context_summary,
 )
+from .council_check import (  # noqa: F401
+    check_high_r_open,
+)
+from .eod_summary import (  # noqa: F401
+    emit_eod_summary,
+    eod_summary_loop,
+)
 
 __all__ = [
     "AutoTraderState", "get_state", "is_active", "pause", "resume",
@@ -130,4 +137,6 @@ __all__ = [
     # Wave 14K hardening — calendar + working-context awareness
     "check_calendar_block", "calendar_summary",
     "check_working_context", "working_context_summary",
+    # Wave 14K gap-closes — council quorum + EOD summary
+    "check_high_r_open", "emit_eod_summary", "eod_summary_loop",
 ]

@@ -223,6 +223,24 @@ async def attribute_close(
     except Exception as e:
         log.warning("[AT-ATTR] drift detector skipped (non-fatal): %s", e)
 
+    # 7.5) Gap-close B — write a Prediction record per close so accuracy
+    #      shows in the /predictions tab. Maps R_multiple to outcome:
+    #        > 0 → "correct"   (target hit / favorable manual close)
+    #        ≤ 0 → "incorrect" (stopped out / expired / unfavorable)
+    #      Idempotent on trade_idea_id (filename suffix).
+    #      Non-blocking on failure.
+    try:
+        await _emit_close_prediction_record(
+            paper_trade=paper_trade,
+            trade_idea_id=trade_idea_id,
+            outcome=result["outcome"],
+            engine_r=engine_r,
+            exit_price=exit_price,
+        )
+        result["prediction_emitted"] = True
+    except Exception as e:
+        log.warning("[AT-ATTR] prediction record write skipped: %s", e)
+
     # 8) Wave 14K Phase 7 K6b: re-calibrate friction profile every N closes.
     #    Non-blocking — friction failures never break the close path.
     try:
@@ -355,6 +373,103 @@ async def _emit_drift_memory_unit(
         log.info("[AT-ATTR] strategy_drift memory emitted for %s", strategy)
     except Exception as e:
         log.warning("[AT-ATTR] drift memory unit emit failed: %s", e)
+
+
+async def _emit_close_prediction_record(
+    *,
+    paper_trade,
+    trade_idea_id: Optional[str],
+    outcome: str,
+    engine_r: float,
+    exit_price: float,
+) -> None:
+    """Gap-close B: write data/predictions/pred-auto-<tid>.json + mirror
+    to SQLite. Mirrors the awarebot:predictor record shape so the existing
+    /predictions endpoint surfaces auto-trader closes alongside organic
+    predictions. Idempotent — filename uses trade_idea_id as the stable
+    suffix so the same trade can't write twice."""
+    import json
+    import os
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    if not trade_idea_id:
+        return  # nothing to key on
+    # Map R_multiple to prediction outcome
+    if engine_r > 0:
+        pred_outcome = "correct"
+    elif engine_r < 0:
+        pred_outcome = "incorrect"
+    else:
+        pred_outcome = "partial"  # scratch
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    symbol = getattr(paper_trade, "symbol", "?")
+    direction = getattr(paper_trade, "direction", "?")
+    strategy = getattr(paper_trade, "strategy", "auto")
+    entry_price = getattr(paper_trade, "entry_price", 0)
+    days_held = getattr(paper_trade, "days_held", 0)
+    pid = f"pred-auto-{trade_idea_id}"
+
+    consensus = (
+        f"Auto-trader {direction} {symbol} from ${entry_price} "
+        f"closed @ ${exit_price} ({outcome}); R={engine_r:+.2f}"
+    )
+
+    record = {
+        "id": pid,
+        "prediction_id": pid,
+        "topic": f"auto_trader:{strategy}:{symbol}",
+        "timestamp": now_iso,
+        "created_at": now_iso,
+        "consensus_prediction": consensus,
+        "confidence": min(1.0, max(0.0, abs(engine_r) / 3.0)),  # |R|/3 capped
+        "direction": (
+            "bullish" if (direction == "long" and engine_r > 0) or
+            (direction == "short" and engine_r < 0)
+            else "bearish"
+        ),
+        "linked_signals": [],
+        "models": ["auto_trader:paper_close"],
+        "source": "auto_trader:paper_close",
+        "outcome": pred_outcome,
+        "outcome_recorded_at": now_iso,
+        "metadata": {
+            "trade_idea_id": trade_idea_id,
+            "paper_trade_id": getattr(paper_trade, "id", None),
+            "symbol": symbol,
+            "direction": direction,
+            "strategy": strategy,
+            "engine_r": engine_r,
+            "outcome_trigger": outcome,
+            "exit_price": exit_price,
+            "days_held": days_held,
+            "wave": "14K-gap-close-B",
+        },
+    }
+
+    base = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
+    pred_dir = base / "data" / "predictions"
+    pred_dir.mkdir(parents=True, exist_ok=True)
+    pred_file = pred_dir / f"{pid}.json"
+    if pred_file.exists():
+        return  # idempotent — already emitted
+    pred_file.write_text(json.dumps(record, indent=2, sort_keys=True))
+
+    # SQLite mirror (no-op if gate off)
+    try:
+        from ...persistence.predictions_writer import (
+            mirror_prediction_to_sqlite, mirror_outcome_to_sqlite,
+        )
+        await mirror_prediction_to_sqlite(record, fallback_id=pid)
+        await mirror_outcome_to_sqlite(pid, pred_outcome, recorded_at=now_iso)
+    except Exception as e:
+        log.debug("[AT-ATTR] SQLite mirror skipped: %s", e)
+
+    log.info(
+        "[AT-ATTR] prediction record %s emitted (outcome=%s R=%+.2f)",
+        pid, pred_outcome, engine_r,
+    )
 
 
 async def attribute_batch(

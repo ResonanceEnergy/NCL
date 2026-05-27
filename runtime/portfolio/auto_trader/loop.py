@@ -423,6 +423,46 @@ async def auto_trader_loop(brain) -> None:
                     payload = apply_friction_to_payload(payload, profile)
                 except Exception as e:
                     log.warning("[AT-LOOP] friction injection skipped: %s", e)
+                # 8.5) High-R council quorum check (gap-close A) — for
+                #     trades sized large enough, get a Sonnet+Haiku second
+                #     opinion before committing. Veto returns the idea to
+                #     emitted state. Non-blocking on failure (env tunable).
+                council_result = None
+                try:
+                    from .council_check import check_high_r_open
+                    council_result = await check_high_r_open(
+                        idea=idea, gov=gov, effective_R=effective_R,
+                    )
+                    if council_result.get("veto"):
+                        log.info(
+                            "[AT-LOOP] REJECT %s (%s) — council quorum: %s",
+                            trade_idea_id, ticker,
+                            council_result.get("reason", ""),
+                        )
+                        rejected += 1
+                        await record_reasoning_chain(
+                            trade_idea_id=trade_idea_id,
+                            idea_snapshot=idea,
+                            governor_decision=gov,
+                            policy_check={
+                                "eligible": False,
+                                "reason": (
+                                    f"council_quorum: "
+                                    f"{council_result.get('reason', '')}"
+                                ),
+                                "policy_rev": policy.revision,
+                                "council_check": council_result,
+                            },
+                            source=idea.get("source") or "brief",
+                            strategy=str(strat),
+                            ticker=ticker,
+                            effective_R_dollars=effective_R,
+                            planned_qty=qty,
+                        )
+                        continue
+                except Exception as e:
+                    log.warning("[AT-LOOP] council quorum check failed: %s", e)
+
                 # K7a: paper-engine breaker — if create_trade is failing
                 # repeatedly we want to stop hammering it.
                 if cb_paper.is_open():
@@ -449,15 +489,18 @@ async def auto_trader_loop(brain) -> None:
                 )
 
                 # 8) Record reasoning chain + link paper_trade_id
+                policy_check_meta = {
+                    "eligible": True,
+                    "reason": reason,
+                    "policy_rev": policy.revision,
+                }
+                if council_result:
+                    policy_check_meta["council_check"] = council_result
                 await record_reasoning_chain(
                     trade_idea_id=trade_idea_id,
                     idea_snapshot=idea,
                     governor_decision=gov,
-                    policy_check={
-                        "eligible": True,
-                        "reason": reason,
-                        "policy_rev": policy.revision,
-                    },
+                    policy_check=policy_check_meta,
                     paper_trade_id=paper_trade_id,
                     source=idea.get("source") or "brief",
                     strategy=str(strat),

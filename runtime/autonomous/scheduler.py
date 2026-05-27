@@ -794,6 +794,17 @@ class AutonomousScheduler:
             asyncio.create_task(_auto_trader_prices(), name="ncl-auto-trader-prices")
         )
 
+        # Wave 14K gap-close C — auto-trader EOD summary at 21:55 ET so the
+        # 22:00 ET journal_reflection sees a daily rollup of the agent's day.
+        from ..portfolio.auto_trader.eod_summary import eod_summary_loop
+
+        async def _auto_trader_eod():
+            await eod_summary_loop()
+
+        self._tasks.append(
+            asyncio.create_task(_auto_trader_eod(), name="ncl-auto-trader-eod")
+        )
+
         # Attach a done-callback to every task so a silent crash (unobserved
         # task exception) gets logged instead of disappearing.
         def _task_done(task: asyncio.Task) -> None:
@@ -853,6 +864,11 @@ class AutonomousScheduler:
             "ncl-auto-trader-loop": lambda: auto_trader_loop(self.brain),
             # Wave 14K Phase 3 — auto-trader price feed.
             "ncl-auto-trader-prices": lambda: price_feed_loop(self.brain),
+            # Wave 14K gap-close C — auto-trader EOD summary (21:55 ET daily).
+            "ncl-auto-trader-eod": lambda: __import__(
+                "runtime.portfolio.auto_trader.eod_summary",
+                fromlist=["eod_summary_loop"],
+            ).eod_summary_loop(),
         }
         # 2026-05-22 memory loops (factory registration — only if loaded above)
         try:
