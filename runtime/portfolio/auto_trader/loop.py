@@ -409,6 +409,46 @@ async def auto_trader_loop(brain) -> None:
                     gov.get("effective_R_dollars") if gov else proposed_R
                 ) or proposed_R
                 qty = max(1, int(effective_R / rps)) if rps > 0 else int(planned_qty)
+
+                # 7a) Wave 14L M1 — tax-aware sizing: wash sale check + earnings
+                #     proximity multiplier. Block if wash-sale conflict +
+                #     NCL_AT_WASH_BLOCK=1.
+                tax_result = None
+                try:
+                    from .tax_sizing import apply_tax_sizing
+                    tax_result = await apply_tax_sizing(
+                        idea=idea, proposed_qty=qty,
+                        proposed_R_dollars=effective_R, brain=brain,
+                    )
+                    if not tax_result.get("approved"):
+                        log.info(
+                            "[AT-LOOP] REJECT %s (%s) — tax: %s",
+                            trade_idea_id, ticker, tax_result.get("block_reason", ""),
+                        )
+                        rejected += 1
+                        await record_reasoning_chain(
+                            trade_idea_id=trade_idea_id,
+                            idea_snapshot=idea,
+                            governor_decision=gov,
+                            policy_check={
+                                "eligible": False,
+                                "reason": f"tax: {tax_result.get('block_reason', '')}",
+                                "policy_rev": policy.revision,
+                                "tax_result": tax_result,
+                            },
+                            source=idea.get("source") or "brief",
+                            strategy=str(strat),
+                            ticker=ticker,
+                            effective_R_dollars=effective_R,
+                            planned_qty=qty,
+                        )
+                        continue
+                    # Apply size multiplier
+                    qty = int(tax_result.get("adjusted_qty", qty))
+                    effective_R = tax_result.get("adjusted_R_dollars", effective_R)
+                except Exception as e:
+                    log.warning("[AT-LOOP] tax sizing skipped: %s", e)
+
                 payload = _idea_to_paper_payload(idea, qty)
                 # Wave 14K Phase 7 K6a: apply per-strategy friction
                 # (slippage + partial-fill) before handing to the paper

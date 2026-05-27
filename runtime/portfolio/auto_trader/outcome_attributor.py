@@ -241,6 +241,27 @@ async def attribute_close(
     except Exception as e:
         log.warning("[AT-ATTR] prediction record write skipped: %s", e)
 
+    # 7.55) Wave 14L M1 — record realized loss into WashSaleLedger so the
+    #       next open on this ticker triggers the 30-day wash check.
+    try:
+        if engine_r < 0:
+            from .tax_sizing import record_realized_loss
+            realized_pl = getattr(paper_trade, "realized_pl", 0) or 0
+            loss_amount = abs(float(realized_pl)) if realized_pl < 0 else 0
+            if loss_amount > 0:
+                await record_realized_loss(
+                    symbol=getattr(paper_trade, "symbol", "?"),
+                    broker="paper",
+                    account_id="auto_trader",
+                    loss_amount=loss_amount,
+                    notes=(
+                        f"auto-trader paper close: trade_idea_id={trade_idea_id} "
+                        f"trigger={result['outcome']} engine_R={engine_r:+.2f}"
+                    ),
+                )
+    except Exception as e:
+        log.warning("[AT-ATTR] wash sale record skipped: %s", e)
+
     # 7.6) Wave 14L L4 — Profit Ladder: if this was a short-dated lottery
     #      win, emit a follow-on long-dated LEAP trade idea at 50% of
     #      realized profit. Idempotent on source trade_idea_id.

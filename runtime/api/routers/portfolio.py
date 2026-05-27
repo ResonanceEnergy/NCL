@@ -1660,9 +1660,38 @@ async def auto_trader_quant_scan_force_tick(
     _: None = Depends(verify_strike_token_dep),
     brain=Depends(get_brain),
 ) -> dict:
-    """Force a quant-scan tick on demand. Runs all 5 scanners."""
+    """Force a quant-scan tick on demand. Runs all 7 scanners
+    (5 equity/options + 2 cross-asset basket: crypto_carry + polymarket_kelly)."""
     from ...portfolio.auto_trader import quant_scan_tick
     return await quant_scan_tick(brain)
+
+
+@router.post("/auto-trader/backtest")
+async def auto_trader_backtest_recipe(
+    payload: dict,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Wave 14L M3 — backtest a strategy recipe against historical bars.
+    Body: {recipe: 'momentum_breakout', ticker: 'NVDA', days?: 180,
+           stop_pct?: 8, target_pct?: 20, max_hold_bars?: 20}"""
+    from ...portfolio.auto_trader import backtest_recipe
+    recipe = payload.get("recipe")
+    ticker = payload.get("ticker")
+    if not recipe or not ticker:
+        raise HTTPException(status_code=400,
+                            detail="recipe and ticker required")
+    kwargs = {k: v for k, v in payload.items()
+              if k in ("days", "stop_pct", "target_pct", "max_hold_bars")}
+    return await backtest_recipe(recipe, ticker, **kwargs)
+
+
+@router.get("/auto-trader/backtest")
+async def auto_trader_backtest_status(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Wave 14L M3 — backtest harness snapshot + recent 10 runs."""
+    from ...portfolio.auto_trader import backtest_summary
+    return await backtest_summary()
 
 
 @router.post("/auto-trader/scout/tick")

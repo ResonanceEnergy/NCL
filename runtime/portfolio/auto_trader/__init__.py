@@ -138,6 +138,13 @@ from .capability_registry import (  # noqa: F401
 from .quant_scanners import (  # noqa: F401
     quant_scan_tick, quant_scan_loop, quant_scan_summary,
 )
+from .tax_sizing import (  # noqa: F401
+    apply_tax_sizing, record_realized_loss,
+)
+from .recipe_backtest import (  # noqa: F401
+    backtest_recipe, list_supported_recipes as backtest_supported_recipes,
+    backtest_summary,
+)
 
 __all__ = [
     "AutoTraderState", "get_state", "is_active", "pause", "resume",
@@ -185,4 +192,8 @@ __all__ = [
     "capability_summary",
     # Wave 14L L2 — quant scanner suite
     "quant_scan_tick", "quant_scan_loop", "quant_scan_summary",
+    # Wave 14L M1 — tax-aware sizing
+    "apply_tax_sizing", "record_realized_loss",
+    # Wave 14L M3 — recipe backtest harness
+    "backtest_recipe", "backtest_supported_recipes", "backtest_summary",
 ]

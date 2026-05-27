@@ -519,6 +519,205 @@ async def scan_whale_flow(*, brain=None) -> list[dict]:
 
 
 # ─────────────────────────────────────────────────────────────────────
+# SCANNER 6: crypto_carry (funding rate basis)
+# ─────────────────────────────────────────────────────────────────────
+
+CRYPTO_PAIRS = [
+    s.strip().upper() for s in os.getenv(
+        "NCL_AT_CRYPTO_WATCHLIST", "BTC,ETH,SOL,XRP",
+    ).split(",") if s.strip()
+]
+
+
+async def scan_crypto_carry(*, brain=None) -> list[dict]:
+    """Crypto funding-rate carry. Conservative: just looks for stable
+    upward momentum + positive 7d return. Stub for real basis trade
+    (needs perp+spot data which requires either Binance/Bybit/Coinbase
+    Advanced API — emits capability_request for that until adapter exists).
+
+    Today: emits ideas for crypto tokens on positive momentum + capability
+    gap MemUnit for proper basis data."""
+    from .capability_registry import check_and_request
+    cap = await check_and_request(
+        "coingecko", brain=brain, requesting_module="quant:crypto_carry",
+    )
+    if not cap.get("available"):
+        return []
+    # Emit capability request for proper basis data (perp funding rates)
+    # so the operator knows what's needed for a real basis trade
+    try:
+        from .capability_registry import _STATE, _persist_state, _LOCK
+        async with _LOCK:
+            _STATE["crypto_basis_perp_funding"] = {
+                "name": "crypto_basis_perp_funding",
+                "status": "not_implemented",
+                "gap_reason": (
+                    "proper crypto basis trade needs perp funding rate + "
+                    "spot price for same underlying. No adapter yet — using "
+                    "momentum proxy."
+                ),
+                "available": False,
+                "last_check_iso": _now_iso(),
+            }
+            _persist_state()
+    except Exception:
+        pass
+
+    ideas = []
+    for ticker in CRYPTO_PAIRS:
+        try:
+            yf_ticker = f"{ticker}-USD"
+            bars = await asyncio.to_thread(_fetch_history, yf_ticker, 30)
+            if not bars or len(bars) < 14:
+                continue
+            closes = [b[1] for b in bars]
+            last = closes[-1]
+            roc_7d = (closes[-1] - closes[-8]) / closes[-8] * 100 if len(closes) >= 8 else 0
+            roc_30d = (closes[-1] - closes[0]) / closes[0] * 100 if len(closes) >= 30 else 0
+            sma_14 = sum(closes[-14:]) / 14
+            # Carry-like setup: positive 7d AND 30d AND price > 14d SMA
+            if roc_7d <= 0 or roc_30d <= 0 or last <= sma_14:
+                continue
+            stop = round(sma_14 * 0.95, 4)
+            target = round(last * 1.30, 4)
+            R = round(last - stop, 4)
+            if R <= 0:
+                continue
+            ideas.append({
+                "source": "quant:crypto_carry",
+                "strategy": "crypto_carry",
+                "ticker": yf_ticker,
+                "direction": "long",
+                "entry_price": last,
+                "stop_price": stop,
+                "target_price": target,
+                "R_per_share": R,
+                "planned_qty": 0,
+                "stop_type": "price",
+                "stop_basis": "5% below 14d SMA (trend invalidation)",
+                "target_basis": "30% move target (30d hold)",
+                "thesis": (
+                    f"{ticker} carry-like setup: 7d ROC {roc_7d:+.1f}%, "
+                    f"30d ROC {roc_30d:+.1f}%, price ${last:.4f} > 14d SMA "
+                    f"${sma_14:.4f}. NOTE: momentum proxy until perp/funding "
+                    f"data wired."
+                ),
+                "scanner_metadata": {
+                    "roc_7d_pct": round(roc_7d, 2),
+                    "roc_30d_pct": round(roc_30d, 2),
+                    "sma_14": round(sma_14, 4),
+                    "last": round(last, 4),
+                    "is_momentum_proxy": True,
+                },
+            })
+        except Exception as e:
+            log.debug("[QUANT:crypto_carry] %s failed: %s", ticker, e)
+    return ideas
+
+
+# ─────────────────────────────────────────────────────────────────────
+# SCANNER 7: polymarket_kelly
+# ─────────────────────────────────────────────────────────────────────
+
+async def scan_polymarket_kelly(*, brain=None) -> list[dict]:
+    """Polymarket positive-Kelly events. Reads existing intel/polymarket
+    cache and proposes positions sized by Kelly criterion.
+
+    Conservative: only propose events with implied probability < 0.85
+    (avoid near-certain bets where reward/risk asymmetry collapses) AND
+    where our estimated edge ≥ 5pp (operator can tune)."""
+    from .capability_registry import check_and_request
+    cap = await check_and_request(
+        "polymarket", brain=brain, requesting_module="quant:polymarket_kelly",
+    )
+    if not cap.get("available"):
+        return []
+
+    # Look for cached polymarket events the awarebot scanner persisted
+    poly_dir = NCL_BASE / "data" / "intelligence" / "polymarket"
+    if not poly_dir.exists():
+        # Try the awarebot signals directory as fallback
+        poly_dir = NCL_BASE / "data" / "awarebot" / "polymarket"
+    if not poly_dir.exists():
+        return []
+    try:
+        files = sorted(poly_dir.glob("*.json"), reverse=True)[:5]
+    except Exception:
+        return []
+    ideas = []
+    seen_questions: set = set()
+    for f in files:
+        try:
+            raw = json.loads(f.read_text())
+            events = raw if isinstance(raw, list) else raw.get("events") or raw.get("markets") or []
+            for ev in events[:50]:  # cap per file
+                question = ev.get("question") or ev.get("title") or ""
+                if not question or question in seen_questions:
+                    continue
+                seen_questions.add(question)
+                outcomes = ev.get("outcomes") or ev.get("tokens") or []
+                if not isinstance(outcomes, list):
+                    continue
+                for outcome in outcomes[:2]:
+                    if not isinstance(outcome, dict):
+                        continue
+                    price = float(outcome.get("price") or outcome.get("yes_price") or 0)
+                    if not (0.10 < price < 0.85):
+                        continue
+                    # Simple Kelly: assume our edge = 5pp over market price
+                    # (conservative — operator-tunable via env)
+                    edge = float(os.getenv("NCL_AT_POLY_EDGE_PP", "5")) / 100.0
+                    our_p = min(0.95, price + edge)
+                    b = (1 - price) / price  # decimal odds — 1
+                    kelly = (our_p * b - (1 - our_p)) / b
+                    if kelly <= 0.01:
+                        continue
+                    # Half-Kelly for safety
+                    kelly_frac = kelly * 0.5
+                    name = outcome.get("name") or outcome.get("ticker") or "?"
+                    yes_no = "YES" if name.upper() == "YES" else (
+                        "NO" if name.upper() == "NO" else name
+                    )
+                    ticker = f"POLY:{question[:40]}:{yes_no}"
+                    ideas.append({
+                        "source": "quant:polymarket_kelly",
+                        "strategy": "polymarket_kelly",
+                        "ticker": ticker,
+                        "direction": "long",
+                        "entry_price": price,
+                        "stop_price": round(price * 0.5, 4),  # half-loss exit
+                        "target_price": 1.0,                 # full resolution
+                        "R_per_share": round(price * 0.5, 4),
+                        "planned_qty": 0,
+                        "stop_type": "thesis_break",
+                        "stop_basis": "half premium lost (event resolution moved against us)",
+                        "target_basis": "full resolution favorable",
+                        "thesis": (
+                            f"Polymarket: '{question[:80]}' outcome '{yes_no}' @ ${price:.2f}. "
+                            f"Edge {edge*100:.1f}pp, full Kelly {kelly*100:.1f}%, "
+                            f"half-Kelly {kelly_frac*100:.1f}% sizing."
+                        ),
+                        "scanner_metadata": {
+                            "question": question,
+                            "outcome_name": yes_no,
+                            "market_price": price,
+                            "assumed_edge_pp": edge * 100,
+                            "kelly_fraction": round(kelly, 4),
+                            "half_kelly_fraction": round(kelly_frac, 4),
+                        },
+                    })
+                    if len(ideas) >= 5:
+                        break
+                if len(ideas) >= 5:
+                    break
+        except Exception as e:
+            log.debug("[QUANT:polymarket_kelly] %s failed: %s", f.name, e)
+        if len(ideas) >= 5:
+            break
+    return ideas
+
+
+# ─────────────────────────────────────────────────────────────────────
 # Tick + loop
 # ─────────────────────────────────────────────────────────────────────
 
@@ -528,6 +727,8 @@ _SCANNERS = [
     ("factor", scan_factor),
     ("pairs", scan_pairs),
     ("whale_flow", scan_whale_flow),
+    ("crypto_carry", scan_crypto_carry),
+    ("polymarket_kelly", scan_polymarket_kelly),
 ]
 
 
