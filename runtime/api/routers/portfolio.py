@@ -1514,6 +1514,32 @@ async def auto_trader_circuit_breakers(
     return {"count": len(at_breakers), "breakers": at_breakers}
 
 
+@router.get("/auto-trader/calendar")
+async def auto_trader_calendar(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Calendar awareness snapshot — upcoming FOMC/OPEX/VIX/earnings events
+    + which are currently inside the auto-trader's blocking window."""
+    from ...portfolio.auto_trader import calendar_summary
+    return await calendar_summary()
+
+
+@router.get("/auto-trader/working-context")
+async def auto_trader_working_context(
+    ticker: Optional[str] = None,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Working-context gate snapshot. With ?ticker=NVDA, also returns
+    the per-ticker check (blocked, contradicted_by, aligned_with)."""
+    from ...portfolio.auto_trader import (
+        working_context_summary, check_working_context,
+    )
+    summary = await working_context_summary()
+    if ticker:
+        summary["ticker_check"] = await check_working_context(ticker)
+    return summary
+
+
 @router.get("/auto-trader/dashboard")
 async def auto_trader_dashboard(
     _: None = Depends(verify_strike_token_dep),
@@ -1530,7 +1556,8 @@ async def auto_trader_dashboard(
     from ...portfolio.auto_trader import (
         get_state, get_bandit, drift_all_states,
         graduation_evaluate_all, list_open_research_topics,
-        friction_all_profiles,
+        friction_all_profiles, calendar_summary,
+        working_context_summary,
     )
     from ...portfolio.trade_idea_tracker import get_trade_idea_tracker
     from dataclasses import asdict
@@ -1603,6 +1630,18 @@ async def auto_trader_dashboard(
     except Exception as e:
         friction_summary = {"error": str(e)}
 
+    # Calendar summary (Wave 14K hardening #1)
+    try:
+        calendar = await calendar_summary()
+    except Exception as e:
+        calendar = {"error": str(e)}
+
+    # Working-context summary (Wave 14K hardening #3)
+    try:
+        wc = await working_context_summary()
+    except Exception as e:
+        wc = {"error": str(e)}
+
     return {
         "state": state_dict,
         "top_strategies": top_strategies,
@@ -1611,7 +1650,9 @@ async def auto_trader_dashboard(
         "research_topics": topic_summary,
         "recent_closes": recent,
         "friction": friction_summary,
-        "wave": "14K-K6c",
+        "calendar": calendar,
+        "working_context": wc,
+        "wave": "14K-K6c-hardening1+3",
     }
 
 

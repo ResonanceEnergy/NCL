@@ -94,6 +94,14 @@ from .friction_profile import (  # noqa: F401
     calibrate_from_closes as friction_calibrate_from_closes,
     maybe_calibrate as friction_maybe_calibrate,
 )
+from .calendar_gate import (  # noqa: F401
+    check_calendar_block,
+    calendar_summary,
+)
+from .working_context_gate import (  # noqa: F401
+    check_working_context,
+    working_context_summary,
+)
 
 __all__ = [
     "AutoTraderState", "get_state", "is_active", "pause", "resume",
@@ -119,4 +127,7 @@ __all__ = [
     "friction_get_profile", "friction_update_profile",
     "friction_all_profiles", "apply_friction_to_payload",
     "friction_calibrate_from_closes", "friction_maybe_calibrate",
+    # Wave 14K hardening — calendar + working-context awareness
+    "check_calendar_block", "calendar_summary",
+    "check_working_context", "working_context_summary",
 ]

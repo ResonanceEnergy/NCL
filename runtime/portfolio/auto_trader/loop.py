@@ -186,7 +186,21 @@ async def auto_trader_loop(brain) -> None:
                     bucket = await get_drawdown_bucket()
                     dd_state = await bucket.get_state()
                     band = dd_state.get("band", "green")
-                    await set_drawdown_halt(band == "halt", band=band)
+                    # Wave 14K hardening: a NAV reading of $0 means the
+                    # portfolio sync hasn't completed yet, not that the
+                    # account is wiped. Treat as data-unavailable rather
+                    # than 100% drawdown — preserves operator intent
+                    # ("don't pause for an empty data point").
+                    nav_cad = float(dd_state.get("current_nav_cad") or 0)
+                    if band == "halt" and nav_cad < 100:
+                        log.debug(
+                            "[AT-LOOP] drawdown band=halt but NAV=$%.2f — "
+                            "treating as data-unavailable, not halt", nav_cad,
+                        )
+                        band = "unknown"
+                        await set_drawdown_halt(False, band="unknown")
+                    else:
+                        await set_drawdown_halt(band == "halt", band=band)
                     cb_drawdown.record_success()
                 except Exception as e:
                     cb_drawdown.record_failure()
@@ -295,7 +309,75 @@ async def auto_trader_loop(brain) -> None:
                             cb_governor.record_failure()
                             log.warning("[AT-LOOP] governor check failed: %s", e)
 
-                # 6) Apply auto-bar
+                # 6a) Calendar gate (Wave 14K hardening #1) — block opens
+                #     when macro events (FOMC/OPEX/quad-witch/VIX) or per-
+                #     ticker earnings are within configured day windows.
+                #     Non-blocking on failure: degrade to "no calendar info"
+                #     rather than crash the loop.
+                try:
+                    from .calendar_gate import check_calendar_block
+                    cal_blocked, cal_reason = await check_calendar_block(ticker)
+                except Exception as e:
+                    log.warning("[AT-LOOP] calendar gate failed: %s", e)
+                    cal_blocked, cal_reason = False, ""
+                if cal_blocked:
+                    log.info(
+                        "[AT-LOOP] REJECT %s (%s) — calendar: %s",
+                        trade_idea_id, ticker, cal_reason,
+                    )
+                    rejected += 1
+                    await record_reasoning_chain(
+                        trade_idea_id=trade_idea_id,
+                        idea_snapshot=idea,
+                        governor_decision=gov,
+                        policy_check={
+                            "eligible": False,
+                            "reason": f"calendar: {cal_reason}",
+                            "policy_rev": policy.revision,
+                        },
+                        source=idea.get("source") or "brief",
+                        strategy=str(strat),
+                        ticker=ticker,
+                        effective_R_dollars=None,
+                        planned_qty=planned_qty,
+                    )
+                    continue
+
+                # 6b) Working-context gate (Wave 14K hardening #3) — read
+                #     today's NATRIX-tier pinned items + check if the
+                #     ticker is contradicted. Annotates the idea with
+                #     alignment metadata regardless. Non-blocking on read
+                #     failure.
+                wc_info = {"aligned_with": [], "contradicted_by": []}
+                try:
+                    from .working_context_gate import check_working_context
+                    wc_info = await check_working_context(ticker)
+                except Exception as e:
+                    log.warning("[AT-LOOP] working_context gate failed: %s", e)
+                if wc_info.get("blocked"):
+                    log.info(
+                        "[AT-LOOP] REJECT %s (%s) — working_context: %s",
+                        trade_idea_id, ticker, wc_info.get("block_reason", ""),
+                    )
+                    rejected += 1
+                    await record_reasoning_chain(
+                        trade_idea_id=trade_idea_id,
+                        idea_snapshot=idea,
+                        governor_decision=gov,
+                        policy_check={
+                            "eligible": False,
+                            "reason": f"working_context: {wc_info.get('block_reason', '')}",
+                            "policy_rev": policy.revision,
+                        },
+                        source=idea.get("source") or "brief",
+                        strategy=str(strat),
+                        ticker=ticker,
+                        effective_R_dollars=None,
+                        planned_qty=planned_qty,
+                    )
+                    continue
+
+                # 6c) Apply auto-bar
                 eligible, reason = await auto_open_eligible(idea, gov, policy=policy)
                 if not eligible:
                     log.info(
