@@ -8,10 +8,15 @@ module is that the throttle is enforced in ONE place — adding a new
 scanner doesn't require re-implementing drawdown logic.
 
 Bands (computed from current portfolio NAV vs trailing peak):
-  green     :  0%  to  -3%        sizing multiplier 1.00
-  caution   : -3%  to  -7%        sizing multiplier 0.75
-  warning   : -7%  to -12%        sizing multiplier 0.50
-  halt      : worse than -12%     sizing multiplier 0.00
+  green     :  0%  to  -5%        sizing multiplier 1.00
+  caution   : -5%  to -10%        sizing multiplier 0.75   (cut 25%)
+  warning   : -10% to -15%        sizing multiplier 0.50   (cut 50%)
+  halt      : worse than -15%     sizing multiplier 0.00   (halt new opens)
+
+  Wave 14U U5: formalized to match AUTO_TRADER_MANDATE.md v1.0 risk
+  budget (5%/10%/15% tiered step-down) per Carver-style three-tier
+  vol-targeting + academic drawdown-modulated feedback control
+  (arxiv:1710.01503).
 
 Drawdown reference is the trailing high-water-mark over the rolling
 lookback window (default 90 days, matching the snapshots.jsonl
@@ -65,12 +70,13 @@ DRAWDOWN_FILE = HEALTH_DIR / "drawdown.json"
 
 
 # Band thresholds + sizing multipliers.
+# Wave 14U U5: formalized 5/10/15 tiers per AUTO_TRADER_MANDATE.md v1.0.
 # (max_dd_pct_inclusive, band_name, sizing_multiplier)
 BANDS = [
-    (-3.0, "green", 1.00),
-    (-7.0, "caution", 0.75),
-    (-12.0, "warning", 0.50),
-    (-100.0, "halt", 0.00),  # worse than warning ceiling
+    (-5.0, "green", 1.00),     #   0% to  -5% : full size
+    (-10.0, "caution", 0.75),  #  -5% to -10% : cut 25%
+    (-15.0, "warning", 0.50),  # -10% to -15% : cut 50%
+    (-100.0, "halt", 0.00),    # worse than -15% : halt new opens
 ]
 
 
@@ -258,17 +264,32 @@ class DrawdownBucket:
             # outage (broker adapter disconnected, FX fetch failed, etc).
             # Reporting a -100% drawdown and halting all trading on the
             # back of a single bad read is far worse than holding the
-            # last-known good band. Just touch computed_at and bail.
+            # last-known good band — AND holding the last band is itself
+            # dangerous if the last band was halt (a persisted halt from
+            # a prior bad read poisons the governor forever). Hotfix A
+            # (Wave 14U): on suspicious NAV, FAIL-OPEN to green so the
+            # operator can still trade; the next valid NAV read on the
+            # 60s loop will re-detect a real drawdown within one tick.
             if (current_nav_cad or 0) < 100:
                 log.warning(
-                    "[DRAWDOWN] suspicious NAV $%.2f — holding band=%s "
-                    "(peak=$%.2f); skipping band update",
+                    "[DRAWDOWN] suspicious NAV $%.2f — FAIL-OPEN reset "
+                    "band=%s -> green (peak=$%.2f); real drawdown will "
+                    "re-detect on next valid NAV read",
                     current_nav_cad or 0, self._state.band, peak,
                 )
+                prev = self._state.band
+                if prev != "green":
+                    self._state.last_transition_at = _now_iso()
+                    self._state.last_transition_from = prev
                 self._state.computed_at = _now_iso()
                 self._state.peak_nav_cad = float(peak)
                 self._state.peak_date = peak_date
                 self._state.sample_count = count
+                self._state.band = "green"
+                self._state.sizing_multiplier = 1.0
+                self._state.notes = (
+                    f"FAIL-OPEN reset on suspicious NAV (was {prev})"
+                )
                 await self._persist()
                 return asdict(self._state)
             dd_pct = ((current_nav_cad or 0.0) - peak) / peak * 100.0

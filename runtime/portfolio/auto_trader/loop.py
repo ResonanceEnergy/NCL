@@ -281,6 +281,45 @@ async def auto_trader_loop(brain) -> None:
                     or idea.get("type") or "auto"
                 )
 
+                # 4.5) Wave 14U U1 — pre-trade sanity gate (4 checks):
+                # ticker exists, price in 52w range, daily move <30%,
+                # volume >0. Runs BEFORE governor so stale/hallucinated
+                # tickers never reach the heat-cap math.
+                try:
+                    from .sanity_gate import check_trade_sanity
+                    sanity = await check_trade_sanity(
+                        ticker=ticker,
+                        entry_price=float(idea.get("entry_price") or 0),
+                        direction=str(idea.get("direction") or "long"),
+                    )
+                except Exception as e:
+                    log.warning("[AT-LOOP] sanity gate error: %s", e)
+                    sanity = {"passed": False, "checks": {},
+                              "block_reason": f"sanity_gate_exception: {e}"}
+                if not sanity.get("passed"):
+                    log.info(
+                        "[AT-LOOP] REJECT %s (%s) — sanity: %s",
+                        trade_idea_id, ticker, sanity.get("block_reason", "?"),
+                    )
+                    rejected += 1
+                    await record_reasoning_chain(
+                        trade_idea_id=trade_idea_id,
+                        idea_snapshot=idea,
+                        governor_decision=None,
+                        policy_check={
+                            "eligible": False,
+                            "reason": f"sanity: {sanity.get('block_reason', '?')}",
+                            "policy_rev": policy.revision,
+                            "sanity_check": sanity,
+                        },
+                        source=idea.get("source") or "brief",
+                        strategy=str(strat),
+                        ticker=ticker,
+                        effective_R_dollars=None,
+                        planned_qty=float(idea.get("planned_qty") or 0),
+                    )
+                    continue
+
                 # 5) Compute R_dollars + call governor
                 rps = float(idea.get("R_per_share") or 0)
                 planned_qty = float(idea.get("planned_qty") or 100)

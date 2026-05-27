@@ -185,6 +185,65 @@ async def all_profiles() -> dict:
         return {strat: asdict(p) for strat, p in _STATE.items()}
 
 
+# ── Wave 14U U3: intraday friction multiplier ─────────────────────
+#
+# Spreads at the open (09:30-09:35 ET) and close (15:55-16:00 ET) are
+# 2-3x wider than mid-day. Paper trades that fire market orders in those
+# windows without compensating widen the paper-vs-live divergence. The
+# multiplier table below biases adverse-direction slippage upward when
+# the trade hour falls inside a known wide-spread window.
+#
+# Source: Almgren-Chriss "Optimal Execution" 2000 + 2024 arxiv updates;
+# matches what TradersPost and Alpaca recommend for retail-grade backtest
+# realism. Disable via NCL_FRICTION_INTRADAY_DISABLED=1.
+
+INTRADAY_DISABLED = os.getenv("NCL_FRICTION_INTRADAY_DISABLED", "0") == "1"
+
+
+def _intraday_multiplier(hour_et: int, minute_et: int) -> tuple[float, str]:
+    """Return (multiplier, reason) for a given ET hour:minute.
+
+    Windows (multiplier × base slippage_bps):
+      09:30-09:34   1.5x   "opening_5min"
+      09:35-09:44   1.3x   "opening_15min"
+      09:45-10:29   1.1x   "morning"
+      10:30-15:29   1.0x   "midday"
+      15:30-15:54   1.2x   "afternoon"
+      15:55-15:59   1.5x   "closing_5min"
+      anything else (off-hours) 1.0x   "off_hours"
+    """
+    if INTRADAY_DISABLED:
+        return 1.0, "intraday_disabled"
+    if not (9 <= hour_et < 16):
+        return 1.0, "off_hours"
+    minutes_since_open = (hour_et - 9) * 60 + minute_et - 30
+    minutes_to_close = 6 * 60 + 30 - ((hour_et - 9) * 60 + minute_et)
+    # Negative minutes_since_open = before 09:30
+    if minutes_since_open < 0:
+        return 1.0, "pre_open"
+    if minutes_since_open < 5:
+        return 1.5, "opening_5min"
+    if minutes_since_open < 15:
+        return 1.3, "opening_15min"
+    if minutes_since_open < 60:
+        return 1.1, "morning"
+    if minutes_to_close <= 5:
+        return 1.5, "closing_5min"
+    if minutes_to_close <= 30:
+        return 1.2, "afternoon"
+    return 1.0, "midday"
+
+
+def _now_et_hm() -> tuple[int, int]:
+    """Current Eastern time (hour, minute). Approximates UTC-4 (EDT).
+    Brain runs continuously in CAD — close enough for friction-window
+    tagging; not used for cron timing."""
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    et_hour = (now.hour - 4) % 24
+    return et_hour, now.minute
+
+
 # ── K6a: open-time friction injection ─────────────────────────────
 
 def apply_friction_to_payload(
@@ -211,8 +270,11 @@ def apply_friction_to_payload(
     if base_entry <= 0 or base_qty <= 0:
         return payload  # nothing to friction
 
-    # Slippage — adverse direction
-    bps = float(profile.slippage_bps) / 10000.0
+    # Slippage — adverse direction. Wave 14U U3: apply intraday
+    # multiplier so first/last 5 min of session aren't underestimated.
+    hour_et, minute_et = _now_et_hm()
+    intraday_mult, window_tag = _intraday_multiplier(hour_et, minute_et)
+    bps = (float(profile.slippage_bps) * intraday_mult) / 10000.0
     if direction == "short":
         # short opens get filled LOWER than the limit (you wanted to sell
         # at limit; market made you sell cheaper)
@@ -235,6 +297,9 @@ def apply_friction_to_payload(
     sd = payload.get("scanner_data") or {}
     sd["friction"] = {
         "applied_bps": profile.slippage_bps,
+        "intraday_multiplier": intraday_mult,
+        "intraday_window": window_tag,
+        "effective_bps": round(profile.slippage_bps * intraday_mult, 2),
         "original_entry_price": round(base_entry, 4),
         "original_quantity": float(base_qty),
         "is_partial_fill": is_partial,

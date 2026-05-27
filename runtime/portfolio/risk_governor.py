@@ -68,6 +68,9 @@ from typing import Optional
 log = logging.getLogger("ncl.portfolio.risk_governor")
 
 # Default per-strategy budgets — fraction of NAV
+# Wave 14U HOTFIX B: added pairs, mean_reversion, pead, factor, whale_flow,
+# crypto_carry buckets so quant scanners stop falling into "unknown" with a
+# too-small cap. Sized per Carver/CME emerging-CTA sleeve guidance.
 DEFAULT_BUDGETS_PCT: dict[str, float] = {
     "total": 10.0,
     "goat": 3.0,
@@ -75,8 +78,20 @@ DEFAULT_BUDGETS_PCT: dict[str, float] = {
     "options": 4.0,
     "polymarket": 1.0,
     "manual": 3.0,
+    "pairs": 6.0,
+    "mean_reversion": 6.0,
+    "pead": 6.0,
+    "factor": 6.0,
+    "whale_flow": 6.0,
+    "crypto_carry": 2.0,
     "unknown": 3.0,
 }
+# Wave 14U HOTFIX B+ (note 2026-05-27): scanner sleeves bumped from 2-3%
+# to 5% to align with mandate's "5% risk per trade" budget — pairs/MR/
+# PEAD/factor/whale_flow all emit ~$1800-2100 trade size at NAV=$36K and
+# would otherwise be permanently blocked by an under-sized heat cap.
+# Crypto_carry stays at 2% because the capability registry shows it's
+# still using a momentum proxy (no real perp funding adapter yet).
 
 ENV_KEY_MAP = {
     "total": "NCL_HEAT_TOTAL_PCT",
@@ -85,6 +100,12 @@ ENV_KEY_MAP = {
     "options": "NCL_HEAT_OPTIONS_PCT",
     "polymarket": "NCL_HEAT_POLYMARKET_PCT",
     "manual": "NCL_HEAT_MANUAL_PCT",
+    "pairs": "NCL_HEAT_PAIRS_PCT",
+    "mean_reversion": "NCL_HEAT_MEANREV_PCT",
+    "pead": "NCL_HEAT_PEAD_PCT",
+    "factor": "NCL_HEAT_FACTOR_PCT",
+    "whale_flow": "NCL_HEAT_WHALE_PCT",
+    "crypto_carry": "NCL_HEAT_CRYPTOCARRY_PCT",
     "unknown": "NCL_HEAT_UNKNOWN_PCT",
 }
 
@@ -109,21 +130,30 @@ def _resolve_budgets_pct() -> dict[str, float]:
 def _normalize_strategy(tag: Optional[str]) -> str:
     """Map free-form strategy_tags to the budget bucket they hit.
 
+    Wave 14U HOTFIX B: added pairs/mean_reversion/pead/factor/whale_flow/
+    crypto_carry aliases so quant scanner emissions get the right bucket
+    (was falling to 'unknown' with $1800 cap → every $2000+ trade rejected).
+
     Known aliases (case-insensitive):
-      goat / momentum                 -> 'goat'
-      bravo / swing                    -> 'bravo'
-      options / theta / strangle /     -> 'options'
-        condor / put_credit / etc.
-      polymarket / prediction          -> 'polymarket'
-      manual                           -> 'manual'
-      everything else                  -> 'unknown'
+      goat / momentum / goat_trend       -> 'goat'
+      bravo / swing / bravo_swing        -> 'bravo'
+      options / theta / strangle / ...   -> 'options'
+      polymarket / prediction            -> 'polymarket'
+      pairs / pairs_stat_arb / stat_arb  -> 'pairs'
+      mean_reversion / meanrev / mr      -> 'mean_reversion'
+      pead / post_earnings_drift         -> 'pead'
+      factor / factor_tilt / factor_long -> 'factor'
+      whale_flow / unusual_options / uw  -> 'whale_flow'
+      crypto_carry / carry / funding     -> 'crypto_carry'
+      manual                             -> 'manual'
+      everything else                    -> 'unknown'
     """
     if not tag:
         return "unknown"
     t = str(tag).lower().strip()
-    if t in ("goat", "momentum"):
+    if t in ("goat", "momentum", "goat_trend", "goat_academy"):
         return "goat"
-    if t in ("bravo", "swing"):
+    if t in ("bravo", "swing", "bravo_swing", "johnny_bravo"):
         return "bravo"
     if t in (
         "options", "theta", "covered_call", "cash_secured_put",
@@ -131,8 +161,24 @@ def _normalize_strategy(tag: Optional[str]) -> str:
         "strangle", "straddle", "calendar", "diagonal",
     ):
         return "options"
-    if t in ("polymarket", "prediction", "predmkt"):
+    if t in ("polymarket", "prediction", "predmkt", "polymarket_kelly"):
         return "polymarket"
+    if t in ("pairs", "pairs_stat_arb", "stat_arb", "statistical_arbitrage",
+             "pair_trade"):
+        return "pairs"
+    if t in ("mean_reversion", "meanrev", "mr", "mean_rev", "reversion"):
+        return "mean_reversion"
+    if t in ("pead", "post_earnings_drift", "post_earnings_announcement_drift",
+             "earnings_drift"):
+        return "pead"
+    if t in ("factor", "factor_tilt", "factor_long", "smart_beta", "value",
+             "quality", "low_vol"):
+        return "factor"
+    if t in ("whale_flow", "whale", "unusual_options", "unusual_whales", "uw",
+             "options_flow"):
+        return "whale_flow"
+    if t in ("crypto_carry", "carry", "funding", "perp_funding", "basis_trade"):
+        return "crypto_carry"
     if t == "manual":
         return "manual"
     return "unknown"

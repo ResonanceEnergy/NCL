@@ -770,7 +770,52 @@ class AutonomousScheduler:
         # See runtime/portfolio/auto_trader/loop.py.
         from ..portfolio.auto_trader.loop import auto_trader_loop
 
+        # Wave 14U U2 — ingest AUTO_TRADER_MANDATE.md as procedural
+        # memory at importance 95 (NATRIX tier) on every boot. Makes
+        # the mandate visible to every Council/Brief/Chat caller +
+        # auditable per CFTC Reg AT pattern.
+        async def _ingest_mandate():
+            try:
+                from pathlib import Path as _Path
+                import os as _os
+                base = _Path(_os.environ.get("NCL_BASE",
+                                              str(_Path.home() / "dev" / "NCL")))
+                mandate_path = base / "docs" / "AUTO_TRADER_MANDATE.md"
+                if not mandate_path.exists():
+                    log.warning("[AT-MANDATE] %s missing — skipped", mandate_path)
+                    return
+                text = mandate_path.read_text()
+                mem = getattr(self.brain, "memory_store", None)
+                if mem is None or not hasattr(mem, "create_unit"):
+                    log.warning("[AT-MANDATE] no memory_store — skipped")
+                    return
+                await mem.create_unit(
+                    content=(
+                        "AUTO_TRADER_MANDATE v1.0 — paper-trading-only "
+                        "hedge-fund-manager-in-training. Hard line: NCL "
+                        "never places live orders. Operator-approved "
+                        "policy lives in docs/AUTO_TRADER_MANDATE.md."
+                        f"\n\n{text[:6000]}"
+                    ),
+                    source="portfolio:auto_trader_mandate",
+                    importance=95.0,
+                    tags=[
+                        "portfolio", "auto_trader", "mandate", "procedural",
+                        "v1.0", "natrix_authority",
+                    ],
+                    memory_type="procedural",
+                    metadata={
+                        "mandate_version": "1.0",
+                        "mandate_path": str(mandate_path),
+                        "wave": "14U-U2",
+                    },
+                )
+                log.info("[AT-MANDATE] ingested v1.0 as procedural memory (importance 95)")
+            except Exception as e:
+                log.warning("[AT-MANDATE] ingest failed (non-fatal): %s", e)
+
         async def _auto_trader():
+            await _ingest_mandate()
             await auto_trader_loop(self.brain)
 
         self._tasks.append(

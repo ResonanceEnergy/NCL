@@ -1161,11 +1161,152 @@ async def auto_trader_resume(
 ) -> dict:
     """Resume from manual pause. Drawdown-halt auto-pause is NOT cleared
     here; that resolves automatically when drawdown_bucket band moves
-    back to non-halt."""
+    back to non-halt.
+
+    Note: emergency_stop-paused agents (paused_by='emergency_stop') CAN
+    be resumed via this endpoint — the kill-switch only forces a manual
+    review pause; resumption is operator-initiated."""
     from ...portfolio.auto_trader import resume
     state = await resume()
     return {"active": state.active, "paused_by": state.paused_by,
             "drawdown_halt_pause": state.drawdown_halt_pause}
+
+
+@router.post("/auto-trader/emergency-stop")
+async def auto_trader_emergency_stop(
+    payload: Optional[dict] = None,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Wave 14U U4 — KILL SWITCH.
+
+    Flattens every open paper-trade position at current market price,
+    persists state.active=false + paused_by='emergency_stop', and
+    requires an explicit /auto-trader/resume to re-enable trading.
+
+    Body (optional):
+      {
+        "reason": str        — operator-provided reason (audit trail)
+        "skip_flatten": bool — only pause; don't close positions
+                               (default false → positions ARE closed)
+      }
+
+    Returns:
+      {
+        "stopped": bool,
+        "paused_by": "emergency_stop",
+        "positions_flattened": int,
+        "flatten_failures": int,
+        "reason": str,
+        "stopped_at_iso": str,
+        "audit_unit_id": str (memory unit recording this action),
+      }
+
+    Idempotent: calling twice on an already-stopped agent succeeds and
+    returns positions_flattened=0 on the second call.
+    """
+    from datetime import datetime, timezone
+    from ...portfolio.auto_trader import pause
+    from ...portfolio.paper_trading import PaperTradingEngine
+    from ...api import routes as _routes
+
+    body = payload or {}
+    reason = str(body.get("reason", "operator emergency stop"))
+    skip_flatten = bool(body.get("skip_flatten", False))
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    # 1) Pause first (stops new opens immediately)
+    state = await pause(f"emergency_stop: {reason}", by="emergency_stop")
+
+    # 2) Flatten all open paper positions (unless skip_flatten)
+    flattened = 0
+    failures = 0
+    if not skip_flatten:
+        try:
+            paper = PaperTradingEngine()
+            open_trades = []
+            # Try a few common accessor patterns since PaperTradingEngine
+            # has gone through several iterations
+            for attr in ("get_open_trades", "open_trades", "list_open_trades"):
+                fn = getattr(paper, attr, None)
+                if fn:
+                    open_trades = fn() if callable(fn) else fn
+                    break
+            if not open_trades:
+                # Fallback: scan the in-memory dict
+                trades_dict = getattr(paper, "_trades", {}) or {}
+                open_trades = [t for t in trades_dict.values()
+                               if str(getattr(t, "status", "")) == "open"]
+
+            for t in open_trades:
+                try:
+                    tid = (getattr(t, "trade_id", None)
+                           or getattr(t, "id", None)
+                           or t.get("trade_id") if hasattr(t, "get") else None)
+                    if not tid:
+                        failures += 1
+                        continue
+                    # Use last known price as exit (PaperTradingEngine
+                    # update_prices keeps current_price fresh)
+                    exit_price = (
+                        getattr(t, "current_price", None)
+                        or getattr(t, "entry_price", None)
+                        or 0
+                    )
+                    paper.close_trade(
+                        trade_id=tid,
+                        exit_price=float(exit_price or 0),
+                        notes=f"EMERGENCY_STOP: {reason}",
+                    )
+                    flattened += 1
+                except Exception as e:
+                    log.warning("[EMERGENCY-STOP] close failed for trade: %s", e)
+                    failures += 1
+        except Exception as e:
+            log.error("[EMERGENCY-STOP] flatten loop crashed: %s", e)
+            failures += 1
+
+    # 3) Emit audit memory unit at importance 100 (NATRIX-tier)
+    audit_unit_id = ""
+    try:
+        brain = getattr(_routes, "brain", None) or getattr(_routes, "_brain", None)
+        mem = getattr(brain, "memory_store", None) if brain else None
+        if mem and hasattr(mem, "create_unit"):
+            unit = await mem.create_unit(
+                content=(
+                    f"AUTO-TRADER EMERGENCY STOP — flatten requested by operator. "
+                    f"Reason: {reason}. Positions flattened: {flattened}, "
+                    f"failures: {failures}. Manual /auto-trader/resume required."
+                ),
+                source="portfolio:auto_trader_emergency_stop",
+                importance=100.0,
+                tags=["portfolio", "auto_trader", "emergency_stop",
+                      "natrix_action", "audit"],
+                memory_type="episodic",
+                metadata={
+                    "reason": reason,
+                    "skip_flatten": skip_flatten,
+                    "positions_flattened": flattened,
+                    "flatten_failures": failures,
+                    "stopped_at_iso": now_iso,
+                    "wave": "14U-U4",
+                },
+            )
+            audit_unit_id = getattr(unit, "unit_id", "") or getattr(unit, "id", "")
+    except Exception as e:
+        log.warning("[EMERGENCY-STOP] memory emission failed (non-fatal): %s", e)
+
+    return {
+        "stopped": True,
+        "paused_by": state.paused_by,
+        "pause_reason": state.pause_reason,
+        "positions_flattened": flattened,
+        "flatten_failures": failures,
+        "skip_flatten": skip_flatten,
+        "reason": reason,
+        "stopped_at_iso": now_iso,
+        "audit_unit_id": audit_unit_id,
+        "wave": "14U-U4",
+    }
 
 
 @router.post("/auto-trader/eligibility-check")
