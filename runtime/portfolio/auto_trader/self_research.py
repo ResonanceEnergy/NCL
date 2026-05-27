@@ -35,15 +35,15 @@ Storage:
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
 from collections import defaultdict
-from dataclasses import dataclass, asdict, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+
 
 log = logging.getLogger("ncl.portfolio.auto_trader.self_research")
 
@@ -65,12 +65,12 @@ SHAP_LIFT_AUTHORITY_THRESHOLD = float(os.getenv("NCL_SHAP_AUTH_THRESHOLD", "0.10
 class ResearchTopic:
     topic_id: str
     title: str
-    rationale: str          # one-line "why this matters"
+    rationale: str  # one-line "why this matters"
     cluster_features: dict  # {feature: value} dimensions that define the cluster
     n_losses: int
     avg_R: float
     example_trade_idea_ids: list = field(default_factory=list)
-    status: str = "open"    # open | researched | dismissed
+    status: str = "open"  # open | researched | dismissed
     created_at_iso: Optional[str] = None
     resolved_at_iso: Optional[str] = None
     resolution_notes: str = ""
@@ -85,6 +85,7 @@ def _ensure_dir() -> None:
 
 
 # ── K4a: SHAP -> SourceAuthorityLearner ───────────────────────────
+
 
 async def apply_shap_to_authority_learner(attribution: dict) -> dict:
     """For each source identified in SHAP top_positive/top_negative,
@@ -131,22 +132,32 @@ async def apply_shap_to_authority_learner(attribution: dict) -> dict:
                         f"strategy={attribution.get('strategy', '?')}"
                     ),
                 )
-                adjustments.append({
-                    "source": source, "lift": lift, "n": n,
-                    "delta": delta, "outcome": outcome,
-                })
+                adjustments.append(
+                    {
+                        "source": source,
+                        "lift": lift,
+                        "n": n,
+                        "delta": delta,
+                        "outcome": outcome,
+                    }
+                )
             except Exception as e:
                 log.warning(
-                    "[SR-AUTH] record_outcome failed for %s: %s", source, e,
+                    "[SR-AUTH] record_outcome failed for %s: %s",
+                    source,
+                    e,
                 )
     if adjustments:
         log.info("[SR-AUTH] applied %d authority adjustments from SHAP", len(adjustments))
-    return {"adjustments": adjustments,
-            "strategy": attribution.get("strategy"),
-            "computed_at_iso": _now_iso()}
+    return {
+        "adjustments": adjustments,
+        "strategy": attribution.get("strategy"),
+        "computed_at_iso": _now_iso(),
+    }
 
 
 # ── K4c: Research topic generator ─────────────────────────────────
+
 
 def _topic_id_from_cluster(cluster_features: dict) -> str:
     """Stable id from sorted feature:value pairs."""
@@ -178,11 +189,15 @@ def _cluster_losses(closed_losing_trades: list[dict]) -> list[dict]:
         if len(trades) < MIN_CLUSTER_SIZE:
             continue
         avg_R = sum(t.get("R_multiple", 0) for t in trades) / len(trades)
-        out.append({
-            "feature": dim, "value": value,
-            "n_losses": len(trades), "avg_R": round(avg_R, 4),
-            "trade_idea_ids": [t.get("trade_idea_id") for t in trades],
-        })
+        out.append(
+            {
+                "feature": dim,
+                "value": value,
+                "n_losses": len(trades),
+                "avg_R": round(avg_R, 4),
+                "trade_idea_ids": [t.get("trade_idea_id") for t in trades],
+            }
+        )
     return sorted(out, key=lambda c: c["n_losses"], reverse=True)
 
 
@@ -231,6 +246,7 @@ async def generate_research_topics(
     open research topics. Idempotent — same cluster doesn't generate
     duplicate topics within the lookback window."""
     from datetime import timedelta
+
     from ..trade_idea_tracker import get_trade_idea_tracker
     from .observability import list_recent_chains
 
@@ -238,7 +254,8 @@ async def generate_research_topics(
     all_ideas = await tracker.list_by_strategy(None)
     cutoff = (datetime.now(timezone.utc) - timedelta(days=lookback_days)).isoformat()
     losing = [
-        i for i in all_ideas
+        i
+        for i in all_ideas
         if (i.get("R_multiple") or 0) < 0
         and (i.get("closed_at_iso") or "") > cutoff
         and i.get("outcome") in ("stopped_out", "manually_closed", "expired")
@@ -247,22 +264,27 @@ async def generate_research_topics(
         return []
 
     # Enrich with feature columns from reasoning chains
-    chains = {c["trade_idea_id"]: c for c in await list_recent_chains(limit=1000)
-              if c.get("trade_idea_id")}
+    chains = {
+        c["trade_idea_id"]: c
+        for c in await list_recent_chains(limit=1000)
+        if c.get("trade_idea_id")
+    }
     enriched = []
     for idea in losing:
         tid = idea.get("trade_idea_id")
         chain = chains.get(tid, {})
         snap = chain.get("idea_snapshot") or {}
-        enriched.append({
-            "trade_idea_id": tid,
-            "ticker": idea.get("ticker"),
-            "R_multiple": idea.get("R_multiple"),
-            "source": chain.get("source"),
-            "sector_etf": snap.get("sector_etf"),
-            "stop_type": snap.get("stop_type"),
-            "rotation_quadrant": snap.get("rotation_quadrant"),
-        })
+        enriched.append(
+            {
+                "trade_idea_id": tid,
+                "ticker": idea.get("ticker"),
+                "R_multiple": idea.get("R_multiple"),
+                "source": chain.get("source"),
+                "sector_etf": snap.get("sector_etf"),
+                "stop_type": snap.get("stop_type"),
+                "rotation_quadrant": snap.get("rotation_quadrant"),
+            }
+        )
 
     clusters = _cluster_losses(enriched)
     # Filter to clusters >= min_cluster_size already done in _cluster_losses
@@ -276,11 +298,15 @@ async def generate_research_topics(
             continue  # already in open queue
         title, rationale = _phrase_topic(c)
         topic = ResearchTopic(
-            topic_id=tid, title=title, rationale=rationale,
+            topic_id=tid,
+            title=title,
+            rationale=rationale,
             cluster_features=cluster_features,
-            n_losses=c["n_losses"], avg_R=c["avg_R"],
+            n_losses=c["n_losses"],
+            avg_R=c["avg_R"],
             example_trade_idea_ids=c["trade_idea_ids"][:5],
-            status="open", created_at_iso=_now_iso(),
+            status="open",
+            created_at_iso=_now_iso(),
         )
         new_topics.append(asdict(topic))
 
@@ -289,14 +315,16 @@ async def generate_research_topics(
         combined = open_topics + new_topics
         open_only = [t for t in combined if t.get("status") == "open"]
         if len(open_only) > MAX_OPEN_TOPICS:
-            open_only = sorted(open_only, key=lambda t: t.get("created_at_iso") or "",
-                              reverse=True)[:MAX_OPEN_TOPICS]
+            open_only = sorted(
+                open_only, key=lambda t: t.get("created_at_iso") or "", reverse=True
+            )[:MAX_OPEN_TOPICS]
         _persist_topics(open_only)
         for t in new_topics:
             _append_history("created", t)
         log.info(
             "[SR-TOPICS] generated %d new research topics (open queue: %d)",
-            len(new_topics), len(open_only),
+            len(new_topics),
+            len(open_only),
         )
     return new_topics
 
@@ -333,7 +361,10 @@ def _append_history(action: str, topic: dict) -> None:
 
 
 async def resolve_research_topic(
-    topic_id: str, *, resolution_notes: str = "", dismiss: bool = False,
+    topic_id: str,
+    *,
+    resolution_notes: str = "",
+    dismiss: bool = False,
 ) -> Optional[dict]:
     """Mark a topic researched or dismissed."""
     topics = _load_open_topics()
@@ -358,8 +389,8 @@ def list_open_research_topics() -> list[dict]:
 
 # ── K4d: Brief context packet ──────────────────────────────────
 
-async def brief_context_packet(*, max_strategies: int = 5,
-                                  max_topics: int = 5) -> str:
+
+async def brief_context_packet(*, max_strategies: int = 5, max_topics: int = 5) -> str:
     """Compact text block the brief executor prompt prepends. Includes:
       - Top strategies by LCB win rate (from bandit)
       - Most-recent strategy_learn findings (top predictors)
@@ -372,6 +403,7 @@ async def brief_context_packet(*, max_strategies: int = 5,
     # Bandit top strategies
     try:
         from .strategy_bandit import get_bandit
+
         bandit = await get_bandit()
         ranked = await bandit.ranked_by_credible_lower_bound(ci=0.95)
         if ranked:
@@ -395,6 +427,7 @@ async def brief_context_packet(*, max_strategies: int = 5,
     # Recent SHAP findings — look for most-recent strategy_learn MemUnits
     try:
         from .shap_attribution import ATTR_HISTORY
+
         if ATTR_HISTORY.exists():
             with open(ATTR_HISTORY, "r") as f:
                 rows = [json.loads(line) for line in f if line.strip()]
@@ -402,9 +435,9 @@ async def brief_context_packet(*, max_strategies: int = 5,
             latest_by_strat: dict[str, dict] = {}
             for r in rows:
                 s = r.get("strategy")
-                if s and r.get("computed_at_iso", "") > latest_by_strat.get(
-                    s, {}
-                ).get("computed_at_iso", ""):
+                if s and r.get("computed_at_iso", "") > latest_by_strat.get(s, {}).get(
+                    "computed_at_iso", ""
+                ):
                     latest_by_strat[s] = r
             if latest_by_strat:
                 lines.append("=== STRATEGY LEARN (top predictors from closed paper trades) ===")
@@ -412,8 +445,7 @@ async def brief_context_packet(*, max_strategies: int = 5,
                     pos = attr.get("top_positive") or []
                     neg = attr.get("top_negative") or []
                     lines.append(
-                        f"  [{strat}] n={attr['n']} overall hit "
-                        f"{attr['overall_hit_rate']:.0%}"
+                        f"  [{strat}] n={attr['n']} overall hit " f"{attr['overall_hit_rate']:.0%}"
                     )
                     for e in pos[:2]:
                         lines.append(
@@ -441,12 +473,113 @@ async def brief_context_packet(*, max_strategies: int = 5,
             )
             for t in topics[:max_topics]:
                 lines.append(
-                    f"  - {t['title']} (n_losses={t['n_losses']}, "
-                    f"avgR {t['avg_R']:+.2f})"
+                    f"  - {t['title']} (n_losses={t['n_losses']}, " f"avgR {t['avg_R']:+.2f})"
                 )
             lines.append("")
     except Exception as e:
         log.debug("[SR-PACKET] research topics unavailable: %s", e)
+
+    # Wave 14N N1 — yesterday's profit-ladder fires
+    try:
+        from .profit_ladder import ladder_summary
+
+        ladder = await ladder_summary()
+        recent = ladder.get("recent_10_emissions") or []
+        if recent:
+            lines.append("=== PROFIT LADDER ACTIVITY (last 10 fires) ===")
+            lines.append(
+                f"Threshold {ladder.get('r_threshold')}R, roll {ladder.get('profit_ratio'):.0%} "
+                f"to {ladder.get('destination_recipe')}. "
+                f"Total ever fired: {ladder.get('total_laddered_ever')}."
+            )
+            for r in recent[-3:]:
+                lines.append(
+                    f"  - {r.get('ticker')} {r.get('direction')} closed "
+                    f"+{r.get('engine_r', 0):.2f}R (${r.get('realized_profit_usd', 0):.0f}) "
+                    f"→ ladder ${r.get('ladder_R_dollars', 0):.0f} R into "
+                    f"{r.get('destination_recipe')} {r.get('target_dte_min', 0)}-{r.get('target_dte_max', 0)}d"
+                )
+            lines.append("")
+    except Exception as e:
+        log.debug("[SR-PACKET] ladder unavailable: %s", e)
+
+    # Wave 14N N1 — recent quant scanner activity
+    try:
+        from .quant_scanners import quant_scan_summary
+
+        qsum = await quant_scan_summary()
+        recent = qsum.get("recent_10_ticks") or []
+        if recent:
+            total_emitted = sum(t.get("total_ideas_emitted", 0) for t in recent)
+            if total_emitted > 0:
+                lines.append("=== QUANT SCANNER ACTIVITY (last 10 ticks) ===")
+                lines.append(
+                    f"7 scanners (mean_rev, pead, factor, pairs, whale_flow, "
+                    f"crypto_carry, polymarket_kelly) emitted {total_emitted} "
+                    f"trade ideas across recent ticks. Their ideas already "
+                    f"flow through the auto-trader gate chain; mentioned here "
+                    f"so brief executor knows the agent has independent "
+                    f"signal sources beyond the brief itself."
+                )
+                # Most-recent tick scanner breakdown
+                last_tick = recent[-1]
+                scanners = last_tick.get("scanners") or {}
+                summary_parts = []
+                for name, s in scanners.items():
+                    if isinstance(s, dict) and s.get("emitted", 0) > 0:
+                        summary_parts.append(f"{name}={s['emitted']}")
+                if summary_parts:
+                    lines.append(f"  Last tick: {', '.join(summary_parts)}")
+                lines.append("")
+    except Exception as e:
+        log.debug("[SR-PACKET] quant_scan unavailable: %s", e)
+
+    # Wave 14N N1 — pro-active scout findings
+    try:
+        from .scout import scout_summary
+
+        scout = await scout_summary()
+        recent = scout.get("recent_10_ticks") or []
+        if recent:
+            # Aggregate counts across recent ticks
+            pt = sum(t.get("profit_targets", {}).get("count", 0) for t in recent)
+            rs = sum(t.get("regime_shifts", {}).get("count", 0) for t in recent)
+            cc = sum(t.get("cc_opportunities", {}).get("count", 0) for t in recent)
+            ed = sum(t.get("earnings_defensive", {}).get("count", 0) for t in recent)
+            if any([pt, rs, cc, ed]):
+                lines.append("=== SCOUT ACTIVITY (last 10 ticks aggregated) ===")
+                lines.append("Pro-active 5-min scan of open positions + holdings:")
+                if pt:
+                    lines.append(f"  PROFIT-TARGET HITS: {pt} (consider closing/trailing)")
+                if rs:
+                    lines.append(f"  REGIME SHIFTS: {rs} (defensive close on demoted sectors)")
+                if cc:
+                    lines.append(
+                        f"  COVERED-CALL OPPORTUNITIES: {cc} (premium harvest on holdings)"
+                    )
+                if ed:
+                    lines.append(f"  EARNINGS DEFENSIVE FLAGS: {ed} (close/roll/hedge within 5d)")
+                lines.append("")
+    except Exception as e:
+        log.debug("[SR-PACKET] scout unavailable: %s", e)
+
+    # Wave 14N N1 — capability gaps (so the brief knows what data is missing)
+    try:
+        from .capability_registry import list_gaps
+
+        gaps = await list_gaps()
+        if gaps:
+            lines.append("=== CAPABILITY GAPS (what the agent is currently missing) ===")
+            lines.append(
+                "These data sources/tools are unavailable today. The brief "
+                "should acknowledge the gaps (e.g. 'no IVR data → don't gate "
+                "options on IVR') and consider whether the operator can fix."
+            )
+            for g in gaps[:5]:
+                lines.append(f"  - {g.get('name')}: {g.get('gap_reason', 'unknown')}")
+            lines.append("")
+    except Exception as e:
+        log.debug("[SR-PACKET] capability gaps unavailable: %s", e)
 
     if not lines:
         return ""

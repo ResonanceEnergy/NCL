@@ -31,9 +31,10 @@ import asyncio
 import json
 import logging
 import os
-from datetime import datetime, date, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
+
 
 log = logging.getLogger("ncl.portfolio.auto_trader.calendar_gate")
 
@@ -116,6 +117,7 @@ async def _fetch_macro_events(days_ahead: int = 7) -> list[dict]:
             return _CACHE[cache_key].get("events") or []
     try:
         from runtime.calendar.events_compiler import compile_brain_events
+
         today = _today()
         end = today + timedelta(days=days_ahead)
         events = await compile_brain_events(today, end) or []
@@ -142,7 +144,8 @@ async def _fetch_earnings_dates(ticker: str) -> Optional[list[str]]:
     dates: list[str] = []
     try:
         from runtime.stocks.enrichments import get_earnings_map
-        emap = get_earnings_map(tickers=[ticker.upper()]) or {}
+
+        emap = await get_earnings_map(tickers=[ticker.upper()]) or {}
         raw = emap.get(ticker.upper()) or []
         for r in raw:
             d = r.get("date") if isinstance(r, dict) else r
@@ -199,15 +202,14 @@ async def check_calendar_block(ticker: str) -> tuple[bool, str]:
         if 0 <= delta <= block_days:
             title = (ev.get("title") or cat.upper())[:60]
             return True, (
-                f"macro event in {delta}d ({cat}): {title} "
-                f"[blocking_window={block_days}d]"
+                f"macro event in {delta}d ({cat}): {title} " f"[blocking_window={block_days}d]"
             )
 
     # Per-ticker earnings
     if ticker and BLOCK_EARNINGS_D > 0:
         try:
             dates = await _fetch_earnings_dates(ticker)
-            for ds in (dates or []):
+            for ds in dates or []:
                 d = _parse_iso_date(ds)
                 if d is None:
                     continue
@@ -235,16 +237,17 @@ async def calendar_summary() -> dict:
             continue
         delta = (d - today).days
         if 0 <= delta <= 14:
-            upcoming.append({
-                "date": ev.get("date"),
-                "days_away": delta,
-                "category": cat,
-                "title": ev.get("title", ""),
-                "is_blocking": (
-                    cat in BLOCKING_CATEGORIES
-                    and delta <= BLOCKING_CATEGORIES[cat]
-                ),
-            })
+            upcoming.append(
+                {
+                    "date": ev.get("date"),
+                    "days_away": delta,
+                    "category": cat,
+                    "title": ev.get("title", ""),
+                    "is_blocking": (
+                        cat in BLOCKING_CATEGORIES and delta <= BLOCKING_CATEGORIES[cat]
+                    ),
+                }
+            )
     upcoming.sort(key=lambda e: e["days_away"])
     return {
         "today": today.isoformat(),
@@ -252,7 +255,9 @@ async def calendar_summary() -> dict:
         "blocking_now": [e for e in upcoming if e["is_blocking"]],
         "upcoming": upcoming[:5],
         "thresholds": {
-            "fomc_d": BLOCK_FOMC_D, "opex_d": BLOCK_OPEX_D,
-            "vix_d": BLOCK_VIX_D, "earnings_d": BLOCK_EARNINGS_D,
+            "fomc_d": BLOCK_FOMC_D,
+            "opex_d": BLOCK_OPEX_D,
+            "vix_d": BLOCK_VIX_D,
+            "earnings_d": BLOCK_EARNINGS_D,
         },
     }

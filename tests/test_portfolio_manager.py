@@ -11,14 +11,10 @@ from __future__ import annotations
 
 import asyncio
 import importlib
-import json
-import os
 import sys
-import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import pytest
 
 # Ensure the runtime package is importable
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -27,8 +23,10 @@ sys.path.insert(0, str(REPO_ROOT))
 
 # ── Risk governor (J1a + J1b) ──────────────────────────────────────
 
+
 def test_risk_governor_strategy_normalization():
     from runtime.portfolio.risk_governor import _normalize_strategy
+
     assert _normalize_strategy("GOAT") == "goat"
     assert _normalize_strategy("Momentum") == "goat"
     assert _normalize_strategy("bravo") == "bravo"
@@ -40,8 +38,10 @@ def test_risk_governor_strategy_normalization():
 
 # ── Drawdown bucket (J0c) ──────────────────────────────────────────
 
+
 def test_drawdown_band_classifier():
     from runtime.portfolio.drawdown_bucket import _classify
+
     assert _classify(0.0) == ("green", 1.00)
     assert _classify(-2.5) == ("green", 1.00)
     assert _classify(-3.0) == ("green", 1.00)
@@ -54,11 +54,18 @@ def test_drawdown_band_classifier():
 
 # ── Trade idea tracker (J1d) ───────────────────────────────────────
 
+
 def test_trade_idea_R_multiple_long():
-    from runtime.portfolio.trade_idea_tracker import _compute_R_multiple, TradeIdea
+    from runtime.portfolio.trade_idea_tracker import TradeIdea, _compute_R_multiple
+
     idea = TradeIdea(
-        trade_idea_id="t", source="brief", strategy="goat", ticker="NVDA",
-        direction="long", entry_price=180.0, R_per_share=10.0,
+        trade_idea_id="t",
+        source="brief",
+        strategy="goat",
+        ticker="NVDA",
+        direction="long",
+        entry_price=180.0,
+        R_per_share=10.0,
     )
     assert _compute_R_multiple(idea, 200.0) == 2.0
     assert _compute_R_multiple(idea, 170.0) == -1.0
@@ -66,10 +73,16 @@ def test_trade_idea_R_multiple_long():
 
 
 def test_trade_idea_R_multiple_short():
-    from runtime.portfolio.trade_idea_tracker import _compute_R_multiple, TradeIdea
+    from runtime.portfolio.trade_idea_tracker import TradeIdea, _compute_R_multiple
+
     idea = TradeIdea(
-        trade_idea_id="t", source="brief", strategy="bravo", ticker="AAPL",
-        direction="short", entry_price=195.0, R_per_share=7.0,
+        trade_idea_id="t",
+        source="brief",
+        strategy="bravo",
+        ticker="AAPL",
+        direction="short",
+        entry_price=195.0,
+        R_per_share=7.0,
     )
     # Short: lower exit = profit
     assert _compute_R_multiple(idea, 188.0) == 1.0
@@ -78,8 +91,10 @@ def test_trade_idea_R_multiple_short():
 
 # ── Options portfolio (J2a + J2c) ──────────────────────────────────
 
+
 def test_options_dte_watchlist_skips_longs():
     from runtime.portfolio.options_portfolio import dte_watchlist
+
     # Long position should NOT appear regardless of DTE
     positions = [
         {"symbol": "NVDA260601P00180000", "quantity": 1, "asset_class": "option"},
@@ -91,18 +106,22 @@ def test_options_pin_risk_coercion():
     """The parser returns expiry as either string or date depending
     on the code path. The pin-risk function must handle both."""
     from runtime.portfolio.options_portfolio import _coerce_expiry_date
+
     assert _coerce_expiry_date("2026-05-29") is not None
     assert _coerce_expiry_date("2026-05-29").weekday() == 4
     # Already a date object
     from datetime import date
+
     d = date(2026, 5, 29)
     assert _coerce_expiry_date(d) == d
 
 
 # ── Rotation execution (J3a + J3b + J3c) ───────────────────────────
 
+
 def test_breadth_veto():
     from runtime.portfolio.rotation_execution import breadth_veto_check
+
     vetoed, reason = breadth_veto_check(30.0)
     assert vetoed is True
     assert "30.0%" in reason
@@ -114,6 +133,7 @@ def test_breadth_veto():
 
 def test_classify_stance():
     from runtime.portfolio.rotation_execution import classify_stance
+
     leading = ["XLK"]
     lagging = ["XLE", "XLP"]
     assert classify_stance("XLK", "long", leading, lagging) == "with_trend"
@@ -125,6 +145,7 @@ def test_classify_stance():
 
 def test_pacing_plan_leading_confirmed():
     from runtime.portfolio.rotation_execution import pacing_plan
+
     p = pacing_plan("NVDA", "Leading", days_in_quadrant=7)
     assert p["stage_1"]["eligible"] is True
     assert p["stage_2"]["eligible"] is True
@@ -133,6 +154,7 @@ def test_pacing_plan_leading_confirmed():
 
 def test_pacing_plan_lagging():
     from runtime.portfolio.rotation_execution import pacing_plan
+
     p = pacing_plan("XLE", "Lagging")
     assert p["stage_1"]["eligible"] is False
     assert "COUNTER-TREND" in p["notes"]
@@ -140,8 +162,10 @@ def test_pacing_plan_lagging():
 
 # ── Tax compliance (J4c + J4d) ────────────────────────────────────
 
+
 def test_lt_cliff_scan():
     from runtime.portfolio.tax_compliance import lt_cliff_scan
+
     today = datetime(2026, 5, 26, tzinfo=timezone.utc)
     # cost_basis 350 days ago -> in (340, 366) window -> flagged
     cb_350 = (today - timedelta(days=350)).date().isoformat()
@@ -159,6 +183,7 @@ def test_lt_cliff_scan():
 
 def test_earnings_size_modifier_2d():
     from runtime.portfolio.tax_compliance import earnings_size_modifier
+
     m = earnings_size_modifier(1)
     assert m.long_premium_mult == 0.5
     assert m.short_premium_mult == 0.5
@@ -166,22 +191,25 @@ def test_earnings_size_modifier_2d():
 
 def test_earnings_size_modifier_none():
     from runtime.portfolio.tax_compliance import earnings_size_modifier
+
     m = earnings_size_modifier(None)
     assert m.long_premium_mult == 1.0
 
 
 # ── Polymarket discipline (J6a + J6b + J6c) ───────────────────────
 
+
 def test_kelly_size_passes_when_no_edge():
     from runtime.portfolio.polymarket_discipline import kelly_size
+
     r = kelly_size(prob_estimated=0.5, prob_market=0.495, bankroll_usd=10000)
     assert r["side"] == "PASS"
 
 
 def test_kelly_size_with_edge():
     from runtime.portfolio.polymarket_discipline import kelly_size
-    r = kelly_size(prob_estimated=0.65, prob_market=0.50, bankroll_usd=10000,
-                   days_to_resolution=30)
+
+    r = kelly_size(prob_estimated=0.65, prob_market=0.50, bankroll_usd=10000, days_to_resolution=30)
     assert r["side"] == "YES"
     assert r["edge"] > 0.10
     assert r["size_usd"] > 0
@@ -189,12 +217,14 @@ def test_kelly_size_with_edge():
 
 def test_cluster_id_election():
     from runtime.portfolio.polymarket_discipline import cluster_id_from_metadata
+
     cid = cluster_id_from_metadata({"title": "Who wins the 2028 presidential election?"})
     assert cid.startswith("election_potus_2028")
 
 
 def test_liquidity_cap_throttle():
     from runtime.portfolio.polymarket_discipline import liquidity_cap
+
     r = liquidity_cap(proposed_size_usd=500, orderbook_depth_usd=1000)
     assert r["throttled"] is True
     assert r["approved_size_usd"] == 100.0  # 10% of 1000
@@ -202,6 +232,7 @@ def test_liquidity_cap_throttle():
 
 def test_liquidity_cap_under():
     from runtime.portfolio.polymarket_discipline import liquidity_cap
+
     r = liquidity_cap(proposed_size_usd=50, orderbook_depth_usd=1000)
     assert r["throttled"] is False
     assert r["approved_size_usd"] == 50.0
@@ -209,8 +240,10 @@ def test_liquidity_cap_under():
 
 # ── Telemetry (J7b + J7d) ─────────────────────────────────────────
 
+
 def test_drift_alerts():
     from runtime.portfolio.telemetry import drift_alerts
+
     summary = {
         "allocation": {
             "by_asset_class": {"equity": 70.0, "options": 5.0, "cash": 25.0},
@@ -228,8 +261,10 @@ def test_drift_alerts():
 
 # ── Hygiene (J8a + J8c) ──────────────────────────────────────────
 
+
 def test_stale_quote_missing_timestamp():
     from runtime.portfolio.hygiene import stale_quote_check
+
     p = {"asset_class": "equity"}
     s = stale_quote_check(p)
     assert s["stale_age_seconds"] is None
@@ -238,6 +273,7 @@ def test_stale_quote_missing_timestamp():
 
 def test_stale_quote_fresh():
     from runtime.portfolio.hygiene import stale_quote_check
+
     now = datetime.now(timezone.utc)
     p = {"asset_class": "equity", "quote_timestamp": now.isoformat()}
     s = stale_quote_check(p, now=now + timedelta(seconds=10))
@@ -246,6 +282,7 @@ def test_stale_quote_fresh():
 
 def test_circuit_breaker_opens_after_threshold():
     from runtime.portfolio.hygiene import CircuitBreaker
+
     cb = CircuitBreaker("test", fail_threshold=3, skip_seconds=600)
     assert cb.is_open() is False
     cb.record_failure()
@@ -259,6 +296,7 @@ def test_circuit_breaker_opens_after_threshold():
 
 # ── Trading cost ledger (J0a) ────────────────────────────────────
 
+
 def test_trade_cost_ledger_async(tmp_path, monkeypatch):
     monkeypatch.setenv("NCL_BASE", str(tmp_path))
     # Force module re-init to pick up the env override
@@ -269,8 +307,12 @@ def test_trade_cost_ledger_async(tmp_path, monkeypatch):
     async def go():
         led = tcl.TradeCostLedger()
         await led.record(
-            broker="IBKR", action="commission", amount_usd=0.65,
-            symbol="NVDA", asset_class="equity", strategy_tag="goat",
+            broker="IBKR",
+            action="commission",
+            amount_usd=0.65,
+            symbol="NVDA",
+            asset_class="equity",
+            strategy_tag="goat",
         )
         s = await led.summary_today()
         assert s["total_usd"] == 0.65
@@ -283,6 +325,7 @@ def test_trade_cost_ledger_async(tmp_path, monkeypatch):
 
 # ── Position risk store (J0b) ────────────────────────────────────
 
+
 def test_position_risk_store_R_compute(tmp_path, monkeypatch):
     monkeypatch.setenv("NCL_BASE", str(tmp_path))
     if "runtime.portfolio.position_risk_state" in sys.modules:
@@ -292,8 +335,12 @@ def test_position_risk_store_R_compute(tmp_path, monkeypatch):
     async def go():
         store = prs.PositionRiskStore()
         r = await store.set(
-            broker="IBKR", account_id="DU1", symbol="NVDA",
-            qty=100, entry_price=180, stop_price=170,
+            broker="IBKR",
+            account_id="DU1",
+            symbol="NVDA",
+            qty=100,
+            entry_price=180,
+            stop_price=170,
             stop_type="atr",
         )
         assert r["R_dollars"] == 1000.0
@@ -304,6 +351,7 @@ def test_position_risk_store_R_compute(tmp_path, monkeypatch):
 
 
 # ── Mock adapter harness (Wave 14J finisher) ─────────────────────
+
 
 def test_mock_adapter_basic_flow():
     from runtime.portfolio.mock_adapter import MockAdapter, make_canned_positions
@@ -379,6 +427,7 @@ def test_mock_adapter_disconnect_after_n():
 
 # ── J4b spec-ID lot ledger ─────────────────────────────────────
 
+
 def test_tax_lot_recommend_hifo(tmp_path, monkeypatch):
     monkeypatch.setenv("NCL_BASE", str(tmp_path))
     if "runtime.portfolio.tax_lot_ledger" in sys.modules:
@@ -387,17 +436,35 @@ def test_tax_lot_recommend_hifo(tmp_path, monkeypatch):
 
     async def go():
         led = tll.TaxLotLedger()
-        await led.record_open(symbol="AAPL", broker="IBKR", account_id="DU1",
-                              qty=100, cost_basis_per_share=150.0,
-                              acquisition_date="2024-01-15")
-        await led.record_open(symbol="AAPL", broker="IBKR", account_id="DU1",
-                              qty=50, cost_basis_per_share=210.0,
-                              acquisition_date="2025-06-01")
-        await led.record_open(symbol="AAPL", broker="IBKR", account_id="DU1",
-                              qty=30, cost_basis_per_share=190.0,
-                              acquisition_date="2025-11-01")
+        await led.record_open(
+            symbol="AAPL",
+            broker="IBKR",
+            account_id="DU1",
+            qty=100,
+            cost_basis_per_share=150.0,
+            acquisition_date="2024-01-15",
+        )
+        await led.record_open(
+            symbol="AAPL",
+            broker="IBKR",
+            account_id="DU1",
+            qty=50,
+            cost_basis_per_share=210.0,
+            acquisition_date="2025-06-01",
+        )
+        await led.record_open(
+            symbol="AAPL",
+            broker="IBKR",
+            account_id="DU1",
+            qty=30,
+            cost_basis_per_share=190.0,
+            acquisition_date="2025-11-01",
+        )
         rec = await led.recommend_lot_selection(
-            symbol="AAPL", qty_to_sell=80, objective="hifo", broker="IBKR",
+            symbol="AAPL",
+            qty_to_sell=80,
+            objective="hifo",
+            broker="IBKR",
         )
         # HIFO -> consume 210 first (50 shares), then 190 (30 shares)
         assert rec["qty_satisfied"] == 80
@@ -417,24 +484,36 @@ def test_tax_lot_recommend_fifo(tmp_path, monkeypatch):
 
     async def go():
         led = tll.TaxLotLedger()
-        await led.record_open(symbol="TSLA", broker="IBKR", account_id="DU1",
-                              qty=20, cost_basis_per_share=200,
-                              acquisition_date="2024-01-01")
-        await led.record_open(symbol="TSLA", broker="IBKR", account_id="DU1",
-                              qty=20, cost_basis_per_share=300,
-                              acquisition_date="2025-01-01")
+        await led.record_open(
+            symbol="TSLA",
+            broker="IBKR",
+            account_id="DU1",
+            qty=20,
+            cost_basis_per_share=200,
+            acquisition_date="2024-01-01",
+        )
+        await led.record_open(
+            symbol="TSLA",
+            broker="IBKR",
+            account_id="DU1",
+            qty=20,
+            cost_basis_per_share=300,
+            acquisition_date="2025-01-01",
+        )
         rec = await led.recommend_lot_selection(
-            symbol="TSLA", qty_to_sell=15, objective="fifo",
+            symbol="TSLA",
+            qty_to_sell=15,
+            objective="fifo",
         )
         # FIFO -> consume from earlier lot only
         assert rec["selection"][0]["cost_basis_per_share"] == 200
         assert rec["selection"][0]["qty_consumed"] == 15
 
-
     asyncio.run(go())
 
 
 # ── J5a/b/c on-chain journal ───────────────────────────────────
+
 
 def test_on_chain_journal_idempotent(tmp_path, monkeypatch):
     monkeypatch.setenv("NCL_BASE", str(tmp_path))
@@ -445,16 +524,24 @@ def test_on_chain_journal_idempotent(tmp_path, monkeypatch):
     async def go():
         j = ocj.OnChainJournal()
         await j.record_tx(
-            tx_hash="0xabc", chain="ethereum", wallet="0xdead",
+            tx_hash="0xabc",
+            chain="ethereum",
+            wallet="0xdead",
             timestamp_iso="2026-05-26T10:00:00+00:00",
-            category="buy", asset_symbol="ETH", qty=2.5,
+            category="buy",
+            asset_symbol="ETH",
+            qty=2.5,
             price_at_block_usd=3000.0,
         )
         # Same tx_hash twice -> dedup, balance not double-counted
         await j.record_tx(
-            tx_hash="0xabc", chain="ethereum", wallet="0xdead",
+            tx_hash="0xabc",
+            chain="ethereum",
+            wallet="0xdead",
             timestamp_iso="2026-05-26T10:00:00+00:00",
-            category="buy", asset_symbol="ETH", qty=2.5,
+            category="buy",
+            asset_symbol="ETH",
+            qty=2.5,
             price_at_block_usd=3000.0,
         )
         pos = await j.positions_for(wallet="0xdead")
@@ -467,6 +554,7 @@ def test_on_chain_journal_idempotent(tmp_path, monkeypatch):
 
 def test_on_chain_classify_liquid_stake():
     from runtime.portfolio.on_chain_journal import classify_asset
+
     c = classify_asset("stETH")
     assert c["is_liquid_staked"] is True
     assert c["underlying_a"] == "ETH"
@@ -474,6 +562,7 @@ def test_on_chain_classify_liquid_stake():
 
 def test_on_chain_classify_lp():
     from runtime.portfolio.on_chain_journal import classify_asset
+
     c = classify_asset("UNI-V2-USDC-WETH")
     assert c["is_lp"] is True
 
@@ -487,14 +576,26 @@ def test_on_chain_multichain_rollup(tmp_path, monkeypatch):
     async def go():
         j = ocj.OnChainJournal()
         # Same wallet, same symbol (USDC) on 2 chains
-        await j.record_tx(tx_hash="t1", chain="ethereum", wallet="0xw",
-                          timestamp_iso="2026-05-01T00:00:00+00:00",
-                          category="buy", asset_symbol="USDC", qty=1000,
-                          price_at_block_usd=1.0)
-        await j.record_tx(tx_hash="t2", chain="arbitrum", wallet="0xw",
-                          timestamp_iso="2026-05-02T00:00:00+00:00",
-                          category="buy", asset_symbol="USDC", qty=500,
-                          price_at_block_usd=1.0)
+        await j.record_tx(
+            tx_hash="t1",
+            chain="ethereum",
+            wallet="0xw",
+            timestamp_iso="2026-05-01T00:00:00+00:00",
+            category="buy",
+            asset_symbol="USDC",
+            qty=1000,
+            price_at_block_usd=1.0,
+        )
+        await j.record_tx(
+            tx_hash="t2",
+            chain="arbitrum",
+            wallet="0xw",
+            timestamp_iso="2026-05-02T00:00:00+00:00",
+            category="buy",
+            asset_symbol="USDC",
+            qty=500,
+            price_at_block_usd=1.0,
+        )
         agg = await j.aggregate_multichain("0xw")
         assert "ethereum" in agg["chains_with_balance"]
         assert "arbitrum" in agg["chains_with_balance"]
@@ -508,8 +609,10 @@ def test_on_chain_multichain_rollup(tmp_path, monkeypatch):
 
 # ── J7c slippage tracker ───────────────────────────────────────
 
+
 def test_slippage_arrival_bps_long():
     from runtime.portfolio.slippage_tracker import _compute_arrival_bps
+
     # buy fill of 100.10 vs arrival 100.00 = +10 bps adverse
     bps = _compute_arrival_bps(100.10, 100.00, "buy")
     assert round(bps, 2) == 10.0
@@ -517,6 +620,7 @@ def test_slippage_arrival_bps_long():
 
 def test_slippage_arrival_bps_short():
     from runtime.portfolio.slippage_tracker import _compute_arrival_bps
+
     # sell fill of 99.90 vs arrival 100.00 = +10 bps adverse
     bps = _compute_arrival_bps(99.90, 100.00, "sell")
     assert round(bps, 2) == 10.0
@@ -526,6 +630,7 @@ def test_slippage_record_and_rollup(tmp_path, monkeypatch):
     """Patch the module's path constants directly so the test is
     immune to import-cache pollution from earlier tests."""
     from runtime.portfolio import slippage_tracker as slip
+
     test_file = tmp_path / "slippage.jsonl"
     monkeypatch.setattr(slip, "DATA_DIR", tmp_path)
     monkeypatch.setattr(slip, "SLIP_FILE", test_file)
@@ -533,14 +638,24 @@ def test_slippage_record_and_rollup(tmp_path, monkeypatch):
     async def go():
         tr = slip.SlippageTracker()
         await tr.record_fill(
-            fill_id="f1", symbol="NVDA", side="buy", qty=100,
-            fill_price=180.10, arrival_price=180.00,
-            vwap_benchmark_price=180.05, strategy="goat",
+            fill_id="f1",
+            symbol="NVDA",
+            side="buy",
+            qty=100,
+            fill_price=180.10,
+            arrival_price=180.00,
+            vwap_benchmark_price=180.05,
+            strategy="goat",
         )
         await tr.record_fill(
-            fill_id="f2", symbol="AAPL", side="buy", qty=50,
-            fill_price=200.20, arrival_price=200.00,
-            vwap_benchmark_price=200.10, strategy="goat",
+            fill_id="f2",
+            symbol="AAPL",
+            side="buy",
+            qty=50,
+            fill_price=200.20,
+            arrival_price=200.00,
+            vwap_benchmark_price=200.10,
+            strategy="goat",
         )
         assert test_file.exists(), f"expected {test_file} written"
         roll = await tr.by_strategy(lookback_days=30)
@@ -553,29 +668,42 @@ def test_slippage_record_and_rollup(tmp_path, monkeypatch):
 
 # ── J8d trade/settle split ─────────────────────────────────────
 
+
 def test_settle_date_equity_t1():
     from runtime.portfolio.settle_calendar import settle_date
+
     # 2026-05-26 is Tuesday; equity T+1 -> 2026-05-27
     assert settle_date("equity", "2026-05-26") == "2026-05-27"
 
 
 def test_settle_date_skips_weekend():
     from runtime.portfolio.settle_calendar import settle_date
+
     # Friday 2026-05-29 + T+1 -> Monday 2026-06-01
     assert settle_date("equity", "2026-05-29") == "2026-06-01"
 
 
 def test_settle_date_crypto_t0():
     from runtime.portfolio.settle_calendar import settle_date
+
     assert settle_date("crypto", "2026-05-26") == "2026-05-26"
 
 
 def test_cash_view_settled_vs_unsettled():
     from runtime.portfolio.settle_calendar import cash_view
+
     trades = [
-        {"asset_class": "equity", "trade_date": "2026-05-23", "cash_delta": 1000},   # T+1 = 2026-05-26, settled if as_of >= that
-        {"asset_class": "equity", "trade_date": "2026-05-26", "cash_delta": -500},  # T+1 = 2026-05-27, unsettled as of 2026-05-26
-        {"asset_class": "crypto", "trade_date": "2026-05-26", "cash_delta": 200},   # T+0, settled
+        {
+            "asset_class": "equity",
+            "trade_date": "2026-05-23",
+            "cash_delta": 1000,
+        },  # T+1 = 2026-05-26, settled if as_of >= that
+        {
+            "asset_class": "equity",
+            "trade_date": "2026-05-26",
+            "cash_delta": -500,
+        },  # T+1 = 2026-05-27, unsettled as of 2026-05-26
+        {"asset_class": "crypto", "trade_date": "2026-05-26", "cash_delta": 200},  # T+0, settled
     ]
     cv = cash_view(trades, as_of="2026-05-26")
     # equity trade from 2026-05-23 settled on 2026-05-26 (assuming biz day Tuesday)
@@ -586,16 +714,18 @@ def test_cash_view_settled_vs_unsettled():
 
 # ── Out-of-scope finisher tests ─────────────────────────────────
 
+
 def test_order_preview_validates_inputs():
     from runtime.portfolio.order_preview import preview_order
+
     async def go():
         # Limit order without limit_price should reject
         try:
-            await preview_order(symbol="NVDA", side="buy", qty=100,
-                                order_type="limit")
+            await preview_order(symbol="NVDA", side="buy", qty=100, order_type="limit")
             raise AssertionError("expected ValueError on missing limit_price")
         except ValueError:
             pass
+
     asyncio.run(go())
 
 
@@ -615,8 +745,13 @@ def test_order_preview_market_buy(tmp_path, monkeypatch):
 
     async def go():
         result = await preview_order(
-            symbol="NVDA", side="buy", qty=100, order_type="market",
-            broker="ibkr", account_id="DU1", strategy_tag="goat",
+            symbol="NVDA",
+            side="buy",
+            qty=100,
+            order_type="market",
+            broker="ibkr",
+            account_id="DU1",
+            strategy_tag="goat",
         )
         assert result["is_preview_only"] is True
         assert result["submission_blocked"] is True
@@ -647,8 +782,8 @@ def test_order_preview_rejected_governor(tmp_path, monkeypatch):
         "runtime.portfolio.trade_cost_ledger",
     ]:
         sys.modules.pop(mod, None)
-    from runtime.portfolio.order_preview import preview_order
     from runtime.portfolio.drawdown_bucket import get_drawdown_bucket
+    from runtime.portfolio.order_preview import preview_order
 
     async def go():
         # Reset drawdown to green
@@ -657,8 +792,11 @@ def test_order_preview_rejected_governor(tmp_path, monkeypatch):
         await bucket.compute(100000.0)
         # 50K R proposal — over the 10% total cap at NAV 100K (10K)
         result = await preview_order(
-            symbol="NVDA", side="buy", qty=100,
-            strategy_tag="goat", broker="ibkr",
+            symbol="NVDA",
+            side="buy",
+            qty=100,
+            strategy_tag="goat",
+            broker="ibkr",
             estimated_R_dollars=50000.0,
         )
         assert result["is_preview_only"] is True
@@ -703,11 +841,17 @@ def test_manual_adapter_lifecycle(tmp_path, monkeypatch):
         positions = await m.fetch_positions()
         assert positions == []
         # Add a BTC cold-storage position
-        await m.add_position({
-            "symbol": "BTC", "account_id": "cold-1",
-            "quantity": 0.5, "avg_cost": 45000.0, "current_price": 90000.0,
-            "asset_class": "crypto", "currency": "USD",
-        })
+        await m.add_position(
+            {
+                "symbol": "BTC",
+                "account_id": "cold-1",
+                "quantity": 0.5,
+                "avg_cost": 45000.0,
+                "current_price": 90000.0,
+                "asset_class": "crypto",
+                "currency": "USD",
+            }
+        )
         positions = await m.fetch_positions()
         assert len(positions) == 1
         assert positions[0]["symbol"] == "BTC"
@@ -744,10 +888,12 @@ def test_quote_source_chain_falls_through():
 
     async def go():
         # First source has NVDA but not AAPL; second has AAPL
-        chain = QuoteChain([
-            StaticOverrideSource({"NVDA": 185.0}),
-            StaticOverrideSource({"AAPL": 200.0}),
-        ])
+        chain = QuoteChain(
+            [
+                StaticOverrideSource({"NVDA": 185.0}),
+                StaticOverrideSource({"AAPL": 200.0}),
+            ]
+        )
         assert await chain.get("NVDA") == 185.0
         assert chain.last_source["NVDA"] == "static_override"
         assert await chain.get("AAPL") == 200.0
@@ -758,6 +904,7 @@ def test_quote_source_chain_falls_through():
 
 
 # ── Wave 14K Auto-Trader Phase 1 tests ─────────────────────────
+
 
 def test_auto_trader_state_lifecycle(tmp_path, monkeypatch):
     monkeypatch.setenv("NCL_BASE", str(tmp_path))
@@ -853,8 +1000,7 @@ def test_auto_open_eligible_pass(tmp_path, monkeypatch):
             "rotation_stance": "with_trend",
             "breadth_veto": {"vetoed": False, "reason": "Breadth OK"},
         }
-        gov = {"approved": True, "band": "green", "sizing_multiplier": 1.0,
-               "reasons": ["approved"]}
+        gov = {"approved": True, "band": "green", "sizing_multiplier": 1.0, "reasons": ["approved"]}
         eligible, reason = await at_policy.auto_open_eligible(idea, gov)
         assert eligible is True, reason
 
@@ -881,8 +1027,7 @@ def test_auto_open_eligible_governor_reject(tmp_path, monkeypatch):
             "stop_type": "price",
             "sources": ["s1"],
         }
-        gov = {"approved": False, "band": "halt",
-               "reasons": ["Drawdown band=halt"]}
+        gov = {"approved": False, "band": "halt", "reasons": ["Drawdown band=halt"]}
         eligible, reason = await at_policy.auto_open_eligible(idea, gov)
         assert eligible is False
         assert "governor" in reason.lower()
@@ -900,9 +1045,14 @@ def test_auto_open_eligible_breadth_veto(tmp_path, monkeypatch):
     async def go():
         at_policy._POLICY = None
         idea = {
-            "ticker": "T", "thesis": "x" * 30,
-            "entry_price": 100, "stop_price": 95, "target_price": 115,
-            "R_per_share": 5, "stop_type": "price", "sources": ["s1"],
+            "ticker": "T",
+            "thesis": "x" * 30,
+            "entry_price": 100,
+            "stop_price": 95,
+            "target_price": 115,
+            "R_per_share": 5,
+            "stop_type": "price",
+            "sources": ["s1"],
             "breadth_veto": {"vetoed": True, "reason": "Breadth 30%"},
         }
         gov = {"approved": True, "band": "green"}
@@ -924,9 +1074,14 @@ def test_auto_open_eligible_rr_too_low(tmp_path, monkeypatch):
         at_policy._POLICY = None
         # Entry 100, stop 95, target 105 -> R:R = 1.0 (below 1.5 default)
         idea = {
-            "ticker": "T", "thesis": "x" * 30,
-            "entry_price": 100, "stop_price": 95, "target_price": 105,
-            "R_per_share": 5, "stop_type": "price", "sources": ["s1"],
+            "ticker": "T",
+            "thesis": "x" * 30,
+            "entry_price": 100,
+            "stop_price": 95,
+            "target_price": 105,
+            "R_per_share": 5,
+            "stop_type": "price",
+            "sources": ["s1"],
         }
         gov = {"approved": True, "band": "green"}
         eligible, reason = await at_policy.auto_open_eligible(idea, gov)
@@ -947,9 +1102,14 @@ def test_auto_open_eligible_counter_trend_blocked(tmp_path, monkeypatch):
         at_policy._POLICY = None
         # Default policy.allow_counter_trend = False
         idea = {
-            "ticker": "XLE", "thesis": "x" * 30,
-            "entry_price": 90, "stop_price": 86, "target_price": 100,
-            "R_per_share": 4, "stop_type": "price", "sources": ["s1"],
+            "ticker": "XLE",
+            "thesis": "x" * 30,
+            "entry_price": 90,
+            "stop_price": 86,
+            "target_price": 100,
+            "R_per_share": 4,
+            "stop_type": "price",
+            "sources": ["s1"],
             "rotation_stance": "counter_trend",
         }
         gov = {"approved": True, "band": "green"}
@@ -964,6 +1124,7 @@ def test_auto_trader_loop_idea_to_payload():
     """K1b: trade_idea_id stitched into paper_trade.scanner_data so
     Phase 3 outcome attribution can find the originating idea."""
     from runtime.portfolio.auto_trader.loop import _idea_to_paper_payload
+
     idea = {
         "trade_idea_id": "aaa111",
         "ticker": "NVDA",
@@ -1001,6 +1162,7 @@ def test_auto_trader_loop_idea_to_payload():
 def test_outcome_attributor_trigger_mapping():
     """K2b: PaperTradingEngine trigger names → tracker outcome enum."""
     from runtime.portfolio.auto_trader.outcome_attributor import trigger_to_outcome
+
     assert trigger_to_outcome("stop_hit") == "stopped_out"
     assert trigger_to_outcome("target_hit") == "target_hit"
     assert trigger_to_outcome("trailing_stop") == "manually_closed"
@@ -1058,6 +1220,7 @@ def test_strategy_bandit_thompson_sample(tmp_path, monkeypatch):
             await bandit.record_result("bravo", win=False, R_multiple=-1.0)
         # Thompson sample 100x; goat should dominate
         import random
+
         random.seed(42)  # determinism for the test
         picks = []
         for _ in range(100):
@@ -1103,20 +1266,25 @@ def test_strategy_bandit_ranked_by_lcb(tmp_path, monkeypatch):
 def test_shap_attribution_computation():
     """K3d: synthetic close history should surface the right predictors."""
     from runtime.portfolio.auto_trader.shap_attribution import _compute_attributions
+
     # Construct rows where rotation_aligned==True wins 80%, ==False wins 20%
     rows = []
     for i in range(10):
-        rows.append({
-            "features": {"rotation_aligned": "True", "sector_etf": "XLK"},
-            "win": i < 8,   # 8 wins out of 10
-            "R_multiple": 2.0 if i < 8 else -1.0,
-        })
+        rows.append(
+            {
+                "features": {"rotation_aligned": "True", "sector_etf": "XLK"},
+                "win": i < 8,  # 8 wins out of 10
+                "R_multiple": 2.0 if i < 8 else -1.0,
+            }
+        )
     for i in range(10):
-        rows.append({
-            "features": {"rotation_aligned": "False", "sector_etf": "XLE"},
-            "win": i < 2,   # 2 wins out of 10
-            "R_multiple": 2.0 if i < 2 else -1.0,
-        })
+        rows.append(
+            {
+                "features": {"rotation_aligned": "False", "sector_etf": "XLE"},
+                "win": i < 2,  # 2 wins out of 10
+                "R_multiple": 2.0 if i < 2 else -1.0,
+            }
+        )
     attr = _compute_attributions(rows, min_samples=3)
     assert attr["n"] == 20
     assert abs(attr["overall_hit_rate"] - 0.5) < 1e-6  # 10/20
@@ -1131,8 +1299,10 @@ def test_shap_attribution_computation():
 def test_shap_attribution_buckets():
     """Helpers bucket correctly."""
     from runtime.portfolio.auto_trader.shap_attribution import (
-        _bucket_days_held, _bucket_hour_utc,
+        _bucket_days_held,
+        _bucket_hour_utc,
     )
+
     assert _bucket_days_held(0.5) == "intraday"
     assert _bucket_days_held(2) == "1-3d"
     assert _bucket_days_held(5) == "4-7d"
@@ -1141,7 +1311,8 @@ def test_shap_attribution_buckets():
     assert _bucket_days_held(None) == "unknown"
     # Hours: 14 UTC ≈ 10 ET = open-hour
     assert _bucket_hour_utc("2026-05-26T14:00:00+00:00") in (
-        "open-hour", "midday"  # depends on minute boundary
+        "open-hour",
+        "midday",  # depends on minute boundary
     )
     assert _bucket_hour_utc(None) == "unknown"
 
@@ -1170,8 +1341,10 @@ def test_outcome_attributor_extract_trade_idea_id():
 def test_auto_trader_market_open_classifier():
     """The loop picks cadence by market-hours; sanity-check the helper
     even though the gates are governor/drawdown not market-hours."""
-    from runtime.portfolio.auto_trader.loop import _is_market_open
     from datetime import datetime, timezone
+
+    from runtime.portfolio.auto_trader.loop import _is_market_open
+
     # Saturday -> closed
     sat_noon_utc = datetime(2026, 5, 30, 14, 0, tzinfo=timezone.utc)
     assert _is_market_open(sat_noon_utc) is False
@@ -1220,7 +1393,8 @@ def test_auto_trader_observability_record_and_dedup(tmp_path, monkeypatch):
 
 def test_streaming_mock_publisher():
     from runtime.portfolio.streaming_scaffold import (
-        MockDeltaPublisher, PositionDeltaConsumer, DeltaEvent
+        MockDeltaPublisher,
+        PositionDeltaConsumer,
     )
 
     async def go():
@@ -1231,8 +1405,12 @@ def test_streaming_mock_publisher():
         await pub.start()
         # Emit a fill
         await pub.emit_test(
-            symbol="NVDA", broker="MOCK", account_id="A1",
-            qty_delta=100, new_qty=100, price=185.50,
+            symbol="NVDA",
+            broker="MOCK",
+            account_id="A1",
+            qty_delta=100,
+            new_qty=100,
+            price=185.50,
         )
         assert consumer.deltas_applied == 1
         assert len(cache) == 1
@@ -1240,8 +1418,12 @@ def test_streaming_mock_publisher():
         assert cache[0]["quantity"] == 100
         # Another delta on same position updates qty
         await pub.emit_test(
-            symbol="NVDA", broker="MOCK", account_id="A1",
-            qty_delta=-30, new_qty=70, price=186.00,
+            symbol="NVDA",
+            broker="MOCK",
+            account_id="A1",
+            qty_delta=-30,
+            new_qty=70,
+            price=186.00,
         )
         assert cache[0]["quantity"] == 70
         assert cache[0]["current_price"] == 186.00
@@ -1252,24 +1434,50 @@ def test_streaming_mock_publisher():
 
 # ── Self-research (Wave 14K Phase 5: K4a + K4c + K4d) ─────────────
 
+
 def test_self_research_cluster_losses():
     """K4c: losing trades cluster by (dim, value); singleton dims skipped."""
     from runtime.portfolio.auto_trader.self_research import _cluster_losses
+
     losing = [
         # XLE-sector cluster of 3
-        {"trade_idea_id": "a", "ticker": "XOM", "R_multiple": -0.8,
-         "source": "brief", "sector_etf": "XLE", "stop_type": "atr",
-         "rotation_quadrant": "Lagging"},
-        {"trade_idea_id": "b", "ticker": "CVX", "R_multiple": -1.0,
-         "source": "brief", "sector_etf": "XLE", "stop_type": "atr",
-         "rotation_quadrant": "Lagging"},
-        {"trade_idea_id": "c", "ticker": "EOG", "R_multiple": -0.5,
-         "source": "goat", "sector_etf": "XLE", "stop_type": "price",
-         "rotation_quadrant": "Lagging"},
+        {
+            "trade_idea_id": "a",
+            "ticker": "XOM",
+            "R_multiple": -0.8,
+            "source": "brief",
+            "sector_etf": "XLE",
+            "stop_type": "atr",
+            "rotation_quadrant": "Lagging",
+        },
+        {
+            "trade_idea_id": "b",
+            "ticker": "CVX",
+            "R_multiple": -1.0,
+            "source": "brief",
+            "sector_etf": "XLE",
+            "stop_type": "atr",
+            "rotation_quadrant": "Lagging",
+        },
+        {
+            "trade_idea_id": "c",
+            "ticker": "EOG",
+            "R_multiple": -0.5,
+            "source": "goat",
+            "sector_etf": "XLE",
+            "stop_type": "price",
+            "rotation_quadrant": "Lagging",
+        },
         # XLK isolated loss — should NOT form a cluster (n=1 < MIN_CLUSTER_SIZE=3)
-        {"trade_idea_id": "d", "ticker": "NVDA", "R_multiple": -2.0,
-         "source": "bravo", "sector_etf": "XLK", "stop_type": "price",
-         "rotation_quadrant": "Leading"},
+        {
+            "trade_idea_id": "d",
+            "ticker": "NVDA",
+            "R_multiple": -2.0,
+            "source": "bravo",
+            "sector_etf": "XLK",
+            "stop_type": "price",
+            "rotation_quadrant": "Leading",
+        },
     ]
     clusters = _cluster_losses(losing)
     # XLE-sector cluster definitely surfaces (3 losses)
@@ -1284,13 +1492,15 @@ def test_self_research_cluster_losses():
     xle = next(c for c in sector_clusters if c["value"] == "XLE")
     assert abs(xle["avg_R"] - (-0.7667)) < 0.001
     # Sorted by n_losses desc
-    assert all(clusters[i]["n_losses"] >= clusters[i + 1]["n_losses"]
-               for i in range(len(clusters) - 1))
+    assert all(
+        clusters[i]["n_losses"] >= clusters[i + 1]["n_losses"] for i in range(len(clusters) - 1)
+    )
 
 
 def test_self_research_phrase_topic():
     """K4c: topic phrasing varies by feature dimension."""
     from runtime.portfolio.auto_trader.self_research import _phrase_topic
+
     # sector_etf branch
     title, rat = _phrase_topic(
         {"feature": "sector_etf", "value": "XLE", "n_losses": 4, "avg_R": -0.9}
@@ -1303,9 +1513,7 @@ def test_self_research_phrase_topic():
     )
     assert "polymarket" in title and "source" in title.lower()
     # stop_type branch
-    title, _ = _phrase_topic(
-        {"feature": "stop_type", "value": "atr", "n_losses": 3, "avg_R": -0.6}
-    )
+    title, _ = _phrase_topic({"feature": "stop_type", "value": "atr", "n_losses": 3, "avg_R": -0.6})
     assert "atr" in title
     # rotation_quadrant branch
     title, _ = _phrase_topic(
@@ -1338,9 +1546,10 @@ def test_self_research_brief_context_packet_with_data(tmp_path, monkeypatch):
     for mod in list(sys.modules.keys()):
         if mod.startswith("runtime.portfolio.auto_trader"):
             del sys.modules[mod]
+    from dataclasses import asdict
+
     from runtime.portfolio.auto_trader import self_research as sr
     from runtime.portfolio.auto_trader import strategy_bandit as sb
-    from dataclasses import asdict
 
     async def go():
         sb._BANDIT = None
@@ -1356,9 +1565,11 @@ def test_self_research_brief_context_packet_with_data(tmp_path, monkeypatch):
             title="Why did 3 XLE-sector trades lose (-0.77R avg)?",
             rationale="Concentrated XLE losses; worth fundamentals dive.",
             cluster_features={"sector_etf": "XLE"},
-            n_losses=3, avg_R=-0.77,
+            n_losses=3,
+            avg_R=-0.77,
             example_trade_idea_ids=["a", "b", "c"],
-            status="open", created_at_iso=sr._now_iso(),
+            status="open",
+            created_at_iso=sr._now_iso(),
         )
         sr._persist_topics([asdict(topic)])
         packet = await sr.brief_context_packet()
@@ -1380,18 +1591,23 @@ def test_self_research_apply_shap_to_authority_learner(tmp_path, monkeypatch):
 
     class FakeLearner:
         async def record(self, source, outcome, *, delta=1.0, notes="", **_):
-            calls.append({
-                "source": source, "outcome": outcome,
-                "delta": delta, "notes": notes,
-            })
+            calls.append(
+                {
+                    "source": source,
+                    "outcome": outcome,
+                    "delta": delta,
+                    "notes": notes,
+                }
+            )
             return type("S", (), {"hits": 1, "misses": 0, "partials": 0})
 
     # Reset module + monkey-patch the learner import
     for mod in list(sys.modules.keys()):
         if mod.startswith("runtime.portfolio.auto_trader"):
             del sys.modules[mod]
-    from runtime.portfolio.auto_trader import self_research as sr
     import runtime.feedback.source_authority_learner as sal_mod
+    from runtime.portfolio.auto_trader import self_research as sr
+
     monkeypatch.setattr(sal_mod, "get_learner", lambda: FakeLearner())
 
     async def go():
@@ -1400,17 +1616,37 @@ def test_self_research_apply_shap_to_authority_learner(tmp_path, monkeypatch):
             "strategy": "goat",
             "features": {
                 "source": [
-                    {"value": "polymarket", "n": 8, "lift_vs_overall": -0.25,
-                     "hit_rate": 0.25, "avg_R": -1.0},
-                    {"value": "brief", "n": 10, "lift_vs_overall": 0.20,
-                     "hit_rate": 0.70, "avg_R": 1.5},
-                    {"value": "noise", "n": 5, "lift_vs_overall": 0.02,  # below threshold
-                     "hit_rate": 0.52, "avg_R": 0.1},
+                    {
+                        "value": "polymarket",
+                        "n": 8,
+                        "lift_vs_overall": -0.25,
+                        "hit_rate": 0.25,
+                        "avg_R": -1.0,
+                    },
+                    {
+                        "value": "brief",
+                        "n": 10,
+                        "lift_vs_overall": 0.20,
+                        "hit_rate": 0.70,
+                        "avg_R": 1.5,
+                    },
+                    {
+                        "value": "noise",
+                        "n": 5,
+                        "lift_vs_overall": 0.02,  # below threshold
+                        "hit_rate": 0.52,
+                        "avg_R": 0.1,
+                    },
                 ],
                 "sector_etf": [
                     # Non-'source' feature — should be ignored
-                    {"value": "XLK", "n": 7, "lift_vs_overall": 0.30,
-                     "hit_rate": 0.80, "avg_R": 2.0},
+                    {
+                        "value": "XLK",
+                        "n": 7,
+                        "lift_vs_overall": 0.30,
+                        "hit_rate": 0.80,
+                        "avg_R": 2.0,
+                    },
                 ],
             },
         }
@@ -1444,8 +1680,9 @@ def test_self_research_resolve_topic(tmp_path, monkeypatch):
     for mod in list(sys.modules.keys()):
         if mod.startswith("runtime.portfolio.auto_trader"):
             del sys.modules[mod]
-    from runtime.portfolio.auto_trader import self_research as sr
     from dataclasses import asdict
+
+    from runtime.portfolio.auto_trader import self_research as sr
 
     async def go():
         topic = sr.ResearchTopic(
@@ -1453,14 +1690,15 @@ def test_self_research_resolve_topic(tmp_path, monkeypatch):
             title="Why did 3 XLE-sector trades lose?",
             rationale="...",
             cluster_features={"sector_etf": "XLE"},
-            n_losses=3, avg_R=-0.7,
+            n_losses=3,
+            avg_R=-0.7,
             example_trade_idea_ids=[],
-            status="open", created_at_iso=sr._now_iso(),
+            status="open",
+            created_at_iso=sr._now_iso(),
         )
         sr._persist_topics([asdict(topic)])
         # Open list contains it
-        assert any(t["topic_id"] == "topic:sector_etf=XLE"
-                   for t in sr.list_open_research_topics())
+        assert any(t["topic_id"] == "topic:sector_etf=XLE" for t in sr.list_open_research_topics())
         # Resolve
         resolved = await sr.resolve_research_topic(
             "topic:sector_etf=XLE",
@@ -1470,8 +1708,9 @@ def test_self_research_resolve_topic(tmp_path, monkeypatch):
         assert resolved["status"] == "researched"
         assert resolved["resolution_notes"].startswith("Pulled out XLE")
         # Open list no longer contains it
-        assert not any(t["topic_id"] == "topic:sector_etf=XLE"
-                       for t in sr.list_open_research_topics())
+        assert not any(
+            t["topic_id"] == "topic:sector_etf=XLE" for t in sr.list_open_research_topics()
+        )
         # Unknown topic → None
         assert await sr.resolve_research_topic("topic:missing") is None
 
@@ -1479,6 +1718,7 @@ def test_self_research_resolve_topic(tmp_path, monkeypatch):
 
 
 # ── Drift detector (Wave 14K Phase 6: K5a + K5b) ──────────────────
+
 
 def _isolate_drift(tmp_path, monkeypatch):
     """Helper: drift_detector has module-level Path constants captured at
@@ -1489,6 +1729,7 @@ def _isolate_drift(tmp_path, monkeypatch):
         if mod.startswith("runtime.portfolio.auto_trader.drift_detector"):
             del sys.modules[mod]
     from runtime.portfolio.auto_trader import drift_detector as dd
+
     data_dir = tmp_path / "data" / "portfolio" / "auto_trader"
     monkeypatch.setattr(dd, "DATA_DIR", data_dir)
     monkeypatch.setattr(dd, "STATE_FILE", data_dir / "drift_state.json")
@@ -1536,9 +1777,9 @@ def test_drift_detector_fires_drift_down_on_losing_streak(tmp_path, monkeypatch)
             r = await dd.update("bravo", win=False)
             statuses_seen.append(r["status"])
         # At some point during the losing streak the signal should fire
-        assert dd.DRIFT_DOWN in statuses_seen, (
-            f"expected DRIFT_DOWN at some point, got {statuses_seen}"
-        )
+        assert (
+            dd.DRIFT_DOWN in statuses_seen
+        ), f"expected DRIFT_DOWN at some point, got {statuses_seen}"
 
     asyncio.run(go())
 
@@ -1583,6 +1824,7 @@ def test_drift_detector_maybe_auto_pause(tmp_path, monkeypatch):
     dd = _isolate_drift(tmp_path, monkeypatch)
     # Also isolate the AutoTraderState file
     from runtime.portfolio.auto_trader import state as st
+
     state_dir = tmp_path / "data" / "portfolio" / "auto_trader"
     state_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(st, "DATA_DIR", state_dir)
@@ -1594,8 +1836,11 @@ def test_drift_detector_maybe_auto_pause(tmp_path, monkeypatch):
         await st._update(active=True, paused_by=None, pause_reason="")
         # Simulate a DRIFT_DOWN transition
         drift_result = {
-            "status": "DRIFT_DOWN", "transition": True,
-            "running_mean": 0.25, "recent_hit_rate": 0.10, "n": 50,
+            "status": "DRIFT_DOWN",
+            "transition": True,
+            "running_mean": 0.25,
+            "recent_hit_rate": 0.10,
+            "n": 50,
         }
         result = await dd.maybe_auto_pause("goat", drift_result)
         assert result["paused"] is True
@@ -1606,16 +1851,23 @@ def test_drift_detector_maybe_auto_pause(tmp_path, monkeypatch):
         result2 = await dd.maybe_auto_pause("goat", {"status": "STABLE"})
         assert result2["paused"] is False
         # Non-transition DRIFT_DOWN (already drifting) doesn't re-pause
-        result3 = await dd.maybe_auto_pause("goat", {
-            "status": "DRIFT_DOWN", "transition": False,
-            "running_mean": 0.25, "recent_hit_rate": 0.10, "n": 51,
-        })
+        result3 = await dd.maybe_auto_pause(
+            "goat",
+            {
+                "status": "DRIFT_DOWN",
+                "transition": False,
+                "running_mean": 0.25,
+                "recent_hit_rate": 0.10,
+                "n": 51,
+            },
+        )
         assert result3["paused"] is False
 
     asyncio.run(go())
 
 
 # ── Graduation gate (Wave 14K Phase 6: K5c) ───────────────────────
+
 
 def test_graduation_gate_needs_data(tmp_path, monkeypatch):
     """K5c: a strategy with no trades fails on sample size first."""
@@ -1630,8 +1882,7 @@ def test_graduation_gate_needs_data(tmp_path, monkeypatch):
     async def go():
         report = await gg.evaluate("never_traded")
         assert report["graduated"] is False
-        sample_crit = next(c for c in report["criteria"]
-                           if c["name"] == "min_sample_size")
+        sample_crit = next(c for c in report["criteria"] if c["name"] == "min_sample_size")
         assert sample_crit["passed"] is False
         assert sample_crit["value"] == 0
         assert "NEEDS DATA" in report["recommendation"]
@@ -1654,7 +1905,13 @@ def test_graduation_gate_passes_when_all_criteria_met(tmp_path, monkeypatch):
             del sys.modules[mod]
     from runtime.portfolio import trade_idea_tracker as tit
     from runtime.portfolio.auto_trader import (
-        graduation_gate as gg, strategy_bandit as sb, drift_detector as dd,
+        drift_detector as dd,
+    )
+    from runtime.portfolio.auto_trader import (
+        graduation_gate as gg,
+    )
+    from runtime.portfolio.auto_trader import (
+        strategy_bandit as sb,
     )
 
     async def go():
@@ -1667,22 +1924,38 @@ def test_graduation_gate_passes_when_all_criteria_met(tmp_path, monkeypatch):
         # Emit + close 6 winners
         for i in range(6):
             idea = await tracker.record_emission(
-                source="brief", strategy="goat", ticker=f"T{i}",
-                direction="long", entry_price=100.0, stop_price=95.0,
-                target_price=115.0, R_per_share=5.0, planned_qty=10,
+                source="brief",
+                strategy="goat",
+                ticker=f"T{i}",
+                direction="long",
+                entry_price=100.0,
+                stop_price=95.0,
+                target_price=115.0,
+                R_per_share=5.0,
+                planned_qty=10,
             )
             await tracker.update_outcome(
-                idea["trade_idea_id"], outcome="target_hit", exit_price=115.0,
+                idea["trade_idea_id"],
+                outcome="target_hit",
+                exit_price=115.0,
             )
         # Emit + close 2 losers
         for i in range(2):
             idea = await tracker.record_emission(
-                source="brief", strategy="goat", ticker=f"L{i}",
-                direction="long", entry_price=100.0, stop_price=95.0,
-                target_price=115.0, R_per_share=5.0, planned_qty=10,
+                source="brief",
+                strategy="goat",
+                ticker=f"L{i}",
+                direction="long",
+                entry_price=100.0,
+                stop_price=95.0,
+                target_price=115.0,
+                R_per_share=5.0,
+                planned_qty=10,
             )
             await tracker.update_outcome(
-                idea["trade_idea_id"], outcome="stopped_out", exit_price=95.0,
+                idea["trade_idea_id"],
+                outcome="stopped_out",
+                exit_price=95.0,
             )
         # Feed bandit so LCB > 0.20
         bandit = await sb.get_bandit()
@@ -1723,16 +1996,20 @@ def test_graduation_gate_blocks_on_recent_drift(tmp_path, monkeypatch):
         dd._LOADED = False
         # Inject a recent DRIFT_DOWN by hand-crafting the state
         s = dd.PHState(
-            n=50, running_mean=0.4, m_down=0.0, m_up=0.0,
-            last_status="DRIFT_DOWN", last_status_iso=dd._now_iso(),
-            drift_down_count=1, last_drift_iso=dd._now_iso(),
+            n=50,
+            running_mean=0.4,
+            m_down=0.0,
+            m_up=0.0,
+            last_status="DRIFT_DOWN",
+            last_status_iso=dd._now_iso(),
+            drift_down_count=1,
+            last_drift_iso=dd._now_iso(),
             last_drift_reason="test injected",
         )
         dd._STATE["goat"] = s
         dd._persist_state()
         report = await gg.evaluate("goat")
-        drift_crit = next(c for c in report["criteria"]
-                          if c["name"] == "no_recent_drift")
+        drift_crit = next(c for c in report["criteria"] if c["name"] == "no_recent_drift")
         assert drift_crit["passed"] is False
         assert "DRIFT_DOWN" in drift_crit["reason"]
 
@@ -1755,12 +2032,20 @@ def test_graduation_gate_evaluate_all_summary(tmp_path, monkeypatch):
         # 3 strategies, all under-sampled — all should fail sample-size
         for strat in ("goat", "bravo", "polymarket"):
             idea = await tracker.record_emission(
-                source="brief", strategy=strat, ticker=f"X-{strat}",
-                direction="long", entry_price=100.0, stop_price=95.0,
-                target_price=115.0, R_per_share=5.0, planned_qty=10,
+                source="brief",
+                strategy=strat,
+                ticker=f"X-{strat}",
+                direction="long",
+                entry_price=100.0,
+                stop_price=95.0,
+                target_price=115.0,
+                R_per_share=5.0,
+                planned_qty=10,
             )
             await tracker.update_outcome(
-                idea["trade_idea_id"], outcome="target_hit", exit_price=115.0,
+                idea["trade_idea_id"],
+                outcome="target_hit",
+                exit_price=115.0,
             )
         report = await gg.evaluate_all()
         assert "_summary" in report
@@ -1774,6 +2059,7 @@ def test_graduation_gate_evaluate_all_summary(tmp_path, monkeypatch):
 
 # ── Friction profile (Wave 14K Phase 7: K6a + K6b) ────────────────
 
+
 def _isolate_friction(tmp_path, monkeypatch):
     """Same isolation pattern as _isolate_drift: re-points module-level
     file paths and resets state cache."""
@@ -1782,6 +2068,7 @@ def _isolate_friction(tmp_path, monkeypatch):
         if mod.startswith("runtime.portfolio.auto_trader.friction_profile"):
             del sys.modules[mod]
     from runtime.portfolio.auto_trader import friction_profile as fp
+
     data_dir = tmp_path / "data" / "portfolio" / "auto_trader"
     monkeypatch.setattr(fp, "DATA_DIR", data_dir)
     monkeypatch.setattr(fp, "STATE_FILE", data_dir / "friction_profiles.json")
@@ -1818,8 +2105,12 @@ def test_friction_apply_long_adds_adverse_slippage(tmp_path, monkeypatch):
         # Override to 100 bps for an unambiguous shift
         profile.slippage_bps = 100.0  # 1.00%
         payload = {
-            "symbol": "NVDA", "direction": "long", "asset_type": "stock",
-            "entry_price": 100.0, "quantity": 50, "scanner_data": {},
+            "symbol": "NVDA",
+            "direction": "long",
+            "asset_type": "stock",
+            "entry_price": 100.0,
+            "quantity": 50,
+            "scanner_data": {},
         }
         out = fp.apply_friction_to_payload(payload, profile)
         # 100 bps = 1% on a $100 entry = $101 fill (adverse for long)
@@ -1835,7 +2126,8 @@ def test_friction_apply_long_adds_adverse_slippage(tmp_path, monkeypatch):
 
 
 def test_friction_apply_short_adds_adverse_slippage_other_way(
-    tmp_path, monkeypatch,
+    tmp_path,
+    monkeypatch,
 ):
     """K6a: short entries fill LOWER than the limit (got less)."""
     fp = _isolate_friction(tmp_path, monkeypatch)
@@ -1844,8 +2136,12 @@ def test_friction_apply_short_adds_adverse_slippage_other_way(
         profile = await fp.get_profile("short_strat", asset_type="stock")
         profile.slippage_bps = 50.0  # 0.50%
         payload = {
-            "symbol": "QQQ", "direction": "short", "asset_type": "stock",
-            "entry_price": 200.0, "quantity": 100, "scanner_data": {},
+            "symbol": "QQQ",
+            "direction": "short",
+            "asset_type": "stock",
+            "entry_price": 200.0,
+            "quantity": 100,
+            "scanner_data": {},
         }
         out = fp.apply_friction_to_payload(payload, profile)
         # 50 bps = 0.50% on a $200 short = $199 fill (worse for short)
@@ -1864,11 +2160,16 @@ def test_friction_apply_partial_fill_when_sampled(tmp_path, monkeypatch):
         profile.partial_fill_min_pct = 0.50
         profile.slippage_bps = 0.0  # isolate qty test from price test
         payload = {
-            "symbol": "AAPL", "direction": "long", "asset_type": "options",
-            "entry_price": 5.00, "quantity": 100, "scanner_data": {},
+            "symbol": "AAPL",
+            "direction": "long",
+            "asset_type": "options",
+            "entry_price": 5.00,
+            "quantity": 100,
+            "scanner_data": {},
         }
         # Use deterministic rng with seed
         import random as r
+
         rng = r.Random(42)
         out = fp.apply_friction_to_payload(payload, profile, rng=rng)
         # Quantity should be 50-100 (uniform in [50%, 100%] of 100)
@@ -1887,9 +2188,10 @@ def test_friction_update_profile_clamps(tmp_path, monkeypatch):
 
     async def go():
         p = await fp.update_profile(
-            "goat", slippage_bps=15.0,
-            partial_fill_prob=2.0,        # over-cap
-            partial_fill_min_pct=-0.5,    # under-floor
+            "goat",
+            slippage_bps=15.0,
+            partial_fill_prob=2.0,  # over-cap
+            partial_fill_min_pct=-0.5,  # under-floor
         )
         assert p.slippage_bps == 15.0
         assert p.partial_fill_prob == 1.0  # clamped to 1
@@ -1905,6 +2207,7 @@ def test_friction_update_profile_clamps(tmp_path, monkeypatch):
 def test_friction_bps_diff_signed_correctly():
     """K6a: _bps_diff returns positive for adverse-slippage observations."""
     from runtime.portfolio.auto_trader.friction_profile import _bps_diff
+
     # Long: paid $101 vs planned $100 → +100 bps adverse
     assert abs(_bps_diff(100.0, 101.0, direction="long") - 100.0) < 1e-3
     # Long: paid $99 vs planned $100 → -100 bps (favorable)
@@ -1933,6 +2236,7 @@ def test_friction_maybe_calibrate_skips_off_interval(tmp_path, monkeypatch):
 
 # ── Phase 8 K7a: circuit breaker integration ─────────────────────
 
+
 def test_circuit_breaker_opens_after_3_failures(tmp_path, monkeypatch):
     """K7a: standard three-strike pattern. Verifies the auto-trader's
     bound CircuitBreaker behaves as expected when called repeatedly."""
@@ -1945,7 +2249,7 @@ def test_circuit_breaker_opens_after_3_failures(tmp_path, monkeypatch):
         cb.record_failure()
         assert cb.is_open() is False  # not yet at threshold
         cb.record_failure()
-        assert cb.is_open() is True   # crossed threshold
+        assert cb.is_open() is True  # crossed threshold
         # Success resets
         cb.record_success()
         assert cb.is_open() is False
@@ -1955,6 +2259,7 @@ def test_circuit_breaker_opens_after_3_failures(tmp_path, monkeypatch):
 
 # ── Phase 8 K7b: crash-recovery replay ────────────────────────────
 
+
 def test_crash_recovery_replays_state_from_disk(tmp_path, monkeypatch):
     """K7b: state.json + drift_state.json + friction_profiles.json +
     research_topics.json all survive a simulated process restart."""
@@ -1963,24 +2268,39 @@ def test_crash_recovery_replays_state_from_disk(tmp_path, monkeypatch):
         if mod.startswith("runtime.portfolio.auto_trader"):
             del sys.modules[mod]
 
-    from runtime.portfolio.auto_trader import state as st_mod
     from runtime.portfolio.auto_trader import drift_detector as dd_mod
     from runtime.portfolio.auto_trader import friction_profile as fp_mod
     from runtime.portfolio.auto_trader import self_research as sr_mod
+    from runtime.portfolio.auto_trader import state as st_mod
 
     # Point all modules' DATA_DIRs at the tmp tree
     data_dir = tmp_path / "data" / "portfolio" / "auto_trader"
     for mod_obj, attr_pairs in [
         (st_mod, [("DATA_DIR", data_dir), ("STATE_FILE", data_dir / "state.json")]),
-        (dd_mod, [("DATA_DIR", data_dir),
-                  ("STATE_FILE", data_dir / "drift_state.json"),
-                  ("EVENTS_FILE", data_dir / "drift_events.jsonl")]),
-        (fp_mod, [("DATA_DIR", data_dir),
-                  ("STATE_FILE", data_dir / "friction_profiles.json"),
-                  ("CALIB_LOG", data_dir / "friction_calibrations.jsonl")]),
-        (sr_mod, [("DATA_DIR", data_dir),
-                  ("TOPICS_FILE", data_dir / "research_topics.json"),
-                  ("TOPICS_HISTORY", data_dir / "research_topics_history.jsonl")]),
+        (
+            dd_mod,
+            [
+                ("DATA_DIR", data_dir),
+                ("STATE_FILE", data_dir / "drift_state.json"),
+                ("EVENTS_FILE", data_dir / "drift_events.jsonl"),
+            ],
+        ),
+        (
+            fp_mod,
+            [
+                ("DATA_DIR", data_dir),
+                ("STATE_FILE", data_dir / "friction_profiles.json"),
+                ("CALIB_LOG", data_dir / "friction_calibrations.jsonl"),
+            ],
+        ),
+        (
+            sr_mod,
+            [
+                ("DATA_DIR", data_dir),
+                ("TOPICS_FILE", data_dir / "research_topics.json"),
+                ("TOPICS_HISTORY", data_dir / "research_topics_history.jsonl"),
+            ],
+        ),
     ]:
         for attr, val in attr_pairs:
             monkeypatch.setattr(mod_obj, attr, val)
@@ -1994,11 +2314,13 @@ def test_crash_recovery_replays_state_from_disk(tmp_path, monkeypatch):
 
     async def populate():
         # 1) Auto-trader state: pause it with a reason
-        await st_mod._update(active=True, paused_by="operator",
-                             pause_reason="pre-crash test",
-                             paused_at_iso=st_mod._now_iso())
-        await st_mod.record_tick(evaluated=3, opened=1, rejected=2,
-                                  last_seen_id="abc-pre-crash")
+        await st_mod._update(
+            active=True,
+            paused_by="operator",
+            pause_reason="pre-crash test",
+            paused_at_iso=st_mod._now_iso(),
+        )
+        await st_mod.record_tick(evaluated=3, opened=1, rejected=2, last_seen_id="abc-pre-crash")
         # 2) Drift detector: feed some observations
         for _ in range(10):
             await dd_mod.update("goat", win=True)
@@ -2006,13 +2328,17 @@ def test_crash_recovery_replays_state_from_disk(tmp_path, monkeypatch):
         await fp_mod.update_profile("goat", slippage_bps=8.5)
         # 4) Research topic: persist one open
         from dataclasses import asdict
+
         topic = sr_mod.ResearchTopic(
             topic_id="topic:sector_etf=XLE",
-            title="Test topic", rationale="for crash recovery",
+            title="Test topic",
+            rationale="for crash recovery",
             cluster_features={"sector_etf": "XLE"},
-            n_losses=3, avg_R=-0.5,
+            n_losses=3,
+            avg_R=-0.5,
             example_trade_idea_ids=["x", "y"],
-            status="open", created_at_iso=sr_mod._now_iso(),
+            status="open",
+            created_at_iso=sr_mod._now_iso(),
         )
         sr_mod._persist_topics([asdict(topic)])
 
@@ -2051,6 +2377,7 @@ def test_crash_recovery_replays_state_from_disk(tmp_path, monkeypatch):
 
 # ── Phase 8 K7c: full lifecycle integration ───────────────────────
 
+
 def test_full_lifecycle_integration(tmp_path, monkeypatch):
     """K7c: end-to-end flow exercising every wave-14K module.
 
@@ -2073,9 +2400,19 @@ def test_full_lifecycle_integration(tmp_path, monkeypatch):
 
     from runtime.portfolio import trade_idea_tracker as tit
     from runtime.portfolio.auto_trader import (
-        strategy_bandit as sb, drift_detector as dd,
-        friction_profile as fp, graduation_gate as gg,
+        drift_detector as dd,
+    )
+    from runtime.portfolio.auto_trader import (
+        friction_profile as fp,
+    )
+    from runtime.portfolio.auto_trader import (
+        graduation_gate as gg,
+    )
+    from runtime.portfolio.auto_trader import (
         self_research as sr,
+    )
+    from runtime.portfolio.auto_trader import (
+        strategy_bandit as sb,
     )
 
     # Isolate modules with file constants
@@ -2088,17 +2425,25 @@ def test_full_lifecycle_integration(tmp_path, monkeypatch):
     monkeypatch.setattr(fp, "CALIB_LOG", data_dir / "friction_calibrations.jsonl")
     tit._TRACKER = None
     sb._BANDIT = None
-    dd._STATE.clear(); dd._LOADED = False
-    fp._STATE.clear(); fp._LOADED = False
+    dd._STATE.clear()
+    dd._LOADED = False
+    fp._STATE.clear()
+    fp._LOADED = False
 
     async def go():
         tracker = await tit.get_trade_idea_tracker()
         bandit = await sb.get_bandit()
         # STEP 1: emit a trade idea
         idea = await tracker.record_emission(
-            source="brief", strategy="goat", ticker="NVDA",
-            direction="long", entry_price=100.0, stop_price=95.0,
-            target_price=115.0, R_per_share=5.0, planned_qty=20,
+            source="brief",
+            strategy="goat",
+            ticker="NVDA",
+            direction="long",
+            entry_price=100.0,
+            stop_price=95.0,
+            target_price=115.0,
+            R_per_share=5.0,
+            planned_qty=20,
         )
         tid = idea["trade_idea_id"]
 
@@ -2106,15 +2451,21 @@ def test_full_lifecycle_integration(tmp_path, monkeypatch):
         profile = await fp.get_profile("goat", asset_type="stock")
         profile.slippage_bps = 50.0  # 0.50% for unambiguous assertion
         payload = {
-            "symbol": "NVDA", "direction": "long", "asset_type": "stock",
-            "entry_price": 100.0, "quantity": 20, "scanner_data": {},
+            "symbol": "NVDA",
+            "direction": "long",
+            "asset_type": "stock",
+            "entry_price": 100.0,
+            "quantity": 20,
+            "scanner_data": {},
         }
         out = fp.apply_friction_to_payload(payload, profile)
         assert abs(out["entry_price"] - 100.5) < 1e-6  # paid 50 bps more
 
         # STEP 3: close the idea as target_hit
         closed = await tracker.update_outcome(
-            tid, outcome="target_hit", exit_price=115.0,
+            tid,
+            outcome="target_hit",
+            exit_price=115.0,
         )
         assert closed is not None
         assert closed["R_multiple"] is not None
@@ -2133,20 +2484,23 @@ def test_full_lifecycle_integration(tmp_path, monkeypatch):
 
         # STEP 6: synthetic losing cluster for research topic surfacing
         losing = [
-            {"trade_idea_id": f"loss-{i}", "ticker": "XOM",
-             "R_multiple": -0.8 - i * 0.1, "source": "brief",
-             "sector_etf": "XLE", "stop_type": "atr",
-             "rotation_quadrant": "Lagging"}
+            {
+                "trade_idea_id": f"loss-{i}",
+                "ticker": "XOM",
+                "R_multiple": -0.8 - i * 0.1,
+                "source": "brief",
+                "sector_etf": "XLE",
+                "stop_type": "atr",
+                "rotation_quadrant": "Lagging",
+            }
             for i in range(3)
         ]
         clusters = sr._cluster_losses(losing)
-        assert any(c["feature"] == "sector_etf" and c["value"] == "XLE"
-                   for c in clusters)
+        assert any(c["feature"] == "sector_etf" and c["value"] == "XLE" for c in clusters)
 
         # STEP 7: graduation evaluation — sample-size failure (only 1 close)
         report = await gg.evaluate("goat")
-        sample_crit = next(c for c in report["criteria"]
-                           if c["name"] == "min_sample_size")
+        sample_crit = next(c for c in report["criteria"] if c["name"] == "min_sample_size")
         assert sample_crit["passed"] is False
         assert report["graduated"] is False
 
@@ -2156,6 +2510,7 @@ def test_full_lifecycle_integration(tmp_path, monkeypatch):
 def test_self_research_topic_id_stable():
     """K4c: same cluster_features always produce same id (idempotency)."""
     from runtime.portfolio.auto_trader.self_research import _topic_id_from_cluster
+
     id1 = _topic_id_from_cluster({"sector_etf": "XLE"})
     id2 = _topic_id_from_cluster({"sector_etf": "XLE"})
     assert id1 == id2
@@ -2166,3 +2521,381 @@ def test_self_research_topic_id_stable():
     id_a = _topic_id_from_cluster({"a": "1", "b": "2"})
     id_b = _topic_id_from_cluster({"b": "2", "a": "1"})
     assert id_a == id_b
+
+
+# ── Wave 14L L1: Strategy Registry ────────────────────────────────
+
+
+def test_strategy_registry_loads_23_recipes(tmp_path, monkeypatch):
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    for mod in list(sys.modules.keys()):
+        if mod.startswith("runtime.portfolio.auto_trader.strategy_registry"):
+            del sys.modules[mod]
+    from runtime.portfolio.auto_trader import strategy_registry as sr
+
+    async def go():
+        sr._REGISTRY.clear()
+        sr._LOADED = False
+        recipes = await sr.list_recipes()
+        assert len(recipes) >= 20, f"expected 20+ recipes, got {len(recipes)}"
+        names = {r.name for r in recipes}
+        # Core recipes that downstream features depend on
+        for required in (
+            "lottery_calls_short_dated",
+            "leaps_long_dated",
+            "pmcc",
+            "iron_condor_low_vol",
+            "vertical_bull_call",
+            "covered_call_income",
+            "csp_income",
+            "momentum_breakout",
+            "swing_pullback",
+            "snapshot",
+        ):
+            assert required in names, f"missing required recipe {required}"
+
+    asyncio.run(go())
+
+
+def test_strategy_registry_short_lottery_long_swing_classification(tmp_path, monkeypatch):
+    """L4 profit-ladder depends on these classifiers being correct."""
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    for mod in list(sys.modules.keys()):
+        if mod.startswith("runtime.portfolio.auto_trader.strategy_registry"):
+            del sys.modules[mod]
+    from runtime.portfolio.auto_trader import strategy_registry as sr
+
+    async def go():
+        sr._REGISTRY.clear()
+        sr._LOADED = False
+        lottery = await sr.list_short_dated_lottery_recipes()
+        swing = await sr.list_long_dated_swing_recipes()
+        assert "lottery_calls_short_dated" in lottery
+        assert "leaps_long_dated" in swing
+        # Mutually exclusive
+        assert not (set(lottery) & set(swing))
+
+    asyncio.run(go())
+
+
+# ── Wave 14L L3: Options Recipe Library ───────────────────────────
+
+
+def test_options_recipes_pmcc_two_legs():
+    from runtime.portfolio.auto_trader.options_recipes import build_structure
+
+    s = build_structure("pmcc", underlying="NVDA", underlying_price=185.0)
+    assert s is not None
+    assert s.recipe_name == "pmcc"
+    assert len(s.legs) == 2
+    long_leap = s.legs[0]
+    short_monthly = s.legs[1]
+    assert long_leap.side == "long" and long_leap.option_type == "call"
+    assert short_monthly.side == "short" and short_monthly.option_type == "call"
+    # LEAP strike should be deeply ITM (below underlying)
+    assert long_leap.strike < 185.0
+    # Short monthly strike should be OTM (above underlying)
+    assert short_monthly.strike > 185.0
+    # DTE relationship
+    assert long_leap.dte_target > short_monthly.dte_target
+    assert s.direction == "long"
+
+
+def test_options_recipes_iron_condor_four_legs():
+    from runtime.portfolio.auto_trader.options_recipes import build_structure
+
+    s = build_structure("iron_condor_low_vol", underlying="SPY", underlying_price=500)
+    assert s is not None
+    assert len(s.legs) == 4
+    sides = [leg.side for leg in s.legs]
+    types = [leg.option_type for leg in s.legs]
+    # Long put + short put + short call + long call
+    assert sides == ["long", "short", "short", "long"]
+    assert types == ["put", "put", "call", "call"]
+    # Wing-body-body-wing strike ordering (puts ascending, calls ascending)
+    strikes = [leg.strike for leg in s.legs]
+    assert strikes[0] < strikes[1] < strikes[2] < strikes[3]
+    assert s.direction == "neutral"
+
+
+def test_options_recipes_unknown_returns_none():
+    from runtime.portfolio.auto_trader.options_recipes import build_structure
+
+    assert build_structure("nonexistent", underlying="X", underlying_price=100) is None
+
+
+def test_options_recipes_strike_rounding():
+    from runtime.portfolio.auto_trader.options_recipes import _round_strike
+
+    assert _round_strike(15.20) == 15.0  # < $25 → 0.50 grid
+    assert _round_strike(15.30) == 15.5
+    assert _round_strike(100.40) == 100  # < $200 → $1 grid
+    assert _round_strike(503) == 505  # > $200 → $5 grid
+
+
+# ── Wave 14L L5: Capability Registry ──────────────────────────────
+
+
+def test_capability_registry_lists_11_capabilities(tmp_path, monkeypatch):
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    for mod in list(sys.modules.keys()):
+        if mod.startswith("runtime.portfolio.auto_trader.capability_registry"):
+            del sys.modules[mod]
+    from runtime.portfolio.auto_trader import capability_registry as cr
+
+    async def go():
+        cr._STATE.clear()
+        cr._LOADED = False
+        caps = await cr.list_capabilities()
+        assert len(caps) == 11
+        names = {c["name"] for c in caps}
+        for required in (
+            "yfinance",
+            "earnings_calendar",
+            "rotation_snapshot",
+            "cycle_phase",
+            "ivr_data",
+            "unusual_whales",
+            "finnhub",
+            "ibkr_market_data",
+            "polymarket",
+            "coingecko",
+            "fred",
+        ):
+            assert required in names
+
+    asyncio.run(go())
+
+
+def test_capability_registry_missing_env_detected(tmp_path, monkeypatch):
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    # Clear UNUSUAL_WHALES_API_KEY to ensure missing_env path fires
+    monkeypatch.delenv("UNUSUAL_WHALES_API_KEY", raising=False)
+    for mod in list(sys.modules.keys()):
+        if mod.startswith("runtime.portfolio.auto_trader.capability_registry"):
+            del sys.modules[mod]
+    from runtime.portfolio.auto_trader import capability_registry as cr
+
+    async def go():
+        cr._STATE.clear()
+        cr._LOADED = False
+        result = await cr.check_capability("unusual_whales")
+        assert result["available"] is False
+        assert result["status"] == "missing_env"
+        assert "UNUSUAL_WHALES_API_KEY" in (result.get("missing_env") or [])
+
+    asyncio.run(go())
+
+
+# ── Wave 14L L4: Profit Ladder ────────────────────────────────────
+
+
+def test_profit_ladder_skips_below_threshold(tmp_path, monkeypatch):
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    monkeypatch.setenv("NCL_AT_LADDER_R_THRESHOLD", "2.0")
+    for mod in list(sys.modules.keys()):
+        if mod.startswith("runtime.portfolio.auto_trader.profit_ladder"):
+            del sys.modules[mod]
+    from runtime.portfolio.auto_trader import profit_ladder as pl
+
+    async def go():
+        pl._LADDERED.clear()
+        pl._LOADED = False
+
+        class FakePaperTrade:
+            quantity = 10
+
+        result = await pl.maybe_ladder_from_close(
+            brain=None,
+            paper_trade=FakePaperTrade(),
+            closed_idea={
+                "trade_idea_id": "abc123",
+                "strategy": "lottery_calls_short_dated",
+                "ticker": "NVDA",
+                "direction": "long",
+                "entry_price": 5.0,
+            },
+            engine_r=1.5,  # below 2.0 threshold
+            exit_price=10.0,
+        )
+        assert result["emitted"] is False
+        assert "threshold" in result["reason"]
+
+    asyncio.run(go())
+
+
+def test_profit_ladder_skips_non_lottery_strategy(tmp_path, monkeypatch):
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    monkeypatch.setenv("NCL_AT_LADDER_R_THRESHOLD", "2.0")
+    for mod in list(sys.modules.keys()):
+        if mod.startswith("runtime.portfolio.auto_trader"):
+            del sys.modules[mod]
+    from runtime.portfolio.auto_trader import profit_ladder as pl
+
+    async def go():
+        pl._LADDERED.clear()
+        pl._LOADED = False
+
+        class FakePaperTrade:
+            quantity = 100
+
+        # momentum_breakout is NOT a lottery source
+        result = await pl.maybe_ladder_from_close(
+            brain=None,
+            paper_trade=FakePaperTrade(),
+            closed_idea={
+                "trade_idea_id": "abc456",
+                "strategy": "momentum_breakout",
+                "ticker": "NVDA",
+                "direction": "long",
+                "entry_price": 100.0,
+            },
+            engine_r=3.0,
+            exit_price=130.0,
+        )
+        assert result["emitted"] is False
+        assert "not in lottery set" in result["reason"]
+
+    asyncio.run(go())
+
+
+# ── Wave 14L M1: Tax Sizing ───────────────────────────────────────
+
+
+def test_tax_sizing_no_wash_no_earnings_is_passthrough(tmp_path, monkeypatch):
+    monkeypatch.setenv("NCL_BASE", str(tmp_path))
+    for mod in list(sys.modules.keys()):
+        if mod.startswith("runtime.portfolio.auto_trader.tax_sizing"):
+            del sys.modules[mod]
+        if mod.startswith("runtime.portfolio.tax_compliance"):
+            del sys.modules[mod]
+    from runtime.portfolio.auto_trader import tax_sizing as ts
+
+    async def go():
+        result = await ts.apply_tax_sizing(
+            idea={"ticker": "FAKETICKERXYZ", "type": "stock", "direction": "long"},
+            proposed_qty=100,
+            proposed_R_dollars=500,
+            brain=None,
+        )
+        assert result["approved"] is True
+        # No wash sale + no earnings = mult 1.0
+        assert result["size_multiplier"] == 1.0
+        assert result["adjusted_qty"] == 100
+        assert result["adjusted_R_dollars"] == 500
+
+    asyncio.run(go())
+
+
+def test_tax_sizing_classify_long_premium_vs_stock(tmp_path, monkeypatch):
+    from runtime.portfolio.auto_trader.tax_sizing import _classify_asset
+
+    # Long option = long_premium
+    bucket, _ = _classify_asset({"type": "options", "direction": "long"})
+    assert bucket == "long_premium"
+    # Short option = short_premium
+    bucket, _ = _classify_asset({"type": "options", "direction": "short"})
+    assert bucket == "short_premium"
+    # Stock (default)
+    bucket, _ = _classify_asset({"type": "stock", "direction": "long"})
+    assert bucket == "stock"
+
+
+# ── Wave 14L M3: Recipe Backtest ──────────────────────────────────
+
+
+def test_backtest_simulate_trade_long_target_hit():
+    from runtime.portfolio.auto_trader.recipe_backtest import _simulate_trade
+
+    # Long entry at $100, target +20% = $120, stop -8% = $92.
+    # Closes go: 100 → 105 → 115 → 122 (target hit on day 3)
+    closes = [100, 105, 115, 122, 130]
+    result = _simulate_trade(closes, 0, "long", stop_pct=8, target_pct=20, max_hold=10)
+    assert result["exit_reason"] == "target"
+    assert result["exit_idx"] == 3
+    # R = (122 - 100) / (100 - 92) = 22 / 8 ≈ 2.75
+    assert abs(result["R_multiple"] - 2.75) < 0.01
+    assert result["days_held"] == 3
+
+
+def test_backtest_simulate_trade_long_stop_hit():
+    from runtime.portfolio.auto_trader.recipe_backtest import _simulate_trade
+
+    closes = [100, 95, 91, 85]  # stop = 92 hit on day 2
+    result = _simulate_trade(closes, 0, "long", stop_pct=8, target_pct=20, max_hold=10)
+    assert result["exit_reason"] == "stop"
+    # exit price = 91 (first close below stop 92)
+    assert result["exit_idx"] == 2
+    # R = (91 - 100) / 8 = -1.125
+    assert result["R_multiple"] < 0
+
+
+def test_backtest_simulate_trade_time_exit():
+    from runtime.portfolio.auto_trader.recipe_backtest import _simulate_trade
+
+    # Sideways within stop/target for 5 bars
+    closes = [100, 101, 99, 102, 98, 100, 101]
+    result = _simulate_trade(closes, 0, "long", stop_pct=8, target_pct=20, max_hold=5)
+    assert result["exit_reason"] == "time"
+    assert result["days_held"] == 5
+
+
+def test_backtest_lists_supported_recipes():
+    from runtime.portfolio.auto_trader.recipe_backtest import list_supported_recipes
+
+    supported = list_supported_recipes()
+    for required in (
+        "momentum_breakout",
+        "swing_pullback",
+        "mean_reversion_oversold",
+        "gap_fill",
+        "pead_drift",
+    ):
+        assert required in supported
+
+
+# ── Wave 14K Gap-close A: Council Quorum ──────────────────────────
+
+
+def test_council_check_below_threshold_skipped(tmp_path, monkeypatch):
+    monkeypatch.setenv("NCL_AT_COUNCIL_R_THRESHOLD", "1000")
+    monkeypatch.setenv("NCL_AT_COUNCIL_ENABLED", "1")
+    for mod in list(sys.modules.keys()):
+        if mod.startswith("runtime.portfolio.auto_trader"):
+            del sys.modules[mod]
+    cc = importlib.import_module("runtime.portfolio.auto_trader.council_check")
+    cc = importlib.reload(cc)
+
+    async def go():
+        result = await cc.check_high_r_open(
+            idea={"ticker": "NVDA"},
+            gov=None,
+            effective_R=500.0,
+        )
+        assert result["veto"] is False
+        assert result["decision"] == "skipped"
+        assert "threshold" in result["reason"]
+
+    asyncio.run(go())
+
+
+def test_council_check_disabled_passthrough(tmp_path, monkeypatch):
+    monkeypatch.setenv("NCL_AT_COUNCIL_ENABLED", "0")
+    # Evict ALL auto_trader modules so __init__.py re-runs and picks up env
+    for mod in list(sys.modules.keys()):
+        if mod.startswith("runtime.portfolio.auto_trader"):
+            del sys.modules[mod]
+    cc = importlib.import_module("runtime.portfolio.auto_trader.council_check")
+    # Defensive: force-reload to guarantee module-level ENABLED captures env
+    cc = importlib.reload(cc)
+
+    async def go():
+        result = await cc.check_high_r_open(
+            idea={"ticker": "NVDA"},
+            gov=None,
+            effective_R=5000.0,
+        )
+        assert result["veto"] is False
+        assert "disabled" in result["reason"]
+
+    asyncio.run(go())
