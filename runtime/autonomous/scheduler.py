@@ -805,6 +805,19 @@ class AutonomousScheduler:
             asyncio.create_task(_auto_trader_eod(), name="ncl-auto-trader-eod")
         )
 
+        # Wave 14L L6 — pro-active scout loop (5min market / 30min off-hours).
+        # Originates trade ideas from open positions + holdings + regime
+        # + earnings; emits MemUnits for ladder triggers, regime shifts,
+        # covered-call opportunities, earnings-defensive flags.
+        from ..portfolio.auto_trader.scout import scout_loop
+
+        async def _auto_trader_scout():
+            await scout_loop(self.brain)
+
+        self._tasks.append(
+            asyncio.create_task(_auto_trader_scout(), name="ncl-auto-trader-scout")
+        )
+
         # Attach a done-callback to every task so a silent crash (unobserved
         # task exception) gets logged instead of disappearing.
         def _task_done(task: asyncio.Task) -> None:
@@ -869,6 +882,11 @@ class AutonomousScheduler:
                 "runtime.portfolio.auto_trader.eod_summary",
                 fromlist=["eod_summary_loop"],
             ).eod_summary_loop(),
+            # Wave 14L L6 — pro-active scout loop (5min market / 30min off).
+            "ncl-auto-trader-scout": lambda: __import__(
+                "runtime.portfolio.auto_trader.scout",
+                fromlist=["scout_loop"],
+            ).scout_loop(self.brain),
         }
         # 2026-05-22 memory loops (factory registration — only if loaded above)
         try:

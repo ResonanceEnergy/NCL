@@ -1583,6 +1583,60 @@ async def auto_trader_ladder_status(
     return await ladder_summary()
 
 
+@router.get("/auto-trader/options-recipes")
+async def auto_trader_options_recipes(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Wave 14L L3 — list multi-leg option recipe builders."""
+    from ...portfolio.auto_trader import list_builders, builder_count
+    return {
+        "count": builder_count(),
+        "builders": list_builders(),
+    }
+
+
+@router.post("/auto-trader/options-recipes/{name}/preview")
+async def auto_trader_options_recipe_preview(
+    name: str,
+    payload: dict,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Preview the multi-leg structure for a recipe given an underlying
+    + price. Body: {underlying: 'NVDA', underlying_price: 185.50, ...extras}."""
+    from ...portfolio.auto_trader import build_structure
+    underlying = payload.get("underlying")
+    price = payload.get("underlying_price")
+    if not underlying or price is None:
+        raise HTTPException(status_code=400, detail="underlying and underlying_price required")
+    extras = {k: v for k, v in payload.items()
+              if k not in ("underlying", "underlying_price")}
+    struct = build_structure(name, underlying=underlying,
+                              underlying_price=float(price), **extras)
+    if struct is None:
+        raise HTTPException(status_code=404,
+                            detail=f"No builder for recipe {name}")
+    return struct.to_dict()
+
+
+@router.get("/auto-trader/scout")
+async def auto_trader_scout_status(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Wave 14L L6 — pro-active scout loop snapshot."""
+    from ...portfolio.auto_trader import scout_summary
+    return await scout_summary()
+
+
+@router.post("/auto-trader/scout/tick")
+async def auto_trader_scout_force_tick(
+    _: None = Depends(verify_strike_token_dep),
+    brain=Depends(get_brain),
+) -> dict:
+    """Force a scout tick on demand. Runs the 4 checks immediately."""
+    from ...portfolio.auto_trader import scout_tick
+    return await scout_tick(brain)
+
+
 @router.post("/auto-trader/eod-summary")
 async def auto_trader_eod_summary_trigger(
     payload: Optional[dict] = None,
@@ -1632,6 +1686,7 @@ async def auto_trader_dashboard(
         graduation_evaluate_all, list_open_research_topics,
         friction_all_profiles, calendar_summary,
         working_context_summary, registry_summary, ladder_summary,
+        scout_summary,
     )
     from ...portfolio.trade_idea_tracker import get_trade_idea_tracker
     from dataclasses import asdict
@@ -1728,6 +1783,12 @@ async def auto_trader_dashboard(
     except Exception as e:
         ladder = {"error": str(e)}
 
+    # Scout summary (Wave 14L L6)
+    try:
+        scout = await scout_summary()
+    except Exception as e:
+        scout = {"error": str(e)}
+
     return {
         "state": state_dict,
         "top_strategies": top_strategies,
@@ -1740,7 +1801,8 @@ async def auto_trader_dashboard(
         "working_context": wc,
         "registry": registry,
         "ladder": ladder,
-        "wave": "14L-L1+L4",
+        "scout": scout,
+        "wave": "14L-L1+L3+L4+L6",
     }
 
 

@@ -123,6 +123,13 @@ from .profit_ladder import (  # noqa: F401
     maybe_ladder_from_close,
     ladder_summary,
 )
+from .options_recipes import (  # noqa: F401
+    OptionLeg, OptionStructure,
+    build_structure, list_builders, builder_count,
+)
+from .scout import (  # noqa: F401
+    scout_tick, scout_loop, scout_summary,
+)
 
 __all__ = [
     "AutoTraderState", "get_state", "is_active", "pause", "resume",
@@ -159,4 +166,9 @@ __all__ = [
     "update_recipe", "normalize_strategy_via_registry", "registry_summary",
     # Wave 14L L4 — profit ladder
     "maybe_ladder_from_close", "ladder_summary",
+    # Wave 14L L3 — options recipe library (multi-leg builders)
+    "OptionLeg", "OptionStructure", "build_structure",
+    "list_builders", "builder_count",
+    # Wave 14L L6 — pro-active scout loop
+    "scout_tick", "scout_loop", "scout_summary",
 ]
