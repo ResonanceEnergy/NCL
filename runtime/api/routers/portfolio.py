@@ -60,7 +60,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 
 from ...config import flags
 from ..deps import (
@@ -3202,3 +3202,183 @@ async def portfolio_connect_polymarket(
         }
     except Exception as e:
         return {"connected": False, "error": str(e), "broker": "POLYMARKET"}
+
+
+# ============================================================================
+# Wave 14R — POLYMARKET AGENT (autonomous paper-bet agent)
+# ============================================================================
+
+@router.get("/polymarket-agent/dashboard")
+async def polymarket_agent_dashboard(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Single-shot rollup for iOS PolymarketAgentView."""
+    from runtime.portfolio.polymarket_agent import get_state, get_engine
+    from runtime.portfolio.polymarket_agent.collector_loop import read_today_cache
+    from runtime.portfolio.polymarket_agent.edge_engine import compute_edges
+    from dataclasses import asdict as _asdict
+
+    state = await get_state()
+    engine = get_engine()
+    open_bets = [b.to_dict() for b in engine.list_open()]
+    closed = engine.list_closed(limit=20)
+    stats = engine.stats()
+
+    markets = read_today_cache()
+    edges = compute_edges(markets)[:10] if markets else []
+
+    return {
+        "state": _asdict(state),
+        "open_bets": open_bets,
+        "open_count": len(open_bets),
+        "recent_closes": closed,
+        "lifetime_stats": stats,
+        "top_edges": [e.to_dict() for e in edges],
+        "edge_count": len(edges),
+        "market_cache_count": len(markets),
+    }
+
+
+@router.get("/polymarket-agent/state")
+async def polymarket_agent_state(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    from runtime.portfolio.polymarket_agent import get_state
+    from dataclasses import asdict as _asdict
+    s = await get_state()
+    return _asdict(s)
+
+
+@router.post("/polymarket-agent/pause")
+async def polymarket_agent_pause(
+    _: None = Depends(verify_strike_token_dep),
+    body: Optional[dict] = Body(default=None),
+) -> dict:
+    from runtime.portfolio.polymarket_agent import set_paused
+    from dataclasses import asdict as _asdict
+    reason = (body or {}).get("reason", "operator")
+    s = await set_paused(by="operator", reason=reason)
+    return _asdict(s)
+
+
+@router.post("/polymarket-agent/resume")
+async def polymarket_agent_resume(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    from runtime.portfolio.polymarket_agent import set_resumed
+    from dataclasses import asdict as _asdict
+    s = await set_resumed()
+    return _asdict(s)
+
+
+@router.get("/polymarket-agent/edges")
+async def polymarket_agent_edges(
+    limit: int = Query(default=20, ge=1, le=100),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Live edge list — what the loop would consider on next tick."""
+    from runtime.portfolio.polymarket_agent.collector_loop import read_today_cache
+    from runtime.portfolio.polymarket_agent.edge_engine import compute_edges
+    markets = read_today_cache()
+    edges = compute_edges(markets) if markets else []
+    return {
+        "edge_count": len(edges),
+        "market_cache_count": len(markets),
+        "edges": [e.to_dict() for e in edges[:limit]],
+    }
+
+
+@router.get("/polymarket-agent/bets")
+async def polymarket_agent_bets(
+    status: str = Query(default="all", regex="^(open|closed|all)$"),
+    limit: int = Query(default=50, ge=1, le=500),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    from runtime.portfolio.polymarket_agent import get_engine
+    engine = get_engine()
+    open_bets = [b.to_dict() for b in engine.list_open()]
+    closed = engine.list_closed(limit=limit)
+    if status == "open":
+        items = open_bets
+    elif status == "closed":
+        items = closed
+    else:
+        items = open_bets + closed
+    return {
+        "status_filter": status,
+        "count": len(items),
+        "bets": items[:limit],
+        "stats": engine.stats(),
+    }
+
+
+@router.post("/polymarket-agent/bets")
+async def polymarket_agent_open_bet(
+    body: dict = Body(...),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Manual paper bet — used by iOS PAPER BET button.
+
+    Body: {market_slug, market_question, side ('YES'|'NO'),
+           entry_price (0-1), stake_usd, end_date_iso?, notes?}
+    """
+    from runtime.portfolio.polymarket_agent import get_engine
+    from runtime.portfolio.polymarket_agent.state import adjust_bankroll
+    engine = get_engine()
+    try:
+        bet = await engine.open_bet(
+            market_slug=str(body["market_slug"]),
+            market_question=str(body.get("market_question", "")),
+            side=str(body["side"]).upper(),
+            entry_price=float(body["entry_price"]),
+            stake_usd=float(body["stake_usd"]),
+            end_date_iso=body.get("end_date_iso"),
+            edge_pp_at_entry=body.get("edge_pp"),
+            prediction_id=body.get("prediction_id"),
+            prediction_title=body.get("prediction_title"),
+            notes=body.get("notes", "manual via PAPER BET button"),
+        )
+        await adjust_bankroll(-bet.stake_usd, reason=f"manual open {bet.bet_id}")
+        return {"status": "opened", "bet": bet.to_dict()}
+    except (KeyError, ValueError) as e:
+        return {"status": "error", "error": str(e)}
+
+
+@router.post("/polymarket-agent/bets/{bet_id}/close")
+async def polymarket_agent_close_bet(
+    bet_id: str,
+    body: dict = Body(...),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Manual close at current price. Body: {exit_price (0-1), notes?}"""
+    from runtime.portfolio.polymarket_agent import get_engine
+    from runtime.portfolio.polymarket_agent.state import adjust_bankroll
+    engine = get_engine()
+    try:
+        bet = await engine.close_manual(
+            bet_id,
+            exit_price=float(body.get("exit_price", 0)),
+            notes=body.get("notes", "manual close"),
+        )
+        proceeds = bet.stake_usd + (bet.realized_pl_usd or 0)
+        await adjust_bankroll(proceeds, reason=f"close {bet.bet_id}")
+        return {"status": "closed", "bet": bet.to_dict()}
+    except (KeyError, ValueError) as e:
+        return {"status": "error", "error": str(e)}
+
+
+@router.post("/polymarket-agent/collect-now")
+async def polymarket_agent_collect_now(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    from runtime.portfolio.polymarket_agent.collector_loop import collect_once_now
+    return await collect_once_now()
+
+
+@router.get("/polymarket-agent/eod-summary")
+async def polymarket_agent_eod(
+    brain=Depends(get_brain),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    from runtime.portfolio.polymarket_agent import build_eod_summary
+    return await build_eod_summary(brain=brain)

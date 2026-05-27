@@ -137,7 +137,9 @@ DEFAULT_CAPABILITIES: list[CapabilityCheck] = [
     ),
     CapabilityCheck(
         name="polymarket",
-        description="Prediction market REST API",
+        description="Prediction market REST API (Gamma) + ncl-poly-collector cache",
+        file_marker="data/intelligence/polymarket/{today}.json",
+        staleness_days_max=2.0,
         import_probe="httpx",
         tags=["alt_data", "prediction"],
     ),

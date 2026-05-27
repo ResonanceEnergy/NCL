@@ -830,6 +830,34 @@ class AutonomousScheduler:
             asyncio.create_task(_auto_trader_quant_scan(), name="ncl-auto-trader-quant-scan")
         )
 
+        # ── Wave 14R — Polymarket agent (3 loops, paper-bet only) ──────
+        # ncl-poly-collector  : 15min  — Gamma feed → cache file
+        # ncl-poly-loop       : 5min   — edge engine → kelly → paper bet
+        # ncl-poly-resolution : 5min   — auto-close at endDate / market resolution
+        from ..portfolio.polymarket_agent.collector_loop import poly_collector_loop
+        from ..portfolio.polymarket_agent.loop import (
+            poly_decision_loop, poly_resolution_loop,
+        )
+
+        async def _poly_collector():
+            await poly_collector_loop(self.brain)
+
+        async def _poly_loop():
+            await poly_decision_loop(self.brain)
+
+        async def _poly_resolution():
+            await poly_resolution_loop(self.brain)
+
+        self._tasks.append(
+            asyncio.create_task(_poly_collector(), name="ncl-poly-collector")
+        )
+        self._tasks.append(
+            asyncio.create_task(_poly_loop(), name="ncl-poly-loop")
+        )
+        self._tasks.append(
+            asyncio.create_task(_poly_resolution(), name="ncl-poly-resolution")
+        )
+
         # Attach a done-callback to every task so a silent crash (unobserved
         # task exception) gets logged instead of disappearing.
         def _task_done(task: asyncio.Task) -> None:
@@ -904,6 +932,19 @@ class AutonomousScheduler:
                 "runtime.portfolio.auto_trader.quant_scanners",
                 fromlist=["quant_scan_loop"],
             ).quant_scan_loop(self.brain),
+            # ── Wave 14R — Polymarket agent (3 loops, paper-bet only) ──
+            "ncl-poly-collector": lambda: __import__(
+                "runtime.portfolio.polymarket_agent.collector_loop",
+                fromlist=["poly_collector_loop"],
+            ).poly_collector_loop(self.brain),
+            "ncl-poly-loop": lambda: __import__(
+                "runtime.portfolio.polymarket_agent.loop",
+                fromlist=["poly_decision_loop"],
+            ).poly_decision_loop(self.brain),
+            "ncl-poly-resolution": lambda: __import__(
+                "runtime.portfolio.polymarket_agent.loop",
+                fromlist=["poly_resolution_loop"],
+            ).poly_resolution_loop(self.brain),
         }
         # 2026-05-22 memory loops (factory registration — only if loaded above)
         try:
