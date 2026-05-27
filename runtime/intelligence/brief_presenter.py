@@ -60,25 +60,9 @@ def _render_block(name: str, data) -> list[str]:
     try:
         if name == "PORTFOLIO":
             d = data if isinstance(data, dict) else {}
-            mode = d.get("mode", "")
             if not d.get("connected"):
-                lines.append("  (brokers disconnected, paper engine unavailable)")
-            elif mode == "paper":
-                bal = float(d.get("account_balance_usd") or 0)
-                open_pl = float(d.get("open_unrealized_pl") or 0)
-                realized = float(d.get("total_realized_pl") or 0)
-                wr = float(d.get("win_rate_pct") or 0)
-                exp_r = float(d.get("expectancy_r") or 0)
-                pf = float(d.get("profit_factor") or 0)
-                lines.append(
-                    f"  PAPER NAV ${bal:,.0f} USD · "
-                    f"open={d.get('open_trades', 0)} closed={d.get('closed_trades', 0)} · "
-                    f"win-rate {wr:.1f}% · exp {exp_r:+.2f}R · PF {pf:.2f}"
-                )
-                if open_pl or realized:
-                    lines.append(
-                        f"  unreal PL ${open_pl:+,.0f} · " f"realized PL ${realized:+,.0f}"
-                    )
+                err = d.get("error", "brokers disconnected")
+                lines.append(f"  ⚠ ERROR: {err}")
             else:
                 cad = float(d.get("total_value_cad") or 0)
                 usd = float(d.get("total_value_usd") or 0)

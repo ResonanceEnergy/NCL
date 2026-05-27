@@ -453,65 +453,51 @@ def collect_economic_calendar() -> list[dict]:
 
 
 async def _collect_portfolio_snapshot(brain) -> dict:
-    """Live broker portfolio first; paper account fallback when offline.
+    """Live broker portfolio ONLY. No paper fallback.
 
-    NATRIX's setup defaults to paper-trading (CLAUDE.md: no live auto-executor).
-    When broker adapters report disconnected, surface the paper account NAV +
-    open positions so the PORTFOLIO block always shows real numbers.
+    Per NATRIX 2026-05-27: do NOT fall back to paper engine here — PORTFOLIO
+    must reflect the REAL multi-broker book. If brokers are offline, surface
+    a clear error so the operator knows the broker stack is down and can
+    inspect /portfolio/summary directly.
     """
     out: dict = {"connected": False}
-    # Try live broker aggregator first
     try:
         from runtime.portfolio.portfolio_manager import get_portfolio_manager
 
         pm = get_portfolio_manager()
-        if pm is not None:
-            summary = pm.get_summary() if hasattr(pm, "get_summary") else {}
-            total_val = summary.get("total_equity_cad", 0) or summary.get("total_equity_usd", 0)
-            if total_val and total_val > 0:
-                out.update(
-                    {
-                        "connected": True,
-                        "mode": "live_broker",
-                        "total_value_cad": summary.get("total_equity_cad", 0),
-                        "total_value_usd": summary.get("total_equity_usd", 0),
-                        "fx_rate_usd_cad": summary.get("fx_rate_usd_cad"),
-                        "positions_count": summary.get("positions_count", 0),
-                        "daily_pl": summary.get("daily_pl"),
-                        "daily_pl_pct": summary.get("daily_pl_pct"),
-                        "quotes_failed": summary.get("quotes_failed", 0),
-                    }
-                )
-                return out
-    except Exception as e:
-        log.debug("[brief_prep] live portfolio failed: %s", e)
-
-    # Paper-trading fallback (default mode per CLAUDE.md)
-    try:
-        from runtime.portfolio import paper_routes as _paper
-
-        eng = getattr(_paper, "_engine", None)
-        if eng is not None:
-            stats = eng.get_stats() if hasattr(eng, "get_stats") else {}
+        if pm is None:
             return {
-                "connected": True,
-                "mode": "paper",
-                "account_balance_usd": stats.get("account_balance", 0),
-                "open_trades": stats.get("open_trades", 0),
-                "closed_trades": stats.get("closed_trades", 0),
-                "win_rate_pct": stats.get("win_rate", 0),
-                "expectancy_r": stats.get("expectancy_r", 0),
-                "profit_factor": stats.get("profit_factor", 0),
-                "open_unrealized_pl": stats.get("open_unrealized_pl", 0)
-                or stats.get("unrealized_pl", 0)
-                or stats.get("open_pl", 0),
-                "total_realized_pl": stats.get("total_realized_pl", 0)
-                or stats.get("realized_pl", 0),
+                "connected": False,
+                "error": "portfolio_manager not initialized — check broker adapter "
+                         "boot in start-all.sh + IBKR/Moomoo/SnapTrade env vars",
             }
+        summary = pm.get_summary() if hasattr(pm, "get_summary") else {}
+        total_val = summary.get("total_equity_cad", 0) or summary.get("total_equity_usd", 0)
+        if not total_val or total_val <= 0:
+            return {
+                "connected": False,
+                "error": "broker adapters returned NAV=0 — likely IBKR/Moomoo "
+                         "disconnect or SnapTrade auth expired. Check "
+                         "/portfolio/accounts for per-broker status.",
+                "raw_summary_keys": list(summary.keys())[:10],
+            }
+        out.update(
+            {
+                "connected": True,
+                "mode": "live_broker",
+                "total_value_cad": summary.get("total_equity_cad", 0),
+                "total_value_usd": summary.get("total_equity_usd", 0),
+                "fx_rate_usd_cad": summary.get("fx_rate_usd_cad"),
+                "positions_count": summary.get("positions_count", 0),
+                "daily_pl": summary.get("daily_pl"),
+                "daily_pl_pct": summary.get("daily_pl_pct"),
+                "quotes_failed": summary.get("quotes_failed", 0),
+            }
+        )
+        return out
     except Exception as e:
-        log.debug("[brief_prep] paper portfolio fallback failed: %s", e)
-        return {"connected": False, "error": str(e)}
-    return out
+        log.warning("[brief_prep] portfolio snapshot failed: %s", e)
+        return {"connected": False, "error": f"portfolio_manager exception: {e}"}
 
 
 async def _collect_agent_snapshot(brain) -> dict:
