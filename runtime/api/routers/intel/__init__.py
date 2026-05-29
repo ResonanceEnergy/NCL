@@ -1306,6 +1306,50 @@ async def get_morning_brief_pro(
     return envelope
 
 
+@router.get("/intelligence/afternoon-debrief/today")
+async def get_afternoon_debrief_today(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Wave 14X-Y Phase 2 — today's Afternoon Debrief if rendered.
+
+    Returns 404 if today's 16:30 ET run hasn't happened yet (or didn't
+    persist). Use POST /fire to manually trigger.
+    """
+    from runtime.intelligence.afternoon_debrief import load_today_debrief
+
+    envelope = load_today_debrief()
+    if envelope is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No afternoon debrief for today. POST /intelligence/afternoon-debrief/fire to build one.",
+        )
+    return envelope
+
+
+@router.get("/intelligence/afternoon-debrief/latest")
+async def get_afternoon_debrief_latest(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Most recent debrief — today's if it exists, else last available."""
+    from runtime.intelligence.afternoon_debrief import load_latest_debrief
+
+    envelope = load_latest_debrief()
+    if envelope is None:
+        raise HTTPException(status_code=404, detail="No afternoon debrief on disk yet.")
+    return envelope
+
+
+@router.post("/intelligence/afternoon-debrief/fire")
+async def fire_afternoon_debrief(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Manually fire the Afternoon Debrief end-to-end (synchronous)."""
+    from runtime.intelligence.afternoon_debrief import build_debrief
+
+    out = await build_debrief()
+    return out
+
+
 @router.get("/intelligence/rotation")
 async def get_rotation_snapshot(
     _: None = Depends(verify_strike_token_dep),

@@ -467,6 +467,13 @@ class AutonomousScheduler:
         self._tasks.append(
             asyncio.create_task(self._cross_reference_loop(), name="ncl-cross-reference")
         )
+        # Wave 14X-Y Phase 2 (2026-05-29): Afternoon Debrief — fires daily
+        # at 16:30 local, the post-close counterpart to the 05:30 ET
+        # morning Brief Pro. Closes today's trading loop with a structured
+        # reflection + seeds tonight's Night Watch focus.
+        self._tasks.append(
+            asyncio.create_task(self._afternoon_debrief_loop(), name="ncl-afternoon-debrief")
+        )
         # Loop 7 (2026-05-22): per-city "fun finder" scanner — 1h cadence
         self._tasks.append(asyncio.create_task(self._city_events_loop(), name="ncl-city-events"))
         # Loop 8 (2026-05-22 EOD): stock scanner agent — GOAT + BRAVO every 4h
@@ -5254,6 +5261,62 @@ class AutonomousScheduler:
                 raise
             except Exception as e:
                 log.error("[YTC-NIGHTSHIFT] cycle failed: %s", e, exc_info=True)
+
+    async def _afternoon_debrief_loop(self) -> None:
+        """LOOP 20 (Wave 14X-Y Phase 2, 2026-05-29) — Afternoon Debrief at
+        16:30 local daily. Reads today's outcomes + closes the loop with
+        a single Opus synthesis. ~$0.08/run."""
+        from ..cost_tracker import check_budget
+
+        log.info("[AFTERNOON-DEBRIEF] loop started — will fire daily at 16:30 local")
+        try:
+            await asyncio.sleep(120)  # startup grace
+        except asyncio.CancelledError:
+            raise
+
+        while self._running:
+            if EMERGENCY_STOP_EVENT.is_set():
+                break
+            try:
+                now_local = datetime.now()
+                target = now_local.replace(hour=16, minute=30, second=0, microsecond=0)
+                if now_local >= target:
+                    target += timedelta(days=1)
+                sleep_secs = (target - now_local).total_seconds()
+                log.info(
+                    "[AFTERNOON-DEBRIEF] next run at %s (%.0fs)",
+                    target.isoformat(),
+                    sleep_secs,
+                )
+                await asyncio.sleep(sleep_secs)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.error("[AFTERNOON-DEBRIEF] sleep compute failed: %s", e)
+                try:
+                    await asyncio.sleep(3600)
+                except asyncio.CancelledError:
+                    raise
+                continue
+
+            try:
+                if not await check_budget("anthropic", 0.10):
+                    log.warning("[AFTERNOON-DEBRIEF] anthropic budget exhausted — skipping")
+                    continue
+                from ..intelligence.afternoon_debrief import build_debrief
+
+                async with self.long_running_ctx("ncl-afternoon-debrief"):
+                    debrief = await build_debrief()
+                if debrief and debrief.get("synthesis"):
+                    self._stats["last_afternoon_debrief"] = datetime.now(timezone.utc).isoformat()
+                    log.info(
+                        "[AFTERNOON-DEBRIEF] complete in %.1fs",
+                        debrief.get("elapsed_s", 0),
+                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                log.error("[AFTERNOON-DEBRIEF] cycle error: %s", e, exc_info=True)
 
     async def _cross_reference_loop(self) -> None:
         """LOOP 19 (Wave 14X-Y, 2026-05-29) — cross-reference promotion.
