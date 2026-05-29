@@ -60,7 +60,7 @@ import json
 import logging
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import aiofiles
@@ -368,6 +368,175 @@ async def list_youtube_channels(
     """List all followed YouTube channels."""
     channels = _load_ytc_channels()
     return {"channels": channels, "count": len(channels)}
+
+
+@router.get("/council/youtube/channels/health")
+async def youtube_channels_health(
+    lookback_days: int = Query(default=14, ge=1, le=90),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Per-channel health rollup — surfaces silent channels (Wave 14X-1A).
+
+    For every channel in `config/youtube_channels.json`, walks the recent
+    YTC report archive and reports:
+      - last_report_at  (ISO timestamp of newest report from this channel)
+      - last_video_title
+      - report_count    (# of reports from this channel in the window)
+      - status          (FRESH / STALE / SILENT)
+
+    A FRESH channel produced a report in the last 3 days.
+    A STALE channel produced one in the window but not recently.
+    A SILENT channel produced ZERO reports in the lookback window — this
+    is the signal that something is broken (handle drift, JS-runtime
+    deprecation, scrape failure, etc.).
+    """
+    channels = _load_ytc_channels()
+    ncl_base = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
+    reports_dir = ncl_base / "intelligence-scan" / "council-reports"
+
+    # Build a (lowercased, normalized) channel-name → newest-report map by
+    # walking the report archive once.
+    per_channel: dict[str, dict] = {}
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=lookback_days)
+
+    def _norm(s: str) -> str:
+        # Wave 14X-1A: strip ALL non-alphanumeric so "Felix & Friends (Goat
+        # Academy)" → "felixfriendsgoatacademy" can match the @felixfriends
+        # handle. Previous version only stripped spaces/hyphens/underscores,
+        # which misclassified Felix & Friends as SILENT.
+        import re
+
+        return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+
+    files = []
+    try:
+        files = sorted(
+            reports_dir.glob("youtube-council-*.json"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+    except Exception as e:
+        log.warning("[YTC-HEALTH] couldn't glob reports dir: %s", e)
+
+    for f in files[:500]:  # cap at most 500 files for speed
+        try:
+            mtime = datetime.fromtimestamp(f.stat().st_mtime, tz=timezone.utc)
+            if mtime < cutoff:
+                break  # files are sorted desc; older than cutoff = done
+            async with aiofiles.open(f, "r") as fh:
+                d = json.loads(await fh.read())
+            vids = d.get("videos", [])
+            if not vids or not isinstance(vids, list):
+                continue
+            v = vids[0]
+            if not isinstance(v, dict):
+                continue
+            ch_name = v.get("channel") or ""
+            if not ch_name:
+                continue
+            key = _norm(ch_name)
+            slot = per_channel.setdefault(
+                key,
+                {
+                    "channel_name": ch_name,
+                    "last_report_at": None,
+                    "last_video_title": None,
+                    "report_count": 0,
+                },
+            )
+            slot["report_count"] += 1
+            if slot["last_report_at"] is None or mtime.isoformat() > slot["last_report_at"]:
+                slot["last_report_at"] = mtime.isoformat()
+                slot["last_video_title"] = v.get("title", "")
+        except Exception as e:
+            log.debug("[YTC-HEALTH] couldn't parse %s: %s", f.name, e)
+
+    # Now join against configured channels, classify status
+    result: list[dict] = []
+    silent: list[str] = []
+    stale: list[str] = []
+    fresh: list[str] = []
+    fresh_cutoff = now - timedelta(days=3)
+
+    for ch in channels:
+        url = ch.get("url", "") if isinstance(ch, dict) else str(ch)
+        name_hint = ch.get("name", "") if isinstance(ch, dict) else ""
+        handle = url.rsplit("@", 1)[-1].rstrip("/") if "@" in url else ""
+        # Match channel by handle (against normalized seen channel names)
+        norm_handle = _norm(handle)
+        matched_key = None
+        for k in per_channel:
+            if norm_handle and (norm_handle in k or k in norm_handle):
+                matched_key = k
+                break
+            # Also try matching by name hint
+            if name_hint and _norm(name_hint) and (_norm(name_hint) in k or k in _norm(name_hint)):
+                matched_key = k
+                break
+
+        if matched_key:
+            slot = per_channel[matched_key]
+            lr_iso = slot["last_report_at"] or ""
+            try:
+                lr_dt = datetime.fromisoformat(lr_iso)
+                if lr_dt >= fresh_cutoff:
+                    status = "FRESH"
+                    fresh.append(handle or name_hint)
+                else:
+                    status = "STALE"
+                    stale.append(handle or name_hint)
+                days_since = (now - lr_dt).days
+            except Exception:
+                status = "STALE"
+                stale.append(handle or name_hint)
+                days_since = None
+            result.append(
+                {
+                    "url": url,
+                    "name": name_hint or slot["channel_name"],
+                    "handle": handle,
+                    "status": status,
+                    "report_count": slot["report_count"],
+                    "last_report_at": slot["last_report_at"],
+                    "last_video_title": slot["last_video_title"],
+                    "days_since_last_report": days_since,
+                }
+            )
+        else:
+            status = "SILENT"
+            silent.append(handle or name_hint)
+            result.append(
+                {
+                    "url": url,
+                    "name": name_hint,
+                    "handle": handle,
+                    "status": status,
+                    "report_count": 0,
+                    "last_report_at": None,
+                    "last_video_title": None,
+                    "days_since_last_report": None,
+                }
+            )
+
+    return {
+        "lookback_days": lookback_days,
+        "configured_channel_count": len(channels),
+        "fresh_count": len(fresh),
+        "stale_count": len(stale),
+        "silent_count": len(silent),
+        "silent_handles": silent,
+        "stale_handles": stale,
+        "channels": sorted(
+            result,
+            key=lambda r: (
+                r["status"] != "SILENT",
+                r["status"] != "STALE",
+                -(r["report_count"] or 0),
+            ),
+        ),
+        "checked_at": now.isoformat(),
+    }
 
 
 @router.post("/council/youtube/channels")
@@ -973,8 +1142,8 @@ async def council_rag_query(
 
     Uses ChromaDB → LanceDB → TF-IDF fallback chain.
     """
-    from .. import routes as _routes
     from ...councils.shared.vector_store_singleton import get_council_vector_store
+    from .. import routes as _routes
 
     vector_store = await get_council_vector_store(_routes.config.data_dir)
     results = await vector_store.query(
@@ -1008,8 +1177,8 @@ async def knowledge_base_stats(_: None = Depends(verify_strike_token_dep)):
 @router.get("/councils/vector-store/stats")
 async def vector_store_stats(_: None = Depends(verify_strike_token_dep)):
     """Return vector store statistics."""
-    from .. import routes as _routes
     from ...councils.shared.vector_store_singleton import get_council_vector_store
+    from .. import routes as _routes
 
     vector_store = await get_council_vector_store(_routes.config.data_dir)
     return vector_store.get_stats()
@@ -1022,8 +1191,8 @@ async def vector_store_backfill(_: None = Depends(verify_strike_token_dep)):
     Reads all reports from the council-reports directory and indexes their
     content into ChromaDB for RAG retrieval.
     """
-    from .. import routes as _routes
     from ...councils.shared.vector_store_singleton import get_council_vector_store
+    from .. import routes as _routes
 
     vector_store = await get_council_vector_store(_routes.config.data_dir)
 
@@ -1221,9 +1390,7 @@ async def councils_status(
 
 
 _COUNCIL_QUEUE_FILE = (
-    Path(os.getenv("NCL_DATA", str(Path.home() / "NCL" / "data")))
-    / "council"
-    / "queue.jsonl"
+    Path(os.getenv("NCL_DATA", str(Path.home() / "NCL" / "data"))) / "council" / "queue.jsonl"
 )
 
 
@@ -1240,7 +1407,9 @@ async def queue_council_adjudication(
     show a confirmation toast without blocking on the actual debate.
     """
     topic = (body.topic or "").strip() or f"Adjudicate memory unit {body.unit_id or ''}".strip()
-    session_id = f"queue-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
+    session_id = (
+        f"queue-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
+    )
     entry = {
         "session_id": session_id,
         "topic": topic,

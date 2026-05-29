@@ -220,18 +220,61 @@ def scrape_recent_videos(
                         f"Failed to scrape {channel_url} after {_MAX_RETRIES_PER_CHANNEL} attempts: {e}"  # noqa: E501
                     )
 
-    # ── Strike Point scoring ─────────────────────────────────────────
-    # Score each video by keyword relevance, then select highest-scoring
-    # videos that fit under the duration cap. This replaces naive
-    # chronological ordering with intelligent prioritization.
+    # ── Channel-fair selection (Wave 14X-1A, 2026-05-29) ──────────────
+    # Previously: keyword-scored sort (`_strike_point_score`) + greedy
+    # duration cap. That created an implicit channel bias — channels whose
+    # title patterns didn't match the STRIKE_POINT_KEYWORDS list (Stock Moe,
+    # Chris Williamson, Follow the Money) silently produced 0 reports for
+    # weeks while crypto-titled channels won every selection.
+    #
+    # Fix: pure date-desc sort + greedy under duration cap. Each channel
+    # competes only on recency. Crypto channels still get more reports
+    # because they post more often (natural velocity) — but every channel
+    # that posts gets fair attention. We KEEP recording strike_score on
+    # each video as a metric for downstream analysis but no longer use it
+    # for ranking.
     for video in all_videos:
         video["strike_score"] = _strike_point_score(video)
 
-    # Sort by score (highest first), break ties by upload date (newest first)
+    # Sort by upload date (newest first) — channel-neutral
     all_videos.sort(
-        key=lambda v: (v.get("strike_score", 0), v.get("upload_date", "")),
+        key=lambda v: v.get("upload_date", ""),
         reverse=True,
     )
+
+    # Per-channel observability — log how many entries each channel
+    # contributed to this scrape so silent failures become visible in the
+    # log stream instead of disappearing into the void.
+    _per_channel_count: dict[str, int] = {}
+    for v in all_videos:
+        ch = v.get("channel") or "?"
+        _per_channel_count[ch] = _per_channel_count.get(ch, 0) + 1
+    if _per_channel_count:
+        log.info(
+            "Per-channel entry counts: %s",
+            ", ".join(
+                f"{c}={n}" for c, n in sorted(_per_channel_count.items(), key=lambda kv: -kv[1])
+            ),
+        )
+    # Identify channels in the config that contributed ZERO entries — these
+    # are silently failing scrapes worth surfacing.
+    contributing = {(v.get("channel") or "").lower() for v in all_videos}
+    silent = []
+    for channel_url in channels:
+        handle = channel_url.rsplit("@", 1)[-1].lower() if "@" in channel_url else ""
+        if not handle:
+            continue
+        norm_handle = handle.replace("-", "").replace("_", "")
+        matched = any(
+            norm_handle in c.replace(" ", "").replace("-", "").replace("_", "")
+            or c.replace(" ", "").replace("-", "").replace("_", "") in norm_handle
+            for c in contributing
+            if c
+        )
+        if not matched:
+            silent.append(handle)
+    if silent:
+        log.warning("Silent channels this cycle (zero entries): %s", ", ".join(silent))
 
     # Greedy selection under duration cap
     selected: list[dict] = []

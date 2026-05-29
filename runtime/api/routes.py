@@ -3486,13 +3486,11 @@ async def autonomous_loops(authorization: str = Header(default="")) -> dict:
                     "enabled": True,
                     "description": "Processes journal entries and generates tips",
                 },
-                {
-                    "name": "YouTube Council (legacy)",
-                    "id": "awarebot-ytc",
-                    "interval": 1800,
-                    "enabled": False,
-                    "description": "DISABLED 2026-05-21 — superseded by scheduler-level 'ncl-ytc-dedicated' (own $3/day budget)",  # noqa: E501
-                },
+                # YouTube Council (legacy) stub REMOVED 2026-05-29 (Wave 14X-1A).
+                # The hardcoded "DISABLED" entry was confusing iOS by appearing
+                # as a duplicate loop row alongside ncl-ytc-dedicated with the
+                # same last_run timestamp. The dedicated scheduler-level
+                # 'ncl-ytc-dedicated' task is the sole canonical YTC loop.
                 {
                     "name": "X Liked Posts",
                     "id": "awarebot-x-liked",
@@ -4949,6 +4947,7 @@ async def stocks_scanner_goat(
                 _stock_scanner.attach_async_writer(aw)
 
         import time as _t
+
         scan_start = _t.time()
         results, scan_meta = await _stock_scanner.run_goat_scan_enriched(
             tickers,
@@ -4956,7 +4955,9 @@ async def stocks_scanner_goat(
             include_earnings_risk=include_earnings_risk,
         )
         scan_end = _t.time()
-        from datetime import datetime as _dt, timezone as _tz
+        from datetime import datetime as _dt
+        from datetime import timezone as _tz
+
         scan_meta["scan_started_at"] = _dt.fromtimestamp(scan_start, _tz.utc).isoformat()
         scan_meta["scan_completed_at"] = _dt.fromtimestamp(scan_end, _tz.utc).isoformat()
         scan_meta["scan_duration_s"] = round(scan_end - scan_start, 1)
@@ -4983,19 +4984,29 @@ async def stocks_scanner_goat(
         # Wave 14I — rotation_aligned tag (Leading quadrant check)
         try:
             from runtime.intelligence.rotation_tracker import load_latest_rotation
+
             _rot = load_latest_rotation()
             _leading = set(((_rot or {}).get("by_quadrant") or {}).get("Leading") or [])
         except Exception:
             _leading = set()
         _SECTOR_TO_ETF_GOAT = {
-            "Technology": "XLK", "Information Technology": "XLK",
-            "Financials": "XLF", "Financial Services": "XLF",
-            "Energy": "XLE", "Health Care": "XLV", "Healthcare": "XLV",
-            "Industrials": "XLI", "Consumer Staples": "XLP",
-            "Consumer Defensive": "XLP", "Consumer Discretionary": "XLY",
-            "Consumer Cyclical": "XLY", "Materials": "XLB",
-            "Basic Materials": "XLB", "Utilities": "XLU",
-            "Communication Services": "XLC", "Real Estate": "XLRE",
+            "Technology": "XLK",
+            "Information Technology": "XLK",
+            "Financials": "XLF",
+            "Financial Services": "XLF",
+            "Energy": "XLE",
+            "Health Care": "XLV",
+            "Healthcare": "XLV",
+            "Industrials": "XLI",
+            "Consumer Staples": "XLP",
+            "Consumer Defensive": "XLP",
+            "Consumer Discretionary": "XLY",
+            "Consumer Cyclical": "XLY",
+            "Materials": "XLB",
+            "Basic Materials": "XLB",
+            "Utilities": "XLU",
+            "Communication Services": "XLC",
+            "Real Estate": "XLRE",
         }
         if _leading:
             for r in results:
@@ -5012,11 +5023,14 @@ async def stocks_scanner_goat(
         # heat + drawdown envelope. Soft-tag — does NOT filter out results.
         try:
             from runtime.portfolio.risk_governor import check_proposed_trade, heat_summary
+
             _gov_heat = await heat_summary()
             scan_meta["risk_governor"] = {
                 "band": _gov_heat.get("band"),
                 "sizing_multiplier": _gov_heat.get("sizing_multiplier"),
-                "remaining_strategy_R": (_gov_heat.get("by_strategy") or {}).get("goat", {}).get("remaining_R"),
+                "remaining_strategy_R": (_gov_heat.get("by_strategy") or {})
+                .get("goat", {})
+                .get("remaining_R"),
             }
             for r in results:
                 px = float(r.get("price") or r.get("last_price") or 0)
@@ -5108,6 +5122,7 @@ async def stocks_scanner_bravo(
                 _stock_scanner.attach_async_writer(aw)
 
         import time as _tb
+
         scan_start = _tb.time()
         results, scan_meta = await _stock_scanner.run_bravo_scan_enriched(
             tickers,
@@ -5116,7 +5131,9 @@ async def stocks_scanner_bravo(
         )
 
         scan_end = _tb.time()
-        from datetime import datetime as _dtb, timezone as _tzb
+        from datetime import datetime as _dtb
+        from datetime import timezone as _tzb
+
         scan_meta["scan_started_at"] = _dtb.fromtimestamp(scan_start, _tzb.utc).isoformat()
         scan_meta["scan_completed_at"] = _dtb.fromtimestamp(scan_end, _tzb.utc).isoformat()
         scan_meta["scan_duration_s"] = round(scan_end - scan_start, 1)
@@ -5143,19 +5160,29 @@ async def stocks_scanner_bravo(
         # Wave 14I — rotation_aligned tag (Leading quadrant check)
         try:
             from runtime.intelligence.rotation_tracker import load_latest_rotation
+
             _rot = load_latest_rotation()
             _leading_b = set(((_rot or {}).get("by_quadrant") or {}).get("Leading") or [])
         except Exception:
             _leading_b = set()
         _SECTOR_TO_ETF_BRAVO = {
-            "Technology": "XLK", "Information Technology": "XLK",
-            "Financials": "XLF", "Financial Services": "XLF",
-            "Energy": "XLE", "Health Care": "XLV", "Healthcare": "XLV",
-            "Industrials": "XLI", "Consumer Staples": "XLP",
-            "Consumer Defensive": "XLP", "Consumer Discretionary": "XLY",
-            "Consumer Cyclical": "XLY", "Materials": "XLB",
-            "Basic Materials": "XLB", "Utilities": "XLU",
-            "Communication Services": "XLC", "Real Estate": "XLRE",
+            "Technology": "XLK",
+            "Information Technology": "XLK",
+            "Financials": "XLF",
+            "Financial Services": "XLF",
+            "Energy": "XLE",
+            "Health Care": "XLV",
+            "Healthcare": "XLV",
+            "Industrials": "XLI",
+            "Consumer Staples": "XLP",
+            "Consumer Defensive": "XLP",
+            "Consumer Discretionary": "XLY",
+            "Consumer Cyclical": "XLY",
+            "Materials": "XLB",
+            "Basic Materials": "XLB",
+            "Utilities": "XLU",
+            "Communication Services": "XLC",
+            "Real Estate": "XLRE",
         }
         if _leading_b:
             for r in results:
@@ -5168,11 +5195,14 @@ async def stocks_scanner_bravo(
         # Wave 14J J1a+J1b — risk governor tagging (same shape as GOAT).
         try:
             from runtime.portfolio.risk_governor import check_proposed_trade, heat_summary
+
             _gov_heat_b = await heat_summary()
             scan_meta["risk_governor"] = {
                 "band": _gov_heat_b.get("band"),
                 "sizing_multiplier": _gov_heat_b.get("sizing_multiplier"),
-                "remaining_strategy_R": (_gov_heat_b.get("by_strategy") or {}).get("bravo", {}).get("remaining_R"),
+                "remaining_strategy_R": (_gov_heat_b.get("by_strategy") or {})
+                .get("bravo", {})
+                .get("remaining_R"),
             }
             for r in results:
                 px = float(r.get("price") or r.get("last_price") or 0)
