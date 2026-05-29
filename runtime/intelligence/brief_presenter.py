@@ -345,7 +345,11 @@ def _render_lane_section(lane_key: str, lane_data: dict, header_label: str, part
                 state = "broad" if breadth >= 70 else "narrow" if breadth <= 30 else "neutral"
                 bits.append(f"market breadth is {breadth}% above 50d ({state})")
             if bits:
-                parts.append(". ".join(bits).capitalize() + ".")
+                # Capitalize first letter only — preserve ticker case (XLE etc).
+                sentence = ". ".join(bits)
+                if sentence:
+                    sentence = sentence[0].upper() + sentence[1:]
+                parts.append(sentence + ".")
             if rr.get("one_liner"):
                 parts.append(_strip_markdown(rr["one_liner"]))
             parts.append("")
