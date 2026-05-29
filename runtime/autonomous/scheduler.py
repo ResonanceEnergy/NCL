@@ -775,44 +775,152 @@ class AutonomousScheduler:
         # the mandate visible to every Council/Brief/Chat caller +
         # auditable per CFTC Reg AT pattern.
         async def _ingest_mandate():
+            """Wave 14W-A — ingest all 5 lane mandates (PORTFOLIO/INTEL/MEMORY/
+            CALENDAR/JOURNAL) plus AUTO_TRADER_MANDATE as procedural memory
+            at importance 95 on every Brain boot. Makes the coherent goal +
+            governance + producer/consumer contracts of each lane visible
+            to every Council/Brief/Chat caller + auditable per CFTC Reg AT
+            pattern.
+
+            Each mandate is idempotent — re-ingesting on bounce just creates
+            a fresh procedural memory unit (the old ones age via SML decay
+            and the dedup pass during consolidation handles overlap).
+            """
             try:
                 from pathlib import Path as _Path
                 import os as _os
                 base = _Path(_os.environ.get("NCL_BASE",
                                               str(_Path.home() / "dev" / "NCL")))
-                mandate_path = base / "docs" / "AUTO_TRADER_MANDATE.md"
-                if not mandate_path.exists():
-                    log.warning("[AT-MANDATE] %s missing — skipped", mandate_path)
-                    return
-                text = mandate_path.read_text()
                 mem = getattr(self.brain, "memory_store", None)
                 if mem is None or not hasattr(mem, "create_unit"):
-                    log.warning("[AT-MANDATE] no memory_store — skipped")
+                    log.warning("[MANDATE] no memory_store — skipped")
                     return
-                await mem.create_unit(
-                    content=(
-                        "AUTO_TRADER_MANDATE v1.0 — paper-trading-only "
-                        "hedge-fund-manager-in-training. Hard line: NCL "
-                        "never places live orders. Operator-approved "
-                        "policy lives in docs/AUTO_TRADER_MANDATE.md."
-                        f"\n\n{text[:6000]}"
-                    ),
-                    source="portfolio:auto_trader_mandate",
-                    importance=95.0,
-                    tags=[
-                        "portfolio", "auto_trader", "mandate", "procedural",
-                        "v1.0", "natrix_authority",
-                    ],
-                    memory_type="procedural",
-                    metadata={
-                        "mandate_version": "1.0",
-                        "mandate_path": str(mandate_path),
-                        "wave": "14U-U2",
+
+                # Wave 14W-A — 5 lane mandates + auto-trader
+                # (auto_trader is a portfolio-lane sub-mandate but ingested
+                # separately because it predates the lane mandates and has
+                # its own governance lineage)
+                mandates = [
+                    {
+                        "name": "INTEL_MANDATE",
+                        "path": "docs/INTEL_MANDATE.md",
+                        "source": "intel:lane_mandate",
+                        "summary": (
+                            "INTEL lane mandate v1.0 — time-bounded "
+                            "outside-world feed. Awarebot scans + scores + "
+                            "tier-routes. HIGH band threshold 0.65, "
+                            "google_trends auth capped 0.4, city_events "
+                            "moved to Calendar lane. Memory promotion gated "
+                            "(CRITICAL or x-source≥2 or pin)."
+                        ),
+                        "tags": ["intel", "lane_mandate", "procedural",
+                                 "v1.0", "natrix_authority", "wave_14W_A"],
                     },
+                    {
+                        "name": "MEMORY_MANDATE",
+                        "path": "docs/MEMORY_MANDATE.md",
+                        "source": "memory:lane_mandate",
+                        "summary": (
+                            "MEMORY lane mandate v1.0 — permanent recall "
+                            "substrate. Write-time gate (council, NATRIX, "
+                            "CRITICAL, x-source≥2, pin, agent reasoning "
+                            "chain, journal≥50, AT close, cycle change, "
+                            "portfolio significant). 25K capacity. 7-tier "
+                            "authority. WC is daily-rolling 50-item subset."
+                        ),
+                        "tags": ["memory", "lane_mandate", "procedural",
+                                 "v1.0", "natrix_authority", "wave_14W_A"],
+                    },
+                    {
+                        "name": "CALENDAR_MANDATE",
+                        "path": "docs/CALENDAR_MANDATE.md",
+                        "source": "calendar:lane_mandate",
+                        "summary": (
+                            "CALENDAR lane mandate v1.0 — time-anchored "
+                            "future-facing feed. Every datum has ISO date + "
+                            "impact + region + category. Quality filter on "
+                            "city_cultural. Never auto-promotes to Memory "
+                            "(except lunar phase + earnings day)."
+                        ),
+                        "tags": ["calendar", "lane_mandate", "procedural",
+                                 "v1.0", "natrix_authority", "wave_14W_A"],
+                    },
+                    {
+                        "name": "JOURNAL_MANDATE",
+                        "path": "docs/JOURNAL_MANDATE.md",
+                        "source": "journal:lane_mandate",
+                        "summary": (
+                            "JOURNAL lane mandate v1.0 — NATRIX's "
+                            "first-person lane. Free-form writes always "
+                            "pass. Importance≥50 echoes to Memory. Morning "
+                            "quiz Q2 auto-pins at importance 100. Daily "
+                            "ReflectionEngine nightly synthesis. LifePlan "
+                            "Vision/Goal/KR/Plan structured."
+                        ),
+                        "tags": ["journal", "lane_mandate", "procedural",
+                                 "v1.0", "natrix_authority", "wave_14W_A"],
+                    },
+                    {
+                        "name": "AUTO_TRADER_MANDATE",
+                        "path": "docs/AUTO_TRADER_MANDATE.md",
+                        "source": "portfolio:auto_trader_mandate",
+                        "summary": (
+                            "AUTO_TRADER sub-mandate v1.0 (lives under "
+                            "PORTFOLIO lane) — paper-trading-only "
+                            "hedge-fund-manager-in-training. Hard line: "
+                            "NCL never places live orders. 5%/8/2 mandate."
+                        ),
+                        "tags": ["portfolio", "auto_trader", "mandate",
+                                 "procedural", "v1.0", "natrix_authority",
+                                 "wave_14W_A"],
+                    },
+                ]
+
+                ingested = 0
+                for mandate in mandates:
+                    try:
+                        mandate_path = base / mandate["path"]
+                        if not mandate_path.exists():
+                            log.warning(
+                                "[MANDATE] %s missing — skipped",
+                                mandate_path,
+                            )
+                            continue
+                        text = mandate_path.read_text()
+                        await mem.create_unit(
+                            content=(
+                                f"{mandate['name']} — {mandate['summary']}"
+                                f"\n\n{text[:6000]}"
+                            ),
+                            source=mandate["source"],
+                            importance=95.0,
+                            tags=mandate["tags"],
+                            memory_type="procedural",
+                            metadata={
+                                "mandate_name": mandate["name"],
+                                "mandate_version": "1.0",
+                                "mandate_path": str(mandate_path),
+                                "wave": "14W-A",
+                            },
+                        )
+                        ingested += 1
+                        log.info(
+                            "[MANDATE] ingested %s v1.0 (importance 95)",
+                            mandate["name"],
+                        )
+                    except Exception as e:
+                        log.warning(
+                            "[MANDATE] %s ingest failed (non-fatal): %s",
+                            mandate["name"], e,
+                        )
+
+                log.info(
+                    "[MANDATE] Wave 14W-A complete — %d of %d lane "
+                    "mandates ingested as procedural memory",
+                    ingested, len(mandates),
                 )
-                log.info("[AT-MANDATE] ingested v1.0 as procedural memory (importance 95)")
             except Exception as e:
-                log.warning("[AT-MANDATE] ingest failed (non-fatal): %s", e)
+                log.warning("[MANDATE] ingest pass failed (non-fatal): %s", e)
 
         async def _auto_trader():
             await _ingest_mandate()
