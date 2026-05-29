@@ -183,86 +183,94 @@ Output ONLY JSON:
 
 
 def _chair_prompt(pack: dict, members: dict) -> str:
-    return f"""You are the CHAIR of NATRIX's morning brief council. Four specialists have submitted findings. Your job is to synthesize them into the final brief and write the MARKET OPEN PLAN section that NATRIX reads first.
+    """Wave 14Y — 5-lane brief: PORTFOLIO / INTEL / CALENDAR / JOURNAL / MEMORY.
 
-MEMBER OUTPUTS:
-{json.dumps(members, default=str)[:18000]}
+    NATRIX's mandate: every brief is a 2x-daily accumulation of all five tabs.
+    Output sections are FIXED in order. Each section blends a short narrative
+    (your synthesis of the lane) with the key facts the lane data surfaces.
+    """
+    lanes = pack.get("lanes", {})
+    return f"""You are the CHAIR of NATRIX's daily brief council. Four specialists have submitted findings. Your job is to synthesize them into a brief with EXACTLY 5 SECTIONS IN FIXED ORDER: PORTFOLIO, INTEL, CALENDAR, JOURNAL, MEMORY.
 
-PREP CONTEXT (light):
-{json.dumps({
+This brief is NOT a market commentary. It is an accumulation of every NCL tab's state, summarized for NATRIX's morning (or afternoon) read. Each section is grounded in the lane's actual data — never fabricate facts the data doesn't support.
+
+LANE DATA (pre-aggregated from all 5 tabs):
+{json.dumps(lanes, default=str)[:14000]}
+
+MEMBER OUTPUTS (specialists' analysis to weave into the lanes):
+{json.dumps(members, default=str)[:10000]}
+
+LIGHT PREP CONTEXT (futures, VIX, calendar, recap, situational):
+{json.dumps({{
     "futures": pack.get("futures"),
     "vix_term_structure": pack.get("vix_term_structure"),
     "economic_calendar": pack.get("economic_calendar"),
     "earnings_today": pack.get("earnings_today"),
     "yesterday_recap": pack.get("yesterday_recap"),
     "situational_context": pack.get("situational_context"),
-}, default=str)[:4000]}
+}}, default=str)[:3000]}
 
 Today is {date.today().isoformat()}.
 
-Synthesis rules:
-1. Resolve contradictions between members. If macro is bullish but flow is bearish, call it out and lean on the one with better evidence.
-2. Trade ideas: max 6 total, AT MOST 1 broad/sector ETF (SPY/QQQ/IWM/DIA/XLF/XLK/XLE/XLV/XLI/XLP/XLY/XLB/XLU/XLC/XLRE/GLD/SLV/USO/UNG/ARKK/SMH/SOXX). Rest must be individual stocks.
-3. NO references to pre-2026 dates as forward catalysts. Today is 2026.
-4. Each section text claim must include id= citations from member outputs.
-5. The MARKET OPEN PLAN section is the flagship — make it sharp, actionable, scan-friendly.
-6. ROTATION ALIGNMENT (Wave 14I rule 7d): If the rotation_snapshot in the prep pack identifies Leading sectors, your trade ideas should mostly lean WITH that leadership. If you include trade ideas in Weakening or Lagging sectors, label them as "counter-trend" in the thesis and explain why the catalyst overrides the regime. The Market Open Plan's rotation_regime field MUST reflect the actual current data — don't fabricate a leadership read.
+SYNTHESIS RULES (apply across all 5 sections):
+1. Each section must reflect REAL data from its lane. If the lane is empty, state that explicitly — never invent.
+2. Inline id= citations from member outputs when claiming things in the narrative.
+3. NO pre-2026 dates as forward catalysts. Today is 2026.
+4. ETF quota: across the entire brief, AT MOST 1 broad/sector ETF in any "actionable" trade idea (SPY/QQQ/IWM/DIA/XLF/XLK/XLE/XLV/XLI/XLP/XLY/XLB/XLU/XLC/XLRE/GLD/SLV/USO/UNG/ARKK/SMH/SOXX). Rest must be individual names.
+5. Rotation alignment: if the PORTFOLIO lane's rotation_leading_sectors is populated, trade-idea picks should lean WITH the leadership unless labeled "counter-trend" with justification.
+6. Resolve contradictions between members. If macro is bullish but flow is bearish, call it out and lean on the one with better evidence.
 
-Output ONLY JSON:
+Output ONLY JSON with EXACTLY these top-level keys, IN THIS ORDER:
+
 {{
-  "yesterday_recap": {{
-    "headline": "1-line summary — 'Yesterday auto-trader closed N: Xw / Yl for +R total. Top lesson: ...'",
-    "scoreboard": {{
-      "ideas_given": int_or_null,
-      "closes": int,
-      "winners": int,
-      "losers": int,
-      "scratches": int,
-      "total_r": float
+  "portfolio": {{
+    "narrative": "2-3 sentences: how the paper account did yesterday, what's open now, what the auto-trader is doing today. Cites scanner picks / rotation alignment. Includes id= citations.",
+    "yesterday_recap": {{
+      "headline": "1-line — 'Yesterday auto-trader closed N: Xw / Yl for +R total. Top lesson: ...'",
+      "scoreboard": {{"ideas_given": int_or_null, "closes": int, "winners": int, "losers": int, "scratches": int, "total_r": float}},
+      "lesson": "short pattern observed",
+      "drift_flags": ["bravo: DRIFT_DOWN since 5/27" or similar, empty list if none]
     }},
-    "lesson": "short pattern observed — RVOL won / ETFs lagged / drift on bravo / etc",
-    "drift_flags": ["bravo: DRIFT_DOWN since 5/27"]
+    "paper_state": {{"balance_usd": float_or_null, "open_positions": int, "today_closes": int, "today_realized_r": float_or_null}},
+    "trade_ideas": [{{"type":"stock|options|futures","ticker":"...","thesis":"...","entry":"...","stop":"...","target":"...","timeframe":"...","structure":"..." (options only),"max_risk":"..." (options only),"sources":["sig_id"]}}],
+    "rotation_regime": {{"current_phase":"...","leading_sectors":[],"weakening_sectors":[],"breadth_pct":float_or_null,"one_liner":"..."}},
+    "risk_flags": [{{"text":"...","severity":"low|med|high"}}]
   }},
-  "market_open_plan": {{
-    "what_to_watch": [
-      {{"text": "08:30 ET — ${{event}}, consensus X, prior Y. Above Z = ${{reaction}}", "category": "macro_release|earnings|geopolitical|technical"}},
-      ...
-    ],
-    "direction_indicators": [
-      {{"name": "ES futures", "current_level": "...", "trigger": "above X = bullish, below Y = risk-off"}},
-      {{"name": "VIX term structure", "current": "...", "interpretation": "..."}},
-      ...
-    ],
-    "momentum_signals": {{
-      "gap_up_watch": ["TICKER (+2.3% pre-mkt, vol 1.8x)"],
-      "gap_down_reversal_candidates": [],
-      "rvol_3x_list": [],
-      "orb_candidates": []
-    }},
-    "risk_flags": [
-      {{"text": "...", "severity": "low|med|high"}}
-    ]
+  "intel": {{
+    "narrative": "2-3 sentences: top YTC reports, hot Reddit signals, prediction shifts, polymarket movement. What story is the intel pool telling today? Includes id= citations.",
+    "top_signals": [{{"text":"...","source":"ytc|reddit|x|predictions|polymarket|news","sig_id":"..."}}],
+    "predictions_watch": [{{"text":"...","direction":"bullish|bearish|neutral","confidence_pct":int,"citations":["sig_id"]}}],
+    "polymarket_watch": [{{"text":"...","citations":["sig_id"]}}],
+    "cross_reference_promotions": [{{"text":"e.g. ticker AAPL appeared in YTC + Reddit + Predictions in 4h","tickers":["AAPL"]}}]
   }},
-  "executive_summary": "string with id= citations, 2-3 sentences setting today's lead theme",
-  "key_movements": [{{"text": "...", "citations": ["sig_id"]}}],
-  "emerging_opportunities_and_risks": [{{"text": "...", "citations": ["sig_id"]}}],
-  "trade_ideas": [{{
-      "type": "stock|options|futures",
-      "ticker": "...",
-      "thesis": "...",
-      "entry": "...", "stop": "...", "target": "...", "timeframe": "...",
-      "structure": "..." (options only),
-      "max_risk": "..." (options only),
-      "sources": ["sig_id1", "sig_id2"]
-  }}],
-  "polymarket_watch": [{{"text": "...", "citations": ["sig_id"]}}],
-  "today_research_topics": [{{"topic": "...", "why": "...", "investigate": "..."}}],
+  "calendar": {{
+    "narrative": "2-3 sentences: what's on today (market events, earnings, macro releases), lunar phase impact if relevant, key dates in the next 7 days.",
+    "today_events": [{{"text":"...","time_et":"HH:MM","category":"macro|earnings|geopolitical|lunar|market_event"}}],
+    "lunar_phase": {{"phase":"waxing_crescent|full_moon|...","energy":"...","one_liner":"..."}},
+    "tickers_with_event_today": [],
+    "next_7_days_to_watch": [{{"date":"YYYY-MM-DD","text":"..."}}]
+  }},
+  "journal": {{
+    "narrative": "2-3 sentences: what NATRIX set as today's focus in the morning quiz (or yesterday's if today's not yet submitted), how it ties to current market action, any lessons carrying forward.",
+    "today_focus_from_quiz": "string or null",
+    "yesterday_quiz_posture": {{"mood":"...","risk_appetite":"...","priority":"..."}},
+    "yesterday_lesson": "string or null",
+    "tickers_in_journal_today": []
+  }},
+  "memory": {{
+    "narrative": "2-3 sentences: what's pinned in working context, what high-salience themes have emerged, what NATRIX has been thinking about across recent sessions.",
+    "pinned_priorities": [{{"text":"...","importance":int}}],
+    "top_salience_items": [{{"text":"...","tier":"natrix|council|brain|...","salience":float}}],
+    "active_themes": [{{"text":"...","why_relevant_today":"..."}}]
+  }},
   "council_meta": {{
-    "members_succeeded": ["macro", "pulse", "flow", "technical"],
+    "members_succeeded": ["macro","pulse","flow","technical"],
     "contradictions_resolved": ["short string each"],
     "confidence": 0.0-1.0
   }}
-}}"""
+}}
+
+Do not add or remove top-level keys. Do not change order. If a lane has no data, set its arrays to [] and narrative to a one-liner stating "Lane quiet today" or similar — never fabricate. The 5-lane order is NATRIX's law."""
 
 
 # ─────────────────────────────────────────────────────────────────────────

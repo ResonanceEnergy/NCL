@@ -1137,6 +1137,125 @@ async def collect_yesterday_recap() -> dict:
     return out
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# Wave 14Y — 5-lane aggregators
+#
+# NATRIX's mandate: every brief is exactly 5 sections in fixed order:
+#   1. PORTFOLIO  — paper NAV, open positions, auto-trader activity,
+#                   scanner picks, rotation alignment
+#   2. INTEL      — top YTC + Reddit + X + Predictions + cross-ref
+#                   promotions, ranked
+#   3. CALENDAR   — today's events, lunar phase, market events,
+#                   watchlist to-dos
+#   4. JOURNAL    — yesterday's quiz, today's prompt, last reflection,
+#                   lesson learned
+#   5. MEMORY     — pinned working-context items, fresh high-importance
+#                   memories, narrative threads
+#
+# Each lane aggregator is pure dict-reshape — never raises, returns
+# {} on missing data. Chair prompt loops over this in fixed order.
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def _lane_portfolio(pack: dict) -> dict:
+    """PORTFOLIO lane: TRADERAGENT camp state."""
+    agent = (pack.get("AGENT") or {}).get("data") or {}
+    portfolio = (pack.get("PORTFOLIO") or {}).get("data") or {}
+    goat = (pack.get("GOAT") or {}).get("data") or []
+    bravo = (pack.get("BRAVO") or {}).get("data") or []
+    options = (pack.get("OPTIONS") or {}).get("data") or []
+    rotation = pack.get("rotation_snapshot") or {}
+    return {
+        "paper_account": agent.get("status", {}) if isinstance(agent, dict) else {},
+        "auto_trader_today": {
+            "ideas_evaluated": agent.get("ideas_evaluated_today"),
+            "opens_today": agent.get("opens_today"),
+            "closes_today": agent.get("closes_today"),
+            "current_streak": agent.get("current_streak"),
+        } if isinstance(agent, dict) else {},
+        "open_positions_summary": portfolio.get("positions_summary", {}) if isinstance(portfolio, dict) else {},
+        "held_positions": pack.get("held_positions", []),
+        "scanner_goat_top": (goat or [])[:5],
+        "scanner_bravo_top": (bravo or [])[:5],
+        "options_flow_top": (options or [])[:5],
+        "rotation_leading_sectors": rotation.get("leading_quadrant", []) if isinstance(rotation, dict) else [],
+        "rotation_breadth_pct": rotation.get("breadth_pct") if isinstance(rotation, dict) else None,
+        "yesterday_recap": pack.get("yesterday_recap", {}),
+    }
+
+
+def _lane_intel(pack: dict) -> dict:
+    """INTEL lane: AWAREBOT camp surfaces."""
+    ytc = (pack.get("YTC") or {}).get("data") or []
+    predictions = (pack.get("PREDICTIONS") or {}).get("data") or []
+    poly = (pack.get("POLYMARKET") or {}).get("data") or []
+    crypto = (pack.get("CRYPTO") or {}).get("data") or {}
+    return {
+        "ytc_recent_top": (ytc or [])[:5],
+        "predictions_active_top": (predictions or [])[:5],
+        "headlines_top": (pack.get("headlines") or [])[:8],
+        "polymarket_active_leading": (pack.get("polymarket_leading") or [])[:5],
+        "polymarket_edges": (poly or [])[:5],
+        "crypto_movers": crypto if isinstance(crypto, dict) else {},
+        "futures": pack.get("futures", {}),
+        "vix_term_structure": pack.get("vix_term_structure", {}),
+        "overnight_movers": pack.get("overnight_movers", {}),
+    }
+
+
+def _lane_calendar(pack: dict) -> dict:
+    """CALENDAR lane: time-bound context (events, lunar, market dates)."""
+    sit = pack.get("situational_context") or {}
+    todo = (pack.get("TODO_7DAY") or {}).get("data") or []
+    return {
+        "today_events": sit.get("calendar_today", []),
+        "lunar_phase": sit.get("lunar", {}),
+        "tickers_with_event_today": sit.get("tickers_with_event_today", []),
+        "earnings_today": pack.get("earnings_today", []),
+        "economic_calendar": pack.get("economic_calendar", []),
+        "todo_7day": (todo or [])[:10] if isinstance(todo, list) else [],
+    }
+
+
+def _lane_journal(pack: dict) -> dict:
+    """JOURNAL lane: NATRIX's morning quiz + posture + recent reflections."""
+    sit = pack.get("situational_context") or {}
+    return {
+        "morning_quiz_posture": sit.get("journal_posture", {}),
+        "morning_quiz_focus": sit.get("morning_quiz_focus", ""),
+        "tickers_in_journal_today": sit.get("tickers_in_journal_today", []),
+        # Yesterday's recap "lesson" line — bridges journal → portfolio
+        "yesterday_lesson": (pack.get("yesterday_recap") or {}).get("lesson", ""),
+    }
+
+
+def _lane_memory(pack: dict) -> dict:
+    """MEMORY lane: working context + pinned + themes."""
+    wc = pack.get("working_context") or {}
+    ctx = (pack.get("CONTEXT") or {}).get("data") or {}
+    return {
+        "pinned_priorities": wc.get("pinned_priorities", [])[:10],
+        "top_by_salience": wc.get("top_by_salience", [])[:10],
+        "themes": wc.get("themes", [])[:8],
+        "total_items": wc.get("total_items", 0),
+        "context_summary": ctx,
+    }
+
+
+def _build_5_lanes(pack: dict) -> dict:
+    """Aggregate raw blocks into NATRIX's 5-lane structure.
+    Returns a dict with keys: portfolio, intel, calendar, journal, memory.
+    Every value is a dict — empty {} if data missing. Pure reshape, no I/O.
+    """
+    return {
+        "portfolio": _lane_portfolio(pack),
+        "intel": _lane_intel(pack),
+        "calendar": _lane_calendar(pack),
+        "journal": _lane_journal(pack),
+        "memory": _lane_memory(pack),
+    }
+
+
 async def build_prep_pack(
     brain,
     watchlist_tickers: Optional[list[str]] = None,
@@ -1310,6 +1429,11 @@ async def build_prep_pack(
         # current life context, not just market data.
         "situational_context": await collect_situational_context(brain),
     }
+    # Wave 14Y — 5-lane aggregators. NATRIX's vision: every brief is
+    # PORTFOLIO / INTEL / CALENDAR / JOURNAL / MEMORY in that fixed order.
+    # These five functions re-shape the raw blocks above into lane-
+    # organized buckets the chair consumes directly.
+    pack["lanes"] = _build_5_lanes(pack)
     pack["elapsed_s"] = round(time.time() - started, 1)
 
     # Persist

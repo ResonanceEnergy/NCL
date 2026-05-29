@@ -262,16 +262,203 @@ def _render_block(name: str, data) -> list[str]:
     return lines
 
 
-def render_pro_brief(synthesis: dict, pack: dict | None = None) -> dict:
-    """Render the council synthesis into the brief envelope.
+def _render_lane_section(lane_key: str, lane_data: dict, header_label: str, parts: list[str]) -> None:
+    """Wave 14Y — render one of the 5 lane sections in plain text.
+    Order is FIXED by caller: PORTFOLIO / INTEL / CALENDAR / JOURNAL / MEMORY.
+    """
+    if not lane_data:
+        lane_data = {}
+    parts.append("═══════════════════════════════════════════════════════")
+    parts.append(header_label)
+    parts.append("═══════════════════════════════════════════════════════")
+    narrative = _strip_markdown(str(lane_data.get("narrative", "")).strip())
+    if narrative:
+        parts.append(narrative)
+    parts.append("")
 
-    Returns a dict with:
-        text:                full plain-text brief (back-compat)
-        market_open_plan:    structured object for iOS BriefRenderer
-        executive_summary:   plain text (no markdown)
-        ... all other fields from synthesis ...
-        generated_at:        UTC ISO timestamp
-        date:                YYYY-MM-DD
+    if lane_key == "portfolio":
+        # Yesterday's recap first
+        yr = lane_data.get("yesterday_recap") or {}
+        if yr and (yr.get("headline") or yr.get("scoreboard")):
+            parts.append("── YESTERDAY'S RECAP ──")
+            if yr.get("headline"):
+                parts.append(_strip_markdown(str(yr["headline"])))
+            sb = yr.get("scoreboard") or {}
+            if sb:
+                parts.append(
+                    f"  closes={sb.get('closes', 0)} "
+                    f"({sb.get('winners', 0)}W/{sb.get('losers', 0)}L/{sb.get('scratches', 0)}S)"
+                    f"  realized={sb.get('total_r', 0):+.2f}R"
+                )
+            if yr.get("lesson"):
+                parts.append(f"  lesson: {_strip_markdown(str(yr['lesson']))}")
+            for df in (yr.get("drift_flags") or [])[:3]:
+                parts.append(f"  drift: {_strip_markdown(str(df))}")
+            parts.append("")
+        ps = lane_data.get("paper_state") or {}
+        if ps:
+            parts.append("── PAPER ACCOUNT ──")
+            bal = ps.get("balance_usd")
+            if bal is not None:
+                parts.append(f"  balance: ${bal:,.2f}")
+            parts.append(
+                f"  open_positions={ps.get('open_positions', 0)}  "
+                f"today_closes={ps.get('today_closes', 0)}  "
+                f"today_realized_R={ps.get('today_realized_r') if ps.get('today_realized_r') is not None else 'n/a'}"
+            )
+            parts.append("")
+        ideas = lane_data.get("trade_ideas") or []
+        if ideas:
+            parts.append("── TRADE IDEAS ──")
+            for i, idea in enumerate(ideas, 1):
+                typ = (idea.get("type") or "stock").upper()
+                lbl = "OPTIONS" if typ == "OPTIONS" else "FUTURES" if typ == "FUTURES" else "STOCK"
+                parts.append(f"{i}. [{lbl}] {idea.get('ticker', '?')}")
+                if idea.get("thesis"):
+                    parts.append(f"   thesis: {_strip_markdown(idea['thesis'])}")
+                if idea.get("structure"):
+                    parts.append(f"   structure: {_strip_markdown(idea['structure'])}")
+                for fld in ("entry", "stop", "target", "timeframe", "max_risk"):
+                    v = idea.get(fld)
+                    if v:
+                        parts.append(f"   {fld}: {_strip_markdown(str(v))}")
+                if idea.get("sources"):
+                    parts.append(f"   sources: {', '.join(str(s)[:8] for s in idea['sources'])}")
+            parts.append("")
+        rr = lane_data.get("rotation_regime") or {}
+        if rr and any(rr.values()):
+            parts.append("── ROTATION REGIME ──")
+            if rr.get("current_phase"):
+                parts.append(f"  cycle: {rr['current_phase']}")
+            if rr.get("leading_sectors"):
+                parts.append(f"  leading: {', '.join(rr['leading_sectors'])}")
+            if rr.get("weakening_sectors"):
+                parts.append(f"  weakening: {', '.join(rr['weakening_sectors'])}")
+            if rr.get("breadth_pct") is not None:
+                parts.append(f"  breadth: {rr['breadth_pct']}%")
+            if rr.get("one_liner"):
+                parts.append(f"  read: {_strip_markdown(rr['one_liner'])}")
+            parts.append("")
+        rf = lane_data.get("risk_flags") or []
+        if rf:
+            parts.append("── RISK FLAGS ──")
+            for f in rf:
+                sev = (f.get("severity") or "").upper()
+                txt = _strip_markdown(f.get("text") or "")
+                parts.append(f"  [{sev}] {txt}" if sev else f"  {txt}")
+            parts.append("")
+
+    elif lane_key == "intel":
+        for key, hdr in (
+            ("top_signals", "TOP SIGNALS"),
+            ("predictions_watch", "PREDICTIONS WATCH"),
+            ("polymarket_watch", "POLYMARKET WATCH"),
+            ("cross_reference_promotions", "CROSS-REFERENCE PROMOTIONS"),
+        ):
+            items = lane_data.get(key) or []
+            if not items:
+                continue
+            parts.append(f"── {hdr} ──")
+            for it in items[:6]:
+                if isinstance(it, dict):
+                    txt = _strip_markdown(it.get("text", ""))
+                    src = it.get("source", "")
+                    src_tag = f" [{src}]" if src else ""
+                    parts.append(f"  • {txt}{src_tag}")
+                else:
+                    parts.append(f"  • {_strip_markdown(str(it))}")
+            parts.append("")
+
+    elif lane_key == "calendar":
+        ev = lane_data.get("today_events") or []
+        if ev:
+            parts.append("── TODAY'S EVENTS ──")
+            for e in ev[:8]:
+                if isinstance(e, dict):
+                    t = e.get("time_et", "")
+                    parts.append(f"  • {t} {_strip_markdown(e.get('text', ''))}")
+                else:
+                    parts.append(f"  • {_strip_markdown(str(e))}")
+            parts.append("")
+        lp = lane_data.get("lunar_phase") or {}
+        if lp:
+            phase = lp.get("phase", "")
+            energy = lp.get("energy", "")
+            line = "── LUNAR ──"
+            if phase:
+                line = f"── LUNAR — {phase} ──"
+            parts.append(line)
+            if lp.get("one_liner"):
+                parts.append(f"  {_strip_markdown(lp['one_liner'])}")
+            if energy:
+                parts.append(f"  energy: {_strip_markdown(energy)}")
+            parts.append("")
+        nx = lane_data.get("next_7_days_to_watch") or []
+        if nx:
+            parts.append("── NEXT 7 DAYS ──")
+            for n in nx[:5]:
+                if isinstance(n, dict):
+                    parts.append(f"  • {n.get('date', '')}: {_strip_markdown(n.get('text', ''))}")
+            parts.append("")
+
+    elif lane_key == "journal":
+        focus = lane_data.get("today_focus_from_quiz") or ""
+        if focus:
+            parts.append("── TODAY'S FOCUS ──")
+            parts.append(f"  {_strip_markdown(str(focus))}")
+            parts.append("")
+        posture = lane_data.get("yesterday_quiz_posture") or {}
+        if posture:
+            parts.append("── YESTERDAY'S POSTURE ──")
+            for k in ("mood", "risk_appetite", "priority"):
+                v = posture.get(k)
+                if v:
+                    parts.append(f"  {k}: {_strip_markdown(str(v))}")
+            parts.append("")
+        lesson = lane_data.get("yesterday_lesson") or ""
+        if lesson:
+            parts.append("── YESTERDAY'S LESSON ──")
+            parts.append(f"  {_strip_markdown(str(lesson))}")
+            parts.append("")
+        tickers = lane_data.get("tickers_in_journal_today") or []
+        if tickers:
+            parts.append(f"── TICKERS NATRIX IS WATCHING ──\n  {', '.join(str(t) for t in tickers[:12])}\n")
+
+    elif lane_key == "memory":
+        pinned = lane_data.get("pinned_priorities") or []
+        if pinned:
+            parts.append("── PINNED PRIORITIES ──")
+            for p in pinned[:6]:
+                if isinstance(p, dict):
+                    imp = p.get("importance", "")
+                    imp_tag = f" [{imp}]" if imp else ""
+                    parts.append(f"  • {_strip_markdown(p.get('text', ''))}{imp_tag}")
+                else:
+                    parts.append(f"  • {_strip_markdown(str(p))}")
+            parts.append("")
+        themes = lane_data.get("active_themes") or []
+        if themes:
+            parts.append("── ACTIVE THEMES ──")
+            for t in themes[:4]:
+                if isinstance(t, dict):
+                    parts.append(f"  • {_strip_markdown(t.get('text', ''))}")
+                    if t.get("why_relevant_today"):
+                        parts.append(f"      → {_strip_markdown(t['why_relevant_today'])}")
+            parts.append("")
+
+
+def render_pro_brief(synthesis: dict, pack: dict | None = None) -> dict:
+    """Wave 14Y — Render council synthesis as 5-lane brief.
+
+    NATRIX's mandate: every brief has EXACTLY 5 sections in fixed order:
+       1. PORTFOLIO   2. INTEL   3. CALENDAR   4. JOURNAL   5. MEMORY
+
+    Returns envelope with:
+        full_brief:  plain-text brief (back-compat for iOS BriefRenderer)
+        topics:      same as full_brief (legacy alias)
+        lanes:       {portfolio, intel, calendar, journal, memory} dicts
+        council_meta
+        generated_at, date, source
     """
     today = date.today().isoformat()
     now = datetime.now(timezone.utc).isoformat()
@@ -279,15 +466,62 @@ def render_pro_brief(synthesis: dict, pack: dict | None = None) -> dict:
     parts: list[str] = []
 
     # ── HEADER ──
-    parts.append(f"NCL MORNING BRIEF — {today}")
+    parts.append(f"NCL DAILY BRIEF — {today}")
     parts.append(f"Generated: {now[:19]}Z")
+    parts.append("PORTFOLIO · INTEL · CALENDAR · JOURNAL · MEMORY")
     parts.append("")
 
-    # ── YESTERDAY'S RECAP (Wave 14X-1B closed-loop — NATRIX flagship fix) ──
-    # The Brief "got weak" because it never showed yesterday's outcomes
-    # before today's plan. Trading without retro is gambling. This block
-    # is rendered FIRST so NATRIX sees "yesterday I was told X, here's
-    # what happened" before anything else.
+    # ── Wave 14Y — 5-LANE BODY ──
+    # Each lane comes from the chair's synthesis (synthesis["portfolio"]
+    # etc) and falls back to pack["lanes"][...] if the chair didn't fill
+    # the section. Order is FIXED — NATRIX's law.
+    pack_lanes = (pack or {}).get("lanes") or {}
+    lanes_5: dict[str, dict] = {}
+    for key, header in (
+        ("portfolio", "1 / 5 — PORTFOLIO"),
+        ("intel", "2 / 5 — INTEL"),
+        ("calendar", "3 / 5 — CALENDAR"),
+        ("journal", "4 / 5 — JOURNAL"),
+        ("memory", "5 / 5 — MEMORY"),
+    ):
+        lane = synthesis.get(key)
+        if not isinstance(lane, dict) or not lane:
+            lane = pack_lanes.get(key) or {}
+        lanes_5[key] = lane
+        _render_lane_section(key, lane, header, parts)
+
+    text = "\n".join(parts).rstrip() + "\n"
+
+    envelope = {
+        "date": today,
+        "generated_at": now,
+        "full_brief": text,
+        "topics": text,  # back-compat with legacy iOS BriefRenderer
+        "lanes": lanes_5,
+        "council_meta": synthesis.get("council_meta") or synthesis.get("_meta"),
+        "source": "morning_brief_pro_v2_5lane",
+    }
+
+    # Persist
+    PRO_BRIEF_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        out_path = PRO_BRIEF_DIR / f"{today}.json"
+        out_path.write_text(json.dumps(envelope, indent=2, default=str))
+        log.info("[brief_pro] wrote %s (%d bytes)", out_path, out_path.stat().st_size)
+    except Exception as e:
+        log.warning("[brief_pro] persist failed: %s", e)
+
+    return envelope
+
+
+def _legacy_render_unused(synthesis: dict, pack: dict | None = None) -> dict:
+    """Wave 14X pre-5-lane renderer — kept as dead reference only.
+    Wave 14Y replaced this with the strict 5-lane format. Do not call.
+    """
+    today = date.today().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
+    parts: list[str] = []
+
     yr = synthesis.get("yesterday_recap") or {}
     if yr and (yr.get("headline") or yr.get("scoreboard")):
         parts.append("═══════════════════════════════════════════════════════")
