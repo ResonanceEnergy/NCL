@@ -962,6 +962,91 @@ async def _collect_todo_7day(brain) -> dict:
         return {"items": [], "count": 0, "error": str(e)}
 
 
+async def collect_yesterday_recap() -> dict:
+    """Wave 14X-1B: NATRIX's closed-loop fix for "the Brief got weak".
+
+    Reads yesterday's auto-trader EOD summary + reads yesterday's brief
+    output to find how many trade ideas the chair gave vs how many
+    actually closed. Returns a structured recap the chair can synthesize
+    into a 1-paragraph YESTERDAY'S RECAP block at the top of today's
+    brief — so NATRIX can see "yesterday I was told X, here's what
+    happened" before being told today's plan.
+
+    Empty fallback (never raises) — if data is missing the recap simply
+    has no data and the chair will omit the block.
+    """
+    out: dict = {
+        "date": None,
+        "ideas_given": None,
+        "closes_today": 0,
+        "winners": 0,
+        "losers": 0,
+        "scratches": 0,
+        "total_r": 0.0,
+        "tickers_closed": [],
+        "drift_signals": [],
+        "agent_narrative": "",
+        "lesson": None,
+    }
+
+    try:
+        eod_path = NCL_BASE / "data" / "portfolio" / "auto_trader" / "eod_summaries.jsonl"
+        if eod_path.exists():
+            # Walk last 30 lines, pick most-recent entry whose date < today
+            today_iso = date.today().isoformat()
+            with open(eod_path, "r") as fh:
+                lines = fh.readlines()
+            for raw in reversed(lines[-30:]):
+                try:
+                    d = json.loads(raw.strip())
+                except json.JSONDecodeError:
+                    continue
+                if d.get("date") and d["date"] < today_iso:
+                    out["date"] = d.get("date")
+                    out["closes_today"] = d.get("closes_today", 0)
+                    out["winners"] = d.get("winners", 0)
+                    out["losers"] = d.get("losers", 0)
+                    out["scratches"] = d.get("scratches", 0)
+                    out["total_r"] = d.get("total_r_today", 0.0)
+                    out["tickers_closed"] = d.get("tickers_closed", [])
+                    out["drift_signals"] = d.get("drift_signals", [])
+                    out["agent_narrative"] = d.get("narrative", "")
+                    break
+    except Exception as e:
+        log.warning("[brief_prep] yesterday_recap eod read failed: %s", e)
+
+    try:
+        # Also try to read yesterday's brief output to count ideas given.
+        out_dir = NCL_BASE / "data" / "morning-brief-pro"
+        if out_dir.exists():
+            files = sorted(out_dir.glob("*.json"), reverse=True)
+            today_iso = date.today().isoformat()
+            for f in files[:10]:
+                if today_iso in f.name:
+                    continue  # skip today's own brief
+                try:
+                    bd = json.loads(f.read_text())
+                    synth = bd.get("synthesis") if isinstance(bd, dict) else None
+                    ideas = synth.get("trade_ideas", []) if isinstance(synth, dict) else []
+                    out["ideas_given"] = len(ideas) if isinstance(ideas, list) else 0
+                    break
+                except Exception:
+                    continue
+    except Exception as e:
+        log.warning("[brief_prep] yesterday_recap brief read failed: %s", e)
+
+    # Tiny derived lesson — if drift fired or total_r negative we surface it.
+    if out["drift_signals"]:
+        drifters = ", ".join(d.get("strategy", "?") for d in out["drift_signals"])[:80]
+        out["lesson"] = f"Drift detected on {drifters} — review before re-enabling."
+    elif (out["total_r"] or 0) < -0.5:
+        out["lesson"] = f"Net losing day ({out['total_r']:+.2f}R) — check sizing + entry timing."
+    elif (out["total_r"] or 0) > 1.0:
+        out["lesson"] = f"Strong day ({out['total_r']:+.2f}R) — what worked? Replicate the setup."
+
+    return out
+
+
 async def build_prep_pack(
     brain,
     watchlist_tickers: Optional[list[str]] = None,
@@ -1124,6 +1209,11 @@ async def build_prep_pack(
             "/memory/working-context",
         ),
         "TODO_7DAY": _block("TODO_7DAY", todo_7day, "/calendar/watchlist"),
+        # Wave 14X-1B — closed-loop fix: yesterday's outcomes feed back
+        # into today's brief as a YESTERDAY'S RECAP block. NATRIX's "Brief
+        # got weak" diagnosis was structural — the system never showed
+        # "here's what happened to yesterday's calls" before giving today's.
+        "yesterday_recap": await collect_yesterday_recap(),
     }
     pack["elapsed_s"] = round(time.time() - started, 1)
 

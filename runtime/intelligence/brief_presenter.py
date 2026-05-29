@@ -283,6 +283,35 @@ def render_pro_brief(synthesis: dict, pack: dict | None = None) -> dict:
     parts.append(f"Generated: {now[:19]}Z")
     parts.append("")
 
+    # ── YESTERDAY'S RECAP (Wave 14X-1B closed-loop — NATRIX flagship fix) ──
+    # The Brief "got weak" because it never showed yesterday's outcomes
+    # before today's plan. Trading without retro is gambling. This block
+    # is rendered FIRST so NATRIX sees "yesterday I was told X, here's
+    # what happened" before anything else.
+    yr = synthesis.get("yesterday_recap") or {}
+    if yr and (yr.get("headline") or yr.get("scoreboard")):
+        parts.append("═══════════════════════════════════════════════════════")
+        parts.append("YESTERDAY'S RECAP")
+        parts.append("═══════════════════════════════════════════════════════")
+        if yr.get("headline"):
+            parts.append(_strip_markdown(str(yr["headline"])))
+        sb = yr.get("scoreboard") or {}
+        if sb:
+            sb_line = (
+                f"  closes={sb.get('closes', 0)} "
+                f"({sb.get('winners', 0)}W / {sb.get('losers', 0)}L / {sb.get('scratches', 0)}S)"
+                f"  realized={sb.get('total_r', 0):+.2f}R"
+            )
+            if sb.get("ideas_given") is not None:
+                sb_line += f"  ideas_given={sb['ideas_given']}"
+            parts.append(sb_line)
+        if yr.get("lesson"):
+            parts.append(f"  lesson: {_strip_markdown(str(yr['lesson']))}")
+        if yr.get("drift_flags"):
+            for df in yr["drift_flags"][:3]:
+                parts.append(f"  drift: {_strip_markdown(str(df))}")
+        parts.append("")
+
     # ── MARKET OPEN PLAN (flagship section) ──
     mop = synthesis.get("market_open_plan") or {}
     if mop:
@@ -471,22 +500,23 @@ def render_pro_brief(synthesis: dict, pack: dict | None = None) -> dict:
     # section gets a header line: "── {NAME} (generated_at: ..., source: ...) ──"
     # so the operator can verify the data is fresh and trace it to its source.
     # Anti-hallucination: blocks render straight from cached data, NOT LLM output.
+    # Wave 14X-1B: cut Wave 14S 12-block sprawl back to canonical context.
+    # OPTIONS/CRYPTO/POLYMARKET/YTC/GOAT/BRAVO/PREDICTIONS live in their
+    # own iOS tabs (PORTFOLIO / INTEL) per the new architecture — the
+    # Brief is for decision-grade morning synthesis, not a data dump.
+    # ROTATION already renders above as ROTATION REGIME inside MARKET
+    # OPEN PLAN, so we drop it from the bottom context too.
+    # Kept: PORTFOLIO (book state), AGENT (auto-trader state),
+    # CONTEXT (working context), TODO_7DAY (calendar). Four blocks of
+    # NATRIX-anchoring context, not twelve of source noise.
     if pack and isinstance(pack, dict):
         parts.append("═══════════════════════════════════════════════════════")
-        parts.append("DAILY CONTEXT — full picture (12 blocks, timestamped, sourced)")
+        parts.append("CONTEXT — book, agent, attention, calendar")
         parts.append("═══════════════════════════════════════════════════════")
         parts.append("")
         for block_name in (
             "PORTFOLIO",
             "AGENT",
-            "ROTATION",
-            "GOAT",
-            "BRAVO",
-            "OPTIONS",
-            "CRYPTO",
-            "POLYMARKET",
-            "PREDICTIONS",
-            "YTC",
             "CONTEXT",
             "TODO_7DAY",
         ):

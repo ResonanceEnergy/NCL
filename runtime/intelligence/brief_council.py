@@ -186,7 +186,8 @@ PREP CONTEXT (light):
     "vix_term_structure": pack.get("vix_term_structure"),
     "economic_calendar": pack.get("economic_calendar"),
     "earnings_today": pack.get("earnings_today"),
-}, default=str)[:3000]}
+    "yesterday_recap": pack.get("yesterday_recap"),
+}, default=str)[:3500]}
 
 Today is {date.today().isoformat()}.
 
@@ -200,6 +201,19 @@ Synthesis rules:
 
 Output ONLY JSON:
 {{
+  "yesterday_recap": {{
+    "headline": "1-line summary — 'Yesterday auto-trader closed N: Xw / Yl for +R total. Top lesson: ...'",
+    "scoreboard": {{
+      "ideas_given": int_or_null,
+      "closes": int,
+      "winners": int,
+      "losers": int,
+      "scratches": int,
+      "total_r": float
+    }},
+    "lesson": "short pattern observed — RVOL won / ETFs lagged / drift on bravo / etc",
+    "drift_flags": ["bravo: DRIFT_DOWN since 5/27"]
+  }},
   "market_open_plan": {{
     "what_to_watch": [
       {{"text": "08:30 ET — ${{event}}, consensus X, prior Y. Above Z = ${{reaction}}", "category": "macro_release|earnings|geopolitical|technical"}},
