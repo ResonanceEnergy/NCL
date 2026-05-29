@@ -190,6 +190,14 @@ def _chair_prompt(pack: dict, members: dict) -> str:
     (your synthesis of the lane) with the key facts the lane data surfaces.
     """
     lanes = pack.get("lanes", {})
+    light_ctx = {
+        "futures": pack.get("futures"),
+        "vix_term_structure": pack.get("vix_term_structure"),
+        "economic_calendar": pack.get("economic_calendar"),
+        "earnings_today": pack.get("earnings_today"),
+        "yesterday_recap": pack.get("yesterday_recap"),
+        "situational_context": pack.get("situational_context"),
+    }
     return f"""You are the CHAIR of NATRIX's daily brief council. Four specialists have submitted findings. Your job is to synthesize them into a brief with EXACTLY 5 SECTIONS IN FIXED ORDER: PORTFOLIO, INTEL, CALENDAR, JOURNAL, MEMORY.
 
 This brief is NOT a market commentary. It is an accumulation of every NCL tab's state, summarized for NATRIX's morning (or afternoon) read. Each section is grounded in the lane's actual data — never fabricate facts the data doesn't support.
@@ -201,14 +209,7 @@ MEMBER OUTPUTS (specialists' analysis to weave into the lanes):
 {json.dumps(members, default=str)[:10000]}
 
 LIGHT PREP CONTEXT (futures, VIX, calendar, recap, situational):
-{json.dumps({{
-    "futures": pack.get("futures"),
-    "vix_term_structure": pack.get("vix_term_structure"),
-    "economic_calendar": pack.get("economic_calendar"),
-    "earnings_today": pack.get("earnings_today"),
-    "yesterday_recap": pack.get("yesterday_recap"),
-    "situational_context": pack.get("situational_context"),
-}}, default=str)[:3000]}
+{json.dumps(light_ctx, default=str)[:3000]}
 
 Today is {date.today().isoformat()}.
 
