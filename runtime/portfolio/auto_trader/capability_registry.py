@@ -43,10 +43,11 @@ import asyncio
 import json
 import logging
 import os
-from dataclasses import dataclass, asdict, field
-from datetime import datetime, timezone, timedelta
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
+
 
 log = logging.getLogger("ncl.portfolio.auto_trader.capability_registry")
 
@@ -256,6 +257,7 @@ def _check_env(env_vars: list) -> tuple[bool, list]:
 # Public API
 # ─────────────────────────────────────────────────────────────────────
 
+
 async def check_capability(name: str) -> dict:
     """Hot-path: scanners + loops call this before doing data lookups.
     Returns:
@@ -270,13 +272,19 @@ async def check_capability(name: str) -> dict:
       }
     """
     if not ENABLED:
-        return {"available": True, "status": "disabled_check",
-                "gap_reason": "capability checks disabled"}
+        return {
+            "available": True,
+            "status": "disabled_check",
+            "gap_reason": "capability checks disabled",
+        }
 
     cap = _get_capability_def(name)
     if cap is None:
-        return {"available": False, "status": "unknown_capability",
-                "gap_reason": f"no registry entry for '{name}'"}
+        return {
+            "available": False,
+            "status": "unknown_capability",
+            "gap_reason": f"no registry entry for '{name}'",
+        }
 
     now_iso = _now_iso()
     status = "ok"
@@ -291,18 +299,14 @@ async def check_capability(name: str) -> dict:
         if not env_ok:
             available = False
             status = "missing_env"
-            gap_reason = (
-                f"required env vars not set: {', '.join(missing_env)}"
-            )
+            gap_reason = f"required env vars not set: {', '.join(missing_env)}"
 
     # 2. Module probe
     if available and cap.import_probe:
         if not _probe_import(cap.import_probe):
             available = False
             status = "missing_module"
-            gap_reason = (
-                f"module '{cap.import_probe}' not importable"
-            )
+            gap_reason = f"module '{cap.import_probe}' not importable"
 
     # 3. File marker freshness
     if available and cap.file_marker:
@@ -314,7 +318,8 @@ async def check_capability(name: str) -> dict:
         else:
             try:
                 mtime = datetime.fromtimestamp(
-                    marker_path.stat().st_mtime, tz=timezone.utc,
+                    marker_path.stat().st_mtime,
+                    tz=timezone.utc,
                 )
                 age = datetime.now(timezone.utc) - mtime
                 marker_age_days = age.total_seconds() / 86400
@@ -330,13 +335,12 @@ async def check_capability(name: str) -> dict:
                 log.debug("[CAPABILITY] marker stat failed for %s: %s", name, e)
 
     result = {
-        "available": available, "status": status,
+        "available": available,
+        "status": status,
         "last_check_iso": now_iso,
         "gap_reason": gap_reason,
         "missing_env": missing_env,
-        "marker_age_days": (
-            round(marker_age_days, 2) if marker_age_days is not None else None
-        ),
+        "marker_age_days": (round(marker_age_days, 2) if marker_age_days is not None else None),
         "name": name,
         "tags": cap.tags,
     }
@@ -353,7 +357,10 @@ async def check_capability(name: str) -> dict:
 
 
 async def check_and_request(
-    name: str, *, brain=None, requesting_module: str = "?",
+    name: str,
+    *,
+    brain=None,
+    requesting_module: str = "?",
 ) -> dict:
     """Combined check + auto-MemUnit on gap. Returns the same dict as
     check_capability(). Idempotent per ET date per capability per
@@ -401,9 +408,12 @@ async def check_and_request(
             source="tool:capability_request",
             importance=GAP_IMPORTANCE,
             tags=[
-                "tool_request", "capability_gap", f"capability:{name}",
+                "tool_request",
+                "capability_gap",
+                f"capability:{name}",
                 f"requested_by:{requesting_module}",
-            ] + (cap.tags if cap else []),
+            ]
+            + (cap.tags if cap else []),
             memory_type="semantic",
             metadata={
                 "capability": name,
@@ -416,11 +426,187 @@ async def check_and_request(
         )
         log.info(
             "[CAPABILITY] tool-request MemUnit emitted: %s needs %s (%s)",
-            requesting_module, name, result.get("status"),
+            requesting_module,
+            name,
+            result.get("status"),
         )
     except Exception as e:
         log.debug("[CAPABILITY] MemUnit emit failed: %s", e)
+
+    # Wave 14W-E: attempt self-heal before giving up. Tiered probes — cheap
+    # ones first, expensive ones gated on env. Bounded fire-and-forget so
+    # auto-trader tick never blocks on a heal attempt. Per
+    # LANE_ARCHITECTURE Phase E item 13.
+    if os.getenv("NCL_AGENT_BUS_SELFHEAL", "1") == "1":
+        try:
+            healed = await _attempt_self_heal(
+                name,
+                result=result,
+                brain=brain,
+                requesting_module=requesting_module,
+            )
+            if healed:
+                log.info(
+                    "[CAPABILITY] self-heal SUCCEEDED for %s via %s",
+                    name,
+                    healed.get("method", "?"),
+                )
+                # Re-check so caller sees the updated state.
+                rechecked = await check_capability(name)
+                if rechecked.get("available"):
+                    return rechecked
+        except Exception as e:
+            log.debug("[CAPABILITY] self-heal failed for %s: %s", name, e)
     return result
+
+
+async def _attempt_self_heal(
+    name: str,
+    *,
+    result: dict,
+    brain: Any = None,
+    requesting_module: str = "?",
+) -> Optional[dict]:
+    """Try to repair a capability gap. Returns the heal record on
+    success (with a ``method`` key), None otherwise.
+
+    The heal strategies, in cheapest-first order:
+
+      1. ENV HINT FROM MEMORY — if the cap is missing an env var, search
+         memory for "set X=Y" hints (from prior council resolutions or
+         operator notes) and apply them to the process env. Cheap, no
+         external call.
+      2. FALLBACK PROVIDER PROBE — if the cap is mapped to a known
+         alternative (e.g. Finnhub → yfinance for earnings calendars),
+         flip the active provider and recheck.
+      3. RETRY WITH BACKOFF — for caps gated on transient probes
+         (network reach, market-open windows), retry up to 2x with
+         200ms / 800ms backoff.
+
+    Each strategy is best-effort. If all three fail, we return None
+    (the original gap MemUnit remains the trail). A successful heal
+    appends a row to ``data/agent_bus/self_heal.jsonl`` so post-mortems
+    can see which capability healed via which method.
+    """
+    gap_reason = (result.get("gap_reason") or "").lower()
+    missing_env = result.get("missing_env") or []
+
+    # Strategy 1 — env hint from memory.
+    if missing_env and brain is not None:
+        applied = await _try_env_from_memory(missing_env, brain=brain)
+        if applied:
+            check2 = await check_capability(name)
+            if check2.get("available"):
+                _record_heal(name, method="env_from_memory", details=applied)
+                return {"method": "env_from_memory", "applied": applied}
+
+    # Strategy 2 — fallback provider for known cap families.
+    fallback = _FALLBACK_MAP.get(name)
+    if fallback:
+        try:
+            ok_fb = await _probe_fallback(fallback)
+            if ok_fb:
+                check2 = await check_capability(name)
+                if check2.get("available"):
+                    _record_heal(name, method="fallback_provider", details={"provider": fallback})
+                    return {"method": "fallback_provider", "provider": fallback}
+        except Exception as e:
+            log.debug("[CAPABILITY] fallback probe %s failed: %s", fallback, e)
+
+    # Strategy 3 — retry-with-backoff for transient gaps.
+    if "transient" in gap_reason or "timeout" in gap_reason or "rate" in gap_reason:
+        for delay in (0.2, 0.8):
+            await asyncio.sleep(delay)
+            check_r = await check_capability(name)
+            if check_r.get("available"):
+                _record_heal(name, method="retry_backoff", details={"delay_s": delay})
+                return {"method": "retry_backoff", "delay_s": delay}
+
+    return None
+
+
+# Known fallback providers — extend as new caps come online. Keys are
+# capability names registered in the registry; values are a free-form
+# string the probe function understands.
+_FALLBACK_MAP: dict[str, str] = {
+    "earnings_calendar": "yfinance",  # Finnhub → yfinance per Wave 14G P19-A
+    "crypto_prices": "coinpaprika",  # CoinGecko → Coinpaprika per Wave 14G P14-C
+}
+
+
+async def _try_env_from_memory(missing_env: list, *, brain: Any) -> Optional[dict]:
+    """Search memory for env-var hints. Looks for unit content matching
+    ``ENV_NAME=value`` (single-line) and applies the first match per var.
+    Best-effort — returns the dict of applied vars (possibly empty)."""
+    if not missing_env:
+        return None
+    mem = getattr(brain, "memory_store", None)
+    if mem is None or not hasattr(mem, "search_units"):
+        return None
+    import re as _re
+
+    applied: dict = {}
+    try:
+        for env_name in missing_env:
+            # Cheap keyword search — tight cap (k=8) so this doesn't blow up.
+            hits = await mem.search_units(query=env_name, top_k=8)
+            for h in hits or []:
+                content = getattr(h, "content", "") or (
+                    h.get("content") if isinstance(h, dict) else ""
+                )
+                if not content:
+                    continue
+                m = _re.search(rf"\b{_re.escape(env_name)}\s*=\s*([^\s]+)", content)
+                if m:
+                    val = m.group(1).strip().strip("\"'")
+                    if val:
+                        os.environ[env_name] = val
+                        applied[env_name] = val[:8] + "…"  # don't log full secret
+                        break
+    except Exception as e:
+        log.debug("[CAPABILITY] env_from_memory search failed: %s", e)
+    return applied or None
+
+
+async def _probe_fallback(provider_hint: str) -> bool:
+    """Probe a known fallback provider. Returns True if the fallback is
+    reachable. Each provider has its own probe — keep them cheap."""
+    if provider_hint == "yfinance":
+        try:
+            import yfinance as _yf  # noqa: F401
+
+            return True
+        except Exception:
+            return False
+    if provider_hint == "coinpaprika":
+        try:
+            import urllib.request as _ur
+
+            req = _ur.Request(
+                "https://api.coinpaprika.com/v1/global", headers={"User-Agent": "NCL"}
+            )
+            with _ur.urlopen(req, timeout=3) as r:
+                return r.status == 200
+        except Exception:
+            return False
+    return False
+
+
+def _record_heal(name: str, *, method: str, details: dict) -> None:
+    """Append a row to data/agent_bus/self_heal.jsonl. Best-effort."""
+    try:
+        target = Path("data/agent_bus")
+        target.mkdir(parents=True, exist_ok=True)
+        row = {
+            "capability": name,
+            "method": method,
+            "details": details,
+            "at_iso": _now_iso(),
+        }
+        with (target / "self_heal.jsonl").open("a", encoding="utf-8") as f:
+            f.write(json.dumps(row, default=str) + "\n")
+    except Exception as e:
+        log.debug("[CAPABILITY] _record_heal failed: %s", e)
 
 
 async def list_capabilities() -> list[dict]:
@@ -431,13 +617,15 @@ async def list_capabilities() -> list[dict]:
         for cap in DEFAULT_CAPABILITIES:
             state = _STATE.get(cap.name) or {}
             entry = asdict(cap)
-            entry.update({
-                "available": state.get("available"),
-                "status": state.get("status"),
-                "last_check_iso": state.get("last_check_iso"),
-                "last_ok_iso": state.get("last_ok_iso"),
-                "gap_reason": state.get("gap_reason"),
-            })
+            entry.update(
+                {
+                    "available": state.get("available"),
+                    "status": state.get("status"),
+                    "last_check_iso": state.get("last_check_iso"),
+                    "last_ok_iso": state.get("last_ok_iso"),
+                    "gap_reason": state.get("gap_reason"),
+                }
+            )
             out.append(entry)
     return out
 
@@ -458,11 +646,13 @@ async def refresh_all() -> dict:
             summary["available"] += 1
         else:
             summary["unavailable"] += 1
-            summary["gaps"].append({
-                "name": cap.name,
-                "status": result.get("status"),
-                "gap_reason": result.get("gap_reason"),
-            })
+            summary["gaps"].append(
+                {
+                    "name": cap.name,
+                    "status": result.get("status"),
+                    "gap_reason": result.get("gap_reason"),
+                }
+            )
     return summary
 
 

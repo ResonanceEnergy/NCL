@@ -326,7 +326,199 @@ async def generate_research_topics(
             len(new_topics),
             len(open_only),
         )
+
+        # Wave 14W-E: fire the auto-deep-dive pipeline for each new topic.
+        # Bounded fire-and-forget — running synchronously would multiply
+        # research_topic generation latency by Sonnet's. Each topic gets
+        # its own background task so they fan out.
+        import asyncio as _asyncio
+        import os as _os
+
+        if _os.getenv("NCL_AGENT_BUS_AUTO_DEEPDIVE", "1") == "1":
+            try:
+                loop = _asyncio.get_event_loop()
+                for t in new_topics:
+                    loop.create_task(auto_deepdive_topic(t))
+            except Exception as _e:
+                log.debug("[SR-TOPICS] auto deep-dive scheduling failed: %s", _e)
+
     return new_topics
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Wave 14W-E — research-topic auto deep dive
+# ─────────────────────────────────────────────────────────────────────
+
+
+async def auto_deepdive_topic(topic: dict) -> dict:
+    """For a freshly-created research topic, fan out:
+      1. memory.fused_search to pull every relevant prior MemUnit
+      2. awarebot.scan_now to bias the next scanner pass toward this topic
+      3. Sonnet 4 synthesis using (1)'s hits + the topic title/rationale
+      4. write the synthesis back as ``resolution_notes`` so the next
+         brief sees it
+
+    Returns a small status dict so a caller (or test) can inspect what
+    happened. Never raises — failures fall through to the next topic.
+
+    Per LANE_ARCHITECTURE Phase E item 11.
+    """
+    topic_id = topic.get("topic_id", "")
+    title = topic.get("title", "")
+    rationale = topic.get("rationale", "")
+
+    try:
+        from ...agent_bus import intel_request as _bus
+    except Exception as e:
+        log.debug("[DEEPDIVE] agent_bus unavailable: %s", e)
+        return {"topic_id": topic_id, "ok": False, "reason": "no_agent_bus"}
+
+    # 1. Pull prior MemUnits via fused search
+    query = f"{title}. {rationale}"
+    fused = await _bus.intel_request(
+        kind=_bus.RequestKind.MEMORY_FUSED_SEARCH,
+        caller=f"self_research:deepdive:{topic_id}",
+        urgency="normal",
+        query=query,
+        max_results=15,
+    )
+    hits = []
+    if fused.ok and isinstance(fused.result, dict):
+        hits = fused.result.get("hits") or []
+
+    # 2. Bias the next scanner pass toward this topic
+    scan_focus = title.replace("Why did ", "").replace("Why is ", "")[:140]
+    await _bus.intel_request(
+        kind=_bus.RequestKind.AWAREBOT_SCAN_NOW,
+        caller=f"self_research:deepdive:{topic_id}",
+        urgency="normal",
+        focus=scan_focus,
+        ttl_minutes=120,
+    )
+
+    # 3. Sonnet synthesis — budget-gated, falls through to a rule-based
+    # summary if the LLM call can't fire.
+    synthesis = await _synthesize_topic_notes(title=title, rationale=rationale, hits=hits)
+
+    # 4. Write back as resolution_notes (stays open=True so NATRIX can
+    # still close manually after reviewing).
+    try:
+        _write_topic_notes(topic_id, synthesis)
+    except Exception as e:
+        log.debug("[DEEPDIVE] write_notes failed for %s: %s", topic_id, e)
+
+    return {
+        "topic_id": topic_id,
+        "ok": True,
+        "memory_hits": len(hits),
+        "synthesis_chars": len(synthesis or ""),
+    }
+
+
+async def _synthesize_topic_notes(*, title: str, rationale: str, hits: list) -> str:
+    """Sonnet 4 synthesis. Budget-gated. Returns a string (possibly
+    empty) — callers must tolerate falsy."""
+    try:
+        from ...cost_tracker import can_spend
+        from ...llm.facade import llm_facade
+    except Exception as e:
+        log.debug("[DEEPDIVE] llm/cost imports failed: %s", e)
+        return _rule_based_topic_notes(title=title, rationale=rationale, hits=hits)
+
+    if not can_spend("anthropic", 0.03):
+        log.info("[DEEPDIVE] budget exhausted — using rule-based notes")
+        return _rule_based_topic_notes(title=title, rationale=rationale, hits=hits)
+
+    # Build a tight context block from the top hits.
+    hit_block_lines: list[str] = []
+    for i, h in enumerate(hits[:10]):
+        if not isinstance(h, dict):
+            continue
+        snippet = (h.get("content") or "")[:250].replace("\n", " ")
+        hit_block_lines.append(
+            f"[{i + 1}] ({h.get('source', '?')}, tier={h.get('tier', '?')}) {snippet}"
+        )
+    hits_text = "\n".join(hit_block_lines) or "(no prior memory hits)"
+
+    prompt = (
+        f"You are NCL's research analyst. The auto-trader's "
+        f"self-research module just surfaced a losing-trade cluster.\n\n"
+        f"TOPIC TITLE: {title}\n"
+        f"RATIONALE: {rationale}\n\n"
+        f"PRIOR MEMORY HITS (top {len(hit_block_lines)}):\n{hits_text}\n\n"
+        "Write a tight 200-300 word synthesis covering:\n"
+        "  1. What the prior memory says about this cluster.\n"
+        "  2. Most-likely root cause (regime, recipe drift, source quality).\n"
+        "  3. 2-3 concrete actions the next brief or council should consider.\n"
+        "  4. One falsifiable hypothesis to test going forward.\n"
+        "Plain prose, no markdown headers."
+    )
+
+    try:
+        out = await llm_facade.complete(
+            model="claude-sonnet-4-20250514",
+            prompt=prompt,
+            max_tokens=600,
+            cost_tag="self_research:deepdive",
+        )
+        text = (out or "").strip() if isinstance(out, str) else ""
+        return text or _rule_based_topic_notes(title=title, rationale=rationale, hits=hits)
+    except Exception as e:
+        log.warning("[DEEPDIVE] sonnet synthesis failed: %s", e)
+        return _rule_based_topic_notes(title=title, rationale=rationale, hits=hits)
+
+
+def _rule_based_topic_notes(*, title: str, rationale: str, hits: list) -> str:
+    """Fallback when Sonnet is unavailable or budget-blocked."""
+    parts: list[str] = []
+    parts.append(f"DEEPDIVE (rule-based fallback) — {title}")
+    parts.append(rationale)
+    if hits:
+        parts.append("")
+        parts.append(f"Found {len(hits)} prior memory items. Top sources:")
+        from collections import Counter
+
+        src_counter: Counter = Counter()
+        for h in hits[:15]:
+            if isinstance(h, dict):
+                src_counter[h.get("source", "?")] += 1
+        for src, n in src_counter.most_common(5):
+            parts.append(f"  - {src}: {n}")
+    else:
+        parts.append("No prior memory hits — cluster is novel.")
+    parts.append("")
+    parts.append(
+        "Next steps: queue an Awarebot focused scan (already fired), "
+        "and consider council review if the cluster persists across the next 5 closes."
+    )
+    return "\n".join(parts)
+
+
+def _write_topic_notes(topic_id: str, notes: str) -> None:
+    """In-place update of resolution_notes for a still-open topic."""
+    if not notes:
+        return
+    if not TOPICS_FILE.exists():
+        return
+    try:
+        raw = json.loads(TOPICS_FILE.read_text())
+        if not isinstance(raw, list):
+            return
+        changed = False
+        for t in raw:
+            if t.get("topic_id") == topic_id:
+                # Append rather than overwrite so multiple deep-dives stack.
+                existing = (t.get("resolution_notes") or "").strip()
+                merged = (existing + "\n\n" + notes).strip() if existing else notes
+                t["resolution_notes"] = merged
+                t["deepdive_at_iso"] = _now_iso()
+                changed = True
+                break
+        if changed:
+            TOPICS_FILE.write_text(json.dumps(raw, indent=2))
+            log.info("[DEEPDIVE] wrote notes for %s (%d chars)", topic_id, len(notes))
+    except Exception as e:
+        log.debug("[DEEPDIVE] _write_topic_notes failed: %s", e)
 
 
 def _load_open_topics() -> list[dict]:

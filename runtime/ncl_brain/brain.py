@@ -271,6 +271,15 @@ class NCLBrain:
 
         self.memory_store = MemoryStore(self.data_dir)
 
+        # Wave 14W-E: register self with the agent_bus singleton so any
+        # caller can fire intel_request(...) without threading a brain ref.
+        try:
+            from ..agent_bus import intel_request as _bus
+
+            _bus.set_brain(self)
+        except Exception as _e:
+            log.debug("[BRAIN] agent_bus.set_brain skipped: %s", _e)
+
         self.scanner = Scanner(
             x_bearer_token=x_bearer_token,
             youtube_api_key=youtube_api_key,
@@ -2292,9 +2301,7 @@ class NCLBrain:
         cls._atomic_write_json(tmp_path, target, payload)
 
     @classmethod
-    def _serialize_and_write_dict(
-        cls, data: dict, tmp_path: Path, target: Path
-    ) -> None:
+    def _serialize_and_write_dict(cls, data: dict, tmp_path: Path, target: Path) -> None:
         """Worker-thread: dict → JSON → atomic write. For pending_dispatches."""
         payload = json.dumps(data, default=str, indent=2)
         cls._atomic_write_json(tmp_path, target, payload)

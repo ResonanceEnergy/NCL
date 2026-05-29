@@ -40,10 +40,11 @@ import asyncio
 import json
 import logging
 import os
-from dataclasses import dataclass, asdict, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+
 
 log = logging.getLogger("ncl.portfolio.auto_trader.drift_detector")
 
@@ -73,15 +74,16 @@ class PHState:
     Either statistic crossing PH_LAMBDA triggers a drift signal, and
     the corresponding statistic resets.
     """
-    n: int = 0                  # total observations
-    running_mean: float = 0.5   # exponential running mean of wins (0/1)
-    m_down: float = 0.0         # cumulative sum for downward drift
-    m_up: float = 0.0           # cumulative sum for upward drift
+
+    n: int = 0  # total observations
+    running_mean: float = 0.5  # exponential running mean of wins (0/1)
+    m_down: float = 0.0  # cumulative sum for downward drift
+    m_up: float = 0.0  # cumulative sum for upward drift
     last_status: str = STABLE
     last_status_iso: Optional[str] = None
     recent_window: list = field(default_factory=list)  # last WINDOW outcomes (1=win)
-    drift_down_count: int = 0   # lifetime DRIFT_DOWN signals
-    drift_up_count: int = 0     # lifetime DRIFT_UP signals
+    drift_down_count: int = 0  # lifetime DRIFT_DOWN signals
+    drift_up_count: int = 0  # lifetime DRIFT_UP signals
     last_drift_iso: Optional[str] = None
     last_drift_reason: str = ""
 
@@ -238,13 +240,52 @@ async def update(
             _append_event(strategy, new_status, s, reason)
             log.warning(
                 "[DRIFT] %s -> %s (n=%d) %s",
-                strategy, new_status, s.n, reason,
+                strategy,
+                new_status,
+                s.n,
+                reason,
             )
 
-        recent_hr = (
-            sum(s.recent_window) / len(s.recent_window)
-            if s.recent_window else 0.0
-        )
+        # Wave 14W-E: on DRIFT_DOWN *transition* (not every tick after),
+        # fire an intel_request(council.spawn) so a contrarian debate
+        # opens. Previously drift terminated at a MemUnit; the agent
+        # never asked the council why the edge dropped. Bounded
+        # fire-and-forget so any failure here can't stall the loop.
+        if (
+            transition
+            and new_status == DRIFT_DOWN
+            and os.getenv("NCL_AGENT_BUS_DRIFT_COUNCIL", "1") == "1"
+        ):
+            try:
+                from ...agent_bus import intel_request as _bus
+
+                # Schedule on the running loop without awaiting; we don't
+                # want the council debate (~30s+) to block outcome attribution.
+                asyncio.get_event_loop().create_task(
+                    _bus.intel_request(
+                        kind=_bus.RequestKind.COUNCIL_SPAWN,
+                        caller=f"auto_trader:drift_detector:{strategy}",
+                        urgency="high",
+                        topic=f"Drift detected on '{strategy}' — why is edge dropping?",
+                        prompt=(
+                            f"The auto-trader's drift detector just flagged "
+                            f"DRIFT_DOWN on strategy '{strategy}'.\n\n"
+                            f"Evidence: {reason}\n\n"
+                            "Debate (i) the most-likely root cause "
+                            "(regime change, recipe degradation, data drift, "
+                            "execution drift), (ii) whether the auto-pause "
+                            "should be lifted after a recovery threshold "
+                            "or the strategy retired, and (iii) one "
+                            "concrete next action to take TODAY."
+                        ),
+                        reason=f"drift_detected:{strategy}",
+                        panel="delphi_mad_4",
+                    )
+                )
+            except Exception as _e:
+                log.debug("[DRIFT] council intel_request failed: %s", _e)
+
+        recent_hr = sum(s.recent_window) / len(s.recent_window) if s.recent_window else 0.0
         return {
             "strategy": strategy,
             "status": new_status,
@@ -264,10 +305,7 @@ async def get_strategy_state(strategy: str) -> Optional[dict]:
         s = _STATE.get(strategy)
         if s is None:
             return None
-        recent_hr = (
-            sum(s.recent_window) / len(s.recent_window)
-            if s.recent_window else 0.0
-        )
+        recent_hr = sum(s.recent_window) / len(s.recent_window) if s.recent_window else 0.0
         d = asdict(s)
         d["recent_hit_rate"] = round(recent_hr, 4)
         return d
@@ -278,10 +316,7 @@ async def all_states() -> dict:
         _load_state()
         out = {}
         for strat, s in _STATE.items():
-            recent_hr = (
-                sum(s.recent_window) / len(s.recent_window)
-                if s.recent_window else 0.0
-            )
+            recent_hr = sum(s.recent_window) / len(s.recent_window) if s.recent_window else 0.0
             d = asdict(s)
             d["recent_hit_rate"] = round(recent_hr, 4)
             out[strat] = d
@@ -304,6 +339,7 @@ async def reset_strategy(strategy: str) -> bool:
 
 # ── Auto-pause hook (K5b) ─────────────────────────────────────────
 
+
 async def maybe_auto_pause(strategy: str, drift_result: dict) -> dict:
     """If drift_result indicates DRIFT_DOWN, set drawdown-style pause
     on AutoTraderState so the loop stops opening new trades. Existing
@@ -317,6 +353,7 @@ async def maybe_auto_pause(strategy: str, drift_result: dict) -> dict:
         return {"paused": False, "reason": "no state transition (already drifting)"}
     try:
         from .state import pause
+
         reason = os.getenv(
             "NCL_DRIFT_AUTOPAUSE_REASON",
             f"K5b auto-pause on DRIFT_DOWN for strategy={strategy} "
@@ -326,7 +363,8 @@ async def maybe_auto_pause(strategy: str, drift_result: dict) -> dict:
         await pause(reason=reason, by="drift_detector")
         log.warning(
             "[DRIFT] AUTO-PAUSED auto-trader due to %s drift: %s",
-            strategy, reason,
+            strategy,
+            reason,
         )
         return {"paused": True, "reason": reason}
     except Exception as e:
