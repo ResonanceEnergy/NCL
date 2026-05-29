@@ -443,8 +443,76 @@ def _render_lane_section(lane_key: str, lane_data: dict, header_label: str, part
             parts.append("")
 
     elif lane_key == "calendar":
+        # Wave 14AA-2 — Ticketmaster concerts first (NATRIX's life
+        # schedule), then sports, then other local events, then
+        # general news, then financial calendar last. This is his
+        # calendar, not just an earnings sheet.
+        concerts = lane_data.get("ticketmaster_today") or []
+        if concerts:
+            parts.append("**CONCERTS & SHOWS TODAY**")
+            for c in concerts[:6]:
+                title = _strip_markdown(c.get("title", ""))
+                venue = _strip_markdown(c.get("description", ""))
+                t = c.get("time") or ""
+                line = title
+                if venue:
+                    line += f" — {venue}"
+                if t:
+                    line += f" ({t})"
+                parts.append(line)
+            parts.append("")
+        sports = lane_data.get("sports_today") or []
+        if sports:
+            parts.append("**SPORTS TODAY**")
+            for s in sports[:4]:
+                title = _strip_markdown(s.get("title", ""))
+                t = s.get("time") or ""
+                parts.append(f"{title}{f' ({t})' if t else ''}")
+            parts.append("")
+        other_local = lane_data.get("local_events_today") or []
+        if other_local:
+            parts.append("**LOCAL EVENTS**")
+            for o in other_local[:6]:
+                title = _strip_markdown(o.get("title", ""))
+                cat = (o.get("category_label") or o.get("category") or "").strip()
+                t = o.get("time") or ""
+                line = title
+                if cat:
+                    line += f" [{cat}]"
+                if t:
+                    line += f" ({t})"
+                parts.append(line)
+            parts.append("")
+        # General news (cultural / world, not market signals — those are INTEL)
+        news = lane_data.get("general_news") or []
+        if news:
+            parts.append("**GENERAL NEWS**")
+            for n in news[:5]:
+                if isinstance(n, dict):
+                    title = _strip_markdown(n.get("title") or n.get("text", ""))
+                    src = n.get("source", "") or n.get("source_name", "")
+                    src_tag = f" ({src})" if src else ""
+                    parts.append(f"{title}{src_tag}")
+                else:
+                    parts.append(_strip_markdown(str(n)))
+            parts.append("")
+        # Financial calendar last
+        earnings = lane_data.get("earnings_today") or []
+        econ = lane_data.get("economic_calendar") or []
+        if earnings or econ:
+            parts.append("**MARKET CALENDAR**")
+            for e in earnings[:5]:
+                title = e.get("ticker") or e.get("symbol") or e.get("title") or ""
+                when = e.get("time", "") or e.get("date_when", "")
+                parts.append(f"Earnings: {title}{f' ({when})' if when else ''}")
+            for e in econ[:5]:
+                title = _strip_markdown(e.get("event") or e.get("title") or "")
+                t = e.get("time_et", "") or e.get("time", "")
+                parts.append(f"{t} — {title}".strip(" —") if t else title)
+            parts.append("")
+        # Legacy fallback (calendar_today block from situational_context)
         ev = lane_data.get("today_events") or []
-        if ev:
+        if ev and not (concerts or sports or other_local):
             parts.append("**TODAY**")
             for e in ev[:8]:
                 if isinstance(e, dict):

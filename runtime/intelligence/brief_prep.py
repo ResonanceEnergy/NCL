@@ -1052,6 +1052,26 @@ async def collect_situational_context(brain) -> dict:
     return out
 
 
+async def collect_local_events(city: str = "edmonton") -> dict:
+    """Wave 14AA-2: pull Ticketmaster + holidays + curated local events
+    from the calendar backend for NATRIX's primary city. Default Edmonton.
+    Returns {today: [], week: []}. Never raises.
+    """
+    from datetime import timedelta
+    out = {"today": [], "week": []}
+    try:
+        from runtime.calendar.local_events import get_local_events  # type: ignore
+        start = date.today()
+        end = start + timedelta(days=7)
+        events = await get_local_events(city, start, end) or []
+        today_str = start.isoformat()
+        out["today"] = [e for e in events if e.get("date") == today_str]
+        out["week"] = events
+    except Exception as e:
+        log.warning("[brief_prep] local_events collector failed: %s", e)
+    return out
+
+
 async def collect_yesterday_recap() -> dict:
     """Wave 14X-1B: NATRIX's closed-loop fix for "the Brief got weak".
 
@@ -1220,16 +1240,43 @@ def _lane_intel(pack: dict) -> dict:
 
 
 def _lane_calendar(pack: dict) -> dict:
-    """CALENDAR lane: time-bound context (events, lunar, market dates)."""
+    """CALENDAR lane: time-bound context per NATRIX directive:
+    Ticketmaster + local events + holidays + market events + lunar — NOT
+    just financial calendar. The calendar IS NATRIX's life schedule, not
+    earnings only.
+    """
     sit = pack.get("situational_context") or {}
     todo = _as_list((pack.get("TODO_7DAY") or {}).get("data"))
+    local = pack.get("local_events_today") or {}
+    local_today = _as_list(local.get("today"))
+    local_week = _as_list(local.get("week"))
+    # Split local events by category for clearer rendering.
+    concerts = [e for e in local_today if (e.get("category") or "").lower() in ("concert", "music")]
+    sports = [e for e in local_today if (e.get("category") or "").lower() in ("sports",)]
+    other_local = [e for e in local_today if e not in concerts and e not in sports]
+    headlines = _as_list(pack.get("headlines"))
+    # Cherry-pick general news headlines for CALENDAR (not market/ticker
+    # signals — those go to INTEL). Heuristic: headlines without a stock
+    # source tag are general news.
+    general_news = [h for h in headlines if not str(h.get("source", "")).startswith("market:")][:6]
     return {
-        "today_events": _as_list(sit.get("calendar_today")),
+        # NATRIX-life events (the original mandate)
+        "ticketmaster_today": concerts[:6],
+        "sports_today": sports[:4],
+        "local_events_today": other_local[:6],
+        "local_events_week": local_week[:10],
+        # General news / cultural
+        "general_news": general_news,
+        # Financial calendar (still useful, secondary)
+        "earnings_today": _as_list(pack.get("earnings_today"))[:6],
+        "economic_calendar": _as_list(pack.get("economic_calendar"))[:6],
+        # Time / energy
         "lunar_phase": sit.get("lunar", {}),
         "tickers_with_event_today": _as_list(sit.get("tickers_with_event_today")),
-        "earnings_today": _as_list(pack.get("earnings_today")),
-        "economic_calendar": _as_list(pack.get("economic_calendar")),
+        # NATRIX's correlated watchlist (Calendar TODO)
         "todo_7day": todo[:10],
+        # Legacy field — keep for back-compat
+        "today_events": _as_list(sit.get("calendar_today")),
     }
 
 
@@ -1449,6 +1496,10 @@ async def build_prep_pack(
         # macro analyst use this so today's brief is grounded in NATRIX's
         # current life context, not just market data.
         "situational_context": await collect_situational_context(brain),
+        # Wave 14AA-2 — Ticketmaster + holidays + local events for NATRIX's
+        # primary city. The CALENDAR lane should be his LIFE schedule, not
+        # just financial calendar (per his directive).
+        "local_events_today": await collect_local_events("edmonton"),
     }
     # Wave 14Y — 5-lane aggregators. NATRIX's vision: every brief is
     # PORTFOLIO / INTEL / CALENDAR / JOURNAL / MEMORY in that fixed order.
