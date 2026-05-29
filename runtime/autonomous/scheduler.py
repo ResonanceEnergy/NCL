@@ -874,6 +874,66 @@ class AutonomousScheduler:
                                  "procedural", "v1.0", "natrix_authority",
                                  "wave_14W_A"],
                     },
+                    # ── Wave 14W-F — Intel sub-tab mandates ───────────────
+                    # Lifts the per-sub-tab mandate into procedural memory so
+                    # the agent + brief executor see the same canonical
+                    # "what is each surface for" that iOS renders as the
+                    # tab subtitle.
+                    {
+                        "name": "AGENDA_MANDATE",
+                        "path": "docs/AGENDA_MANDATE.md",
+                        "source": "intel:agenda_mandate",
+                        "summary": (
+                            "AGENDA sub-tab mandate — what to attend to in "
+                            "the next hour. Working-context items + ≤5 key "
+                            "signals + ≤5 risk items, fed by "
+                            "/intelligence/digest. Decision: where to point "
+                            "Focus/Brief/chat next."
+                        ),
+                        "tags": ["intel", "agenda", "sub_tab_mandate",
+                                 "procedural", "v1.0", "wave_14W_F"],
+                    },
+                    {
+                        "name": "BRIEF_MANDATE",
+                        "path": "docs/BRIEF_MANDATE.md",
+                        "source": "intel:brief_mandate",
+                        "summary": (
+                            "BRIEF sub-tab mandate — flagship pre-market "
+                            "synthesized read with MARKET OPEN PLAN + 6 "
+                            "trade ideas citing signal_ids. Rules 7a-7e + "
+                            "trade_idea_count_target ≥ 4 enforce quality. "
+                            "Decision: take any of the trade ideas."
+                        ),
+                        "tags": ["intel", "brief", "sub_tab_mandate",
+                                 "procedural", "v1.0", "wave_14W_F"],
+                    },
+                    {
+                        "name": "NIGHTWATCH_MANDATE",
+                        "path": "docs/NIGHTWATCH_MANDATE.md",
+                        "source": "intel:nightwatch_mandate",
+                        "summary": (
+                            "NIGHT WATCH sub-tab mandate — overnight ops "
+                            "health log: status (R/Y/G), findings, "
+                            "recommendations, system health, cost. "
+                            "Decision: do I trust today's brief?"
+                        ),
+                        "tags": ["intel", "nightwatch", "sub_tab_mandate",
+                                 "procedural", "v1.0", "wave_14W_F"],
+                    },
+                    {
+                        "name": "FOCUS_MANDATE",
+                        "path": "docs/FOCUS_MANDATE.md",
+                        "source": "intel:focus_mandate",
+                        "summary": (
+                            "FOCUS sub-tab mandate — scored signal stream "
+                            "in 3 time windows (FOCUS<4h, MICRO<24h, "
+                            "MACRO>24h) over the Awarebot pool. "
+                            "Decision: confirm a cluster, pin into Memory, "
+                            "or fire a research card."
+                        ),
+                        "tags": ["intel", "focus", "sub_tab_mandate",
+                                 "procedural", "v1.0", "wave_14W_F"],
+                    },
                 ]
 
                 # Wave 14W-A — fire all 5 ingests in parallel via gather.
