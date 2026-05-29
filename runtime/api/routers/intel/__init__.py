@@ -1462,6 +1462,35 @@ async def fire_morning_brief_pro(
     # 3. Render
     envelope = render_pro_brief(synthesis, pack=pack)
 
+    # 4. Wave 14Z — preserve as a snapshot of today in memory.
+    # NATRIX's mandate: "a document to be preserved in memory as a
+    # snapshot of today for reference". Importance 80 (BRAIN tier)
+    # makes it surface in working-context + search + timeline.
+    try:
+        if brain is not None and hasattr(brain, "memory_store"):
+            from runtime.memory.memory_unit import MemUnit  # type: ignore
+            from runtime.memory.authority import AuthorityTier  # type: ignore
+            text = envelope.get("full_brief") or envelope.get("topics") or ""
+            if text:
+                snapshot = MemUnit(
+                    source="brief:morning_pro",
+                    content_type="reflection",
+                    content=text,
+                    importance=80,
+                    tier="brain",
+                    authority_tier=AuthorityTier.BRAIN.value,
+                    metadata={
+                        "date": envelope.get("date"),
+                        "generated_at": envelope.get("generated_at"),
+                        "lanes_present": list((envelope.get("lanes") or {}).keys()),
+                        "source_kind": "morning_brief_pro_5lane",
+                    },
+                )
+                await brain.memory_store.create_unit(snapshot)
+                logger.info("[brief_pro] snapshot ingested to memory unit_id=%s", snapshot.unit_id)
+    except Exception as e:
+        logger.warning("[brief_pro] memory snapshot ingest failed: %s", e)
+
     return envelope
 
 

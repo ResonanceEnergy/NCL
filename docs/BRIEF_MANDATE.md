@@ -175,19 +175,75 @@ Both fire from `ncl-brief-render` + `ncl-afternoon-debrief` scheduled loops. The
 
 ---
 
-## How to read this brief
+## Presentation format
 
-Every brief begins with a header:
+NATRIX's mandate (2026-05-29 evening):
+
+> "one formatted professional document... written to me as an executive in a professional format... a document to be preserved in memory as a snapshot of today for reference"
+
+The brief is **ONE flowing executive document**, not a structured table dump. Goldman/McKinsey analyst voice. Each section reads as connected prose with clear sub-section markers, not bullet fields.
+
+Every brief begins with a clean header:
 
 ```
-NCL DAILY BRIEF — YYYY-MM-DD
-Generated: ISO timestamp
-PORTFOLIO · INTEL · CALENDAR · JOURNAL · MEMORY
+NCL MORNING BRIEF — YYYY-MM-DD
+Prepared HH:MM:SSZ
 ```
 
-Then 5 sections, each delimited by `═══` block characters and numbered `1 / 5` through `5 / 5`. Each section opens with the chair's narrative paragraph, followed by lane-specific structured fields rendered with `──` sub-headers.
+Then 5 sections in fixed order. Each section header is ALL CAPS on its own line (no ASCII boxes, no numbering, no decoration). Below the header:
 
-On iOS, the BriefLandingCard at the top of the Dashboard shows the AM/PM picker plus 5 tappable tiles. Each tile shows the lane's narrative (first sentence) as a preview. Tapping a tile opens a sheet with the full lane content.
+1. A blank line.
+2. The chair's narrative paragraph for that lane — 2-3 sentences of executive synthesis.
+3. Blank line.
+4. Sub-sections marked with `**BOLD CAPS**` on their own line, followed by flowing prose paragraphs that read as one document.
+
+Example:
+
+```
+NCL MORNING BRIEF — 2026-05-29
+Prepared 21:10:18Z
+
+PORTFOLIO
+
+The auto-trader remained inactive, evaluating no new ideas... [chair narrative]
+
+**YESTERDAY**
+Yesterday auto-trader closed 0 ideas...
+
+**PAPER ACCOUNT**
+Cash position $25,000.00 against 0 open positions, 0 closes today, no realized P&L.
+
+**TODAY'S TRADE IDEAS**
+1. PLTR (stock). Strong gap and sustained momentum...
+   Plan: Entry $157.50, Stop $150.00, Target $170.00, Horizon 1-2 weeks.
+
+**ROTATION REGIME**
+Cycle phase is late_cycle. Weakening sectors are XLV, XLY...
+
+INTEL
+
+Recent YTC reports highlight discussions on cryptocurrency... [chair narrative]
+
+**TOP SIGNALS**
+YTC discussing YouTube Council Report inconsistencies (ytc)
+...
+```
+
+**No ASCII boxes** (`═══`). **No section numbering** (`1 / 5 —`). **No sub-section rules** (`── X ──`). **No bullet-prefix dumps**. Sub-section markers are `**BOLD**` inline only. Sentences end with periods. Paragraphs are connected, not enumerated.
+
+## Memory snapshot (preservation)
+
+Every fired brief is ingested as a **MemUnit** at importance 80 (BRAIN tier) with `source: "brief:morning_pro"`. Metadata includes `date`, `generated_at`, `lanes_present`. This makes the brief:
+- Searchable via `/memory/search/fused?q=<topic>` later
+- Available in working-context salience scoring
+- Visible in the Memory tab's TIMELINE
+- Eligible for retrieval as context in future councils
+
+The brief is therefore a **preserved daily snapshot** — NATRIX can ask "what was the brief on May 29?" and the memory subsystem returns it. The file at `data/morning-brief-pro/YYYY-MM-DD.json` is the canonical persistence; the MemUnit is the searchable index.
+
+## On iOS
+
+The BriefLandingCard at the top of the Dashboard shows the AM/PM picker plus 5 tappable tiles. Each tile shows the lane's narrative (first sentence) as a preview. Tapping a tile opens a sheet with the full lane content — same executive prose format as the persisted text.
 
 ---
 
