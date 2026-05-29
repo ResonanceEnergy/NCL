@@ -243,9 +243,15 @@ async def auto_open_eligible(
         return False, f"price fields not parseable: {e}"
 
     # 5. Stop-type whitelist
+    # Wave 14AA: normalize stop_type — scanners emit variants like
+    # 'atr_2x', 'atr_3x', 'volatility_pct', etc. Match by prefix to the
+    # whitelist root token. This unblocks GOAT_TREND (atr_2x) ideas that
+    # were 100% rejected as "invalid stop_type 'atr_2x'".
     stop_type = idea.get("stop_type")
-    if stop_type and stop_type not in policy.valid_stop_types:
-        return False, f"invalid stop_type {stop_type!r}"
+    if stop_type:
+        root = str(stop_type).split("_")[0].lower()
+        if root not in {t.lower() for t in policy.valid_stop_types}:
+            return False, f"invalid stop_type {stop_type!r}"
 
     # 6. Source citation requirement
     if policy.require_source_citations:

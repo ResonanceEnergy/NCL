@@ -28,6 +28,39 @@ PRO_BRIEF_DIR = NCL_BASE / "data" / "morning-brief-pro"
 
 _MD_PATTERN = re.compile(r"\*\*([^*\n]+?)\*\*|`([^`\n]+)`|^#{1,6}\s+", re.MULTILINE)
 
+# Wave 14AA — sector ETF → industry label map. Per NATRIX directive:
+# "include the industrys the indexes represent XLE (OIL)". Used by the
+# presenter to render `XLE (Energy)` etc. in rotation regime + trade ideas.
+SECTOR_LABELS: dict[str, str] = {
+    "XLE": "Energy",      "XLF": "Financials",   "XLK": "Technology",
+    "XLV": "Healthcare",  "XLI": "Industrials",  "XLP": "Consumer Staples",
+    "XLY": "Consumer Discretionary", "XLB": "Materials",
+    "XLU": "Utilities",   "XLC": "Communications", "XLRE": "Real Estate",
+    "GLD": "Gold",        "SLV": "Silver",       "USO": "Oil Futures",
+    "UNG": "Natural Gas", "ARKK": "Innovation",  "SMH": "Semiconductors",
+    "SOXX": "Semiconductors", "VTI": "Total Market", "VOO": "S&P 500",
+    "VXX": "VIX Futures", "TLT": "20Y Treasuries", "IEF": "10Y Treasuries",
+    "DIA": "Dow 30",      "SPY": "S&P 500",      "QQQ": "Nasdaq 100",
+    "IWM": "Russell 2000", "RSP": "Equal-Weight S&P", "IWD": "Russell Value",
+    "IWF": "Russell Growth",
+}
+
+
+def _label_ticker(t: str) -> str:
+    """Return 'XLE (Energy)' if known sector ETF, else the ticker as-is."""
+    if not t:
+        return t
+    upper = str(t).upper()
+    label = SECTOR_LABELS.get(upper)
+    return f"{upper} ({label})" if label else upper
+
+
+def _label_ticker_list(tickers) -> str:
+    """Comma-separated 'XLE (Energy), XLF (Financials), ...' for list rendering."""
+    if not tickers:
+        return ""
+    return ", ".join(_label_ticker(str(t)) for t in tickers)
+
 
 def _strip_markdown(text: str) -> str:
     """Same strip pass used in Phase 14C — defangs **bold** + #headers + `code`."""
@@ -312,8 +345,10 @@ def _render_lane_section(lane_key: str, lane_data: dict, header_label: str, part
             for i, idea in enumerate(ideas, 1):
                 typ = (idea.get("type") or "stock").lower()
                 ticker = idea.get("ticker", "?")
+                # Wave 14AA: annotate sector ETFs with industry label.
+                labeled = _label_ticker(ticker)
                 thesis = _strip_markdown(idea.get("thesis", ""))
-                parts.append(f"{i}. {ticker} ({typ}). {thesis}")
+                parts.append(f"{i}. {labeled} ({typ}). {thesis}")
                 # Plan parameters as a single inline sentence.
                 plan_bits = []
                 for fld_key, fld_label in (
@@ -338,9 +373,9 @@ def _render_lane_section(lane_key: str, lane_data: dict, header_label: str, part
             if phase:
                 bits.append(f"Cycle phase is {phase}")
             if leaders:
-                bits.append(f"leading sectors are {', '.join(leaders)}")
+                bits.append(f"leading sectors are {_label_ticker_list(leaders)}")
             if weakening:
-                bits.append(f"weakening sectors are {', '.join(weakening)}")
+                bits.append(f"weakening sectors are {_label_ticker_list(weakening)}")
             if breadth is not None:
                 state = "broad" if breadth >= 70 else "narrow" if breadth <= 30 else "neutral"
                 bits.append(f"market breadth is {breadth}% above 50d ({state})")

@@ -220,6 +220,7 @@ SYNTHESIS RULES (apply across all 5 sections):
 4. ETF quota: across the entire brief, AT MOST 1 broad/sector ETF in any "actionable" trade idea (SPY/QQQ/IWM/DIA/XLF/XLK/XLE/XLV/XLI/XLP/XLY/XLB/XLU/XLC/XLRE/GLD/SLV/USO/UNG/ARKK/SMH/SOXX). Rest must be individual names.
 5. Rotation alignment: if the PORTFOLIO lane's rotation_leading_sectors is populated, trade-idea picks should lean WITH the leadership unless labeled "counter-trend" with justification.
 6. Resolve contradictions between members. If macro is bullish but flow is bearish, call it out and lean on the one with better evidence.
+7. PORTFOLIO trade_ideas MUST contain at least 3 stock ideas AND 2 options ideas (5 total minimum). NATRIX's mandate (Wave 14AA): "i want 3 profatable looking stock ideas and 2 options ideas". Stock ideas have type="stock" with entry/stop/target/timeframe. Options ideas have type="options" with structure (e.g. "AAPL Jun 200C", "TSLA Jul 250/270 call vertical"), entry premium, max_risk, target value, timeframe (DTE). Every idea must have a SOURCES citation list.
 
 Output ONLY JSON with EXACTLY these top-level keys, IN THIS ORDER:
 
