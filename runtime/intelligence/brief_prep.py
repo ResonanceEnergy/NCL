@@ -1157,13 +1157,27 @@ async def collect_yesterday_recap() -> dict:
 # ─────────────────────────────────────────────────────────────────────────
 
 
+def _as_list(x) -> list:
+    """Coerce a value into a list. Handles list / dict-with-results / None."""
+    if isinstance(x, list):
+        return x
+    if isinstance(x, dict):
+        # Common scanner shapes: {results: [...]}, {data: [...]}, {items: [...]}
+        for k in ("results", "data", "items", "gainers", "losers", "movers", "edges"):
+            v = x.get(k)
+            if isinstance(v, list):
+                return v
+        return []
+    return []
+
+
 def _lane_portfolio(pack: dict) -> dict:
     """PORTFOLIO lane: TRADERAGENT camp state."""
     agent = (pack.get("AGENT") or {}).get("data") or {}
     portfolio = (pack.get("PORTFOLIO") or {}).get("data") or {}
-    goat = (pack.get("GOAT") or {}).get("data") or []
-    bravo = (pack.get("BRAVO") or {}).get("data") or []
-    options = (pack.get("OPTIONS") or {}).get("data") or []
+    goat = _as_list((pack.get("GOAT") or {}).get("data"))
+    bravo = _as_list((pack.get("BRAVO") or {}).get("data"))
+    options = _as_list((pack.get("OPTIONS") or {}).get("data"))
     rotation = pack.get("rotation_snapshot") or {}
     return {
         "paper_account": agent.get("status", {}) if isinstance(agent, dict) else {},
@@ -1175,9 +1189,9 @@ def _lane_portfolio(pack: dict) -> dict:
         } if isinstance(agent, dict) else {},
         "open_positions_summary": portfolio.get("positions_summary", {}) if isinstance(portfolio, dict) else {},
         "held_positions": pack.get("held_positions", []),
-        "scanner_goat_top": (goat or [])[:5],
-        "scanner_bravo_top": (bravo or [])[:5],
-        "options_flow_top": (options or [])[:5],
+        "scanner_goat_top": goat[:5],
+        "scanner_bravo_top": bravo[:5],
+        "options_flow_top": options[:5],
         "rotation_leading_sectors": rotation.get("leading_quadrant", []) if isinstance(rotation, dict) else [],
         "rotation_breadth_pct": rotation.get("breadth_pct") if isinstance(rotation, dict) else None,
         "yesterday_recap": pack.get("yesterday_recap", {}),
@@ -1186,16 +1200,18 @@ def _lane_portfolio(pack: dict) -> dict:
 
 def _lane_intel(pack: dict) -> dict:
     """INTEL lane: AWAREBOT camp surfaces."""
-    ytc = (pack.get("YTC") or {}).get("data") or []
-    predictions = (pack.get("PREDICTIONS") or {}).get("data") or []
-    poly = (pack.get("POLYMARKET") or {}).get("data") or []
+    ytc = _as_list((pack.get("YTC") or {}).get("data"))
+    predictions = _as_list((pack.get("PREDICTIONS") or {}).get("data"))
+    poly = _as_list((pack.get("POLYMARKET") or {}).get("data"))
     crypto = (pack.get("CRYPTO") or {}).get("data") or {}
+    headlines = _as_list(pack.get("headlines"))
+    poly_leading = _as_list(pack.get("polymarket_leading"))
     return {
-        "ytc_recent_top": (ytc or [])[:5],
-        "predictions_active_top": (predictions or [])[:5],
-        "headlines_top": (pack.get("headlines") or [])[:8],
-        "polymarket_active_leading": (pack.get("polymarket_leading") or [])[:5],
-        "polymarket_edges": (poly or [])[:5],
+        "ytc_recent_top": ytc[:5],
+        "predictions_active_top": predictions[:5],
+        "headlines_top": headlines[:8],
+        "polymarket_active_leading": poly_leading[:5],
+        "polymarket_edges": poly[:5],
         "crypto_movers": crypto if isinstance(crypto, dict) else {},
         "futures": pack.get("futures", {}),
         "vix_term_structure": pack.get("vix_term_structure", {}),
@@ -1206,14 +1222,14 @@ def _lane_intel(pack: dict) -> dict:
 def _lane_calendar(pack: dict) -> dict:
     """CALENDAR lane: time-bound context (events, lunar, market dates)."""
     sit = pack.get("situational_context") or {}
-    todo = (pack.get("TODO_7DAY") or {}).get("data") or []
+    todo = _as_list((pack.get("TODO_7DAY") or {}).get("data"))
     return {
-        "today_events": sit.get("calendar_today", []),
+        "today_events": _as_list(sit.get("calendar_today")),
         "lunar_phase": sit.get("lunar", {}),
-        "tickers_with_event_today": sit.get("tickers_with_event_today", []),
-        "earnings_today": pack.get("earnings_today", []),
-        "economic_calendar": pack.get("economic_calendar", []),
-        "todo_7day": (todo or [])[:10] if isinstance(todo, list) else [],
+        "tickers_with_event_today": _as_list(sit.get("tickers_with_event_today")),
+        "earnings_today": _as_list(pack.get("earnings_today")),
+        "economic_calendar": _as_list(pack.get("economic_calendar")),
+        "todo_7day": todo[:10],
     }
 
 
@@ -1232,13 +1248,18 @@ def _lane_journal(pack: dict) -> dict:
 def _lane_memory(pack: dict) -> dict:
     """MEMORY lane: working context + pinned + themes."""
     wc = pack.get("working_context") or {}
+    if not isinstance(wc, dict):
+        wc = {}
     ctx = (pack.get("CONTEXT") or {}).get("data") or {}
+    pinned = _as_list(wc.get("pinned_priorities"))
+    salience = _as_list(wc.get("top_by_salience"))
+    themes = _as_list(wc.get("themes"))
     return {
-        "pinned_priorities": wc.get("pinned_priorities", [])[:10],
-        "top_by_salience": wc.get("top_by_salience", [])[:10],
-        "themes": wc.get("themes", [])[:8],
-        "total_items": wc.get("total_items", 0),
-        "context_summary": ctx,
+        "pinned_priorities": pinned[:10],
+        "top_by_salience": salience[:10],
+        "themes": themes[:8],
+        "total_items": wc.get("total_items", 0) if isinstance(wc, dict) else 0,
+        "context_summary": ctx if isinstance(ctx, dict) else {},
     }
 
 
