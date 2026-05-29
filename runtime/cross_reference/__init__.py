@@ -63,6 +63,15 @@ _TICKER_STOPLIST = {
     "GDP", "CPI", "FED", "ECB", "BOJ", "PBOC", "EOD", "ATH", "ATL", "YTD",
     "QTD", "MTD", "EPS", "PE", "ROI", "ROE", "EBIT", "EBITDA", "FOMC", "OPEX",
     "NCL",  # us!
+    # Wave 14X-4c (2026-05-29): false-positive tickers seen in real promotions
+    "US", "WE", "AM", "PM", "AI",  # overloaded common words
+    "OK", "NO", "GO", "DO", "BE", "BY", "OR", "IF", "IT", "IS", "IN", "ON",
+    "AS", "AT", "TO", "OF", "UP", "MY", "ME", "SO",
+    "TLDR", "TLDR", "QNA", "FAQ", "AKA", "FYI", "ASAP", "ETA", "EU", "UK",
+    "JP", "CN", "AR", "AF", "BR", "MX", "RU", "IR",  # countries with overlapping symbols
+    "GMT", "EST", "PST", "UTC", "ET", "CT", "MT",
+    "BTC", "ETH",  # too generic for trade-relevant ticker convergence (use specific pairs)
+    "VS", "WP", "PR", "QA",
 }
 
 # Theme keywords for theme-convergence rule (rule 2). Each cluster is a
