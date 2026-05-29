@@ -29,13 +29,21 @@ log = logging.getLogger("ncl.intel.brief_council")
 NCL_BASE = Path(os.environ.get("NCL_BASE", str(Path.home() / "dev" / "NCL")))
 COUNCIL_DIR = NCL_BASE / "data" / "morning-brief-council"
 
-# Model IDs — fall back to Sonnet 4 for members where the specialised
-# model isn't reachable (keeps the council always running).
-_MODEL_MACRO = "claude-sonnet-4-20250514"
-_MODEL_PULSE = "claude-sonnet-4-20250514"  # Grok via xAI key when wired
-_MODEL_FLOW = "claude-sonnet-4-20250514"   # Gemini via Vertex when wired
-_MODEL_TECH = "claude-sonnet-4-20250514"   # GPT via OpenAI when wired
-_MODEL_CHAIR = "claude-sonnet-4-20250514"
+# Wave 14X-2 (2026-05-29): real multi-provider council. The 4-Sonnet
+# placeholder was 5× the cost with zero diversity (4 copies of the same
+# brain debating itself). Now each member runs on a different model
+# family so chair-resolved contradictions reflect real differences in
+# training data + reasoning style, not random sampling noise.
+#
+# Provider routing in _anthropic_call/_xai_call/_openai_call (model
+# prefix decides). Gemini slot is currently a 2nd GPT call (no Google
+# key in .env) — Flow + Tech share OpenAI but with distinct prompts so
+# the chair still sees flow-vs-tactics tension.
+_MODEL_MACRO = "claude-opus-4-20250514"  # heavy macro reasoning
+_MODEL_PULSE = "grok-4"                   # xAI — real-time sentiment, X/news
+_MODEL_FLOW = "gpt-4o"                    # OpenAI — flow analysis
+_MODEL_TECH = "gpt-4o"                    # OpenAI — chart setups (Gemini slot, no Google key yet)
+_MODEL_CHAIR = "claude-opus-4-20250514"  # heaviest synthesis
 
 # How much of the prep pack each member sees (token budget per call).
 _PACK_BUDGET_CHARS = 12000
@@ -295,6 +303,92 @@ async def _anthropic_call(model: str, prompt: str, *, max_tokens: int = 3000,
     return text, in_tok, out_tok
 
 
+# Wave 14X-2 — xAI (Grok) + OpenAI (GPT) call helpers. Both use the
+# OpenAI-compatible chat-completions schema so the body shape is shared.
+async def _xai_call(model: str, prompt: str, *, max_tokens: int = 3000,
+                     timeout_s: float = 60.0, label: str = "council") -> tuple[str, int, int]:
+    """Call xAI (Grok). Same schema as OpenAI chat-completions."""
+    api_key = os.environ.get("XAI_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("XAI_API_KEY not set")
+    import httpx
+    payload = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    async with httpx.AsyncClient(timeout=timeout_s) as client:
+        r = await client.post(
+            "https://api.x.ai/v1/chat/completions",
+            json=payload, headers=headers,
+        )
+        r.raise_for_status()
+        body = r.json()
+    text = (body.get("choices") or [{}])[0].get("message", {}).get("content", "") or ""
+    usage = body.get("usage", {})
+    in_tok = int(usage.get("prompt_tokens", 0))
+    out_tok = int(usage.get("completion_tokens", 0))
+    log.info("[council/%s] %s in=%d out=%d", label, model, in_tok, out_tok)
+    return text, in_tok, out_tok
+
+
+async def _openai_call(model: str, prompt: str, *, max_tokens: int = 3000,
+                        timeout_s: float = 60.0, label: str = "council") -> tuple[str, int, int]:
+    """Call OpenAI chat-completions."""
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY not set")
+    import httpx
+    payload = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    async with httpx.AsyncClient(timeout=timeout_s) as client:
+        r = await client.post(
+            "https://api.openai.com/v1/chat/completions",
+            json=payload, headers=headers,
+        )
+        r.raise_for_status()
+        body = r.json()
+    text = (body.get("choices") or [{}])[0].get("message", {}).get("content", "") or ""
+    usage = body.get("usage", {})
+    in_tok = int(usage.get("prompt_tokens", 0))
+    out_tok = int(usage.get("completion_tokens", 0))
+    log.info("[council/%s] %s in=%d out=%d", label, model, in_tok, out_tok)
+    return text, in_tok, out_tok
+
+
+async def _dispatch_call(model: str, prompt: str, *, max_tokens: int = 3000,
+                          timeout_s: float = 60.0, api_key: str = "",
+                          label: str = "council") -> tuple[str, int, int]:
+    """Wave 14X-2: route by model-name prefix. Anthropic/xAI/OpenAI today;
+    Gemini slot will land when GOOGLE_API_KEY is added."""
+    m = (model or "").lower()
+    if m.startswith("claude-"):
+        return await _anthropic_call(
+            model, prompt, max_tokens=max_tokens, timeout_s=timeout_s,
+            api_key=api_key, label=label,
+        )
+    if m.startswith("grok-"):
+        return await _xai_call(
+            model, prompt, max_tokens=max_tokens, timeout_s=timeout_s, label=label,
+        )
+    if m.startswith("gpt-"):
+        return await _openai_call(
+            model, prompt, max_tokens=max_tokens, timeout_s=timeout_s, label=label,
+        )
+    raise RuntimeError(f"unknown model provider for: {model!r}")
+
+
 def _extract_json(text: str) -> dict:
     """Pull the first JSON object out of an LLM response."""
     import re
@@ -331,7 +425,7 @@ async def _run_member(name: str, prompt_fn, model: str, pack: dict,
     """Run one council member. Returns None on failure (chair handles)."""
     try:
         prompt = prompt_fn(pack)
-        text, _, _ = await _anthropic_call(
+        text, _, _ = await _dispatch_call(
             model, prompt, max_tokens=2200, timeout_s=45.0,
             api_key=api_key, label=name,
         )
@@ -370,7 +464,7 @@ async def run_council(pack: dict, api_key: str = "") -> dict:
         raise RuntimeError("all council members failed")
 
     # Chair synthesis
-    chair_text, chair_in, chair_out = await _anthropic_call(
+    chair_text, chair_in, chair_out = await _dispatch_call(
         _MODEL_CHAIR, _chair_prompt(pack, members),
         max_tokens=4000, timeout_s=90.0, api_key=api_key, label="chair",
     )
