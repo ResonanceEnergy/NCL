@@ -327,9 +327,51 @@ class PaperTradingEngine:
         self._data_dir = base / "paper_trading"
         self._data_dir.mkdir(parents=True, exist_ok=True)
         self._trades_file = self._data_dir / "trades.jsonl"
+        # Wave 14X-5 (2026-05-29): persisted balance so deposits + tracked
+        # NAV survive process restarts. Defaults match prior behavior.
+        self._balance_file = self._data_dir / "balance.json"
         self._trades: Dict[str, PaperTrade] = {}
-        self._account_balance = account_balance or DEFAULT_ACCOUNT_BALANCE
+        self._account_balance = account_balance or self._load_balance() or DEFAULT_ACCOUNT_BALANCE
         self._load_trades()
+
+    def _load_balance(self) -> float:
+        """Wave 14X-5: load persisted balance, 0.0 if none."""
+        try:
+            if self._balance_file.exists():
+                return float(json.loads(self._balance_file.read_text()).get("balance", 0))
+        except Exception as e:
+            logger.warning("paper balance load failed: %s", e)
+        return 0.0
+
+    def _save_balance(self) -> None:
+        """Wave 14X-5: persist balance to disk."""
+        try:
+            self._balance_file.write_text(json.dumps({"balance": self._account_balance}))
+        except Exception as e:
+            logger.warning("paper balance save failed: %s", e)
+
+    def deposit(self, amount: float, note: str = "") -> float:
+        """Wave 14X-5: deposit cash into the paper account (admin op).
+        Positive amount credits, negative debits. Persists immediately.
+        Returns the new balance.
+        """
+        self._account_balance += float(amount)
+        self._save_balance()
+        logger.info(
+            "[PAPER] deposit %+.2f -> new balance %.2f (%s)",
+            amount, self._account_balance, note or "no note",
+        )
+        return self._account_balance
+
+    def set_balance(self, amount: float, note: str = "") -> float:
+        """Wave 14X-5: set absolute balance (admin op). Persists."""
+        self._account_balance = float(amount)
+        self._save_balance()
+        logger.info(
+            "[PAPER] set_balance -> %.2f (%s)",
+            self._account_balance, note or "no note",
+        )
+        return self._account_balance
 
     @property
     def trades(self) -> Dict[str, "PaperTrade"]:

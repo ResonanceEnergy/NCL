@@ -138,6 +138,34 @@ async def create_trade(
         raise HTTPException(status_code=500, detail=f"Trade creation failed: {e}")
 
 
+@router.post("/admin/deposit")
+async def admin_deposit(
+    payload: dict,
+    authorization: str = Header(default=""),
+) -> dict:
+    """Wave 14X-5 (2026-05-29): credit/debit the paper account balance.
+    Body: {amount: float, note?: str, absolute?: bool}.
+    When absolute=true, sets balance to amount; otherwise adds amount.
+    """
+    _verify(authorization)
+    engine = _require_engine()
+    amount = float(payload.get("amount", 0))
+    note = str(payload.get("note", ""))
+    absolute = bool(payload.get("absolute", False))
+    new_balance = (
+        engine.set_balance(amount, note=note)
+        if absolute
+        else engine.deposit(amount, note=note)
+    )
+    return {
+        "status": "ok",
+        "operation": "set_balance" if absolute else "deposit",
+        "amount": amount,
+        "new_balance": new_balance,
+        "note": note,
+    }
+
+
 @router.post("/trade/{trade_id}/close")
 async def close_trade(
     trade_id: str,
