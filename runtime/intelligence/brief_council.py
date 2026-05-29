@@ -399,65 +399,117 @@ async def _gemini_call(model: str, prompt: str, *, max_tokens: int = 3000,
     return text, in_tok, out_tok
 
 
+def _is_credit_or_perm_error(e: Exception) -> bool:
+    """Detect 'no credits / no permission' across providers.
+
+    Wave 14X-4b (2026-05-29): xAI returned 403 + 'used all available credits'
+    when Anthropic also exhausted, so the credit detection needs to cover
+    multiple shapes: 400/402 with 'credit balance' (Anthropic), 403 +
+    'available credits' / 'permission' (xAI), 429 'quota' (Google/OpenAI).
+    """
+    import httpx as _httpx
+    if not isinstance(e, _httpx.HTTPStatusError):
+        return False
+    code = e.response.status_code if e.response is not None else 0
+    body = ""
+    try:
+        body = e.response.text.lower() if e.response is not None else ""
+    except Exception:
+        pass
+    if code in (400, 402) and ("credit balance" in body or "insufficient" in body):
+        return True
+    if code == 403 and ("credit" in body or "permission" in body or "billing" in body
+                         or "spending limit" in body):
+        return True
+    if code == 429 and ("quota" in body or "rate" in body or "credit" in body):
+        return True
+    return False
+
+
 async def _dispatch_call(model: str, prompt: str, *, max_tokens: int = 3000,
                           timeout_s: float = 60.0, api_key: str = "",
                           label: str = "council") -> tuple[str, int, int]:
-    """Wave 14X-2: route by model-name prefix. All 4 providers live.
-
-    Wave 14X-4 (2026-05-29): Grok-4 fallback when Anthropic credits are
-    exhausted. NATRIX's directive: "use grok as back up for claude for
-    now and in future." Detects the 4xx credit-balance error specifically
-    so other Anthropic 4xx errors (rate limit, bad model) still raise.
-    Env knob `NCL_CLAUDE_GROK_FALLBACK=0` to disable.
+    """Wave 14X-4b (2026-05-29): provider-chain fallback when any
+    provider returns a credit/permission error. Order:
+      requested model → Grok-4 → GPT-4o → Gemini 2.5 Flash
+    Skips the requested model in the fallback chain if it's already tried.
+    Env knob NCL_CLAUDE_GROK_FALLBACK=0 disables ALL fallback.
     """
-    import httpx as _httpx  # local — only used in error path
-
     m = (model or "").lower()
-    if m.startswith("claude-"):
-        try:
+
+    # Primary attempt — direct dispatch
+    async def _primary() -> tuple[str, int, int]:
+        if m.startswith("claude-"):
             return await _anthropic_call(
                 model, prompt, max_tokens=max_tokens, timeout_s=timeout_s,
                 api_key=api_key, label=label,
             )
-        except _httpx.HTTPStatusError as e:
-            fallback_enabled = os.environ.get("NCL_CLAUDE_GROK_FALLBACK", "1") != "0"
-            if not fallback_enabled:
-                raise
-            body = ""
-            try:
-                body = e.response.text if e.response is not None else ""
-            except Exception:
-                pass
-            code = e.response.status_code if e.response is not None else 0
-            looks_like_credit = (
-                code in (400, 402)
-                and ("credit balance" in body.lower()
-                     or "billing" in body.lower()
-                     or "insufficient" in body.lower())
+        if m.startswith("grok-"):
+            return await _xai_call(
+                model, prompt, max_tokens=max_tokens, timeout_s=timeout_s, label=label,
             )
-            if looks_like_credit:
-                log.warning(
-                    "[council/%s] Anthropic credit exhausted (HTTP %d) — falling back to grok-4",
-                    label, code,
-                )
-                return await _xai_call(
-                    "grok-4", prompt,
-                    max_tokens=max_tokens, timeout_s=timeout_s, label=f"{label}/grok-fallback",
-                )
+        if m.startswith("gpt-"):
+            return await _openai_call(
+                model, prompt, max_tokens=max_tokens, timeout_s=timeout_s, label=label,
+            )
+        if m.startswith("gemini-"):
+            return await _gemini_call(
+                model, prompt, max_tokens=max_tokens, timeout_s=timeout_s, label=label,
+            )
+        raise RuntimeError(f"unknown model provider for: {model!r}")
+
+    fallback_enabled = os.environ.get("NCL_CLAUDE_GROK_FALLBACK", "1") != "0"
+
+    try:
+        return await _primary()
+    except Exception as e:
+        if not fallback_enabled or not _is_credit_or_perm_error(e):
             raise
-    if m.startswith("grok-"):
-        return await _xai_call(
-            model, prompt, max_tokens=max_tokens, timeout_s=timeout_s, label=label,
+        log.warning(
+            "[council/%s] %s credit/perm error — starting fallback chain",
+            label, model,
         )
-    if m.startswith("gpt-"):
-        return await _openai_call(
-            model, prompt, max_tokens=max_tokens, timeout_s=timeout_s, label=label,
-        )
-    if m.startswith("gemini-"):
-        return await _gemini_call(
-            model, prompt, max_tokens=max_tokens, timeout_s=timeout_s, label=label,
-        )
-    raise RuntimeError(f"unknown model provider for: {model!r}")
+
+    # Fallback chain — skip whichever provider was the primary
+    chain: list[tuple[str, callable]] = []
+    if not m.startswith("grok-"):
+        chain.append(("grok-4", lambda: _xai_call(
+            "grok-4", prompt, max_tokens=max_tokens, timeout_s=timeout_s,
+            label=f"{label}/grok-fb",
+        )))
+    if not m.startswith("gpt-"):
+        chain.append(("gpt-4o", lambda: _openai_call(
+            "gpt-4o", prompt, max_tokens=max_tokens, timeout_s=timeout_s,
+            label=f"{label}/gpt-fb",
+        )))
+    if not m.startswith("gemini-"):
+        chain.append(("gemini-2.5-flash", lambda: _gemini_call(
+            "gemini-2.5-flash", prompt, max_tokens=max_tokens, timeout_s=timeout_s,
+            label=f"{label}/gemini-fb",
+        )))
+
+    last_err: Exception = RuntimeError("no fallback providers tried")
+    for fb_model, fb_call in chain:
+        try:
+            log.info("[council/%s] trying fallback %s", label, fb_model)
+            return await fb_call()
+        except Exception as fb_err:
+            last_err = fb_err
+            if not _is_credit_or_perm_error(fb_err):
+                log.warning(
+                    "[council/%s] fallback %s failed (non-credit): %s",
+                    label, fb_model, fb_err,
+                )
+                # On a non-credit error, keep trying next in chain anyway
+                # since the original model is also dead — better to attempt.
+            else:
+                log.warning(
+                    "[council/%s] fallback %s also credit-exhausted",
+                    label, fb_model,
+                )
+    raise RuntimeError(
+        f"all providers exhausted (primary={model}, last_err={last_err!r})"
+    )
 
 
 def _extract_json(text: str) -> dict:
