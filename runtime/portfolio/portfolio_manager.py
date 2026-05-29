@@ -184,15 +184,24 @@ class PortfolioManager:
             else:
                 logger.info("Adapter %s connected", name)
 
+        # Wave 14V V2 — launch background loop FIRST so the 20s lifespan
+        # timeout that kills start() (when initial sync is slow) can't
+        # prevent the bg sync from ever running. The bg loop is the only
+        # thing keeping positions/quotes fresh; without it Portfolio tab
+        # shows $0 indefinitely.
+        self._running = True
+        self._bg_task = asyncio.create_task(self._background_sync_loop())
+        logger.info(
+            "PortfolioManager bg loop launched — %d adapters active",
+            self._connected_count(),
+        )
+
         # Initial sync — best-effort; do not let a failing sync abort startup
         try:
             await self.sync()
         except Exception:
             logger.exception("Initial portfolio sync failed — background loop will retry")
 
-        # Start background loop
-        self._running = True
-        self._bg_task = asyncio.create_task(self._background_sync_loop())
         logger.info("PortfolioManager started — %d adapters active", self._connected_count())
 
     async def stop(self) -> None:
@@ -908,3 +917,19 @@ class PortfolioManager:
             "market_open": _is_market_open(),
             "background_sync": self._running,
         }
+
+
+# ── Wave 14V V2 — module-level accessor for brief_prep + auto-trader ──
+
+def get_portfolio_manager() -> Optional["PortfolioManager"]:
+    """Return the live PortfolioManager singleton (or None pre-lifespan).
+
+    brief_prep + auto-trader use this instead of constructing their own
+    PortfolioManager (which would not be connected). The singleton is
+    set by the FastAPI lifespan in runtime/api/routes.py.
+    """
+    try:
+        from runtime.api.routers.portfolio import _portfolio_manager as _pm
+        return _pm
+    except Exception:
+        return None

@@ -248,15 +248,42 @@ class MemoryDashboardBridge:
         if cap > 0:
             from collections import Counter
 
+            # Wave 14V V5 — collapse source families so the cap applies
+            # to a prefix bucket, not just an exact match. Without this,
+            # 7 cities × awarebot:city_events:* × 5/source = 35 city-events
+            # entries still dominate the timeline. Configurable via
+            # NCL_TIMELINE_SOURCE_PREFIXES (comma-separated, no spaces).
+            family_prefixes = [
+                p.strip() for p in
+                os.getenv(
+                    "NCL_TIMELINE_SOURCE_PREFIXES",
+                    "awarebot:city_events:,awarebot:reddit:,awarebot:youtube:,"
+                    "awarebot:news:,awarebot:x_twitter:,portfolio:",
+                ).split(",")
+                if p.strip()
+            ]
+
+            def _family_key(source: str) -> str:
+                """Collapse e.g. awarebot:city_events:calgary →
+                awarebot:city_events:* so all city events share one cap."""
+                if not source:
+                    return "_unknown"
+                for pfx in family_prefixes:
+                    if source.startswith(pfx):
+                        return pfx + "*"
+                return source
+
             seen: Counter = Counter()
             kept: list[dict] = []
             overflow: list[dict] = []
             for ev in events:
                 # Non-creation events (access / decay_warning) don't have a
                 # source attached, so they bypass the cap.
-                key = ev.get("source") if ev.get("type") == "created" else "_synthetic"
-                if key is None:
-                    key = "_unknown"
+                if ev.get("type") == "created":
+                    src = ev.get("source") or "_unknown"
+                    key = _family_key(src)
+                else:
+                    key = "_synthetic"
                 if seen[key] < cap or key == "_synthetic":
                     kept.append(ev)
                     seen[key] += 1

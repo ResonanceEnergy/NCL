@@ -151,12 +151,16 @@ class JournalStore:
         self._stats["entries_today"] += 1
         self._stats["last_entry"] = datetime.now(timezone.utc).isoformat()
 
-        # Bridge to memory store — journal entries become long-term memory
-        await self._bridge_to_memory(entry)
-
-        # Inject into working context if high importance
+        # Wave 14V V1 — fire-and-forget the memory bridge + working-context
+        # inject so the HTTP request returns immediately. Same pattern as
+        # Wave 14E morning_quiz fix: these awaits could park 20s+ on a
+        # busy brain because _bridge_to_memory ultimately blocks on the
+        # async memory store lock. Entry is already persisted to JSONL
+        # above — bridging to memory is a derivative side effect.
+        import asyncio as _asyncio
+        _asyncio.create_task(self._bridge_to_memory(entry))
         if entry.importance >= 60 and self.working_context:
-            await self._inject_to_context(entry)
+            _asyncio.create_task(self._inject_to_context(entry))
 
         log.info(
             f"Journal entry created: {entry.entry_id} ({entry.entry_type.value}) "

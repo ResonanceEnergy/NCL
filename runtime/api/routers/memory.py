@@ -78,6 +78,7 @@ DI factory was added to ``runtime.api.deps`` to back this conversion.
 
 from __future__ import annotations  # noqa: I001
 
+import asyncio
 import json
 import logging
 import os
@@ -261,6 +262,55 @@ async def search_memory_fused(
     if importance_threshold > 0:
         results = [r for r in results if r.get("importance", 0) >= importance_threshold]
 
+    # Wave 14V V7 — project tier + signal_id onto every fused result by
+    # looking up the source MemUnit. Previously these came back null on
+    # every row because FusedRetriever ranks on score and dropped tag/
+    # metadata projection. iOS Memory→Search Smart mode + Intel pin chip
+    # both need these fields populated.
+    def _project_unit_fields(r: dict) -> dict:
+        unit_id = r.get("unit_id") or r.get("id")
+        unit = None
+        if unit_id and hasattr(store, "_units"):
+            unit = store._units.get(unit_id)
+        if unit is None:
+            return r
+        # Authority tier name (already on some rows; backfill where missing)
+        if not r.get("authority_tier_name"):
+            tier_val = getattr(unit, "authority_tier", None)
+            if tier_val:
+                # Try the enum's .name or .value, else stringify
+                tname = (getattr(tier_val, "name", None)
+                         or getattr(tier_val, "value", None)
+                         or str(tier_val))
+                r["authority_tier_name"] = (
+                    tname.lower() if isinstance(tname, str) else str(tname).lower()
+                )
+                r["authority_tier"] = int(getattr(tier_val, "value", 0) or 0)
+        # `tier` field iOS reads — focused/micro/macro for Awarebot signals,
+        # or authority tier name as a fallback so the chip always renders
+        if not r.get("tier"):
+            meta = getattr(unit, "metadata", None) or {}
+            r["tier"] = (
+                meta.get("route_level")
+                or meta.get("tier")
+                or r.get("authority_tier_name")
+                or "memory"
+            )
+        # signal_id — Awarebot units stash this under metadata
+        if not r.get("signal_id"):
+            meta = getattr(unit, "metadata", None) or {}
+            r["signal_id"] = (
+                meta.get("signal_id")
+                or meta.get("sig_id")
+                or (unit_id[:8] if unit_id else None)
+            )
+        # Source + ticker hint if available
+        if not r.get("source") and getattr(unit, "source", None):
+            r["source"] = unit.source
+        return r
+
+    results = [_project_unit_fields(r) for r in results]
+
     bm25_stats = store._bm25_index.stats() if getattr(store, "_bm25_index", None) else {}
     return {
         "query": q,
@@ -376,16 +426,61 @@ async def query_knowledge_graph_entity(
 
 @router.get("/memory/knowledge-graph/top-entities")
 async def get_top_entities(
-    n: int = Query(default=20, ge=1, le=100),
+    n: int = Query(default=20, ge=1, le=200),
+    limit: int | None = Query(default=None, ge=1, le=200),
+    include_noise: bool = Query(default=False),
     brain=Depends(get_brain),
     _: None = Depends(verify_strike_token_dep),
 ) -> dict:
-    """Get top entities by mention count."""
+    """Get top entities by mention count.
+
+    Wave 14V V4:
+      - Accepts either ?n= or ?limit= (iOS sends limit; legacy callers
+        sent n). Previously only n worked → iOS always got default 20.
+      - Filters KG noise entities by default (Council Report, Key Insights,
+        $-prefixed tokens, generic descriptors). Pass include_noise=true
+        to disable.
+    """
     kg = getattr(brain.memory_store, "_knowledge_graph", None) if brain else None
     if not kg:
         return {"entities": []}
-    entities = await kg.get_top_entities(n=n)
-    return {"entities": entities}
+    # Honor either param; limit wins if both supplied (matches iOS contract)
+    effective_n = int(limit) if limit is not None else int(n)
+    # Over-fetch to allow noise filter to keep effective_n after drop
+    fetch_n = effective_n * 3 if not include_noise else effective_n
+    entities = await kg.get_top_entities(n=fetch_n)
+
+    NOISE_EXACT = {
+        "Council Report", "Key Insights", "Top Insights",
+        "Key Findings", "Report", "Summary", "Analysis",
+        "Council", "Brief", "Update", "Insights",
+        "Top Signals", "Key Movements", "Executive Summary",
+        "YouTube Council", "AI", "Today", "Yesterday",
+    }
+    NOISE_PREFIX = ("$",)  # $AI, $TSLA-as-mention etc
+
+    def _is_noise(e: dict) -> bool:
+        name = str(e.get("name") or e.get("entity") or "").strip()
+        if not name:
+            return True
+        if name in NOISE_EXACT:
+            return True
+        for p in NOISE_PREFIX:
+            if name.startswith(p):
+                return True
+        return False
+
+    if include_noise:
+        filtered = entities[:effective_n]
+    else:
+        filtered = [e for e in entities if not _is_noise(e)][:effective_n]
+
+    return {
+        "entities": filtered,
+        "requested": effective_n,
+        "returned": len(filtered),
+        "noise_filtered": (not include_noise),
+    }
 
 
 @router.get("/memory/knowledge-graph/path")
@@ -1004,6 +1099,24 @@ async def pin_working_context_item(
             return {"status": "pinned", "item_id": target_id, "promoted": False}
 
     content = (payload.get("content") or payload.get("title") or "").strip()
+
+    # Wave 14V V3 — auto-promote with a placeholder when an item_id is
+    # given that is NOT in working_context AND no content payload was
+    # supplied. iOS pin-from-search and Intel-tab pin chip both used
+    # to 404 here; now a tracking pin record is created so the user's
+    # intent is honored. Content can be backfilled by the caller via
+    # POST /memory/working-context/promote (legacy path) or on
+    # subsequent edit. Skip the MemoryStore lookup entirely — with 24K
+    # units the JSONL replay times out the pin endpoint.
+    if not content and target_id:
+        lookup_id = target_id
+        if lookup_id.startswith("signal:"):
+            lookup_id = lookup_id.split(":", 1)[1]
+        content = f"Pinned reference: {lookup_id[:60]}"
+        payload.setdefault("source", "pin:auto_promote")
+        payload.setdefault("tags", ["pin", "auto_promoted"])
+        log.info("[PIN] auto-promote placeholder for unit_id=%s", lookup_id)
+
     if not content:
         raise HTTPException(
             status_code=404,
