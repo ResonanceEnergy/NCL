@@ -402,13 +402,49 @@ async def _gemini_call(model: str, prompt: str, *, max_tokens: int = 3000,
 async def _dispatch_call(model: str, prompt: str, *, max_tokens: int = 3000,
                           timeout_s: float = 60.0, api_key: str = "",
                           label: str = "council") -> tuple[str, int, int]:
-    """Wave 14X-2: route by model-name prefix. All 4 providers live."""
+    """Wave 14X-2: route by model-name prefix. All 4 providers live.
+
+    Wave 14X-4 (2026-05-29): Grok-4 fallback when Anthropic credits are
+    exhausted. NATRIX's directive: "use grok as back up for claude for
+    now and in future." Detects the 4xx credit-balance error specifically
+    so other Anthropic 4xx errors (rate limit, bad model) still raise.
+    Env knob `NCL_CLAUDE_GROK_FALLBACK=0` to disable.
+    """
+    import httpx as _httpx  # local — only used in error path
+
     m = (model or "").lower()
     if m.startswith("claude-"):
-        return await _anthropic_call(
-            model, prompt, max_tokens=max_tokens, timeout_s=timeout_s,
-            api_key=api_key, label=label,
-        )
+        try:
+            return await _anthropic_call(
+                model, prompt, max_tokens=max_tokens, timeout_s=timeout_s,
+                api_key=api_key, label=label,
+            )
+        except _httpx.HTTPStatusError as e:
+            fallback_enabled = os.environ.get("NCL_CLAUDE_GROK_FALLBACK", "1") != "0"
+            if not fallback_enabled:
+                raise
+            body = ""
+            try:
+                body = e.response.text if e.response is not None else ""
+            except Exception:
+                pass
+            code = e.response.status_code if e.response is not None else 0
+            looks_like_credit = (
+                code in (400, 402)
+                and ("credit balance" in body.lower()
+                     or "billing" in body.lower()
+                     or "insufficient" in body.lower())
+            )
+            if looks_like_credit:
+                log.warning(
+                    "[council/%s] Anthropic credit exhausted (HTTP %d) — falling back to grok-4",
+                    label, code,
+                )
+                return await _xai_call(
+                    "grok-4", prompt,
+                    max_tokens=max_tokens, timeout_s=timeout_s, label=f"{label}/grok-fallback",
+                )
+            raise
     if m.startswith("grok-"):
         return await _xai_call(
             model, prompt, max_tokens=max_tokens, timeout_s=timeout_s, label=label,
