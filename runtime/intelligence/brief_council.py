@@ -195,7 +195,8 @@ PREP CONTEXT (light):
     "economic_calendar": pack.get("economic_calendar"),
     "earnings_today": pack.get("earnings_today"),
     "yesterday_recap": pack.get("yesterday_recap"),
-}, default=str)[:3500]}
+    "situational_context": pack.get("situational_context"),
+}, default=str)[:4000]}
 
 Today is {date.today().isoformat()}.
 

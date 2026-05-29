@@ -962,6 +962,96 @@ async def _collect_todo_7day(brain) -> dict:
         return {"items": [], "count": 0, "error": str(e)}
 
 
+async def collect_situational_context(brain) -> dict:
+    """Wave 14X-Y Phase 1B-4 (2026-05-29) — assemble NATRIX's situational
+    awareness for the morning brief + AWAREBOT scoring.
+
+    Returns:
+      {
+        "lunar": {phase_name, energy_mode, day_of_cycle},
+        "calendar_today": [...],       # events on today's calendar
+        "tickers_with_event_today": [...],
+        "journal_posture": {            # from morning quiz
+            "priority": str, "research_question": str, "lesson": str
+        },
+        "tickers_in_journal_today": [...],
+      }
+
+    Never raises — degrades to empty blocks if subsystems are missing.
+    """
+    import re as _re
+
+    out: dict = {
+        "lunar": {},
+        "calendar_today": [],
+        "tickers_with_event_today": [],
+        "journal_posture": {},
+        "tickers_in_journal_today": [],
+    }
+
+    # Lunar (pure ephemeris)
+    try:
+        from runtime.calendar.lunar import get_moon_phase
+        moon = get_moon_phase() or {}
+        out["lunar"] = {
+            "phase_name": moon.get("phase_name"),
+            "energy_mode": moon.get("energy_mode"),
+            "day_of_cycle": moon.get("day_of_cycle"),
+        }
+    except Exception as e:
+        log.debug("[brief_prep] lunar collector failed: %s", e)
+
+    # Today's calendar events (FOMC, OPEX, earnings) — read via watchlist
+    try:
+        from runtime.calendar.watchlist import build_watchlist
+        todos = await build_watchlist(brain_client=brain) or []
+        today_iso = date.today().isoformat()
+        today_events = [
+            t for t in todos
+            if isinstance(t, dict) and (t.get("date", "") or "").startswith(today_iso)
+        ][:10]
+        out["calendar_today"] = [
+            {"title": t.get("title", ""), "category": t.get("category", "")}
+            for t in today_events
+        ]
+        # Ticker extraction from event titles
+        tx: set[str] = set()
+        for t in today_events:
+            for m in _re.finditer(r"\$([A-Z]{1,5})", t.get("title", "")):
+                tx.add(m.group(1))
+        out["tickers_with_event_today"] = sorted(tx)
+    except Exception as e:
+        log.debug("[brief_prep] calendar today collector failed: %s", e)
+
+    # Today's morning quiz (NATRIX's stated posture)
+    try:
+        from runtime.journal.morning_quiz import load_today_quiz
+        q = load_today_quiz() or {}
+        if q:
+            out["journal_posture"] = {
+                "priority": q.get("top_priority", ""),
+                "research_question": q.get("research_question", ""),
+                "lesson": q.get("lesson_from_yesterday", ""),
+            }
+            # Ticker extraction from quiz text
+            txt = " ".join([
+                q.get("top_priority", ""),
+                q.get("research_question", ""),
+                q.get("lesson_from_yesterday", ""),
+                q.get("posture", ""),
+            ])
+            tj: set[str] = set()
+            for m in _re.finditer(r"\$?([A-Z]{2,5})\b", txt):
+                tok = m.group(1)
+                if tok not in {"THE", "AND", "USD", "ETF", "VIX", "CPI", "FOMC"}:
+                    tj.add(tok)
+            out["tickers_in_journal_today"] = sorted(tj)
+    except Exception as e:
+        log.debug("[brief_prep] journal posture collector failed: %s", e)
+
+    return out
+
+
 async def collect_yesterday_recap() -> dict:
     """Wave 14X-1B: NATRIX's closed-loop fix for "the Brief got weak".
 
@@ -1214,6 +1304,11 @@ async def build_prep_pack(
         # got weak" diagnosis was structural — the system never showed
         # "here's what happened to yesterday's calls" before giving today's.
         "yesterday_recap": await collect_yesterday_recap(),
+        # Wave 14X-Y Phase 1B-4 — situational awareness: lunar + today's
+        # calendar events + NATRIX's morning quiz posture. Both chair and
+        # macro analyst use this so today's brief is grounded in NATRIX's
+        # current life context, not just market data.
+        "situational_context": await collect_situational_context(brain),
     }
     pack["elapsed_s"] = round(time.time() - started, 1)
 

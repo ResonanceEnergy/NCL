@@ -76,7 +76,12 @@ W_FRESHNESS = 0.20  # How recent
 W_CROSS_SOURCE = 0.15  # Multi-source confirmation
 W_SOURCE_CONFIDENCE = 0.15  # Source authority
 W_ACTIONABILITY = 0.10  # Can NATRIX act on this
-W_NOVELTY = 0.10  # New information vs seen before
+W_NOVELTY = 0.05  # New information vs seen before (was 0.10, halved Wave 14X-Y to make room for SITUATIONAL)  # noqa: E501
+# Wave 14X-Y Phase 1B-4 (2026-05-29): 7th factor — situational relevance.
+# Boosts signals matching NATRIX's current life/time context (today's
+# calendar events, journal posture, lunar phase, market regime). 5% weight
+# so it nudges ranking on ties without overwhelming the other factors.
+W_SITUATIONAL_RELEVANCE = 0.05
 
 # Routing thresholds (step-function)
 # Wave 14W-B (INTEL_MANDATE §4): HIGH band lifted 0.55 → 0.65 because
@@ -331,14 +336,16 @@ def compute_composite_score(
     authority: float,
     freshness: float = 0.5,
     cross_source: float = 0.0,
+    situational: float = 0.0,  # Wave 14X-Y Phase 1B-4 — 7th factor
 ) -> float:
     """
-    Compute weighted composite score from six factors.
+    Compute weighted composite score from seven factors.
 
     Pure function — no side effects, fully deterministic.
 
     Weights: context_relevance 30%, freshness 20%, cross_source 15%,
-             source_confidence 15%, actionability 10%, novelty 10%
+             source_confidence 15%, actionability 10%, novelty 5%,
+             situational 5% (Wave 14X-Y).
 
     Returns:
         Composite score in [0.0, 1.0]
@@ -350,8 +357,51 @@ def compute_composite_score(
         + W_SOURCE_CONFIDENCE * min(1.0, max(0.0, authority))
         + W_ACTIONABILITY * min(1.0, max(0.0, actionability))
         + W_NOVELTY * min(1.0, max(0.0, novelty))
+        + W_SITUATIONAL_RELEVANCE * min(1.0, max(0.0, situational))
     )
     return round(min(1.0, max(0.0, score)), 4)
+
+
+def compute_situational_relevance(
+    signal_text: str,
+    tickers_in_journal_today: Optional[set[str]] = None,
+    tickers_with_calendar_event_today: Optional[set[str]] = None,
+    morning_quiz_focus: Optional[str] = None,
+) -> float:
+    """Wave 14X-Y Phase 1B-4: score how much a signal matches NATRIX's
+    current time/life situation. 0 → no match, 1 → strong match.
+
+    Pure stateless helper — caller assembles the context. Used by the
+    Awarebot scorer + can be reused elsewhere.
+    """
+    if not signal_text:
+        return 0.0
+    text = signal_text.lower()
+    score = 0.0
+
+    # Ticker mentioned by NATRIX in today's journal/quiz → strong match
+    if tickers_in_journal_today:
+        for t in tickers_in_journal_today:
+            if t.lower() in text:
+                score += 0.5
+                break
+
+    # Ticker has an event on today's calendar (earnings / FOMC ticker watch) → strong
+    if tickers_with_calendar_event_today:
+        for t in tickers_with_calendar_event_today:
+            if t.lower() in text:
+                score += 0.4
+                break
+
+    # Morning quiz priority keywords match → moderate
+    if morning_quiz_focus:
+        focus_words = [w.lower() for w in morning_quiz_focus.split() if len(w) > 3]
+        for w in focus_words:
+            if w in text:
+                score += 0.2
+                break
+
+    return min(1.0, score)
 
 
 def classify_route_level(composite_score: float) -> str:
