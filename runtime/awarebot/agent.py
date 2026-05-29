@@ -79,8 +79,14 @@ W_ACTIONABILITY = 0.10  # Can NATRIX act on this
 W_NOVELTY = 0.10  # New information vs seen before
 
 # Routing thresholds (step-function)
+# Wave 14W-B (INTEL_MANDATE §4): HIGH band lifted 0.55 → 0.65 because
+# the prior threshold was capturing 60% of signals — band lost
+# discrimination. Combined with B2 (google_trends authority cap), B3
+# (news source retired), B4 (city_events disabled), HIGH band is
+# restored to ~30-40% of routed traffic, what it was originally
+# designed to surface.
 THRESHOLD_CRITICAL = 0.75
-THRESHOLD_HIGH = 0.55
+THRESHOLD_HIGH = float(os.getenv("NCL_AWAREBOT_HIGH_THRESHOLD", "0.65"))
 THRESHOLD_MEDIUM = 0.30
 # Below THRESHOLD_MEDIUM = LOW → log only
 
@@ -635,8 +641,15 @@ def compute_authority(source: str, metadata: dict[str, Any]) -> float:
     Reddit gets a tier-based boost: Tier 1 subs (+0.15), Tier 2 (+0.08)
     to reflect their higher signal quality for financial intelligence.
     """
+    # Wave 14W-B (INTEL_MANDATE §3):
+    #   - google_trends 0.8 → 0.4: popularity signal, NOT editorial.
+    #     A spike in "denzel washington" should not score HIGH; the
+    #     trend itself doesn't carry a directional opinion.
+    #   - news 0.7 stays — but the source itself is RETIRED in B3
+    #     because it had no own queries and structurally inflated
+    #     cross-source on every topical hit.
     base_authority = {
-        "google_trends": 0.8,
+        "google_trends": float(os.getenv("NCL_AUTH_GOOGLE_TRENDS", "0.4")),
         "polymarket": 0.85,
         "crypto": 0.6,
         "unusual_whales": 0.75,
@@ -1121,29 +1134,50 @@ class Awarebot:
         # composite (context_relevance, freshness, cross_source, source_confidence,
         # actionability, novelty) and tier routing. Low-value signals are filtered
         # by the scoring thresholds, not by disabling sources.
+        # Wave 14W-B (INTEL_MANDATE §3):
+        # - news: RETIRED — had no own queries; fanned top-3 from each
+        #   watch-source which structurally inflated cross-source on every
+        #   topical hit. The brief pipeline + reddit/youtube/x/polymarket
+        #   already cover newsworthy items.
+        # - city_events: MOVED TO CALENDAR LANE — community events are
+        #   not intel; Calendar lane owns them via runtime/calendar/
+        #   local_events.py + the existing 7-city per-source pipeline.
+        # Both can be re-enabled with NCL_AWAREBOT_NEWS_ENABLED=1 /
+        # NCL_AWAREBOT_CITY_EVENTS_ENABLED=1 if rollback needed.
+        _news_on = os.getenv("NCL_AWAREBOT_NEWS_ENABLED", "0") == "1"
+        _city_on = os.getenv("NCL_AWAREBOT_CITY_EVENTS_ENABLED", "0") == "1"
         tasks = [
             self._collect_social(),  # X + Reddit + YouTube
             self._collect_google_trends(),  # Google Trends
             self._collect_polymarket(),  # Prediction markets
-            self._collect_news(),  # NewsAPI / GNews / RSS
+            # self._collect_news(),  # RETIRED Wave 14W-B — see note above
             # self._collect_crypto(),           # DISABLED — CoinGecko rate limiting
             self._collect_unusual_whales(),  # Options flow / dark pool / congress
             self._collect_council_reports(),  # council report ingestion
-            self._collect_city_events(),  # Per-city fun-finder (1h throttle)
+            # self._collect_city_events(),  # MOVED TO CALENDAR LANE Wave 14W-B
         ]
+        if _news_on:
+            tasks.append(self._collect_news())
+        if _city_on:
+            tasks.append(self._collect_city_events())
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         for i, result in enumerate(results):
+            # Wave 14W-B: dynamic source_names list reflects the actual
+            # tasks tuple (news + city_events appended only when their
+            # env gates flip back on)
             source_names = [
                 "social",
                 "google_trends",
                 "polymarket",
-                "news",
                 "unusual_whales",
                 "council",
-                "city_events",
             ]
+            if _news_on:
+                source_names.append("news")
+            if _city_on:
+                source_names.append("city_events")
             if isinstance(result, Exception):
                 source_name = source_names[i] if i < len(source_names) else f"source_{i}"
                 log.warning(f"[AGENT:SCAN] Source '{source_name}' failed: {result}")
@@ -2162,9 +2196,42 @@ Respond with ONLY a JSON object:
         Fast path: regex entity extraction stays inline (~1ms, no API),
         Sonnet enrichment happens in the drainer when budget allows.
         Falls back to direct create_unit() if the writer isn't initialized.
+
+        Wave 14W-B (MEMORY_MANDATE §3): WRITE-TIME GATE.
+        Awarebot signals persist to MemoryStore only when ONE OF:
+          - composite_score ≥ 0.75 (CRITICAL)
+          - cross_source ≥ 2 (confirmed by ≥ 2 independent producers)
+          - tags carry an explicit pin/operator marker
+          - importance ≥ 80 (caller-bumped — council insights, etc.)
+        Everything else stays in agent_signals.jsonl + 3 in-memory
+        deques + Intel API only. Stops the 88%-Awarebot-exhaust
+        accumulation in MemoryStore (24K units → target ≤15K).
+
+        Pass-through (gate disabled) via NCL_AWAREBOT_MEM_GATE=0.
         """
         if not self.memory_store:
             return
+
+        # Wave 14W-B write-gate
+        if os.getenv("NCL_AWAREBOT_MEM_GATE", "1") == "1":
+            score = float(getattr(signal, "composite_score", 0) or 0)
+            x_src = int(getattr(signal, "cross_source_count", 0) or 0)
+            tags_lower = {str(t).lower() for t in (signal.tags or [])}
+            pinned = bool(tags_lower & {"pin", "pinned", "operator_pin",
+                                          "natrix_pin"})
+            high_caller_importance = importance >= 80.0
+            critical = score >= 0.75
+            confirmed = x_src >= 2
+            if not (critical or confirmed or pinned or high_caller_importance):
+                # Gated — log at debug level + bump stat counter
+                self._stats.setdefault("memory_gate_dropped", 0)
+                self._stats["memory_gate_dropped"] += 1
+                log.debug(
+                    "[AGENT:MEMGATE] DROP %s score=%.3f x_src=%d imp=%.1f "
+                    "(below CRITICAL + not confirmed + not pinned)",
+                    signal.source, score, x_src, importance,
+                )
+                return
 
         try:
             content = f"[{signal.source}] {signal.title}\n{signal.content[:400]}"
@@ -2229,7 +2296,22 @@ Respond with ONLY a JSON object:
             log.warning(f"[AGENT:MEMORY] Failed to enqueue signal: {e}")
 
     async def _inject_working_context(self, signal: Signal):
-        """Inject signal into DailyContextWindow for operator visibility."""
+        """Wave 14W-B (MEMORY_MANDATE §5 + LANE_ARCHITECTURE 4A):
+        retired no-op. Working context is its OWN lane (see Memory
+        mandate Section 5 — WC is the daily-rolling 50-item subset of
+        Memory) and is assembled 3x daily from MemoryStore via salience
+        scoring, not pushed-to by every Awarebot HIGH/CRITICAL.
+
+        The previous push was dead work — salience evicted every
+        injection immediately because narrative-thread aggregates at
+        importance ~100 saturated all 50 slots (audit found 50/50 =
+        narrative_thread:$TICKER in today's WC).
+
+        Path to re-enable: set NCL_AWAREBOT_WC_INJECT=1 (debug only —
+        defaults to off in Wave 14W-B and beyond).
+        """
+        if os.getenv("NCL_AWAREBOT_WC_INJECT", "0") != "1":
+            return
         if not self.working_context:
             return
 

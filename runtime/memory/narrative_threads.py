@@ -848,16 +848,30 @@ async def _narrative_thread_loop(self) -> None:
                 try:
                     from .working_context import ContextItem  # local import
 
+                    # Wave 14W-B (LANE_ARCHITECTURE 4A + MEMORY_MANDATE §5):
+                    # cap narrative-thread aggregate importance for WC
+                    # surfacing. Aggregates were inheriting max(member
+                    # importances) which hit 100 when any council/NATRIX
+                    # unit joined a thread — saturated salience=1.0 and
+                    # monopolized all 50 WC slots (audit found 50/50 =
+                    # narrative_thread:$TICKER). Demote to ≤60 so councils,
+                    # signals, mandates, and pinned items can compete.
+                    NARRATIVE_THREAD_IMPORTANCE_CAP = float(
+                        os.getenv("NCL_NARRATIVE_THREAD_IMPORTANCE_CAP", "60")
+                    )
                     for t in touched:
                         if len(t.unit_ids) < WORKING_CONTEXT_SURFACE_THRESHOLD:
                             continue
+                        wc_importance = min(
+                            t.importance, NARRATIVE_THREAD_IMPORTANCE_CAP,
+                        )
                         item = ContextItem(
                             item_id=f"thread:{t.thread_id}",
                             content=(t.summary or t.title)[:1500],
                             source=f"narrative_thread:{t.primary_entity}",
                             category="memory",
-                            salience_score=min(1.0, t.importance / 100.0),
-                            importance=t.importance,
+                            salience_score=min(1.0, wc_importance / 100.0),
+                            importance=wc_importance,
                             recency_score=1.0,
                             relevance_score=0.7,
                             tags=["narrative_thread", t.primary_entity] + t.related_entities[:5],
@@ -868,6 +882,9 @@ async def _narrative_thread_loop(self) -> None:
                                 "session_count": len(t.session_ids),
                                 "primary_entity": t.primary_entity,
                                 "summary_model": t.summary_model,
+                                "raw_importance": t.importance,
+                                "wc_capped": (t.importance >
+                                              NARRATIVE_THREAD_IMPORTANCE_CAP),
                             },
                         )
                         await wc.add_item(item)
