@@ -1,8 +1,26 @@
 # NCL (NUREALCORTEXLINK) — Standalone Personal-AI Brain
 
-**Status**: Authoritative spec, rewritten 2026-05-23, updated 2026-05-25 (Wave 14A-G arc) and 2026-05-29 (Wave 14X arc — see latest summary first below) — supersedes pre-retirement docs in `archive/docs-pre-retirement/`.
+**Status**: Authoritative spec, rewritten 2026-05-23, updated 2026-05-25 (Wave 14A-G arc) and 2026-05-29 (Wave 14X + 14Y arcs — see latest summaries first below) — supersedes pre-retirement docs in `archive/docs-pre-retirement/`.
 
-**Recent wave summary (2026-05-29)** — **Wave 14X arc** (NATRIX's REVAMP roadmap, ~9 commits today):
+**Recent wave summary (2026-05-29 evening)** — **Wave 14Y arc — 5-lane brief restructure** (NATRIX's flagship correction):
+
+NATRIX flagged the morning brief: "the morning brief got really weak and lost its format... its supposed to be an accumulation of all tabs summerized twice a day, centered around 1. Portfolio 2. Intel 3. Calendar 4 Journal 5. memory". Codified as `docs/BRIEF_MANDATE.md` (LAW): every brief is exactly 5 sections in fixed order — **PORTFOLIO / INTEL / CALENDAR / JOURNAL / MEMORY** — mirroring the iOS bottom-tab structure. AM Brief 05:30 ET + PM Debrief 16:30 ET, both with identical 5-section structure.
+
+- **14Y-1** `2c8d9d3` — `brief_prep.py` `_build_5_lanes()` aggregator. Five lane helpers (`_lane_portfolio` / `_lane_intel` / `_lane_calendar` / `_lane_journal` / `_lane_memory`) reshape existing raw blocks into lane-organized buckets. Defensive `_as_list()` shape coercion for scanner blocks (GOAT/BRAVO/OPTIONS come back as dicts, not lists). Pack now has `pack["lanes"] = {portfolio, intel, calendar, journal, memory}`.
+
+- **14Y-2** `2c8d9d3` + hotfix `6235324` — `brief_council.py` chair prompt rewritten. Emits JSON with EXACTLY 5 top-level keys in fixed order: `portfolio`, `intel`, `calendar`, `journal`, `memory`. Each lane has `narrative` (2-3 sentence chair synthesis) + lane-specific structured fields. Hotfix: removed `{{...}}` set-literal bug inside f-string (was parsing as set containing unhashable dict — caused KeyError before any LLM call). Light prep context pulled into a real variable so json.dumps sees a normal dict.
+
+- **14Y-3** `2c8d9d3` — `brief_presenter.py` `render_pro_brief()` rewritten. Renders 5 fixed sections via `_render_lane_section()` helper, each delimited by `═══` block characters and numbered `1 / 5` through `5 / 5`. Header reads `NCL DAILY BRIEF — YYYY-MM-DD` + `PORTFOLIO · INTEL · CALENDAR · JOURNAL · MEMORY`. New envelope shape: `lanes: {portfolio, intel, calendar, journal, memory}` for iOS consumption + back-compat `full_brief` + `topics` (text). Legacy single-format render function renamed `_legacy_render_unused()` as dead reference.
+
+- **14Y-4** `8959b01` (FirstStrike) — iOS BriefLandingCard 5 tiles + retired Quick Action. `BriefLandingCard.TileKind` enum reduced from 6 cases (recap/plan/ideas/summary/rotation/research) to 5 (`portfolio`/`intel`/`calendar`/`journal`/`memory`). `tile.laneKey` maps to the JSON key. `tilePreview` shows the lane's narrative first sentence. `BriefSectionDetailSheet` reads `synthesis["lanes"][tile.laneKey]` and renders lane-specific structured content. Legacy "Morning Brief" Quick Action card removed from `DashboardView` — was hitting the deprecated `/intelligence/morning-brief` stub endpoint that emitted the TOPIC/WHY/INVESTIGATE format NATRIX flagged as broken. BriefLandingCard is now the sole user-facing brief path.
+
+- **14Y-6** (current commit) — `docs/BRIEF_MANDATE.md` codifies the 5-lane structure as LAW. Anti-patterns (don't reorder, merge, omit, add 6th section, fabricate, regress to TOPIC/WHY/INVESTIGATE). Per-lane spec tables. Pipeline diagram. Decision-the-brief-enables narrative. Replaces the Wave 14W-F single-format BRIEF_MANDATE.md. The Wave 14W-F producer constraints (rule 7a ETF quota, 7b date recency, 7c Polymarket lifecycle, 7d rotation alignment, 7e price sanity) carry forward — they now apply inside the PORTFOLIO lane's `trade_ideas` field.
+
+**Live verification** — Fired brief end-to-end 2026-05-29 15:10:18 UTC. Persisted to `data/morning-brief-pro/2026-05-29.json` (17,614 bytes). Plain-text brief renders 5 numbered sections with chair narratives + structured lane content. Trade idea: PLTR stock setup ($157.50 entry / $150 stop / $170 target / 1-2 weeks). Rotation regime correctly populated (late_cycle, breadth 72.7%, 9 weakening sectors named). All 4 devices (iPhone 16e sim + iPad Pro M5 sim + physical iPhone + physical iPad) installed with the new BriefLandingCard.
+
+---
+
+**Earlier today (2026-05-29)** — **Wave 14X arc** (NATRIX's REVAMP roadmap, ~9 commits earlier):
 
 - **14X-1A** `4e04eba` — YTC channel-fairness fix + silent-channel observability. Per NATRIX's correction "100% crypto wasn't velocity, it was wasn't working so all it got was crypto": removed `_strike_point_score` keyword-bias sort from `runtime/councils/youtube/scraper.py` (was implicitly favoring crypto/macro keywords, starving Stock Moe / Chris Williamson / Follow the Money for weeks of zero reports). Now pure `upload_date` desc sort — channels compete on recency only. Added per-channel entry-count + silent-channel logging. NEW `GET /council/youtube/channels/health` endpoint walks recent reports per configured channel, returns `silent_handles` + FRESH/STALE/SILENT status. Removed hardcoded `YouTube Council (legacy)` stub from `/autonomous/loops` (was creating phantom duplicate iOS row alongside `ncl-ytc-dedicated`). Live verification: 14 channels, 11 FRESH, 0 STALE, 3 SILENT (stockmoe / following-the-money / chriswillx — all 3 resolve fine via yt-dlp probe; their silence is the scraper failing per-handle, not the keyword bias which is now removed).
 
