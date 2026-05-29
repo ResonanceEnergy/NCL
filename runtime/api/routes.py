@@ -3372,6 +3372,22 @@ async def autonomous_loops(authorization: str = Header(default="")) -> dict:
             "enabled": True,
             "description": "Rebuilds BM25 keyword index (30m) — backs FusedRetriever for multi-signal RRF",  # noqa: E501
         },
+        # Wave 14X-Y Phase 1B-3 (2026-05-29) — Cross-Reference Engine
+        {
+            "name": "Cross-Reference Engine",
+            "id": "ncl-cross-reference",
+            "interval": 300,
+            "enabled": True,
+            "description": "Promotes converging AWAREBOT signals (≥2 sources/4h, themes, news+trends) for TRADERAGENT pickup",  # noqa: E501
+        },
+        # Wave 14X-Y Phase 2 (2026-05-29) — Afternoon Debrief
+        {
+            "name": "Afternoon Debrief",
+            "id": "ncl-afternoon-debrief",
+            "interval": 86400,
+            "enabled": True,
+            "description": "16:30 local clock — post-close reflection (single Opus call, ~$0.08/run). Closes today's loop + seeds tonight's Night Watch",  # noqa: E501
+        },
         {
             "name": "Memory Eval Harness",
             "id": "ncl-memory-eval",
@@ -3547,6 +3563,8 @@ async def autonomous_loops(authorization: str = Header(default="")) -> dict:
         "ncl-cache-warmer": _autonomous._stats.get("last_cache_warm"),
         "ncl-alert-dispatch": _autonomous._stats.get("last_alert_dispatch_tick"),
         "ncl-ytc-dedicated": _autonomous._stats.get("last_ytc_dedicated"),
+        "ncl-cross-reference": _autonomous._stats.get("last_cross_ref_run"),
+        "ncl-afternoon-debrief": _autonomous._stats.get("last_afternoon_debrief"),
         # New 2026-05-22 memory loops
         "ncl-bm25-rebuild": _autonomous._stats.get("last_bm25_build"),
         "ncl-memory-eval": _autonomous._stats.get("last_memory_eval_at"),

@@ -1147,6 +1147,9 @@ class AutonomousScheduler:
             "ncl-ytc-dedicated": self._ytc_dedicated_loop,
             "ncl-ytc-nightshift": self._ytc_nightshift_loop,
             "ncl-bm25-rebuild": self._bm25_rebuild_loop,
+            # Wave 14X-Y (2026-05-29): supervisor-restartable
+            "ncl-cross-reference": self._cross_reference_loop,
+            "ncl-afternoon-debrief": self._afternoon_debrief_loop,
             "ncl-city-events": self._city_events_loop,
             "ncl-stocks-scan": self._stocks_scan_loop,
             # W13 P1-A (2026-05-24): stall watchdog can die too. Without a
