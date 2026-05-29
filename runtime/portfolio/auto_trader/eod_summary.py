@@ -185,6 +185,30 @@ async def _build_summary() -> dict:
     except Exception as e:
         log.debug("[AT-EOD] council veto count failed: %s", e)
 
+    # Wave 14U-2/7 — push daily P&L into ADWIN portfolio drift detector
+    # so variance regime shifts get caught. Non-blocking on failure.
+    try:
+        from .portfolio_drift import record_daily_pnl
+        adwin_result = await record_daily_pnl(
+            daily_pnl=float(summary.get("total_r_today") or 0),
+            date_iso=summary["date"],
+            brain=brain,
+        )
+        summary["adwin_drift"] = {
+            "window_size": adwin_result.get("window_size"),
+            "drift_detected": adwin_result.get("drift_detected"),
+        }
+        if adwin_result.get("drift_detected"):
+            split = adwin_result.get("split") or {}
+            summary["drift_signals"].append({
+                "strategy": "portfolio_pnl",
+                "status": "ADWIN_DRIFT",
+                "mean_before": split.get("mean_w0"),
+                "mean_after": split.get("mean_w1"),
+            })
+    except Exception as e:
+        log.warning("[AT-EOD] ADWIN portfolio drift skipped: %s", e)
+
     return summary
 
 

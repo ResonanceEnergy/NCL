@@ -171,9 +171,35 @@ async def auto_trader_loop(brain) -> None:
     cb_tracker = await get_circuit_breaker("auto_trader:trade_idea_tracker")
     cb_paper = await get_circuit_breaker("auto_trader:paper_engine")
 
+    # Wave 14U-2/3 — cycle-phase watcher tick counter. Fires the cycle
+    # watcher once per N ticks (default 60 = ~1hr in market hours; cheap
+    # because it only acts on actual phase transitions).
+    cycle_tick_count = 0
+    CYCLE_CHECK_EVERY = 60
+
     while True:
         try:
             tick_secs = TICK_MARKET if _is_market_open() else TICK_OFFHOURS
+
+            # 0) Wave 14U-2/3 — cycle-phase watcher (every 60 ticks).
+            #    Decays bandit priors on regime transition. Non-blocking
+            #    on failure. Cheap: only acts on actual phase change.
+            cycle_tick_count += 1
+            if cycle_tick_count >= CYCLE_CHECK_EVERY:
+                cycle_tick_count = 0
+                try:
+                    from .cycle_watcher import check_and_decay
+                    cw_result = await check_and_decay(brain=brain)
+                    if cw_result.get("transitioned"):
+                        log.warning(
+                            "[AT-LOOP] cycle_watcher decayed %d strategies on "
+                            "%s → %s transition",
+                            len(cw_result.get("decayed_strategies", [])),
+                            cw_result.get("last_seen_phase"),
+                            cw_result.get("current_phase"),
+                        )
+                except Exception as e:
+                    log.warning("[AT-LOOP] cycle_watcher tick failed: %s", e)
             # 1) Check drawdown band first (sets state side-effect)
             #    K7a: circuit-breaker wrapped — if drawdown subsystem is
             #    failing, skip the check but continue the loop (safer to
@@ -487,6 +513,95 @@ async def auto_trader_loop(brain) -> None:
                     effective_R = tax_result.get("adjusted_R_dollars", effective_R)
                 except Exception as e:
                     log.warning("[AT-LOOP] tax sizing skipped: %s", e)
+
+                # 7b) Wave 14U-2/6 + 14U-2/8 — beta-adjusted + per-sector
+                #     exposure caps. Both modules are non-blocking on data
+                #     failure (default = allow).
+                proposed_notional = float(qty) * float(idea.get("entry_price") or 0)
+                # Build open_positions snapshot for the cap calcs
+                try:
+                    open_positions_snap = []
+                    if hasattr(paper, "_trades"):
+                        for t in paper._trades.values():
+                            if str(getattr(t, "status", "")) != "open":
+                                continue
+                            open_positions_snap.append({
+                                "ticker": getattr(t, "symbol", "?"),
+                                "notional": (float(getattr(t, "quantity", 0) or 0)
+                                             * float(getattr(t, "current_price", 0)
+                                                     or getattr(t, "entry_price", 0)
+                                                     or 0)),
+                                "direction": getattr(t, "direction", "long"),
+                            })
+                except Exception:
+                    open_positions_snap = []
+                nav_for_caps = float((gov or {}).get("nav_cad") or 36000.0)
+                # Beta cap
+                try:
+                    from .beta_cap import check_proposed_open_against_beta_cap
+                    beta_check = await check_proposed_open_against_beta_cap(
+                        proposed_ticker=ticker,
+                        proposed_notional=proposed_notional,
+                        proposed_direction=str(idea.get("direction") or "long"),
+                        open_positions=open_positions_snap,
+                        nav_cad=nav_for_caps,
+                    )
+                except Exception as e:
+                    log.warning("[AT-LOOP] beta cap check failed: %s", e)
+                    beta_check = {"allowed": True, "error": str(e)}
+                if not beta_check.get("allowed"):
+                    log.info(
+                        "[AT-LOOP] REJECT %s (%s) — beta cap: %s",
+                        trade_idea_id, ticker, beta_check.get("reason", "?"),
+                    )
+                    rejected += 1
+                    await record_reasoning_chain(
+                        trade_idea_id=trade_idea_id, idea_snapshot=idea,
+                        governor_decision=gov,
+                        policy_check={
+                            "eligible": False,
+                            "reason": f"beta_cap: {beta_check.get('reason','?')}",
+                            "policy_rev": policy.revision,
+                            "beta_cap_check": beta_check,
+                        },
+                        source=idea.get("source") or "brief",
+                        strategy=str(strat), ticker=ticker,
+                        effective_R_dollars=effective_R, planned_qty=qty,
+                    )
+                    continue
+                # Sector cap
+                try:
+                    from .sector_cap import check_proposed_open_against_sector_cap
+                    sector_check = check_proposed_open_against_sector_cap(
+                        proposed_ticker=ticker,
+                        proposed_notional=proposed_notional,
+                        proposed_direction=str(idea.get("direction") or "long"),
+                        open_positions=open_positions_snap,
+                        nav_cad=nav_for_caps,
+                    )
+                except Exception as e:
+                    log.warning("[AT-LOOP] sector cap check failed: %s", e)
+                    sector_check = {"allowed": True, "error": str(e)}
+                if not sector_check.get("allowed"):
+                    log.info(
+                        "[AT-LOOP] REJECT %s (%s) — sector cap: %s",
+                        trade_idea_id, ticker, sector_check.get("reason", "?"),
+                    )
+                    rejected += 1
+                    await record_reasoning_chain(
+                        trade_idea_id=trade_idea_id, idea_snapshot=idea,
+                        governor_decision=gov,
+                        policy_check={
+                            "eligible": False,
+                            "reason": f"sector_cap: {sector_check.get('reason','?')}",
+                            "policy_rev": policy.revision,
+                            "sector_cap_check": sector_check,
+                        },
+                        source=idea.get("source") or "brief",
+                        strategy=str(strat), ticker=ticker,
+                        effective_R_dollars=effective_R, planned_qty=qty,
+                    )
+                    continue
 
                 payload = _idea_to_paper_payload(idea, qty)
                 # Wave 14K Phase 7 K6a: apply per-strategy friction

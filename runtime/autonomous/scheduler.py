@@ -822,6 +822,22 @@ class AutonomousScheduler:
             asyncio.create_task(_auto_trader(), name="ncl-auto-trader-loop")
         )
 
+        # ── Wave 14U-2/10 — monthly portfolio review ─────────────────
+        # Fires on 1st of month at 10:00 UTC (06:00 ET). Builds the
+        # strategy scorecard (Sharpe/Sortino/Calmar/alpha per sleeve),
+        # writes JSON + Markdown to data/portfolio/auto_trader/
+        # monthly_reviews/, emits memory unit at importance 90, and
+        # creates a journal reflection entry.
+        from ..portfolio.auto_trader.monthly_review import monthly_review_loop
+
+        async def _auto_trader_monthly():
+            await monthly_review_loop(self.brain)
+
+        self._tasks.append(
+            asyncio.create_task(_auto_trader_monthly(),
+                                name="ncl-auto-trader-monthly-review")
+        )
+
         # ── Wave 14K Phase 3 — auto-trader price feed ────────────────
         # Pulls quotes for open paper symbols (30s market / 300s off-
         # hours), applies to PaperTradingEngine.update_prices(), and

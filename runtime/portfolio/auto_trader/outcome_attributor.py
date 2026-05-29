@@ -31,6 +31,10 @@ from typing import Optional
 log = logging.getLogger("ncl.portfolio.auto_trader.outcome_attributor")
 
 
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
 # Trigger names returned by PaperTradingEngine.update_prices() →
 # trade_idea_tracker outcome enum values
 TRIGGER_TO_OUTCOME = {
@@ -286,6 +290,34 @@ async def attribute_close(
             result["ladder_R_dollars"] = ladder_result.get("ladder_R_dollars")
     except Exception as e:
         log.warning("[AT-ATTR] profit ladder skipped (non-fatal): %s", e)
+
+    # 7.7) Wave 14U-2/4 — Post-trade factor attribution. Decompose
+    #      every close into alpha/beta/factor/noise so we can tell which
+    #      strategies have real edge vs which are just long-the-market.
+    #      Non-blocking — failure never breaks the close path.
+    try:
+        from .factor_attribution import attribute_closed_trade
+        strategy = str(getattr(paper_trade, "strategy", None) or "unknown")
+        entry_price = float(getattr(paper_trade, "entry_price", 0) or 0)
+        direction = str(getattr(paper_trade, "direction", "long"))
+        # Timestamps
+        opened_at = str(getattr(paper_trade, "opened_at", "") or "") or _now_iso()
+        closed_at = str(getattr(paper_trade, "closed_at", "") or "") or _now_iso()
+        fa_res = await attribute_closed_trade(
+            strategy=strategy,
+            ticker=str(getattr(paper_trade, "symbol", "?") or "?"),
+            entry_price=entry_price,
+            exit_price=exit_price,
+            direction=direction,
+            entry_iso=opened_at,
+            exit_iso=closed_at,
+            trade_idea_id=trade_idea_id,
+        )
+        if fa_res and fa_res.get("current_fit"):
+            result["factor_alpha"] = fa_res["current_fit"].get("alpha")
+            result["factor_beta_spy"] = fa_res["current_fit"].get("beta_spy")
+    except Exception as e:
+        log.warning("[AT-ATTR] factor attribution skipped (non-fatal): %s", e)
 
     # 8) Wave 14K Phase 7 K6b: re-calibrate friction profile every N closes.
     #    Non-blocking — friction failures never break the close path.

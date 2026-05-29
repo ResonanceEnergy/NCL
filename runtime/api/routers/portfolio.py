@@ -1845,6 +1845,48 @@ async def auto_trader_scout_force_tick(
     return await scout_tick(brain)
 
 
+@router.post("/auto-trader/monthly-review/fire")
+async def auto_trader_monthly_review_fire(
+    payload: Optional[dict] = None,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Wave 14U-2/10 — manually fire the monthly portfolio review.
+
+    Body (optional):
+      {
+        "month": "YYYY-MM"  (default: current month)
+        "force": bool       (default: false; true overwrites existing)
+      }
+    """
+    from ...portfolio.auto_trader.monthly_review import run_monthly_review
+    from ...api import routes as _routes
+    body = payload or {}
+    brain = getattr(_routes, "brain", None) or getattr(_routes, "_brain", None)
+    return await run_monthly_review(
+        month=body.get("month"),
+        brain=brain,
+        force=bool(body.get("force", False)),
+    )
+
+
+@router.get("/auto-trader/portfolio-drift")
+async def auto_trader_portfolio_drift_state(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Wave 14U-2/7 — current ADWIN portfolio drift state."""
+    from ...portfolio.auto_trader.portfolio_drift import get_state
+    return await get_state()
+
+
+@router.get("/auto-trader/factor-attribution")
+async def auto_trader_factor_attribution(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Wave 14U-2/4 — per-strategy alpha/beta/factor decomposition."""
+    from ...portfolio.auto_trader.factor_attribution import all_attributions
+    return {"strategies": await all_attributions()}
+
+
 @router.post("/auto-trader/eod-summary")
 async def auto_trader_eod_summary_trigger(
     payload: Optional[dict] = None,

@@ -271,6 +271,71 @@ class StrategyBandit:
             log.debug("[BANDIT] sample_arm picked %s (draws=%s)", best, draws)
             return best
 
+    async def decay_priors(
+        self,
+        *,
+        strategies: Optional[list[str]] = None,
+        decay_factor: float = 0.3,
+        reason: str = "regime_change",
+    ) -> dict:
+        """Wave 14U-2/3 — Cycle-phase aware prior decay.
+
+        On cycle_phase transition (e.g. mid_cycle → late_cycle), multiply
+        (alpha, beta) by decay_factor for the specified strategies. Keeps
+        the mean direction intact but widens uncertainty so Thompson
+        sampling explores again — stops stale "this was winning in
+        mid_cycle" priors from poisoning late_cycle samples.
+
+        Mathematical floor: never decay below the uniform prior (1, 1) —
+        we always retain some information that the strategy has been
+        observed at all.
+
+        Args:
+            strategies: subset to decay (None = all)
+            decay_factor: multiplier in (0, 1] (0.3 = "keep 30% of info")
+            reason: audit trail string
+
+        Returns:
+            {strategy: {old_alpha, old_beta, new_alpha, new_beta}, ...}
+        """
+        await self.initialize()
+        decay_factor = max(0.05, min(1.0, float(decay_factor)))
+        changes: dict[str, dict] = {}
+        async with self._lock:
+            keys = strategies if strategies else list(self._posteriors.keys())
+            for s in keys:
+                p = self._posteriors.get(s)
+                if p is None:
+                    continue
+                old_a, old_b = p.alpha, p.beta
+                # Decay toward uniform prior — keep floor of 1.0 each so
+                # we never lose all information about the strategy
+                new_a = max(PRIOR_ALPHA, old_a * decay_factor)
+                new_b = max(PRIOR_BETA, old_b * decay_factor)
+                p.alpha = new_a
+                p.beta = new_b
+                p.last_update_iso = _now_iso()
+                changes[s] = {
+                    "old_alpha": round(old_a, 4),
+                    "old_beta": round(old_b, 4),
+                    "new_alpha": round(new_a, 4),
+                    "new_beta": round(new_b, 4),
+                    "n_observed_preserved": p.n_observed,
+                }
+                self._append_history(
+                    "decay",
+                    p,
+                    extra={"reason": reason, "decay_factor": decay_factor,
+                           "old_alpha": old_a, "old_beta": old_b},
+                )
+            if changes:
+                await self._persist()
+                log.warning(
+                    "[BANDIT] decayed priors x%.2f for %d strategies (reason=%s)",
+                    decay_factor, len(changes), reason,
+                )
+        return changes
+
     async def ranked_by_credible_lower_bound(
         self, candidates: Optional[list[str]] = None, ci: float = 0.95,
     ) -> list[dict]:

@@ -389,3 +389,7 @@ Resolved anomalies older than 30 days are moved to `/NCL/shared/intelligence/arc
 ## 2026-05-27 02:45:30Z — 2 anomalies
 - **[market_data/insider_cluster/bullish]** (86%) BRKH insider cluster: 3 insiders, net +6 ($0)
 - **[reddit/retail_gain/bullish]** (95%) AMD +$11M
+## 2026-05-28 11:52:19Z — 2 anomalies
+- **[market_data/insider_cluster/bearish]** (86%) SE insider cluster: 3 insiders, net -6 ($-2,108,251)
+- **[market_data/insider_cluster/bearish]** (95%) NXST insider cluster: 11 insiders, net -11 ($-778,877)
+
