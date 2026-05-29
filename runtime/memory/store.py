@@ -237,6 +237,73 @@ class MemoryStore:
         # can detect pre-versioned records (treat absence as version 0).
         meta.setdefault("schema_version", _UNITS_SCHEMA_VERSION)
 
+        # ── Wave 14W-C — Lane routing + write-time gate ───────────────────
+        # Every unit gets a `lane` stamp at write-time, derived from the
+        # source string (or caller-supplied kind via metadata["lane_kind"]).
+        # The MEMORY_MANDATE §3 write-gate runs here — units that fail the
+        # gate are NOT persisted (returns the unit object so callers don't
+        # crash, but the unit has metadata["lane_gate_rejected"]=True and
+        # never lands in JSONL/Chroma/BM25/KG). Disable via
+        # NCL_LANE_MEMORY_GATE=0 if you need pass-through.
+        try:
+            from ..lane_router import (
+                DatumKind as _DK,  # noqa: N814 — short alias for hot path
+            )
+            from ..lane_router import (
+                route as _lane_route,
+            )
+
+            # Resolve optional kind hint
+            _kind_hint = meta.get("lane_kind")
+            _kind = None
+            if _kind_hint:
+                try:
+                    _kind = _DK(_kind_hint) if isinstance(_kind_hint, str) else _kind_hint
+                except (ValueError, KeyError):
+                    _kind = None
+            # Extract score hints from metadata for the gate
+            _score = float(meta.get("composite_score", 0) or 0)
+            _xsrc = int(meta.get("cross_source", 0) or 0)
+            _decision = _lane_route(
+                source=source,
+                kind=_kind,
+                importance=float(unit.importance or 0),
+                score=_score,
+                cross_source=_xsrc,
+                authority_tier=int(meta.get("authority_tier", 0) or 0),
+                tags=list(unit.tags or []),
+                memory_type=str(unit.memory_type or memory_type or ""),
+            )
+            # Stamp the lane info on metadata so consumers can filter
+            meta["lane"] = _decision.primary_lane.value
+            if _decision.secondary_refs:
+                meta["lane_refs"] = [ln.value for ln in _decision.secondary_refs]
+            meta["lane_gate_passed"] = bool(_decision.memory_gate_passed)
+            meta["lane_gate_reason"] = _decision.memory_gate_reason
+            # GATE: if rejected, short-circuit before persist
+            if not _decision.memory_gate_passed:
+                meta["lane_gate_rejected"] = True
+                log.debug(
+                    "[MEMORY-GATE] DROP source=%s lane=%s reason=%s",
+                    source,
+                    _decision.primary_lane.value,
+                    _decision.memory_gate_reason,
+                )
+                # Bump counter for observability if the store has stats
+                if hasattr(self, "_stats"):
+                    self._stats.setdefault("lane_gate_dropped", 0)
+                    self._stats["lane_gate_dropped"] += 1
+                # Return the un-persisted unit so callers don't crash —
+                # they can inspect metadata["lane_gate_rejected"] if they
+                # care, but most callers fire-and-forget so this is just
+                # graceful degradation.
+                return unit
+        except Exception as e:
+            # Lane routing is fail-safe: any error falls through to the
+            # legacy path (write as before). Logged at debug so we don't
+            # spam.
+            log.debug("[MEMORY-GATE] lane_router skipped: %s", e)
+
         # Record PII audit entry now that we have the unit_id
         if _pii_result.redaction_count > 0:
             await self._record_pii_redaction(

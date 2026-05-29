@@ -78,7 +78,6 @@ DI factory was added to ``runtime.api.deps`` to back this conversion.
 
 from __future__ import annotations  # noqa: I001
 
-import asyncio
 import json
 import logging
 import os
@@ -279,9 +278,11 @@ async def search_memory_fused(
             tier_val = getattr(unit, "authority_tier", None)
             if tier_val:
                 # Try the enum's .name or .value, else stringify
-                tname = (getattr(tier_val, "name", None)
-                         or getattr(tier_val, "value", None)
-                         or str(tier_val))
+                tname = (
+                    getattr(tier_val, "name", None)
+                    or getattr(tier_val, "value", None)
+                    or str(tier_val)
+                )
                 r["authority_tier_name"] = (
                     tname.lower() if isinstance(tname, str) else str(tname).lower()
                 )
@@ -300,9 +301,7 @@ async def search_memory_fused(
         if not r.get("signal_id"):
             meta = getattr(unit, "metadata", None) or {}
             r["signal_id"] = (
-                meta.get("signal_id")
-                or meta.get("sig_id")
-                or (unit_id[:8] if unit_id else None)
+                meta.get("signal_id") or meta.get("sig_id") or (unit_id[:8] if unit_id else None)
             )
         # Source + ticker hint if available
         if not r.get("source") and getattr(unit, "source", None):
@@ -450,14 +449,27 @@ async def get_top_entities(
     fetch_n = effective_n * 3 if not include_noise else effective_n
     entities = await kg.get_top_entities(n=fetch_n)
 
-    NOISE_EXACT = {
-        "Council Report", "Key Insights", "Top Insights",
-        "Key Findings", "Report", "Summary", "Analysis",
-        "Council", "Brief", "Update", "Insights",
-        "Top Signals", "Key Movements", "Executive Summary",
-        "YouTube Council", "AI", "Today", "Yesterday",
+    NOISE_EXACT = {  # noqa: N806 — module-level constant living in function scope
+        "Council Report",
+        "Key Insights",
+        "Top Insights",
+        "Key Findings",
+        "Report",
+        "Summary",
+        "Analysis",
+        "Council",
+        "Brief",
+        "Update",
+        "Insights",
+        "Top Signals",
+        "Key Movements",
+        "Executive Summary",
+        "YouTube Council",
+        "AI",
+        "Today",
+        "Yesterday",
     }
-    NOISE_PREFIX = ("$",)  # $AI, $TSLA-as-mention etc
+    NOISE_PREFIX = ("$",)  # noqa: N806 — $AI, $TSLA-as-mention etc
 
     def _is_noise(e: dict) -> bool:
         name = str(e.get("name") or e.get("entity") or "").strip()
@@ -698,6 +710,192 @@ async def check_memory_budget(
 
 
 # ── Authority / Provenance ─────────────────────────────────────────────────
+
+
+@router.get("/memory/by-lane")
+async def list_memory_by_lane(
+    lane: str = Query(
+        default="intel",
+        description=(
+            "Lane filter: portfolio|intel|memory|calendar|journal|unknown. "
+            "Returns units whose metadata.lane == this value. Newest-first."
+        ),
+    ),
+    limit: int = Query(default=20, ge=1, le=500),
+    include_gated: bool = Query(
+        default=False,
+        description=(
+            "If true, include units whose lane_gate_rejected=true. "
+            "Default false — gated units are persisted-then-suppressed."
+        ),
+    ),
+    brain=Depends(get_brain),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Wave 14W-C — return units belonging to a specific lane.
+
+    Lane is stamped at write-time by `runtime/lane_router/route()` based on
+    source-prefix + caller kind. Units without a lane stamp (pre-14W-C
+    writes) are skipped; consumers wanting them should fall through to
+    /memory/timeline or /memory/by-authority.
+
+    This endpoint is the foundation of lane-scoped iOS consumption: iOS
+    Intel→AGENDA reads ?lane=intel, iOS Memory→Search keeps reading the
+    fused pool, iOS Calendar→TODO reads ?lane=calendar, etc.
+    """
+    if not brain or not brain.memory_store:
+        return {"error": "Memory store not available", "results": []}
+
+    valid_lanes = {"portfolio", "intel", "memory", "calendar", "journal", "unknown"}
+    lane_lower = (lane or "").strip().lower()
+    if lane_lower not in valid_lanes:
+        return {
+            "error": f"unknown lane: {lane!r}",
+            "valid_lanes": sorted(valid_lanes),
+            "results": [],
+        }
+
+    # Wave 14W-C polish — graceful degrade under writer-flood, mirrors
+    # dashboard_bridge.get_timeline. Without the wait_for + snapshot
+    # lifeline, /memory/by-lane parks behind the Awarebot drainer's
+    # batch-write lock and the iOS lane fetch never resolves.
+    import asyncio as _asyncio
+
+    degraded = False
+    try:
+        units = await _asyncio.wait_for(
+            brain.memory_store._load_all_units(),
+            timeout=8.0,
+        )
+    except _asyncio.TimeoutError:
+        snapshot = brain.memory_store._last_known_snapshot()
+        if snapshot is None:
+            return {
+                "lane": lane_lower,
+                "matched": 0,
+                "returned": 0,
+                "degraded": True,
+                "results": [],
+                "error": "writer-lock busy and no cached snapshot yet",
+            }
+        units = snapshot
+        degraded = True
+    matching: list = []
+    skipped_no_lane = 0
+    skipped_gated = 0
+    for u in units:
+        meta = getattr(u, "metadata", None) or {}
+        u_lane = meta.get("lane")
+        if not u_lane:
+            skipped_no_lane += 1
+            continue
+        if u_lane != lane_lower:
+            continue
+        if not include_gated and meta.get("lane_gate_rejected"):
+            skipped_gated += 1
+            continue
+        matching.append(u)
+
+    matching.sort(key=lambda u: getattr(u, "created_at", None) or 0, reverse=True)
+    sliced = matching[:limit]
+
+    out: list[dict] = []
+    for u in sliced:
+        meta = getattr(u, "metadata", None) or {}
+        out.append(
+            {
+                "unit_id": u.unit_id,
+                "source": u.source,
+                "content": (u.content[:500] + ("…" if len(u.content) > 500 else "")),
+                "importance": float(u.importance),
+                "memory_type": getattr(u, "memory_type", "episodic"),
+                "memory_tier": getattr(u, "memory_tier", "SML"),
+                "authority_tier": int(meta.get("authority_tier", 0) or 0),
+                "lane": u_lane,
+                "lane_refs": meta.get("lane_refs", []),
+                "lane_gate_passed": meta.get("lane_gate_passed", True),
+                "lane_gate_reason": meta.get("lane_gate_reason", ""),
+                "tags": list(u.tags or []),
+                "created_at": (
+                    u.created_at.isoformat()
+                    if hasattr(u.created_at, "isoformat")
+                    else str(u.created_at)
+                ),
+            }
+        )
+
+    return {
+        "lane": lane_lower,
+        "matched": len(matching),
+        "returned": len(out),
+        "skipped_no_lane_stamp": skipped_no_lane,
+        "skipped_gate_rejected": skipped_gated,
+        "include_gated": include_gated,
+        "degraded": degraded,
+        "results": out,
+    }
+
+
+@router.get("/memory/lane-stats")
+async def memory_lane_stats(
+    brain=Depends(get_brain),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Wave 14W-C — quick counts per lane + gate-rejection rate.
+
+    Useful for: (1) verifying lane stamping is working, (2) tracking
+    gate effectiveness over time, (3) iOS lane-balance widget.
+    """
+    if not brain or not brain.memory_store:
+        return {"error": "Memory store not available"}
+
+    # Wave 14W-C polish — same graceful degrade as /memory/by-lane.
+    import asyncio as _asyncio
+
+    degraded = False
+    try:
+        units = await _asyncio.wait_for(
+            brain.memory_store._load_all_units(),
+            timeout=8.0,
+        )
+    except _asyncio.TimeoutError:
+        snapshot = brain.memory_store._last_known_snapshot()
+        if snapshot is None:
+            return {
+                "total_units": 0,
+                "lane_stamped": 0,
+                "no_lane_stamp": 0,
+                "by_lane": {},
+                "gate_rejected_persisted": 0,
+                "degraded": True,
+                "error": "writer-lock busy and no cached snapshot yet",
+            }
+        units = snapshot
+        degraded = True
+
+    from collections import Counter
+
+    by_lane: Counter = Counter()
+    gate_dropped = 0
+    no_stamp = 0
+    for u in units:
+        meta = getattr(u, "metadata", None) or {}
+        lane_val = meta.get("lane")
+        if not lane_val:
+            no_stamp += 1
+            continue
+        if meta.get("lane_gate_rejected"):
+            gate_dropped += 1
+        by_lane[lane_val] += 1
+    total = sum(by_lane.values())
+    return {
+        "total_units": len(units),
+        "lane_stamped": total,
+        "no_lane_stamp": no_stamp,
+        "by_lane": dict(by_lane.most_common()),
+        "gate_rejected_persisted": gate_dropped,
+        "degraded": degraded,
+    }
 
 
 @router.get("/memory/by-authority")
