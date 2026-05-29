@@ -53,35 +53,12 @@ DEFAULT_LOOKBACK_HOURS = 72
 # Maximum total audio duration to download (hours) — prevents runaway
 MAX_TOTAL_DURATION_HOURS = 24
 
-# Strike Point relevance keywords — scored for priority selection
-STRIKE_POINT_KEYWORDS: list[str] = [
-    "crypto",
-    "bitcoin",
-    "ethereum",
-    "altcoin",
-    "defi",
-    "market",
-    "stocks",
-    "trading",
-    "investing",
-    "economy",
-    "eurodollar",
-    "fed",
-    "interest rate",
-    "inflation",
-    "macro",
-    "AI",
-    "artificial intelligence",
-    "machine learning",
-    "automation",
-    "mindset",
-    "entrepreneur",
-    "business",
-    "wealth",
-    "polymarket",
-    "prediction",
-    "forecast",
-]
+# Wave 14X-3 (2026-05-29): STRIKE_POINT_KEYWORDS list + _strike_point_score
+# function REMOVED. The keyword-bias scoring was vestigial from the retired
+# strike-point pillar and was implicitly favoring crypto/macro-titled
+# videos, starving Stock Moe / Chris Williamson / Follow the Money for
+# weeks. Wave 14X-1A switched selection to date-desc sort. This block
+# completes the deletion.
 
 # Where to store downloaded audio temporarily
 AUDIO_CACHE_DIR = (
@@ -232,9 +209,8 @@ def scrape_recent_videos(
     # because they post more often (natural velocity) — but every channel
     # that posts gets fair attention. We KEEP recording strike_score on
     # each video as a metric for downstream analysis but no longer use it
-    # for ranking.
-    for video in all_videos:
-        video["strike_score"] = _strike_point_score(video)
+    # for ranking. Wave 14X-3: _strike_point_score function fully removed —
+    # the per-video score field is gone too. Date-desc is the only sort.
 
     # Sort by upload date (newest first) — channel-neutral
     all_videos.sort(
@@ -399,53 +375,7 @@ def download_batch(
     return results
 
 
-# ── Strike Point Scoring ──────────────────────────────────────────────
-
-
-def _strike_point_score(video: dict) -> float:
-    """
-    Score a video for Strike Point selection.
-
-    Higher score = higher priority for inclusion under the duration cap.
-
-    Factors:
-    - Keyword density in title (2 points per keyword hit)
-    - Keyword density in description (0.5 per hit)
-    - Keyword density in tags (1 per hit)
-    - Recency bias (today's uploads get +3)
-    - View count signal (+1 if >1000 views, +2 if >10000)
-    """
-    score = 0.0
-    title = (video.get("title") or "").lower()
-    desc = (video.get("description") or "").lower()
-    tags = " ".join(video.get("tags") or []).lower()
-
-    for kw in STRIKE_POINT_KEYWORDS:
-        kw_lower = kw.lower()
-        if kw_lower in title:
-            score += 2.0
-        if kw_lower in desc:
-            score += 0.5
-        if kw_lower in tags:
-            score += 1.0
-
-    # Recency bias — today's uploads get a boost
-    upload_date = video.get("upload_date", "")
-    if upload_date:
-        try:
-            today = datetime.now(timezone.utc).strftime("%Y%m%d")
-            if upload_date == today:
-                score += 3.0
-            elif upload_date >= (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y%m%d"):
-                score += 1.5
-        except (ValueError, TypeError):
-            pass
-
-    # View count signal
-    views = video.get("view_count", 0) or 0
-    if views >= 10000:
-        score += 2.0
-    elif views >= 1000:
-        score += 1.0
-
-    return score
+# Wave 14X-3 (2026-05-29): _strike_point_score function fully removed.
+# The keyword-bias scoring was vestigial from the retired strike-point
+# pillar. Wave 14X-1A switched selection to date-desc; this completes
+# the deletion of the dead code path.

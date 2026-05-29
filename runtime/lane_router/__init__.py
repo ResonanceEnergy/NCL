@@ -100,7 +100,9 @@ SOURCE_PREFIX_LANE: list[tuple[str, Lane]] = [
     ("auto_trader:", Lane.PORTFOLIO),
     ("scanner:goat", Lane.PORTFOLIO),
     ("scanner:bravo", Lane.PORTFOLIO),
-    ("strike-point", Lane.PORTFOLIO),
+    # Wave 14X-3: removed dead ("strike-point", Lane.PORTFOLIO) mapping —
+    # nothing emits source="strike-point" (the merged-in pipeline uses
+    # portfolio:* / auto_trader:* prefixes).
     # INTEL lane
     ("awarebot:", Lane.INTEL),
     ("intel:", Lane.INTEL),

@@ -4259,15 +4259,20 @@ async def get_notification_subscribe_info(authorization: str = Header(default=""
 
 @app.post("/notifications/test")
 async def send_test_notification(authorization: str = Header(default="")):
-    """Fire a test push notification to verify iPhone delivery."""
+    """Fire a test push notification to verify iPhone delivery (Wave 14X-3:
+    rewired through AlertDispatcher; was returning 410 since the
+    strike_point_orchestrator archive on 2026-05-23)."""
     _verify_strike_token(authorization)
-    # Strike-point orchestrator archived 2026-05-23 — pipeline merged into Brain auto_flow. See CLAUDE.md DO NOT TOUCH rule #6.  # noqa: E501
-    # Was: notify_natrix() pushed an ntfy alert via the orchestrator's httpx client. The helper is gone with the  # noqa: E501
-    # orchestrator; this endpoint returns a 410 until a fresh ntfy client is wired (no other caller depends on it).  # noqa: E501
-    raise HTTPException(
-        status_code=410,
-        detail="push helper retired with strike-point orchestrator; ntfy client needs to be re-wired before this endpoint returns",  # noqa: E501
+    from runtime.notifications.alert_dispatch import enqueue_alert
+
+    enqueue_alert(
+        title="✅ NCL test push",
+        body=f"Test notification fired at {datetime.now(timezone.utc).isoformat()}Z. If you see this, ntfy is wired.",
+        priority="3",
+        tags="white_check_mark",
+        source="notifications_test",
     )
+    return {"status": "queued", "note": "check ntfy app for the push"}
 
 
 # /intelligence/push-brief, /intelligence/reddit/*, /intelligence/x/* — moved to runtime/api/routers/intel.py (W5-04)  # noqa: E501

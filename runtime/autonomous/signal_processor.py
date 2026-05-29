@@ -396,15 +396,27 @@ class SignalProcessor:
             return 0
         count = 0
         try:
-            from ..strike_point_orchestrator import notify_intel_signal_alert
+            # Wave 14X-3 (2026-05-29): re-wired via the central AlertDispatcher
+            # after strike_point_orchestrator was archived 2026-05-23. Push
+            # alerts have been silently dead since the archive move.
+            from ..notifications.alert_dispatch import enqueue_alert
 
             for entry in hot[:3]:  # Max 3 alerts per batch
-                await notify_intel_signal_alert(entry)
+                ticker = entry.get("ticker") or ""
+                score = entry.get("score", entry.get("importance", 0))
+                src = entry.get("source", "intel")
+                content = (entry.get("content") or entry.get("title") or "")[:200]
+                title = f"🔥 {ticker} hot signal" if ticker else "🔥 hot intel signal"
+                body = f"{src} · score={score} · {content}"
+                enqueue_alert(
+                    title=title,
+                    body=body,
+                    priority="4",
+                    tags="fire,chart_with_upwards_trend",
+                    dedup_key=f"intel:{ticker}:{src}",
+                    source="signal_processor",
+                )
                 count += 1
-        except ImportError:
-            log.warning(
-                "[PROCESSOR] strike_point_orchestrator not available — push alerts disabled"
-            )
         except Exception as e:
             log.debug(f"[PROCESSOR] Push alert failed: {e}")
         self._stats["total_pushed_alerts"] += count

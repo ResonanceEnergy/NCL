@@ -2230,34 +2230,33 @@ class AutonomousScheduler:
                             timezone.utc
                         ).isoformat()
 
-                        # Push summary to iPhone
+                        # Push summary to iPhone (Wave 14X-3: re-wired through
+                        # central AlertDispatcher after strike_point_orchestrator
+                        # was archived 2026-05-23; was silently dead since then)
                         try:
-                            from ..strike_point_orchestrator import notify_intelligence_brief
+                            from ..notifications.alert_dispatch import enqueue_alert
 
-                            summary_text = (
-                                f"Daily Reflection — {today}\n\n" f"{reflection.summary}\n\n"
-                            )
+                            summary_text = f"{reflection.summary}\n"
                             if reflection.patterns_noticed:
                                 summary_text += (
                                     "Patterns: " + ", ".join(reflection.patterns_noticed[:3]) + "\n"
                                 )
                             if reflection.tomorrow_focus:
                                 summary_text += (
-                                    "Tomorrow: " + ", ".join(reflection.tomorrow_focus[:3]) + "\n"
+                                    "Tomorrow: " + ", ".join(reflection.tomorrow_focus[:3])
                                 )
 
-                            await notify_intelligence_brief(
-                                {
-                                    "brief_type": "journal_reflection",
-                                    "executive_summary": summary_text,
-                                    "brief_id": reflection.reflection_id,
-                                }
+                            enqueue_alert(
+                                title=f"📓 Daily Reflection — {today}",
+                                body=summary_text,
+                                priority="3",
+                                tags="memo",
+                                dedup_key=f"journal_reflection:{reflection.reflection_id}",
+                                source="journal_reflection",
                             )
                             log.info(
                                 f"[JOURNAL] Reflection pushed to iPhone: {reflection.reflection_id}"
                             )
-                        except ImportError:
-                            log.debug("[JOURNAL] Push notification not available")
                         except Exception as e:
                             log.warning(f"[JOURNAL] Push failed: {e}")
 
