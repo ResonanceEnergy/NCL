@@ -460,6 +460,13 @@ class AutonomousScheduler:
         )
         # Loop 6: BM25 keyword index rebuild — backs FusedRetriever (Loop 11)
         self._tasks.append(asyncio.create_task(self._bm25_rebuild_loop(), name="ncl-bm25-rebuild"))
+        # Wave 14X-Y Phase 1B-3 (2026-05-29): cross-reference promotion engine.
+        # Every 5min, scans AWAREBOT signal stream for ticker / theme /
+        # news+trends convergences and writes promoted candidates to
+        # data/cross_reference/promotions.jsonl for TRADERAGENT pickup.
+        self._tasks.append(
+            asyncio.create_task(self._cross_reference_loop(), name="ncl-cross-reference")
+        )
         # Loop 7 (2026-05-22): per-city "fun finder" scanner — 1h cadence
         self._tasks.append(asyncio.create_task(self._city_events_loop(), name="ncl-city-events"))
         # Loop 8 (2026-05-22 EOD): stock scanner agent — GOAT + BRAVO every 4h
@@ -5247,6 +5254,42 @@ class AutonomousScheduler:
                 raise
             except Exception as e:
                 log.error("[YTC-NIGHTSHIFT] cycle failed: %s", e, exc_info=True)
+
+    async def _cross_reference_loop(self) -> None:
+        """LOOP 19 (Wave 14X-Y, 2026-05-29) — cross-reference promotion.
+
+        Every 5 minutes, scans the AWAREBOT signal stream for ticker /
+        theme / news+trends convergences. Writes promoted candidates to
+        ``data/cross_reference/promotions.jsonl`` for TRADERAGENT (auto-
+        trader) pickup. Pure pull-from-disk, no LLM cost.
+        """
+        log.info("[CROSS-REF] loop started (300s cadence)")
+        try:
+            await asyncio.sleep(60)  # initial delay
+        except asyncio.CancelledError:
+            raise
+
+        while self._running:
+            if EMERGENCY_STOP_EVENT.is_set():
+                log.critical("[CROSS-REF] Emergency stop — halting")
+                break
+            try:
+                from ..cross_reference import scan_and_promote
+
+                new_promotions = await asyncio.to_thread(scan_and_promote, 4)
+                if new_promotions:
+                    self._stats["last_cross_ref_run"] = datetime.now(timezone.utc).isoformat()
+                    self._stats["last_cross_ref_count"] = len(new_promotions)
+                    log.info("[CROSS-REF] promoted %d candidates this cycle", len(new_promotions))
+            except asyncio.CancelledError:
+                log.info("[CROSS-REF] cancelled")
+                raise
+            except Exception as e:
+                log.error("[CROSS-REF] cycle error: %s", e, exc_info=True)
+            try:
+                await asyncio.sleep(300)
+            except asyncio.CancelledError:
+                raise
 
     async def _bm25_rebuild_loop(self) -> None:
         """LOOP 18 — BM25 keyword index maintenance for Loop-11 fusion.
