@@ -876,8 +876,14 @@ class AutonomousScheduler:
                     },
                 ]
 
-                ingested = 0
-                for mandate in mandates:
+                # Wave 14W-A — fire all 5 ingests in parallel via gather.
+                # Serial awaits get starved by background loops (memory
+                # consolidation, BM25 rebuild, narrative threads) that
+                # take the same async lock — only 2 of 5 would complete
+                # within 5 minutes. Parallel gather lets them all queue at
+                # once and the asyncio.Condition writer-preference policy
+                # interleaves them with the consumers.
+                async def _ingest_one(mandate: dict) -> tuple[str, bool]:
                     try:
                         mandate_path = base / mandate["path"]
                         if not mandate_path.exists():
@@ -885,7 +891,7 @@ class AutonomousScheduler:
                                 "[MANDATE] %s missing — skipped",
                                 mandate_path,
                             )
-                            continue
+                            return mandate["name"], False
                         text = mandate_path.read_text()
                         await mem.create_unit(
                             content=(
@@ -903,17 +909,23 @@ class AutonomousScheduler:
                                 "wave": "14W-A",
                             },
                         )
-                        ingested += 1
                         log.info(
                             "[MANDATE] ingested %s v1.0 (importance 95)",
                             mandate["name"],
                         )
+                        return mandate["name"], True
                     except Exception as e:
                         log.warning(
                             "[MANDATE] %s ingest failed (non-fatal): %s",
                             mandate["name"], e,
                         )
+                        return mandate["name"], False
 
+                results = await asyncio.gather(
+                    *(_ingest_one(m) for m in mandates),
+                    return_exceptions=False,
+                )
+                ingested = sum(1 for _, ok in results if ok)
                 log.info(
                     "[MANDATE] Wave 14W-A complete — %d of %d lane "
                     "mandates ingested as procedural memory",
