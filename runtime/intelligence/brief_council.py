@@ -41,8 +41,8 @@ COUNCIL_DIR = NCL_BASE / "data" / "morning-brief-council"
 # the chair still sees flow-vs-tactics tension.
 _MODEL_MACRO = "claude-opus-4-20250514"  # heavy macro reasoning
 _MODEL_PULSE = "grok-4"                   # xAI — real-time sentiment, X/news
-_MODEL_FLOW = "gpt-4o"                    # OpenAI — flow analysis
-_MODEL_TECH = "gpt-4o"                    # OpenAI — chart setups (Gemini slot, no Google key yet)
+_MODEL_FLOW = "gemini-2.5-flash"          # Google — flow analysis (GOOGLE_API_KEY)
+_MODEL_TECH = "gpt-4o"                    # OpenAI — chart setups
 _MODEL_CHAIR = "claude-opus-4-20250514"  # heaviest synthesis
 
 # How much of the prep pack each member sees (token budget per call).
@@ -367,11 +367,41 @@ async def _openai_call(model: str, prompt: str, *, max_tokens: int = 3000,
     return text, in_tok, out_tok
 
 
+async def _gemini_call(model: str, prompt: str, *, max_tokens: int = 3000,
+                        timeout_s: float = 60.0, label: str = "council") -> tuple[str, int, int]:
+    """Call Google Gemini via generativeLanguage REST."""
+    api_key = os.environ.get("GOOGLE_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("GOOGLE_API_KEY not set")
+    import httpx
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"maxOutputTokens": max_tokens},
+    }
+    headers = {"Content-Type": "application/json"}
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    async with httpx.AsyncClient(timeout=timeout_s) as client:
+        r = await client.post(url, json=payload, headers=headers,
+                              params={"key": api_key})
+        r.raise_for_status()
+        body = r.json()
+    # Extract text from first candidate
+    text = ""
+    cands = body.get("candidates") or []
+    if cands:
+        parts = (cands[0].get("content") or {}).get("parts") or []
+        text = "".join(p.get("text", "") for p in parts)
+    usage = body.get("usageMetadata", {})
+    in_tok = int(usage.get("promptTokenCount", 0))
+    out_tok = int(usage.get("candidatesTokenCount", 0))
+    log.info("[council/%s] %s in=%d out=%d", label, model, in_tok, out_tok)
+    return text, in_tok, out_tok
+
+
 async def _dispatch_call(model: str, prompt: str, *, max_tokens: int = 3000,
                           timeout_s: float = 60.0, api_key: str = "",
                           label: str = "council") -> tuple[str, int, int]:
-    """Wave 14X-2: route by model-name prefix. Anthropic/xAI/OpenAI today;
-    Gemini slot will land when GOOGLE_API_KEY is added."""
+    """Wave 14X-2: route by model-name prefix. All 4 providers live."""
     m = (model or "").lower()
     if m.startswith("claude-"):
         return await _anthropic_call(
@@ -384,6 +414,10 @@ async def _dispatch_call(model: str, prompt: str, *, max_tokens: int = 3000,
         )
     if m.startswith("gpt-"):
         return await _openai_call(
+            model, prompt, max_tokens=max_tokens, timeout_s=timeout_s, label=label,
+        )
+    if m.startswith("gemini-"):
+        return await _gemini_call(
             model, prompt, max_tokens=max_tokens, timeout_s=timeout_s, label=label,
         )
     raise RuntimeError(f"unknown model provider for: {model!r}")
