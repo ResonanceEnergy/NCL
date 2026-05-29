@@ -1065,7 +1065,22 @@ async def collect_local_events(city: str = "edmonton") -> dict:
         end = start + timedelta(days=7)
         events = await get_local_events(city, start, end) or []
         today_str = start.isoformat()
-        out["today"] = [e for e in events if e.get("date") == today_str]
+
+        def _event_date_str(e: dict) -> str:
+            d = e.get("date")
+            if d is None:
+                return ""
+            # Normalize date / datetime / string to YYYY-MM-DD.
+            if hasattr(d, "isoformat"):
+                return d.isoformat()[:10]
+            return str(d)[:10]
+
+        out["today"] = [e for e in events if _event_date_str(e) == today_str]
+        # Stringify date on every event before persistence (JSON will
+        # otherwise choke on date objects during pack save).
+        for e in events:
+            if hasattr(e.get("date"), "isoformat"):
+                e["date"] = e["date"].isoformat()[:10]
         out["week"] = events
     except Exception as e:
         log.warning("[brief_prep] local_events collector failed: %s", e)
