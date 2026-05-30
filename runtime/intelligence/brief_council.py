@@ -57,8 +57,16 @@ def _resolve_council_models() -> tuple[str, str, str, str, str]:
     if os.environ.get("NCL_BRIEF_COUNCIL_LOCAL_AB", "").lower() in (
         "1", "true", "yes", "on",
     ):
-        pulse = os.environ.get("NCL_BRIEF_PULSE_LOCAL_MODEL", "ollama:qwen3:32b")
-        flow = os.environ.get("NCL_BRIEF_FLOW_LOCAL_MODEL", "ollama:llama3.1:70b")
+        # Default both members to qwen3:8b. The 32B variant OOMs on
+        # Mac Studio M1 Ultra 64GB when the brain process already
+        # has BGE-M3 (~1.5GB), FinBERT (~600MB), BERTopic models,
+        # ChromaDB and the embedding cache resident — Ollama's runner
+        # returns "model runner has unexpectedly stopped, resource
+        # limitations". qwen3:8b at 4-bit (~5GB) coexists cleanly.
+        # Override either via NCL_BRIEF_PULSE_LOCAL_MODEL /
+        # NCL_BRIEF_FLOW_LOCAL_MODEL if you free up memory.
+        pulse = os.environ.get("NCL_BRIEF_PULSE_LOCAL_MODEL", "ollama:qwen3:8b")
+        flow = os.environ.get("NCL_BRIEF_FLOW_LOCAL_MODEL", "ollama:qwen3:8b")
         return _MODEL_MACRO, pulse, flow, _MODEL_TECH, _MODEL_CHAIR
     return _MODEL_MACRO, _MODEL_PULSE, _MODEL_FLOW, _MODEL_TECH, _MODEL_CHAIR
 
@@ -470,13 +478,27 @@ async def _ollama_call(
     """
     if model.startswith("ollama:"):
         model = model[len("ollama:") :]
-    host = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
+    # OLLAMA_HOST in the wild is often set without a scheme
+    # ("localhost:11434"), which httpx rejects. Prepend http:// when
+    # missing so both "localhost:11434" and "http://127.0.0.1:11434"
+    # work transparently.
+    host = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434").strip()
+    if not host.startswith(("http://", "https://")):
+        host = f"http://{host}"
     import httpx
 
     payload = {
         "model": model,
         "prompt": prompt,
         "stream": False,
+        # Wave 14BO — qwen3 thinking mode burns token budget on a
+        # <think>...</think> preamble. Top-level "think": false
+        # disables it cleanly on Ollama 0.4+ (the prompt-level
+        # /no_think marker is ignored by the runtime).
+        "think": False,
+        # Keep the model warm so consecutive council calls reuse the
+        # in-memory weights instead of cold-loading per call.
+        "keep_alive": "30m",
         "options": {"num_predict": max_tokens},
     }
     async with httpx.AsyncClient(timeout=timeout_s) as client:
@@ -709,6 +731,9 @@ async def _run_member(name: str, prompt_fn, model: str, pack: dict, api_key: str
     """Run one council member. Returns None on failure (chair handles)."""
     try:
         prompt = prompt_fn(pack)
+        # Wave 14BO — qwen3 thinking-mode bypass is handled at the
+        # Ollama API layer in _ollama_call via {"think": false}; no
+        # prompt-level marker needed.
         text, _, _ = await _dispatch_call(
             model,
             prompt,
@@ -719,7 +744,12 @@ async def _run_member(name: str, prompt_fn, model: str, pack: dict, api_key: str
         )
         return _extract_json(text)
     except Exception as e:
-        log.warning("[council/%s] member failed: %s", name, e)
+        log.warning(
+            "[council/%s] member failed (%s): %s",
+            name,
+            type(e).__name__,
+            str(e) or repr(e),
+        )
         return None
 
 

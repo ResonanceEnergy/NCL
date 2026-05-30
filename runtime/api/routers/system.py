@@ -163,7 +163,17 @@ def _compute_spend_dashboard_data(days: int = 14) -> dict:
             amt = float(
                 d.get("amount_usd") or d.get("amount") or d.get("cost") or 0
             )
-            op = str(d.get("operation") or d.get("feature") or d.get("call") or "?")
+            # Wave 14BO: ledger rows use "category" (set by record_cost),
+            # not "operation"/"feature"/"call" — those defaults left every
+            # row in the "?" op bucket. Fall through to the legacy keys so
+            # we don't regress callers that DO write operation.
+            op = str(
+                d.get("category")
+                or d.get("operation")
+                or d.get("feature")
+                or d.get("call")
+                or "?"
+            )
             by_day[day] += amt
             by_source[src] += amt
             by_source_model[f"{src}/{model}"] += amt

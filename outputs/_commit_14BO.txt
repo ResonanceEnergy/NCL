@@ -1,0 +1,50 @@
+Wave 14BO: live verification + 4 council fixes for the A/B path
+
+Live-fired Morning Brief Pro with NCL_BRIEF_COUNCIL_LOCAL_AB=true
+and shook out four real bugs blocking the A/B chain:
+
+1. OLLAMA_HOST scheme. The launchd plist sets
+   OLLAMA_HOST=localhost:11434 without a scheme. httpx requires
+   http://. Defensive prepend in _ollama_call so both forms work.
+
+2. Empty error logs. _run_member logged %s on the exception;
+   if str(e) was empty the operator only saw "member failed:"
+   with no clue. Now includes type(e).__name__ + repr fallback
+   so we see HTTPStatusError / ValueError / timeout class names.
+
+3. qwen3 thinking-mode burns the token budget. The default
+   behavior produces a <think>...</think> preamble that ate
+   every num_predict token before any JSON ever emerged. The
+   prompt-level /no_think marker is silently ignored by Ollama.
+   Switched to top-level {"think": false} which Ollama 0.4+
+   honours.
+
+4. Mac Studio cannot keep qwen3:32b + llama3.1:70b resident
+   simultaneously alongside the brain + BGE-M3 + FinBERT +
+   BERTopic models. Ollama returned 500 "model runner has
+   unexpectedly stopped, this may be due to resource
+   limitations" on the second concurrent call. Default both
+   members to qwen3:8b (~5GB at 4-bit) which coexists cleanly.
+   Override via NCL_BRIEF_PULSE_LOCAL_MODEL /
+   NCL_BRIEF_FLOW_LOCAL_MODEL when other models are freed.
+
+Also added keep_alive=30m to the Ollama call body so warm
+models stay loaded between consecutive council members.
+
+Wave 14BO also fixed an unrelated dashboard regression where
+the top_ops bucket read d["operation"] but cost_tracker writes
+d["category"]. Updated _compute_spend_dashboard_data to fall
+through category first. Top ops now show real labels like
+anthropic/ytc_per_video and openai/llm:gpt-4o.
+
+Live verification (req=6849432b6d36ce2c, brief size 21,162 bytes):
+  council_meta.members_succeeded = [macro, pulse, flow, technical]
+  council_meta.confidence       = 0.9
+  council/flow      qwen3:8b (ollama) in=2480 out=341
+  council/pulse     qwen3:8b (ollama) in=2189 out=435
+  council/macro     gpt-4o (fallback from exhausted opus)
+  council/technical gpt-4o
+  council/chair     gpt-4o (fallback from exhausted opus)
+
+Both Ollama members succeeded. Brief shipped end-to-end with
+the A/B path live.
