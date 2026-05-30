@@ -502,6 +502,9 @@ _PROVIDER_ENDPOINTS: dict[Provider, str] = {
     Provider.XAI: "https://api.x.ai/v1/chat/completions",
     Provider.OPENAI: "https://api.openai.com/v1/chat/completions",
     Provider.PERPLEXITY: "https://api.perplexity.ai/chat/completions",
+    # Wave 14AG — DeepSeek + Groq are OpenAI-compatible.
+    Provider.DEEPSEEK: "https://api.deepseek.com/v1/chat/completions",
+    Provider.GROQ: "https://api.groq.com/openai/v1/chat/completions",
 }
 
 _PROVIDER_ENV_KEYS: dict[Provider, str] = {
@@ -509,6 +512,8 @@ _PROVIDER_ENV_KEYS: dict[Provider, str] = {
     Provider.OPENAI: "OPENAI_API_KEY",
     Provider.PERPLEXITY: "PERPLEXITY_API_KEY",
     Provider.GOOGLE: "GOOGLE_API_KEY",
+    Provider.DEEPSEEK: "DEEPSEEK_API_KEY",
+    Provider.GROQ: "GROQ_API_KEY",
 }
 
 
@@ -604,6 +609,15 @@ async def _call_openai(**kw: Any) -> tuple[str, list[dict], int, int, dict]:
 
 async def _call_perplexity(**kw: Any) -> tuple[str, list[dict], int, int, dict]:
     return await _call_openai_shape(Provider.PERPLEXITY, **kw)
+
+
+# Wave 14AG — DeepSeek + Groq use the same OpenAI-compatible shape.
+async def _call_deepseek(**kw: Any) -> tuple[str, list[dict], int, int, dict]:
+    return await _call_openai_shape(Provider.DEEPSEEK, **kw)
+
+
+async def _call_groq(**kw: Any) -> tuple[str, list[dict], int, int, dict]:
+    return await _call_openai_shape(Provider.GROQ, **kw)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -715,6 +729,8 @@ _PROVIDER_DISPATCH: dict[Provider, Any] = {
     Provider.OPENAI: _call_openai,
     Provider.GOOGLE: _call_google,
     Provider.PERPLEXITY: _call_perplexity,
+    Provider.DEEPSEEK: _call_deepseek,
+    Provider.GROQ: _call_groq,
 }
 
 

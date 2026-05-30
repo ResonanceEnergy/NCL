@@ -59,13 +59,18 @@ SQLITE_DOUBLE_WRITE = flags.cost_ledger_sqlite()
 #   with explicit reservations. Anthropic dominates because Sonnet 4 powers
 #   async_writer enrichment + chat + council chair + memory scoring.
 DEFAULT_DAILY_BUDGETS: dict[str, float] = {
-    "anthropic": 12.00,  # Claude — chair, async_writer, /chat, scoring
-    # (lowered 15→12 to fit platform $20)
+    # Wave 14AG (2026-05-30): Anthropic lowered 12→5 per cost audit Phase 1
+    # — DeepSeek + Groq + Ollama now cover Tier B/C, Anthropic kept for Tier A
+    # synthesis (chair, journal reflection, /chat, auto-trader research).
+    "anthropic": 5.00,  # Claude Opus/Sonnet — frontier work ONLY
     "openai": 2.00,  # GPT-4o — council member + Whisper
     "xai": 2.00,  # Grok — council member + fallback
-    "google": 1.00,  # Gemini — council member (lowered 2→1)
-    "perplexity": 1.00,  # Sonar Pro — council member (lowered 2→1)
+    "google": 1.00,  # Gemini — council member
+    "perplexity": 1.00,  # Sonar Pro — council member
     "cohere": 1.00,  # Cohere Rerank 3.5 cross-encoder for FusedRetriever
+    # Wave 14AG — cheap hosted OSS providers
+    "deepseek": 2.00,  # DeepSeek V3 — Tier B-1 (13 audited sites at $0.14/$0.28/M)
+    "groq": 1.00,  # Groq Llama 3.3 70B — Tier B-2 latency fallback
     "others": 1.00,  # Catch-all reservation for unknown / new paid sources
     # ── Free / subscription / token-disabled sources (do not contribute) ──
     "x_twitter": 0.00,  # ON HOLD — subscription expired, 402 (May 19)
@@ -83,7 +88,9 @@ DEFAULT_DAILY_BUDGETS: dict[str, float] = {
     # have a "cost source" string for `can_spend()` even when the local
     # backends are used (cpu/gpu cost is real but not metered in USD).
 }
-# Sum of paid sources = 12 + 2 + 2 + 1 + 1 + 1 + 1 = $20.00 (= platform cap)
+# Wave 14AG sum: 5 + 2 + 2 + 1 + 1 + 1 + 2 + 1 + 1 = $16.00 (under $20 platform cap)
+# Anthropic shrank from $12→$5 because Tier B work shifted to DeepSeek; net
+# expectation is total daily spend drops well below the cap.
 
 # Hard platform-wide daily cap (all sources combined)
 PLATFORM_DAILY_CAP: float = float(os.getenv("NCL_BUDGET_PLATFORM_CAP", "20.00"))

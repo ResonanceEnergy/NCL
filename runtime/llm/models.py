@@ -55,6 +55,12 @@ class Provider(StrEnum):
     PERPLEXITY = "perplexity"
     OLLAMA = "ollama"
     COHERE = "cohere"
+    # Wave 14AG (2026-05-30) — cheap hosted OSS providers per cost audit.
+    # DeepSeek V3 is 7-18x cheaper than Haiku 4.5 at comparable quality
+    # for Tier B structured-output tasks. Groq Llama 3.3 70B serves the
+    # latency-sensitive fallback slot at ~250 tok/sec. Both OpenAI-compatible.
+    DEEPSEEK = "deepseek"
+    GROQ = "groq"
 
 
 @dataclass(frozen=True)
@@ -221,6 +227,65 @@ MODEL_REGISTRY: dict[str, ModelSpec] = {
         context_window=32_768,
         input_per_mtok=0.0,
         output_per_mtok=0.0,
+    ),
+    "qwen3:8b": ModelSpec(
+        name="qwen3:8b",
+        provider=Provider.OLLAMA,
+        context_window=32_768,
+        input_per_mtok=0.0,
+        output_per_mtok=0.0,
+    ),
+    "deepseek-r1:32b": ModelSpec(
+        name="deepseek-r1:32b",
+        provider=Provider.OLLAMA,
+        context_window=64_000,
+        input_per_mtok=0.0,
+        output_per_mtok=0.0,
+    ),
+    "llama3.1:70b": ModelSpec(
+        name="llama3.1:70b",
+        provider=Provider.OLLAMA,
+        context_window=131_072,
+        input_per_mtok=0.0,
+        output_per_mtok=0.0,
+    ),
+    "deepseek-coder-v2:16b": ModelSpec(
+        name="deepseek-coder-v2:16b",
+        provider=Provider.OLLAMA,
+        context_window=128_000,
+        input_per_mtok=0.0,
+        output_per_mtok=0.0,
+    ),
+    # ── DeepSeek (hosted, ~7-18× cheaper than Haiku 4.5) ──────────────
+    "deepseek-chat": ModelSpec(
+        name="deepseek-chat",
+        provider=Provider.DEEPSEEK,
+        context_window=64_000,
+        input_per_mtok=0.14,
+        output_per_mtok=0.28,
+    ),
+    "deepseek-reasoner": ModelSpec(
+        name="deepseek-reasoner",
+        provider=Provider.DEEPSEEK,
+        context_window=64_000,
+        # Reasoner tier is slightly pricier (Sept 2025 schedule).
+        input_per_mtok=0.55,
+        output_per_mtok=2.19,
+    ),
+    # ── Groq (hosted OSS, ~250 tok/sec on Llama 3.3 70B) ──────────────
+    "llama-3.3-70b-versatile": ModelSpec(
+        name="llama-3.3-70b-versatile",
+        provider=Provider.GROQ,
+        context_window=128_000,
+        input_per_mtok=0.59,
+        output_per_mtok=0.79,
+    ),
+    "llama-3.1-8b-instant": ModelSpec(
+        name="llama-3.1-8b-instant",
+        provider=Provider.GROQ,
+        context_window=128_000,
+        input_per_mtok=0.05,
+        output_per_mtok=0.08,
     ),
 }
 

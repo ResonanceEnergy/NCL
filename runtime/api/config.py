@@ -79,6 +79,13 @@ _KEYCHAIN_ENV: dict[str, str] = {
     "PAPERCLIP_COMPANY_ID": "ncl-paperclip-company",
     "REDDIT_CLIENT_ID": "ncl-reddit-client-id",
     "REDDIT_CLIENT_SECRET": "ncl-reddit-client-secret",
+    # Wave 14AG (2026-05-30) — cheap hosted OSS providers
+    "DEEPSEEK_API_KEY": "ncl-deepseek",
+    "GROQ_API_KEY": "ncl-groq",
+    # Wave 14AH free-data sources that need keys
+    "MARKETAUX_API_KEY": "ncl-marketaux",
+    "TRADIER_API_KEY": "ncl-tradier",
+    "FINNHUB_API_KEY": "ncl-finnhub",
 }
 
 
@@ -116,6 +123,17 @@ _RECOMMENDED_VARS: list[tuple[str, str]] = [
     ("GOOGLE_API_KEY", "Google Gemini — Council Analyst (get from https://aistudio.google.com)"),
     ("OPENAI_API_KEY", "OpenAI GPT — Council Creative + Whisper fallback"),
     ("PERPLEXITY_API_KEY", "Perplexity — Council Researcher (fact-checking)"),
+    # Wave 14AG cheap OSS providers — recommended once added to keychain
+    (
+        "DEEPSEEK_API_KEY",
+        "DeepSeek V3 — Tier B-1 work (7-18x cheaper than Haiku) "
+        "(get from https://platform.deepseek.com)",
+    ),
+    (
+        "GROQ_API_KEY",
+        "Groq Llama 3.3 70B — Tier B-2 latency fallback at 250 tok/sec "
+        "(get from https://console.groq.com)",
+    ),
 ]
 
 # ── Optional vars — specific features only ────────────────────────────────────
