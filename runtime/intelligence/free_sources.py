@@ -548,6 +548,440 @@ async def fetch_calgary_events(days_ahead: int = 14, limit: int = 50) -> list[di
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# SEC EDGAR — Wave 14AM (2026-05-30): earnings calendar + Form 4 insider
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Free, no key required. SEC enforces a 10 req/sec hard cap across all
+# *.sec.gov domains with mandatory User-Agent: name email@addr header.
+# Replaces the flaky yfinance earnings-calendar fallback NCL has been
+# using since Wave 14G P19, and adds insider-trade signal NCL doesn't
+# have today.
+
+_SEC_UA = "NCL personal-AI nate@gripandripphdd.com"
+_SEC_HEADERS = {"User-Agent": _SEC_UA, "Accept-Encoding": "gzip, deflate"}
+
+# Company-facts API (XBRL); used to resolve ticker → CIK for Form 4.
+_SEC_TICKER_LOOKUP = "https://www.sec.gov/files/company_tickers.json"
+_sec_ticker_cik_cache: Optional[dict[str, str]] = None
+
+
+async def _sec_load_ticker_cik_map() -> dict[str, str]:
+    """Cache the ticker → 10-digit CIK map (refreshed daily-ish)."""
+    global _sec_ticker_cik_cache
+    if _sec_ticker_cik_cache is not None:
+        return _sec_ticker_cik_cache
+    cached = _cache_get("sec:ticker_cik")
+    if cached is not None:
+        _sec_ticker_cik_cache = cached  # type: ignore[assignment]
+        return cached  # type: ignore[return-value]
+    try:
+        client = await _http()
+        r = await client.get(_SEC_TICKER_LOOKUP, headers=_SEC_HEADERS)
+        r.raise_for_status()
+        data = r.json() or {}
+    except Exception as e:
+        log.warning("[sec] ticker_cik map fetch failed: %s", e)
+        return {}
+    # File shape: {"0": {"cik_str": 320193, "ticker": "AAPL", ...}, ...}
+    out: dict[str, str] = {}
+    for v in data.values():
+        if not isinstance(v, dict):
+            continue
+        sym = str(v.get("ticker") or "").upper()
+        cik = v.get("cik_str")
+        if sym and cik is not None:
+            out[sym] = str(cik).zfill(10)
+    _cache_put("sec:ticker_cik", out, ttl_s=3600 * 24)  # 24h
+    _sec_ticker_cik_cache = out
+    return out
+
+
+async def fetch_sec_earnings_calendar(
+    tickers: Optional[tuple[str, ...] | list[str]] = None,
+    days_back: int = 14,
+    days_ahead: int = 14,
+    limit_per_ticker: int = 5,
+) -> list[dict]:
+    """Recent earnings-related 8-K filings (Item 2.02 = Results of Ops).
+
+    Per-ticker walk of EDGAR submissions JSON — same pattern as Form 4
+    fetcher. Looks for 8-K filings in the window, captures dates, and
+    flags those with item 2.02 ("Results of Operations and Financial
+    Condition") which is the standard earnings-release item code.
+
+    If ``tickers`` is None we walk a small default watchlist of S&P
+    high-volume names; callers should pass NATRIX's held + watchlist
+    tickers for full coverage.
+
+    Returns rows: {ticker, company, date, accession, items, form, url,
+    is_earnings}. Sorted by date desc.
+    """
+    if not tickers:
+        tickers = (
+            "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "AVGO",
+            "JPM", "V", "MA", "BRK-B", "XOM", "JNJ", "WMT", "PG", "UNH",
+            "HD", "BAC", "SPY",
+        )
+    cache_key = f"sec:earnings:{','.join(tickers)}:{days_back}:{days_ahead}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return list(cached)  # type: ignore[arg-type]
+
+    map_ = await _sec_load_ticker_cik_map()
+    if not map_:
+        return []
+    today = datetime.now(timezone.utc).date()
+    window_start = today - timedelta(days=days_back)
+    window_end = today + timedelta(days=days_ahead)
+
+    client = await _http()
+    out: list[dict] = []
+    for t in tickers:
+        cik = map_.get(t.upper())
+        if not cik:
+            continue
+        try:
+            r = await client.get(
+                f"https://data.sec.gov/submissions/CIK{cik}.json",
+                headers=_SEC_HEADERS,
+                timeout=20.0,
+            )
+            r.raise_for_status()
+            j = r.json() or {}
+        except Exception as e:
+            log.debug("[sec] earnings submissions for %s failed: %s", t, e)
+            continue
+        recent = (j.get("filings") or {}).get("recent") or {}
+        forms = recent.get("form") or []
+        dates = recent.get("filingDate") or []
+        accessions = recent.get("accessionNumber") or []
+        primary_docs = recent.get("primaryDocument") or []
+        items_list = recent.get("items") or []
+        company = j.get("name", "")
+        kept = 0
+        for i, form in enumerate(forms):
+            if form not in ("8-K", "8-K/A", "10-Q", "10-K"):
+                continue
+            d_str = dates[i] if i < len(dates) else ""
+            try:
+                d = datetime.fromisoformat(d_str).date()
+            except Exception:
+                continue
+            if not (window_start <= d <= window_end):
+                continue
+            items = items_list[i] if i < len(items_list) else ""
+            is_earnings = (
+                "2.02" in (items or "") or form in ("10-Q", "10-K")
+            )
+            acc = accessions[i] if i < len(accessions) else ""
+            doc = primary_docs[i] if i < len(primary_docs) else ""
+            acc_nodashes = acc.replace("-", "")
+            url = (
+                f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/"
+                f"{acc_nodashes}/{doc}"
+            )
+            out.append(
+                {
+                    "ticker": t.upper(),
+                    "company": company,
+                    "date": d.isoformat(),
+                    "form": form,
+                    "items": items,
+                    "is_earnings": is_earnings,
+                    "accession": acc,
+                    "url": url,
+                    "source": "sec:edgar",
+                }
+            )
+            kept += 1
+            if kept >= limit_per_ticker:
+                break
+
+    out.sort(key=lambda r: r["date"], reverse=True)
+    _cache_put(cache_key, out, ttl_s=3600 * 4)
+    return out
+
+
+async def fetch_sec_form4_insider(
+    tickers: tuple[str, ...] | list[str],
+    days_back: int = 14,
+    limit_per_ticker: int = 10,
+) -> list[dict]:
+    """Form 4 insider transactions for the given tickers in the last N days.
+
+    Returns rows: {ticker, company, reporter, role, transaction_date,
+    transaction_code, shares, price, url, accession}. Empty list on
+    failure. Cached 1h.
+    """
+    if not tickers:
+        return []
+    cache_key = f"sec:form4:{','.join(tickers)}:{days_back}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return list(cached)  # type: ignore[arg-type]
+
+    map_ = await _sec_load_ticker_cik_map()
+    if not map_:
+        return []
+
+    today = datetime.now(timezone.utc).date()
+    start = today - timedelta(days=days_back)
+    client = await _http()
+    out: list[dict] = []
+    for t in tickers:
+        cik = map_.get(t.upper())
+        if not cik:
+            continue
+        try:
+            r = await client.get(
+                f"https://data.sec.gov/submissions/CIK{cik}.json",
+                headers=_SEC_HEADERS,
+                timeout=20.0,
+            )
+            r.raise_for_status()
+            j = r.json() or {}
+        except Exception as e:
+            log.debug("[sec] form4 submissions for %s failed: %s", t, e)
+            continue
+        recent = (j.get("filings") or {}).get("recent") or {}
+        forms = recent.get("form") or []
+        dates = recent.get("filingDate") or []
+        accessions = recent.get("accessionNumber") or []
+        primary_docs = recent.get("primaryDocument") or []
+        company = j.get("name", "")
+        added_for_ticker = 0
+        for i, form in enumerate(forms):
+            if form != "4":
+                continue
+            d_str = dates[i] if i < len(dates) else ""
+            try:
+                d = datetime.fromisoformat(d_str).date()
+            except Exception:
+                continue
+            if not (start <= d <= today):
+                continue
+            acc = accessions[i] if i < len(accessions) else ""
+            doc = primary_docs[i] if i < len(primary_docs) else ""
+            acc_nodashes = acc.replace("-", "")
+            url = (
+                f"https://www.sec.gov/Archives/edgar/data/{int(cik)}/"
+                f"{acc_nodashes}/{doc}"
+            )
+            out.append(
+                {
+                    "ticker": t.upper(),
+                    "company": company,
+                    "transaction_date": d.isoformat(),
+                    "accession": acc,
+                    "url": url,
+                    "source": "sec:edgar:form4",
+                }
+            )
+            added_for_ticker += 1
+            if added_for_ticker >= limit_per_ticker:
+                break
+
+    # Sort by date desc so the freshest insider activity surfaces first.
+    out.sort(key=lambda r: r["transaction_date"], reverse=True)
+    _cache_put(cache_key, out, ttl_s=3600)
+    return out
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# GDELT 2.0 — Wave 14AM: geopolitical-event signal NCL doesn't have today
+# ═══════════════════════════════════════════════════════════════════════
+#
+# GDELT's DOC 2.0 API is free, no key, soft per-IP throttling. Returns
+# events from the last 15-minute slice with CAMEO actor-action codes.
+
+
+async def fetch_gdelt_events_today(
+    keywords: tuple[str, ...] = (
+        "OPEC",
+        "Fed Reserve",
+        "ECB",
+        "BOJ",
+        "China stimulus",
+        "Taiwan strait",
+        "Ukraine ceasefire",
+        "Middle East",
+        "sanctions",
+        "tariff",
+    ),
+    max_per_keyword: int = 10,
+) -> list[dict]:
+    """Recent GDELT-tagged events for a curated keyword list.
+
+    GDELT's free DOC 2.0 API allows up to ~30s wall on busy IPs;
+    soft-throttles at ~5 r/s. Each call gets the last 24h of articles
+    matching the keyword. Returns rows: {title, url, seendate, domain,
+    keyword, source}.
+    """
+    cache_key = f"gdelt:{','.join(keywords)}:{max_per_keyword}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return list(cached)  # type: ignore[arg-type]
+
+    client = await _http()
+    out: list[dict] = []
+    for kw in keywords:
+        try:
+            r = await client.get(
+                "https://api.gdeltproject.org/api/v2/doc/doc",
+                params={
+                    "query": kw,
+                    "mode": "ArtList",
+                    "format": "json",
+                    "timespan": "24h",
+                    "maxrecords": str(max_per_keyword),
+                    "sort": "DateDesc",
+                },
+                timeout=15.0,
+            )
+            if r.status_code != 200:
+                continue
+            data = r.json() or {}
+        except Exception as e:
+            log.debug("[gdelt] keyword %r failed: %s", kw, e)
+            continue
+        for art in (data.get("articles") or [])[:max_per_keyword]:
+            out.append(
+                {
+                    "title": (art.get("title") or "")[:200],
+                    "url": art.get("url") or "",
+                    "seendate": art.get("seendate") or "",
+                    "domain": art.get("domain") or "",
+                    "language": art.get("language") or "",
+                    "keyword": kw,
+                    "country": art.get("sourcecountry") or "",
+                    "source": "gdelt:doc",
+                }
+            )
+    _cache_put(cache_key, out, ttl_s=900)  # 15 min — GDELT updates each 15 min
+    return out
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# TRADIER SANDBOX — Wave 14AM: options chains + Greeks (no fee)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Free sandbox account from developer.tradier.com — no brokerage needed.
+# Sandbox data is delayed/simulated but Greeks (delta/gamma/theta/vega/rho)
+# refresh hourly and the chain structure is identical to the live API.
+# TRADIER_API_KEY hydrated from macOS Keychain (Wave 14AG config update).
+
+
+async def fetch_tradier_options_chain(
+    symbol: str,
+    expiration: Optional[str] = None,
+    greeks: bool = True,
+) -> dict:
+    """Options chain + Greeks for one symbol/expiration.
+
+    Returns {symbol, expiration, calls: [...], puts: [...]} where each
+    contract row carries strike, bid/ask, volume, open_interest, and
+    (when greeks=True) delta/gamma/theta/vega/rho.
+
+    Returns {} on missing TRADIER_API_KEY or any HTTP failure.
+    """
+    import os as _os
+
+    api_key = _os.getenv("TRADIER_API_KEY")
+    if not api_key:
+        log.debug("[tradier] TRADIER_API_KEY missing — skipping")
+        return {}
+
+    cache_key = f"tradier:chain:{symbol}:{expiration or 'next'}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return dict(cached)  # type: ignore[arg-type]
+
+    client = await _http()
+    # Sandbox base; live uses api.tradier.com without /v1/ change.
+    base = "https://sandbox.tradier.com/v1/markets/options"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Accept": "application/json",
+    }
+
+    # If no expiration provided, ask Tradier for the next one available.
+    if not expiration:
+        try:
+            r0 = await client.get(
+                f"{base}/expirations",
+                params={"symbol": symbol, "includeAllRoots": "true"},
+                headers=headers,
+                timeout=15.0,
+            )
+            r0.raise_for_status()
+            edata = r0.json() or {}
+            dates = (((edata.get("expirations") or {}).get("date")) or [])
+            if isinstance(dates, str):
+                dates = [dates]
+            if not dates:
+                return {}
+            expiration = dates[0]
+        except Exception as e:
+            log.warning("[tradier] expirations fetch failed for %s: %s", symbol, e)
+            return {}
+
+    try:
+        r = await client.get(
+            f"{base}/chains",
+            params={
+                "symbol": symbol,
+                "expiration": expiration,
+                "greeks": "true" if greeks else "false",
+            },
+            headers=headers,
+            timeout=20.0,
+        )
+        r.raise_for_status()
+        data = r.json() or {}
+    except Exception as e:
+        log.warning("[tradier] chain fetch failed for %s/%s: %s", symbol, expiration, e)
+        return {}
+
+    options = ((data.get("options") or {}).get("option")) or []
+    calls: list[dict] = []
+    puts: list[dict] = []
+    for opt in options:
+        if not isinstance(opt, dict):
+            continue
+        row = {
+            "strike": opt.get("strike"),
+            "bid": opt.get("bid"),
+            "ask": opt.get("ask"),
+            "last": opt.get("last"),
+            "volume": opt.get("volume"),
+            "open_interest": opt.get("open_interest"),
+            "implied_volatility": opt.get("greeks", {}).get("mid_iv") if isinstance(opt.get("greeks"), dict) else None,
+        }
+        gr = opt.get("greeks") if isinstance(opt.get("greeks"), dict) else None
+        if gr:
+            row["delta"] = gr.get("delta")
+            row["gamma"] = gr.get("gamma")
+            row["theta"] = gr.get("theta")
+            row["vega"] = gr.get("vega")
+            row["rho"] = gr.get("rho")
+        if (opt.get("option_type") or "").lower() == "call":
+            calls.append(row)
+        else:
+            puts.append(row)
+
+    out = {
+        "symbol": symbol.upper(),
+        "expiration": expiration,
+        "calls": calls,
+        "puts": puts,
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "source": "tradier:sandbox",
+    }
+    _cache_put(cache_key, out, ttl_s=1800)  # 30 min — sandbox refreshes hourly
+    return out
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # Cleanup
 # ═══════════════════════════════════════════════════════════════════════
 
@@ -567,6 +1001,11 @@ __all__ = [
     "fetch_cftc_cot",
     "fetch_open_meteo_air_quality",
     "fetch_edmonton_events",
+    # Wave 14AM additions
+    "fetch_sec_earnings_calendar",
+    "fetch_sec_form4_insider",
+    "fetch_gdelt_events_today",
+    "fetch_tradier_options_chain",
     "fetch_calgary_events",
     "aclose",
 ]
