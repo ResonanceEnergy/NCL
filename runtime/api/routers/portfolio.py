@@ -3565,3 +3565,89 @@ async def polymarket_agent_eod(
 ) -> dict:
     from runtime.portfolio.polymarket_agent import build_eod_summary
     return await build_eod_summary(brain=brain)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Wave 14BI — Form 4 insider activity for held tickers
+# Reads SEC EDGAR Form 4 filings via fetch_sec_form4_insider for tickers
+# currently in the operator's portfolio. Surface for the iOS PortfolioView
+# INSIDER chip — appears when any held ticker has Form 4 in last N days.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@router.get("/insider/form4")
+async def portfolio_insider_form4(
+    days_back: int = Query(default=14, ge=1, le=90),
+    pm=Depends(get_portfolio_mgr),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """
+    Form 4 insider transactions for currently-held tickers.
+
+    Walks `pm.get_positions(account_filter="all")` for unique symbols
+    (skipping options, futures, cash), then calls
+    `fetch_sec_form4_insider(tickers, days_back)`. Returns rows
+    grouped per ticker plus a flat list. Empty rows = nothing to
+    surface; iOS hides the chip.
+
+    Response shape:
+      {
+        "days_back": int,
+        "tickers": [str, ...],
+        "rows": [{ticker, company, transaction_date, accession, url, source}, ...],
+        "by_ticker": {ticker: [row, ...]},
+        "total": int,
+      }
+    """
+    pm = _require_manager(pm)
+
+    # Collect unique held equity tickers
+    try:
+        positions = pm.get_positions(account_filter="all") or []
+    except Exception as e:
+        log.exception("[insider/form4] get_positions failed: %s", e)
+        positions = []
+
+    tickers: set[str] = set()
+    for p in positions:
+        if not isinstance(p, dict):
+            continue
+        t = (p.get("symbol") or p.get("ticker") or "").strip().upper()
+        if not t or len(t) > 5 or not t.isalpha():
+            continue
+        # Skip non-equity (options have OCC symbols, futures have /XX, cash row)
+        asset = (p.get("asset_type") or p.get("instrument_type") or "").lower()
+        if asset in {"option", "options", "future", "futures", "crypto", "cash"}:
+            continue
+        tickers.add(t)
+
+    if not tickers:
+        return {
+            "days_back": days_back,
+            "tickers": [],
+            "rows": [],
+            "by_ticker": {},
+            "total": 0,
+        }
+
+    try:
+        from runtime.intelligence.free_sources import fetch_sec_form4_insider
+
+        rows = await fetch_sec_form4_insider(
+            tuple(sorted(tickers)), days_back=days_back, limit_per_ticker=5
+        )
+    except Exception as e:
+        log.exception("[insider/form4] fetch failed: %s", e)
+        raise HTTPException(status_code=502, detail=f"SEC EDGAR fetch failed: {e}")
+
+    by_ticker: dict[str, list[dict]] = {}
+    for row in rows:
+        by_ticker.setdefault(row["ticker"], []).append(row)
+
+    return {
+        "days_back": days_back,
+        "tickers": sorted(tickers),
+        "rows": rows,
+        "by_ticker": by_ticker,
+        "total": len(rows),
+    }
