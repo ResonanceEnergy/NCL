@@ -61,6 +61,15 @@ class Scanner:
         ]
         self._reddit_ua_index = 0
 
+        # Wave 14AC: Reddit Application-Only OAuth state. Cached token +
+        # expiry. The www/old.reddit JSON endpoints now 403 every request
+        # without OAuth. With REDDIT_CLIENT_ID + REDDIT_CLIENT_SECRET in
+        # .env, the scanner fetches a Bearer token from
+        # https://www.reddit.com/api/v1/access_token (grant_type=client_credentials)
+        # and uses oauth.reddit.com which still serves authenticated requests.
+        self._reddit_token: Optional[str] = None
+        self._reddit_token_expires: float = 0.0
+
         # Thread pool for blocking yt-dlp calls
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ytdlp")
 
@@ -372,8 +381,80 @@ class Scanner:
         self._reddit_ua_index += 1
         return ua
 
+    async def _get_reddit_oauth_token(self) -> Optional[str]:
+        """Wave 14AC: Reddit Application-Only OAuth (no user login required).
+
+        Returns a Bearer token (1h TTL) if REDDIT_CLIENT_ID +
+        REDDIT_CLIENT_SECRET are configured, else None. Cached in-memory.
+        Refreshes 60s before expiry. Never raises — failure returns None
+        and the caller falls back to public-endpoint scraping (which 403s).
+        """
+        import time as _time
+        if not self.reddit_client_id or not self.reddit_client_secret:
+            return None
+        if self._reddit_token and self._reddit_token_expires > _time.time():
+            return self._reddit_token
+        try:
+            auth = httpx.BasicAuth(self.reddit_client_id, self.reddit_client_secret)
+            response = await self.http_client.post(
+                "https://www.reddit.com/api/v1/access_token",
+                auth=auth,
+                data={"grant_type": "client_credentials"},
+                headers={"User-Agent": self.reddit_user_agent},
+                timeout=15.0,
+            )
+            response.raise_for_status()
+            body = response.json()
+            token = body.get("access_token")
+            if not token:
+                logger.warning("[reddit] OAuth response missing access_token")
+                return None
+            ttl = int(body.get("expires_in", 3600))
+            self._reddit_token = token
+            # Refresh 60s before the real expiry so we don't race the boundary.
+            self._reddit_token_expires = _time.time() + max(ttl - 60, 60)
+            logger.info(
+                "[reddit] OAuth token acquired (ttl=%ds)",
+                ttl,
+            )
+            return token
+        except Exception as e:
+            logger.warning("[reddit] OAuth token fetch failed: %s", e)
+            return None
+
     async def _reddit_get_json(self, url: str, params: dict) -> dict:
-        """GET Reddit JSON with browser UA rotation + old.reddit.com fallback."""
+        """GET Reddit JSON. Wave 14AC: prefer OAuth (oauth.reddit.com) when
+        credentials are configured, fall back to browser-UA public scraping
+        (which currently 403s) so the call still returns data when creds
+        are unset rather than silently producing nothing.
+        """
+        token = await self._get_reddit_oauth_token()
+        if token:
+            # OAuth path — works reliably with proper credentials.
+            oauth_url = url
+            for host in ("www.reddit.com", "old.reddit.com", "reddit.com"):
+                oauth_url = oauth_url.replace(host, "oauth.reddit.com")
+            try:
+                response = await self._request_with_retry(
+                    "GET",
+                    oauth_url,
+                    platform="reddit",
+                    params=params,
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "User-Agent": self.reddit_user_agent,
+                    },
+                )
+                return response.json()
+            except Exception as e:
+                logger.warning("[reddit] OAuth request failed (%s) — falling back to public", e)
+                # If it's a 401, the token was rejected — clear it so next call
+                # refreshes.
+                if "401" in str(e):
+                    self._reddit_token = None
+                    self._reddit_token_expires = 0.0
+
+        # Public path — currently 403s but kept as last-ditch fallback.
         ua = self._next_reddit_ua()
         try:
             response = await self._request_with_retry(
@@ -385,7 +466,6 @@ class Scanner:
             )
             return response.json()
         except Exception:
-            # Fallback to old.reddit.com on 403 or connection errors
             if "www.reddit.com" in url:
                 fallback_url = url.replace("www.reddit.com", "old.reddit.com")
                 logger.info(f"[scanner] Reddit fallback to old.reddit.com for: {fallback_url}")
