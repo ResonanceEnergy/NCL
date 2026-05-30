@@ -141,7 +141,7 @@ def _extract_tickers(text: str) -> set[str]:
     return found
 
 
-def _extract_themes(text: str) -> set[str]:
+def _extract_themes(text: str, source: Optional[str] = None) -> set[str]:
     """Match text against theme clusters; return cluster names.
 
     Wave 14AN (2026-05-30): when a BERTopic model exists at
@@ -149,6 +149,12 @@ def _extract_themes(text: str) -> set[str]:
     is truthy, the learned topic label is added to the hit set alongside
     the keyword-matched clusters. The hardcoded clusters remain as the
     safety net — disabling BERTopic returns to the original behavior.
+
+    Wave 14BJ (2026-05-30): when per-source BERTopic models exist under
+    data/cross_reference/bertopic_model/{source}/, they take precedence
+    over the global model so reddit / youtube / news / polymarket each
+    cluster within their own topic space. The global model remains as
+    a fallback when a source has no fitted model.
     """
     if not text:
         return set()
@@ -165,11 +171,19 @@ def _extract_themes(text: str) -> set[str]:
         "1", "true", "yes", "on",
     ):
         try:
-            loaded = _get_bertopic_themes()
-            if loaded:
-                from . import bertopic_themes as _bt
+            from . import bertopic_themes as _bt
 
-                for label, _score in _bt.classify_themes_bertopic(text, loaded, top_n=1):
+            by_source = _get_source_stratified_bertopic()
+            fallback = _get_bertopic_themes()
+            if by_source or fallback:
+                pairs = _bt.classify_themes_for_source(
+                    text,
+                    source=source or "",
+                    loaded_by_source=by_source,
+                    fallback=fallback,
+                    top_n=1,
+                )
+                for label, _score in pairs:
                     if label:
                         hits.add(f"bt:{label}")
         except Exception as e:
@@ -181,6 +195,9 @@ def _extract_themes(text: str) -> set[str]:
 # load cost; subsequent calls reuse the in-memory object.
 _bertopic_loaded: Optional[dict] = None
 _bertopic_lookup_attempted: bool = False
+# Wave 14BJ — per-source models cache.
+_source_bertopic_loaded: dict[str, dict] = {}
+_source_bertopic_lookup_attempted: bool = False
 
 
 def _get_bertopic_themes() -> Optional[dict]:
@@ -205,6 +222,24 @@ def _get_bertopic_themes() -> Optional[dict]:
             meta.get("trained_at"),
         )
     return _bertopic_loaded
+
+
+def _get_source_stratified_bertopic() -> dict[str, dict]:
+    """Wave 14BJ — lazy load per-source BERTopic models."""
+    global _source_bertopic_loaded, _source_bertopic_lookup_attempted
+    if _source_bertopic_loaded:
+        return _source_bertopic_loaded
+    if _source_bertopic_lookup_attempted:
+        return {}
+    _source_bertopic_lookup_attempted = True
+    try:
+        from . import bertopic_themes as _bt
+
+        _source_bertopic_loaded = _bt.load_source_stratified_bertopic() or {}
+    except Exception as e:
+        log.debug("[cross-ref] source-stratified bertopic load failed: %s", e)
+        _source_bertopic_loaded = {}
+    return _source_bertopic_loaded
 
 
 def _read_recent_signals(window_hours: int) -> list[dict]:
@@ -284,8 +319,10 @@ def _rule_theme_converge(signals: list[dict], window_hours: int = 24) -> list[Pr
         if not _is_intel_source(s.get("source", "")):
             continue
         text = (s.get("title", "") + " " + s.get("content", ""))[:500]
-        for theme in _extract_themes(text):
-            head = (s.get("source", "") or "").split(":")[0].lower()
+        head = (s.get("source", "") or "").split(":")[0].lower()
+        # Wave 14BJ — thread source so per-source BERTopic models score
+        # within-source topic spaces (no cross-domain ticker dominance).
+        for theme in _extract_themes(text, source=head):
             by_theme.setdefault(theme, {}).setdefault(head, []).append(s)
     out: list[PromotedCandidate] = []
     for theme, by_source in by_theme.items():

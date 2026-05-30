@@ -253,4 +253,136 @@ __all__ = [
     "train_bertopic_themes",
     "load_bertopic_themes",
     "classify_themes_bertopic",
+    "train_source_stratified_bertopic",
+    "load_source_stratified_bertopic",
+    "classify_themes_for_source",
 ]
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Wave 14BJ — source-stratified BERTopic
+# ─────────────────────────────────────────────────────────────────────
+#
+# Themes in a Reddit thread, a YouTube transcript chunk, and a news
+# headline span DIFFERENT topic spaces — mixing them in one model
+# means tickers dominate (because options-flow + Polymarket short
+# text both contain a dense ticker prior), and macro themes from
+# YTC transcripts get drowned out. A separate model per source
+# preserves the within-source signal.
+#
+# Layout on disk:
+#   data/cross_reference/bertopic_model/_global/{model.pkl,meta.json}
+#   data/cross_reference/bertopic_model/reddit/{model.pkl,meta.json}
+#   data/cross_reference/bertopic_model/youtube/{model.pkl,meta.json}
+#   ... etc
+#
+# The Wave 14AN single-model path stays as the fallback when the
+# stratified directory is empty.
+
+
+def train_source_stratified_bertopic(
+    signals_by_source: dict[str, list[str]],
+    save_root: Optional[Path] = None,
+    min_topic_size: int = _DEFAULT_MIN_TOPIC_SIZE,
+    embed_model: str = _DEFAULT_EMBED_MODEL,
+    min_docs_per_source: int = 30,
+) -> dict:
+    """Train one BERTopic model per source. Skips sources below the
+    minimum-doc bar (clusters need volume to find structure).
+
+    Args:
+        signals_by_source: {'reddit': [text, ...], 'youtube': [...], ...}
+        save_root: directory under which each source gets its own subdir.
+        min_topic_size: cluster floor — passed through to per-source trainer.
+        embed_model: sentence-transformers model id.
+        min_docs_per_source: skip sources with fewer than this many docs.
+
+    Returns:
+        {
+          'trained': {source: {n_topics, n_documents, train_elapsed_s}},
+          'skipped': {source: reason},
+          'saved_to': str(save_root),
+        }
+    """
+    root = Path(save_root or _BERTOPIC_DIR)
+    root.mkdir(parents=True, exist_ok=True)
+    trained: dict[str, dict] = {}
+    skipped: dict[str, str] = {}
+    for source, texts in signals_by_source.items():
+        if not source or source == "_global":
+            continue
+        if len(texts) < min_docs_per_source:
+            skipped[source] = (
+                f"only {len(texts)} docs, need >= {min_docs_per_source}"
+            )
+            continue
+        sub = root / source
+        try:
+            res = train_bertopic_themes(
+                texts,
+                save_path=sub,
+                min_topic_size=min_topic_size,
+                embed_model=embed_model,
+            )
+            trained[source] = {
+                "n_topics": res["n_topics"],
+                "n_documents": res["n_documents"],
+                "train_elapsed_s": res["train_elapsed_s"],
+            }
+        except Exception as e:
+            skipped[source] = f"train failed: {e}"
+            log.warning("[bertopic-themes] source %s skipped: %s", source, e)
+    return {
+        "trained": trained,
+        "skipped": skipped,
+        "saved_to": str(root),
+    }
+
+
+_source_loaded_cache: dict[str, Optional[dict]] = {}
+_source_lookup_attempted: set[str] = set()
+
+
+def load_source_stratified_bertopic(
+    save_root: Optional[Path] = None,
+) -> dict[str, dict]:
+    """Load all per-source models that exist under save_root.
+
+    Returns dict: {source: loaded_payload}.
+    Sources without a fitted model are simply absent from the returned
+    map — caller falls back to the global model.
+    """
+    root = Path(save_root or _BERTOPIC_DIR)
+    out: dict[str, dict] = {}
+    if not root.exists():
+        return out
+    for sub in root.iterdir():
+        if not sub.is_dir() or sub.name.startswith("_"):
+            continue
+        loaded = load_bertopic_themes(save_path=sub)
+        if loaded:
+            out[sub.name] = loaded
+    if out:
+        log.info(
+            "[bertopic-themes] source-stratified models loaded: %s",
+            ", ".join(f"{k}={v['meta'].get('n_topics', '?')}" for k, v in out.items()),
+        )
+    return out
+
+
+def classify_themes_for_source(
+    text: str,
+    source: str,
+    loaded_by_source: dict[str, dict],
+    fallback: Optional[dict] = None,
+    top_n: int = 1,
+) -> list[tuple[str, float]]:
+    """Classify against the per-source model first, fall back to the
+    global model if no source-specific model exists for *source*."""
+    head = (source or "").split(":")[0].lower()
+    loaded = loaded_by_source.get(head)
+    if loaded is None and fallback is not None:
+        loaded = fallback
+    if loaded is None:
+        return []
+    return classify_themes_bertopic(text, loaded, top_n=top_n)
