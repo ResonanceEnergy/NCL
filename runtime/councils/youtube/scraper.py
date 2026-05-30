@@ -47,18 +47,37 @@ DEFAULT_CHANNELS: list[str] = [
 NCL_BASE_DIR = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
 CHANNEL_CONFIG_PATH = NCL_BASE_DIR / "config" / "youtube_channels.json"
 
-# How far back to look (hours)
-DEFAULT_LOOKBACK_HOURS = 72
+# How far back to look (hours).
+# Wave 14CC (2026-05-30) — dropped 72 → 24. The 3-day window meant every
+# scrape was re-eligible for videos already analyzed in prior cycles
+# (dedup is per-video-id, but 72h overlap forces J Bravo's last 8
+# uploads back into the pool every single scan). 24h matches the
+# 1-day dedup window in runner.py so each cycle only sees genuinely
+# new content.
+DEFAULT_LOOKBACK_HOURS = 24
 
-# Maximum total audio duration to download (hours) — prevents runaway
-MAX_TOTAL_DURATION_HOURS = 24
+# Maximum total audio duration to download (hours) — prevents runaway.
+# Wave 14CC: lowered 24 → 8 for tighter per-cycle scope alongside the
+# per-channel cap. With 14 channels × max 2 videos each × ~20m average,
+# 8h is the right ceiling.
+MAX_TOTAL_DURATION_HOURS = 8
+
+# Wave 14CC (2026-05-30) — max videos a single channel can contribute
+# to one cycle, enforced BEFORE the merged date-desc sort. Without
+# this cap, a fast-posting channel (J Bravo: 3-5 videos/day) crowds
+# out slower channels (Stock Moe: 1/week) in the post-merge pool
+# because all of its videos sort to the top by recency. Cap of 2
+# allows back-to-back uploads from a single channel while still
+# leaving room for the rest.
+MAX_PER_CHANNEL_PER_CYCLE = 2
 
 # Wave 14X-3 (2026-05-29): STRIKE_POINT_KEYWORDS list + _strike_point_score
 # function REMOVED. The keyword-bias scoring was vestigial from the retired
 # strike-point pillar and was implicitly favoring crypto/macro-titled
 # videos, starving Stock Moe / Chris Williamson / Follow the Money for
 # weeks. Wave 14X-1A switched selection to date-desc sort. This block
-# completes the deletion.
+# completes the deletion. Wave 14CC adds the per-channel pre-merge cap
+# above to round out the channel-fairness fix.
 
 # Where to store downloaded audio temporarily
 AUDIO_CACHE_DIR = (
@@ -160,6 +179,12 @@ def scrape_recent_videos(
                         break  # Nothing to retry
 
                     channel_name = info.get("channel", info.get("uploader", "Unknown"))
+                    # Wave 14CC — per-channel pre-merge cap. Take the
+                    # top N most-recent entries from THIS channel only,
+                    # before the global merge sort. yt-dlp returns the
+                    # channel's entries in upload-date desc order, so
+                    # the first N are the freshest.
+                    channel_entries: list[dict] = []
                     for entry in info["entries"]:
                         if not entry:
                             continue
@@ -168,7 +193,7 @@ def scrape_recent_videos(
                         upload_date = entry.get("upload_date", "")
                         if upload_date and upload_date < cutoff_str:
                             continue
-                        all_videos.append(
+                        channel_entries.append(
                             {
                                 "video_id": entry.get("id", ""),
                                 "title": entry.get("title", "Untitled"),
@@ -183,6 +208,16 @@ def scrape_recent_videos(
                                 "tags": entry.get("tags") or [],
                                 "thumbnail": entry.get("thumbnail", ""),
                             }
+                        )
+                        if len(channel_entries) >= MAX_PER_CHANNEL_PER_CYCLE:
+                            break  # cap hit — stop reading entries for this channel
+                    all_videos.extend(channel_entries)
+                    if channel_entries:
+                        log.info(
+                            "  → %s: kept %d of channel's recent uploads (cap=%d)",
+                            channel_name,
+                            len(channel_entries),
+                            MAX_PER_CHANNEL_PER_CYCLE,
                         )
                 break  # Success — no retry needed
             except Exception as e:

@@ -1,0 +1,79 @@
+Waves 14CC + 14CD + 14CE: YTC channel fairness + AWAREBOT/predictions wiring
+
+NATRIX: "why did you down all the jbravo videos instead of just the
+new one from today" + "is YTC reading transcripts, understanding,
+and doing the appropriate things with the info?"
+
+Three concrete waves shipped together.
+
+WAVE 14CC — Channel fairness (scraper.py)
+
+The audit found the actual cause: not bias in the sort, but three
+compounding settings that turned every scrape into a J Bravo vacuum:
+
+  DEFAULT_LOOKBACK_HOURS = 72 → 24
+    Re-pulled the same J Bravo uploads every cycle because dedup
+    only fires per-video-id within 24h. The 3-day window meant
+    yesterday's analyzed videos were eligible again today.
+
+  MAX_TOTAL_DURATION_HOURS = 24 → 8
+    Tighter per-cycle ceiling alongside the new per-channel cap.
+
+  MAX_PER_CHANNEL_PER_CYCLE = 2 (new)
+    Each channel contributes at most 2 videos to the pre-merge
+    pool. Before this, J Bravo's 8 recent uploads sorted to the
+    top of the merged date-desc list and ate the entire duration
+    budget. Slow channels (Stock Moe, Chris Williamson, Follow The
+    Money) got cut off before round-robin ever happened.
+
+  Per-channel log line shows the kept count vs cap on every scrape
+  so silent failures stay visible.
+
+WAVE 14CD — YTC reports feed AWAREBOT scorer + predictions
+
+The Explore audit found that YTC reports landed in ChromaDB +
+async memory writer but NEVER as Signal objects in the AWAREBOT
+score pipeline. Result: XREF tab today shows 41 xref_only / 0
+dual because the prediction engine never sees YTC content to
+join against the Cross-Reference promotions.
+
+agent.py _ytc_loop now calls a new _emit_ytc_signals(per_video)
+right after the rollup save:
+
+  For each per-video report:
+    - Build a Signal(source="youtube_council", title=video title,
+      content=transcript_summary or top insight, direction
+      inferred from analysis text bullish/bearish/neutral,
+      confidence=mean of insight confidences, url=video URL,
+      tags=[ytc, youtube_council, channel:<handle>]).
+    - Push through score_signal_realtime so it gets the same
+      7-factor composite + route_level + score_factors + Wave
+      14BL situational/BERTopic boost every other source gets.
+    - Persist to agent_signals.jsonl so /intelligence/signals
+      and /intel/now /intel/stream all see it.
+    - Append to in-memory context window (top10 + 24h) so the
+      next brief assembly sees YTC without a disk round-trip.
+
+Defensive — every step in try/except. Failure of one video
+doesn't drop the rest. Emit-count logged for observability.
+
+WAVE 14CE — Silent dirs NOT a bug (verified)
+
+The earlier Explore audit claimed intelligence-scan/ directories
+did not exist on disk. False — they do exist:
+  signals/      16 entries, last write 2026-05-30
+  alerts/       3784 entries (pruner working)
+  council-reports/  776 dirs
+  youtube-reports/  1 today
+The 0-byte signals-2026-05-30.jsonl is because today's YTC chair
+declared "data deficiency" (1 video / 22 min, paid LLM credits
+exhausted forcing gpt-4o fallback). Empty report → empty signal
+file. Not a writer bug. 14CC fixes the upstream cause (more
+channel coverage → richer reports → non-empty signals).
+
+Files:
+  runtime/councils/youtube/scraper.py   (14CC)
+  runtime/awarebot/agent.py             (14CD)
+
+Brain bounce verified HTTP 200. The next YTC cycle (hourly) will
+exercise both changes.

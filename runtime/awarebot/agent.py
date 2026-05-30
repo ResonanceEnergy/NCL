@@ -4156,6 +4156,21 @@ Focus on what requires attention or action."""
                         f"({len(per_video)} per-video + 1 rollup)"
                     )
                     self._stats["ytc_runs"] += 1
+
+                    # Wave 14CD — emit each per-video report as a
+                    # Signal so AWAREBOT's 7-factor scorer + Cross-Ref
+                    # engine + prediction engine all see YTC content.
+                    # Previously reports landed only in ChromaDB +
+                    # memory; the score pipeline never saw them, which
+                    # is why XREF tab showed 0 dual-lineage cards
+                    # (all xref_only).
+                    try:
+                        await self._emit_ytc_signals(per_video)
+                    except Exception as emit_err:
+                        log.warning(
+                            "[AGENT:YTC] failed to emit per-video signals: %s",
+                            emit_err,
+                        )
                 else:
                     log.info(f"[AGENT:YTC] Auto council run produced no report: {session_id}")
 
@@ -4348,6 +4363,133 @@ Focus on what requires attention or action."""
                 )
             )
         return insight_signals
+
+    async def _emit_ytc_signals(self, per_video_reports: list) -> None:
+        """Wave 14CD — convert each YTC per-video report into a Signal
+        and push it through the same scoring + routing pipeline every
+        other source uses. Closes the gap where YTC content reached
+        ChromaDB + memory but not AWAREBOT's 7-factor scorer or the
+        prediction engine.
+
+        For each report:
+          - Build a Signal with source='youtube_council', title=video
+            title, content=top insight / transcript_summary, direction
+            inferred from analysis text, confidence averaged from
+            insights, url=video URL, tags=['ytc', channel handle].
+          - Run it through score_signal_realtime so it gets composite,
+            route_level, and the situational/BERTopic boost.
+          - Persist to agent_signals.jsonl + push to in-memory pool so
+            /intelligence/signals + /intel/now + /intel/stream see it.
+        """
+        if not per_video_reports:
+            return
+        emitted = 0
+        for vid in per_video_reports:
+            try:
+                meta = getattr(vid, "metadata", {}) or {}
+                title = (
+                    getattr(vid, "title", None)
+                    or meta.get("video_title")
+                    or "(untitled YTC report)"
+                )
+                content = (
+                    getattr(vid, "transcript_summary", None)
+                    or getattr(vid, "summary", None)
+                    or ""
+                )
+                if not content:
+                    insights = getattr(vid, "insights", None) or []
+                    if insights:
+                        first = insights[0]
+                        content = (
+                            getattr(first, "description", None)
+                            or getattr(first, "title", None)
+                            or ""
+                        )
+                content = (content or "")[:1500]
+
+                channel = (
+                    meta.get("channel")
+                    or meta.get("channel_name")
+                    or ""
+                )
+                video_id = meta.get("video_id") or ""
+                url = meta.get("url") or (
+                    f"https://www.youtube.com/watch?v={video_id}" if video_id else None
+                )
+
+                # Confidence = mean of per-insight confidence when present
+                conf = 0.0
+                insights = getattr(vid, "insights", None) or []
+                if insights:
+                    confs = [getattr(i, "confidence", 0.0) for i in insights]
+                    confs = [c for c in confs if isinstance(c, (int, float))]
+                    if confs:
+                        conf = sum(confs) / len(confs)
+
+                # Direction inference from analysis text
+                analysis_text = (getattr(vid, "analysis", "") or "").lower()
+                if any(w in analysis_text for w in ("bullish", "buy", "long", "uptrend")):
+                    direction = "bullish"
+                elif any(w in analysis_text for w in ("bearish", "sell", "short", "downtrend")):
+                    direction = "bearish"
+                else:
+                    direction = "neutral"
+
+                tags: list[str] = ["ytc", "youtube_council"]
+                if channel:
+                    tags.append(f"channel:{channel.lower().replace(' ', '_')}")
+
+                sig = Signal(
+                    source="youtube_council",
+                    title=title,
+                    content=content,
+                    url=url,
+                    timestamp=datetime.now(timezone.utc),
+                    direction=direction,
+                    confidence=conf,
+                    category=meta.get("category", "youtube_council"),
+                    tags=tags,
+                    metadata={
+                        "channel": channel,
+                        "video_id": video_id,
+                        "session_id": getattr(vid, "session_id", ""),
+                        "ytc_per_video": True,
+                    },
+                )
+
+                # Push through the same scorer the other sources use so
+                # composite + route_level + score_factors get stamped.
+                try:
+                    sig = await self.score_signal_realtime(sig)
+                except Exception as score_err:
+                    log.debug(
+                        "[AGENT:YTC-EMIT] scoring failed for %s: %s",
+                        title[:60],
+                        score_err,
+                    )
+
+                # Persist to JSONL — /intelligence/signals + /intel/now
+                # + /intel/stream all read from this file.
+                await self._persist_signal(sig)
+
+                # Hold in in-memory context so the next brief assembly
+                # sees it without a disk round-trip.
+                try:
+                    self._context_top10.append(sig)
+                    self._context_24h.append(sig)
+                except Exception:
+                    pass
+
+                emitted += 1
+            except Exception as e:
+                log.debug("[AGENT:YTC-EMIT] per-video emit failed: %s", e)
+
+        if emitted:
+            log.info(
+                "[AGENT:YTC-EMIT] emitted %d YTC signals into the score pipeline",
+                emitted,
+            )
 
     async def _persist_signal(self, signal: Signal):
         """Append signal to JSONL file for persistence.

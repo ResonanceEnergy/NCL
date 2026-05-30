@@ -1,0 +1,52 @@
+iOS Wave 14CB: Intel trial-row + universal detail sheet + timestamps
+
+NATRIX: trial-run everything before pruning + every card tappable
+to full context, timestamps everywhere.
+
+Two pieces:
+
+1. Trial row under primary picker
+   IntelView.sectionPicker now stacks the primary FSSectionPicker
+   (NOW / STREAM / XREF / YOUTUBE / REDDIT / POLYMKT / TRENDS /
+   NEWS) above a secondary scrolling row prefixed "TRIAL" with
+   the 5 dormant sub-tabs (BRIEF / NIGHTWATCH / AGENDA / FOCUS /
+   PREDICTIONS). Tapping any trial chip sets selectedSection to
+   that case which routes to its existing render code. Gray
+   styling so the eye reads it as A/B-territory not first-class.
+   Lets NATRIX exercise each surface live and decide what stays
+   + what goes before the eventual purge.
+
+2. Universal IntelSignalDetailSheet (~280 LOC)
+   Generic detail renderer over any signal-shaped dict.
+   Renders generously when fields exist, hides rows when missing:
+     - Title (title || topic || headline)
+     - Badges: PIN flag, route_level color, source, direction
+     - Timestamps: absolute UTC + relative (Xs/Xm/Xh/Xd ago)
+     - CONTEXT block: full content, monospace background,
+       text-selectable
+     - THEMES (BERTopic) chips, TAGS chips
+     - SCORE FACTORS block: composite, importance, confidence,
+       and every kv from score_factors metadata
+     - Open source URL link with truncation
+     - Raw payload disclosure for debugging
+
+   Wired tap-to-open on:
+     IntelNowRow      -> sheet with signal payload
+     IntelStreamRow   -> sheet with signal payload
+     ConvergenceCard  -> sheet with full card payload
+                         (xref_promotions + predictions arrays
+                         exposed in Raw block)
+
+3. Timestamps added to row faces
+   IntelNowRow      -> relative chip in header right
+   IntelStreamRow   -> relative chip in header right
+   ConvergenceCard  -> first_seen relative under sources
+   Shared IntelTimestampFormatter helper used by all three rows
+   and the detail sheet.
+
+Shared utility TappedSignalWrapper (Identifiable wrap around
+the dict payload) so sheet(item:) works on dicts.
+
+Build: sim BUILD SUCCEEDED, device BUILD SUCCEEDED.
+Installed: iPhone 16e sim + iPad Pro M5 sim + physical iPhone
++ physical iPad.
