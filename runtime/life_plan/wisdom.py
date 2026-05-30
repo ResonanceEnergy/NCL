@@ -106,16 +106,34 @@ def seed_default_wisdom() -> int:
     """Write the default corpus if wisdom.jsonl is empty/missing. Idempotent.
 
     Returns the number of entries written (0 if file already had data).
+
+    Wave 14AL (2026-05-30): also appends ~180 public-domain Stoic +
+    CBT + growth entries from stoic_corpus.extend_wisdom_corpus() on
+    every call. That helper is idempotent — it only appends ids not
+    already present.
     """
     f = _wisdom_file()
     f.parent.mkdir(parents=True, exist_ok=True)
-    if f.exists() and f.stat().st_size > 0:
-        return 0
-    with f.open("w", encoding="utf-8") as fh:
-        for w in _DEFAULT_WISDOM:
-            fh.write(json.dumps(w) + "\n")
-    log.info("[WISDOM] seeded %d default wisdom entries", len(_DEFAULT_WISDOM))
-    return len(_DEFAULT_WISDOM)
+    written = 0
+    if not (f.exists() and f.stat().st_size > 0):
+        with f.open("w", encoding="utf-8") as fh:
+            for w in _DEFAULT_WISDOM:
+                fh.write(json.dumps(w) + "\n")
+        written = len(_DEFAULT_WISDOM)
+        log.info("[WISDOM] seeded %d default wisdom entries", written)
+
+    # Wave 14AL — Stoic + CBT + growth extension (idempotent append).
+    try:
+        from .stoic_corpus import extend_wisdom_corpus
+
+        added = extend_wisdom_corpus(f)
+        if added:
+            log.info("[WISDOM] Wave 14AL appended %d extension entries", added)
+        written += added
+    except Exception as e:  # noqa: BLE001
+        log.debug("[WISDOM] extension append failed: %s", e)
+
+    return written
 
 
 # ── Rotator ──────────────────────────────────────────────────────────────
