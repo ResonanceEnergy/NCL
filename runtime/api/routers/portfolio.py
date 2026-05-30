@@ -3735,3 +3735,147 @@ async def portfolio_earnings_calendar(
         "by_ticker": by_ticker,
         "total": len(rows),
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Wave 14BY — Tradier sandbox aggregated Greeks for held tickers.
+# Reads via free_sources.fetch_tradier_options_chain. When
+# TRADIER_API_KEY is missing the endpoint returns status="key_missing"
+# so iOS can render the "add to macOS Keychain" instruction instead
+# of a blank tile.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@router.get("/options/tradier-chain")
+async def portfolio_options_tradier_chain(
+    symbol: Optional[str] = Query(default=None),
+    expiration: Optional[str] = Query(default=None),
+    pm=Depends(get_portfolio_mgr),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Tradier sandbox Greeks for a single symbol's next-expiry options chain.
+
+    When `symbol` is omitted, picks the first held equity ticker. When
+    Tradier key isn't in env, returns `{"status": "key_missing", ...}`.
+    Distinct from the legacy `/options/greeks` aggregate (positions-net).
+    """
+    import os as _os
+
+    api_key = _os.getenv("TRADIER_API_KEY")
+    if not api_key:
+        return {
+            "status": "key_missing",
+            "hint": (
+                "Add the Tradier sandbox key to macOS Keychain as service "
+                "'ncl-tradier' then bounce the brain. "
+                "security add-generic-password -s ncl-tradier -a $USER -w <KEY>"
+            ),
+        }
+
+    # Pick the symbol if not supplied
+    chosen = symbol
+    if not chosen:
+        try:
+            pm = _require_manager(pm)
+            for p in (pm.get_positions(account_filter="all") or []):
+                if not isinstance(p, dict):
+                    continue
+                t = (p.get("symbol") or p.get("ticker") or "").strip().upper()
+                if not t or len(t) > 5 or not t.isalpha():
+                    continue
+                asset = (p.get("asset_type") or p.get("instrument_type") or "").lower()
+                if asset in {"option", "options", "future", "futures", "crypto", "cash"}:
+                    continue
+                chosen = t
+                break
+        except Exception:
+            chosen = None
+        if not chosen:
+            return {"status": "no_held_tickers"}
+
+    try:
+        from runtime.intelligence.free_sources import fetch_tradier_options_chain
+
+        chain = await fetch_tradier_options_chain(
+            chosen, expiration=expiration, greeks=True
+        )
+    except Exception as e:
+        log.exception("[options/greeks] fetch failed: %s", e)
+        raise HTTPException(status_code=502, detail=f"Tradier fetch failed: {e}")
+
+    if not chain:
+        return {"status": "no_data", "symbol": chosen}
+
+    calls = chain.get("calls", []) or []
+    puts = chain.get("puts", []) or []
+
+    # ATM aggregation: pick the call+put closest to mid-strike (median strike
+    # in the chain) since we don't have spot quote in this endpoint.
+    def _strikes(rows: list[dict]) -> list[float]:
+        return [
+            float(r.get("strike") or 0)
+            for r in rows
+            if r.get("strike") is not None
+        ]
+
+    all_strikes = sorted(set(_strikes(calls) + _strikes(puts)))
+    if not all_strikes:
+        return {"status": "no_data", "symbol": chosen, "expiration": chain.get("expiration")}
+
+    median_strike = all_strikes[len(all_strikes) // 2]
+
+    def _nearest(rows: list[dict], target: float) -> dict | None:
+        best = None
+        best_d = float("inf")
+        for r in rows:
+            s = r.get("strike")
+            if s is None:
+                continue
+            d = abs(float(s) - target)
+            if d < best_d:
+                best_d = d
+                best = r
+        return best
+
+    atm_call = _nearest(calls, median_strike) or {}
+    atm_put = _nearest(puts, median_strike) or {}
+
+    def _gk(row: dict, key: str):
+        v = row.get(key)
+        try:
+            return round(float(v), 4) if v is not None else None
+        except Exception:
+            return None
+
+    return {
+        "status": "ok",
+        "symbol": chain.get("symbol", chosen),
+        "expiration": chain.get("expiration"),
+        "fetched_at": chain.get("fetched_at"),
+        "median_strike": median_strike,
+        "counts": {"calls": len(calls), "puts": len(puts), "strikes": len(all_strikes)},
+        "atm_call": {
+            "strike": atm_call.get("strike"),
+            "bid": atm_call.get("bid"),
+            "ask": atm_call.get("ask"),
+            "volume": atm_call.get("volume"),
+            "open_interest": atm_call.get("open_interest"),
+            "iv": _gk(atm_call, "implied_volatility"),
+            "delta": _gk(atm_call, "delta"),
+            "gamma": _gk(atm_call, "gamma"),
+            "theta": _gk(atm_call, "theta"),
+            "vega": _gk(atm_call, "vega"),
+        },
+        "atm_put": {
+            "strike": atm_put.get("strike"),
+            "bid": atm_put.get("bid"),
+            "ask": atm_put.get("ask"),
+            "volume": atm_put.get("volume"),
+            "open_interest": atm_put.get("open_interest"),
+            "iv": _gk(atm_put, "implied_volatility"),
+            "delta": _gk(atm_put, "delta"),
+            "gamma": _gk(atm_put, "gamma"),
+            "theta": _gk(atm_put, "theta"),
+            "vega": _gk(atm_put, "vega"),
+        },
+    }

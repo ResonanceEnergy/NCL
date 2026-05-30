@@ -1,0 +1,44 @@
+Wave 14BY: Tradier sandbox Greeks endpoint + iOS OPTIONS tile
+
+Closes the last bench-blocked Wave from yesterday: surfaces
+fetch_tradier_options_chain (Wave 14AM/14AH) through a REST
+endpoint + iOS tile.
+
+Backend (runtime/api/routers/portfolio.py):
+  NEW GET /portfolio/options/tradier-chain?symbol=<T>&expiration=<D>
+    Picks first held equity ticker when symbol omitted.
+    Calls fetch_tradier_options_chain, aggregates to the ATM call
+    + put at the median strike of the returned chain, and emits
+    per-side delta/gamma/theta/vega/iv plus bid/ask/volume/OI.
+
+  Distinct from the legacy /options/greeks aggregate (positions-net
+  exposure) — Tradier endpoint uses the /tradier-chain suffix.
+
+  When TRADIER_API_KEY is missing returns:
+    {status: "key_missing", hint: "security add-generic-password
+     -s ncl-tradier -a $USER -w <KEY>"}
+  so iOS can render the install instruction instead of an empty tile.
+
+  Live verified key_missing branch:
+    curl /portfolio/options/tradier-chain?symbol=AAPL
+    -> {"status":"key_missing","hint":"..."}
+
+  To activate Tradier Greeks: open Terminal and run
+    security add-generic-password -s ncl-tradier -a $USER -w <KEY>
+  Get the free sandbox key at developer.tradier.com. Bounce brain;
+  the iOS tile updates on the next OPTIONS tab open.
+
+iOS (Sources/Views/Portfolio/TradierGreeksTile.swift, new ~190 LOC):
+  TradierGreeksClient fetches /portfolio/options/tradier-chain
+  TradierGreeksTile renders ATM call + put columns with
+    delta/gamma/theta/vega/IV, color-coded green/red.
+  key_missing state shows the security add-generic-password
+    command in monospaced selectable text so NATRIX can copy it.
+  no_held_tickers + no_data states render explicit secondary text.
+
+OptionsContainerView gains a top-of-page tile above the
+HELD | FLOW | STRATEGIES mode picker. Hidden on Mac.
+
+Build: sim BUILD SUCCEEDED, generic iOS BUILD SUCCEEDED.
+Installed: iPhone 16e sim + iPad Pro M5 sim + physical iPhone
++ physical iPad.
