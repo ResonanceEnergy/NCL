@@ -356,6 +356,21 @@ class FusedRetriever:
                 }
             )
 
+        # Wave 14AI (2026-05-30) — BGE-reranker-v2-m3 as a FREE local
+        # post-RRF rerank stage. Gated by NCL_FUSION_BGE_RERANK_ENABLED
+        # (default true on machines with sentence-transformers installed).
+        # Takes precedence over Cohere because it's $0 and runs in
+        # ~200-400 docs/sec on M1 Ultra. Falls through to Cohere when
+        # the model isn't available.
+        bge_enabled = os.environ.get("NCL_FUSION_BGE_RERANK_ENABLED", "true").strip().lower() in (
+            "1", "true", "yes", "on",
+        )
+        if bge_enabled and len(prelim) > 1:
+            reranked_bge = await self._rerank_with_bge(query, prelim, top_k=top_k)
+            if reranked_bge:
+                prelim = reranked_bge
+                # Cohere is now redundant; skip the paid pass.
+                rerank_enabled = False
         if rerank_enabled and len(prelim) > 1:
             prelim = await self._rerank_with_cohere(query, prelim, top_k=top_k)
 
@@ -486,6 +501,97 @@ class FusedRetriever:
         except Exception as e:
             log.warning("[FUSION-RERANK] failed: %s", e)
             return []
+
+    # ---------------------------------------- BGE-reranker-v2-m3 (local, free)
+    _BGE_RERANKER_MODEL = "BAAI/bge-reranker-v2-m3"
+    _bge_model = None  # type: ignore[assignment]
+    _bge_lock = None  # type: ignore[assignment]
+
+    async def _rerank_with_bge(
+        self,
+        query: str,
+        candidates: list[dict],
+        top_k: int = 10,
+    ) -> list[dict]:
+        """Wave 14AI: free local cross-encoder rerank via BGE-reranker-v2-m3.
+
+        Standalone of any paid provider. Multilingual (matters for LatAm
+        events + YTC transcripts). Runs ~200-400 docs/sec on M1 Ultra MPS.
+
+        Returns an empty list on any failure (lib missing, model load
+        failure, OOM, batch error) so the caller falls through to Cohere
+        or to the RRF order unchanged.
+        """
+        if not candidates:
+            return candidates
+
+        # Lazy load + cache the CrossEncoder. Two-phase init pattern:
+        # asyncio.Lock for async safety, but we hold reference at class level.
+        import threading as _th
+
+        if FusedRetriever._bge_lock is None:
+            FusedRetriever._bge_lock = _th.Lock()
+
+        if FusedRetriever._bge_model is None:
+            try:
+                from sentence_transformers import CrossEncoder  # type: ignore
+            except ImportError:
+                log.debug("[FUSION:BGE] sentence-transformers not installed")
+                return []
+
+            with FusedRetriever._bge_lock:
+                if FusedRetriever._bge_model is None:
+                    try:
+                        # Resolve MPS device when available.
+                        device = "cpu"
+                        try:
+                            import torch  # type: ignore
+
+                            if torch.backends.mps.is_available():
+                                device = "mps"
+                        except Exception:
+                            pass
+                        FusedRetriever._bge_model = await asyncio.to_thread(
+                            CrossEncoder,
+                            FusedRetriever._BGE_RERANKER_MODEL,
+                            max_length=512,
+                            device=device,
+                        )
+                        log.info(
+                            "[FUSION:BGE] loaded %s on device=%s",
+                            FusedRetriever._BGE_RERANKER_MODEL,
+                            device,
+                        )
+                    except Exception as e:
+                        log.warning("[FUSION:BGE] model load failed: %s", e)
+                        return []
+
+        model = FusedRetriever._bge_model
+        if model is None:
+            return []
+
+        # Build (query, doc) pairs.
+        docs = [(c.get("content") or "")[:1000] for c in candidates]
+        pairs = [(query, d if d.strip() else " ") for d in docs]
+
+        try:
+            scores = await asyncio.to_thread(model.predict, pairs)
+        except Exception as e:
+            log.warning("[FUSION:BGE] predict failed: %s", e)
+            return []
+
+        # Pair scores back with candidates + sort desc.
+        ranked = sorted(
+            zip(candidates, [float(s) for s in scores]),
+            key=lambda pair: pair[1],
+            reverse=True,
+        )
+        out: list[dict] = []
+        for c, sc in ranked[:top_k]:
+            c_copy = dict(c)
+            c_copy["bge_rerank_score"] = round(sc, 4)
+            out.append(c_copy)
+        return out
 
     # ------------------------------------------------- cohere rerank-3.5
     async def _rerank_with_cohere(
