@@ -304,6 +304,31 @@ class MemoryStore:
             # spam.
             log.debug("[MEMORY-GATE] lane_router skipped: %s", e)
 
+        # ── Wave 14AR (2026-05-30): MinHashLSH near-dup short-circuit ─
+        # Before persistence, query the persistent MinHashLSH index for
+        # near-duplicates of (same source, same authority_tier). If a
+        # high-confidence dup is found, reinforce the existing unit
+        # instead of writing a new one. Gated by
+        # NCL_MINHASH_DEDUP_ENABLED so it rolls out safely. Failures
+        # downgrade to the legacy path.
+        try:
+            dup_uid = await self._minhash_check_for_near_dup(
+                source=source,
+                authority_tier=int(meta.get("authority_tier", 0) or 0),
+                text=truncated_content,
+            )
+            if dup_uid:
+                # Reinforce existing unit and return it; do NOT write a
+                # second copy. Index already contains the original.
+                reinforced = await self._reinforce_existing_unit(dup_uid)
+                if reinforced is not None:
+                    if hasattr(self, "_stats"):
+                        self._stats.setdefault("minhash_dedup_hits", 0)
+                        self._stats["minhash_dedup_hits"] += 1
+                    return reinforced
+        except Exception as e:
+            log.debug("[MEMORY-MINHASH] dedup check skipped: %s", e)
+
         # Record PII audit entry now that we have the unit_id
         if _pii_result.redaction_count > 0:
             await self._record_pii_redaction(
@@ -356,6 +381,10 @@ class MemoryStore:
 
         # Index in vector DB for semantic search (outside lock — read-only path)
         await self.index_unit(unit)
+
+        # Wave 14AR: add to the MinHash near-dup index for future
+        # incremental dedup. Safe no-op when dedup is disabled.
+        self._minhash_add(unit.unit_id, truncated_content)
 
         return unit
 
@@ -427,6 +456,115 @@ class MemoryStore:
                 await hook.try_write_async(unit)
 
         return len(units)
+
+    # ── Wave 14AR (2026-05-30) — MinHashLSH near-dup hot-path ────────
+    _minhash_index = None  # type: ignore[assignment]
+    _minhash_loaded = False
+    _minhash_lock: Optional[asyncio.Lock] = None
+    _minhash_writes_since_save = 0
+
+    async def _minhash_load_or_init(self):  # noqa: ANN201
+        """Lazy-load the MinHashLSH index. Returns None when dedup is off
+        or the lib is missing."""
+        if os.environ.get("NCL_MINHASH_DEDUP_ENABLED", "").lower() not in (
+            "1", "true", "yes", "on",
+        ):
+            return None
+        if MemoryStore._minhash_index is not None:
+            return MemoryStore._minhash_index
+        if MemoryStore._minhash_loaded:
+            return MemoryStore._minhash_index
+        if MemoryStore._minhash_lock is None:
+            MemoryStore._minhash_lock = asyncio.Lock()
+        async with MemoryStore._minhash_lock:
+            if MemoryStore._minhash_index is not None:
+                return MemoryStore._minhash_index
+            try:
+                from .minhash_dedup import MinHashDedupIndex
+
+                MemoryStore._minhash_index = MinHashDedupIndex.open()
+                MemoryStore._minhash_loaded = True
+                log.info(
+                    "[MEMORY-MINHASH] loaded index with %d signatures",
+                    len(MemoryStore._minhash_index),
+                )
+            except Exception as e:
+                log.warning("[MEMORY-MINHASH] load failed: %s", e)
+                MemoryStore._minhash_loaded = True
+                MemoryStore._minhash_index = None
+        return MemoryStore._minhash_index
+
+    async def _minhash_check_for_near_dup(
+        self,
+        source: str,
+        authority_tier: int,
+        text: str,
+    ) -> Optional[str]:
+        """Query MinHash for near-dups; return matching unit_id or None.
+
+        Same-source, same-authority-tier match required to avoid
+        cross-source collapse (an Awarebot scanner restatement should
+        not merge with a NATRIX directive on the same topic).
+        """
+        idx = await self._minhash_load_or_init()
+        if idx is None:
+            return None
+        try:
+            hits = idx.query_with_scores(text, top_k=5)
+        except Exception:
+            return None
+        if not hits:
+            return None
+        # Verify the top hit is same source + tier before claiming a dup.
+        for uid, jaccard in hits:
+            try:
+                existing = self.units.get(uid)
+            except Exception:
+                continue
+            if existing is None:
+                continue
+            if str(existing.source).lower() != str(source).lower():
+                continue
+            existing_tier = int((getattr(existing, "metadata", {}) or {}).get(
+                "authority_tier", 0
+            ) or 0)
+            if existing_tier != authority_tier:
+                continue
+            log.debug(
+                "[MEMORY-MINHASH] dup hit: source=%s J=%.3f existing_uid=%s",
+                source, jaccard, uid,
+            )
+            return uid
+        return None
+
+    async def _reinforce_existing_unit(self, unit_id: str):  # noqa: ANN201
+        """Bump the existing unit's reinforcement count + return it."""
+        try:
+            unit = self.units.get(unit_id)
+            if unit is None:
+                return None
+            unit.reinforcement_count = (
+                int(getattr(unit, "reinforcement_count", 0) or 0) + 1
+            )
+            unit.last_accessed = datetime.now(timezone.utc).isoformat()
+            return unit
+        except Exception as e:
+            log.debug("[MEMORY-MINHASH] reinforce failed: %s", e)
+            return None
+
+    def _minhash_add(self, unit_id: str, text: str) -> None:
+        """Add a unit's signature to the live index (sync — cheap)."""
+        idx = MemoryStore._minhash_index
+        if idx is None:
+            return
+        try:
+            idx.add(unit_id, text)
+            MemoryStore._minhash_writes_since_save += 1
+            if MemoryStore._minhash_writes_since_save >= 200:
+                idx.save()
+                MemoryStore._minhash_writes_since_save = 0
+        except Exception as e:
+            log.debug("[MEMORY-MINHASH] add failed: %s", e)
 
     async def _acquire_read(self) -> None:
         """Acquire a shared read lock.
