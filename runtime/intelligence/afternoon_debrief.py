@@ -216,7 +216,75 @@ async def build_debrief() -> dict:
     except OSError as e:
         log.warning("[debrief] persist failed: %s", e)
 
+    # Wave 14BD (2026-05-30): render Piper TTS spoken-debrief .wav so
+    # iOS BriefLandingCard PM mode Play button can fetch it. Fire-and-
+    # forget; never blocks the return.
+    try:
+        import asyncio as _asyncio
+
+        from .spoken_brief import render_text_to_wav as _render_wav
+
+        text = _debrief_text_for_tts(synthesis)
+        if text:
+            audio_dir = _NCL_BASE_PATH / "data" / "morning-brief-pro" / "audio"
+            audio_dir.mkdir(parents=True, exist_ok=True)
+            out_path = audio_dir / f"{pack['date']}-debrief.wav"
+            _asyncio.create_task(_render_wav(text, out_path))
+    except Exception as e:
+        log.debug("[debrief] spoken-debrief render kick-off failed: %s", e)
+
     return out
+
+
+_NCL_BASE_PATH = NCL_BASE  # already defined at module top
+
+
+def _debrief_text_for_tts(synthesis: dict) -> str:
+    """Flatten the 6-tile debrief synthesis into a coherent paragraph
+    Piper can narrate. Skips empty fields to keep playback under
+    ~3-5 minutes."""
+    if not isinstance(synthesis, dict):
+        return ""
+    parts: list[str] = []
+    headline = (synthesis.get("headline") or "").strip()
+    if headline:
+        parts.append(f"NCL afternoon debrief, {date.today().isoformat()}. {headline}")
+    sb = synthesis.get("today_scoreboard") or {}
+    if isinstance(sb, dict):
+        ideas = sb.get("ideas_given")
+        wins = sb.get("winners")
+        losses = sb.get("losers")
+        scratches = sb.get("scratches")
+        total_r = sb.get("total_r")
+        if ideas is not None or wins is not None:
+            chunks = []
+            if ideas is not None:
+                chunks.append(f"{ideas} ideas given")
+            if wins is not None:
+                chunks.append(f"{wins} winners")
+            if losses is not None:
+                chunks.append(f"{losses} losers")
+            if scratches is not None:
+                chunks.append(f"{scratches} scratches")
+            if total_r is not None:
+                chunks.append(f"{total_r:+.2f}R realized")
+            parts.append("Today's scoreboard: " + ", ".join(chunks) + ".")
+    night = synthesis.get("night_watch_focus")
+    if isinstance(night, list) and night:
+        parts.append("Night watch focus: " + "; ".join(str(n)[:120] for n in night[:3]) + ".")
+    highlights = synthesis.get("agent_reasoning_highlights")
+    if isinstance(highlights, list) and highlights:
+        parts.append("Agent reasoning highlights: " + "; ".join(str(h)[:120] for h in highlights[:3]) + ".")
+    pm = synthesis.get("post_market_scan")
+    if isinstance(pm, list) and pm:
+        parts.append("Post-market scan: " + "; ".join(str(p)[:120] for p in pm[:4]) + ".")
+    rotation = synthesis.get("rotation_shift")
+    if rotation:
+        parts.append(f"Rotation shift: {rotation}.")
+    quiz = synthesis.get("one_q_quiz_prompt")
+    if quiz:
+        parts.append(f"One-question quiz: {quiz}.")
+    return "  ".join(parts).strip()
 
 
 def load_today_debrief() -> Optional[dict]:

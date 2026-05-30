@@ -1509,6 +1509,40 @@ async def fire_morning_brief_pro(
     return envelope
 
 
+@router.get("/intelligence/afternoon-debrief/audio/{target_date}")
+async def serve_debrief_audio(
+    target_date: str,
+    _: None = Depends(verify_strike_token_dep),
+):
+    """Wave 14BD: serve the rendered Piper TTS PM debrief .wav.
+
+    File lives at data/morning-brief-pro/audio/{date}-debrief.wav
+    (afternoon_debrief shares the audio dir with the AM brief). Returns
+    404 with explicit reason if the audio has not been rendered yet.
+    """
+    if not (len(target_date) == 10 and target_date[4] == "-" and target_date[7] == "-"):
+        raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
+    import os as _os
+    from fastapi.responses import FileResponse
+
+    audio_dir = (
+        Path(_os.environ.get("NCL_BASE", str(Path.home() / "dev" / "NCL")))
+        / "data"
+        / "morning-brief-pro"
+        / "audio"
+    )
+    wav_path = audio_dir / f"{target_date}-debrief.wav"
+    if not wav_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"debrief audio not rendered for {target_date}; "
+                f"fire the debrief first or wait for the 16:30 ET render"
+            ),
+        )
+    return FileResponse(str(wav_path), media_type="audio/wav", filename=wav_path.name)
+
+
 @router.get("/intelligence/morning-brief/pro/audio/{target_date}")
 async def serve_brief_audio(
     target_date: str,

@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 
 from ..deps import get_autonomous, get_brain, verify_strike_token_dep
 
@@ -104,6 +104,216 @@ async def system_costs_ledger(days: int = 7, _: None = Depends(verify_strike_tok
     tracker = await get_tracker()
     entries = await tracker.get_full_ledger(days)
     return {"entries": entries, "count": len(entries)}
+
+
+def _compute_spend_dashboard_data(days: int = 14) -> dict:
+    """Wave 14BE helper — pure compute, no auth, no DI. Both the JSON
+    endpoint and the HTML endpoint call this."""
+    import collections
+    import json
+    import os
+    from datetime import datetime, timedelta, timezone
+    from pathlib import Path
+
+    ledger_path = Path(os.environ.get("NCL_BASE", str(Path.home() / "dev" / "NCL"))) / (
+        "data/costs/cost_ledger.jsonl"
+    )
+    if not ledger_path.exists():
+        return {
+            "error": f"ledger missing at {ledger_path}",
+            "days_window": days,
+            "by_day": {},
+            "by_source": {},
+            "by_source_model": {},
+            "top_ops": [],
+            "totals": {"window": 0.0, "today": 0.0},
+        }
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    today_iso = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    by_day: dict[str, float] = collections.defaultdict(float)
+    by_source: dict[str, float] = collections.defaultdict(float)
+    by_source_model: dict[str, float] = collections.defaultdict(float)
+    by_op: dict[str, float] = collections.defaultdict(float)
+    op_calls: dict[str, int] = collections.defaultdict(int)
+    rows_seen = 0
+    rows_in_window = 0
+
+    with ledger_path.open() as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                d = json.loads(line)
+            except Exception:
+                continue
+            rows_seen += 1
+            ts = d.get("timestamp") or d.get("ts") or ""
+            try:
+                dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+            except Exception:
+                continue
+            if dt < cutoff:
+                continue
+            rows_in_window += 1
+            day = dt.strftime("%Y-%m-%d")
+            src = str(d.get("source") or "?")
+            model = str((d.get("metadata") or {}).get("model") or "?")
+            amt = float(
+                d.get("amount_usd") or d.get("amount") or d.get("cost") or 0
+            )
+            op = str(d.get("operation") or d.get("feature") or d.get("call") or "?")
+            by_day[day] += amt
+            by_source[src] += amt
+            by_source_model[f"{src}/{model}"] += amt
+            by_op[f"{src}/{op}"] += amt
+            op_calls[f"{src}/{op}"] += 1
+
+    top_ops = sorted(
+        [
+            {
+                "key": k,
+                "spend_usd": round(v, 4),
+                "calls": op_calls[k],
+            }
+            for k, v in by_op.items()
+        ],
+        key=lambda r: r["spend_usd"],
+        reverse=True,
+    )[:15]
+
+    return {
+        "days_window": days,
+        "ledger_path": str(ledger_path),
+        "rows_seen": rows_seen,
+        "rows_in_window": rows_in_window,
+        "by_day": {k: round(v, 4) for k, v in sorted(by_day.items())},
+        "by_source": {k: round(v, 4) for k, v in sorted(
+            by_source.items(), key=lambda x: -x[1]
+        )},
+        "by_source_model": {k: round(v, 4) for k, v in sorted(
+            by_source_model.items(), key=lambda x: -x[1]
+        )[:25]},
+        "top_ops": top_ops,
+        "totals": {
+            "window": round(sum(by_day.values()), 4),
+            "today": round(by_day.get(today_iso, 0.0), 4),
+        },
+    }
+
+
+@router.get("/system/costs/dashboard.json")
+async def system_costs_dashboard_json(
+    days: int = 14,
+    _: None = Depends(verify_strike_token_dep),
+):
+    """Wave 14BE: spend dashboard data as JSON."""
+    return _compute_spend_dashboard_data(days=days)
+
+
+@router.get("/system/costs/dashboard", response_class=HTMLResponse)
+async def system_costs_dashboard_html(
+    authorization: str = Header(default=""),
+    days: int = 14,
+):
+    """Wave 14BE: HTML spend dashboard. NATRIX visits this in any browser
+    to see the same data the cost-audit ran against, live.
+    """
+    from .. import routes as _routes
+    _routes._verify_strike_token(authorization)
+    safe_token = (
+        authorization.removeprefix("Bearer ").strip() if authorization else ""
+    )
+    data = _compute_spend_dashboard_data(days=days)
+    import html as _html
+    import json as _json
+
+    by_day = data.get("by_day", {})
+    by_source = data.get("by_source", {})
+    by_source_model = data.get("by_source_model", {})
+    top_ops = data.get("top_ops", [])
+    totals = data.get("totals", {})
+
+    def _bar_row(label: str, amount: float, max_amount: float, color: str) -> str:
+        pct = (amount / max_amount * 100.0) if max_amount > 0 else 0.0
+        return (
+            f'<div class="bar-row">'
+            f'<span class="bar-label">{_html.escape(label)}</span>'
+            f'<div class="bar-track"><div class="bar-fill" style="width:{pct:.1f}%;background:{color}"></div></div>'
+            f'<span class="bar-value">${amount:.4f}</span>'
+            f'</div>'
+        )
+
+    max_day = max(by_day.values()) if by_day else 0.0
+    day_bars = "\n".join(
+        _bar_row(k, v, max_day, "#4ecdc4") for k, v in sorted(by_day.items())
+    ) or '<p style="color:#888">No spend in window.</p>'
+
+    max_src = max(by_source.values()) if by_source else 0.0
+    source_bars = "\n".join(
+        _bar_row(k, v, max_src, "#ff6b6b") for k, v in by_source.items()
+    ) or '<p style="color:#888">No source data.</p>'
+
+    max_sm = max(by_source_model.values()) if by_source_model else 0.0
+    model_bars = "\n".join(
+        _bar_row(k, v, max_sm, "#ffd700") for k, v in by_source_model.items()
+    ) or '<p style="color:#888">No model attribution.</p>'
+
+    op_rows = "\n".join(
+        f'<tr><td>{_html.escape(o["key"])}</td>'
+        f'<td style="text-align:right">${o["spend_usd"]:.4f}</td>'
+        f'<td style="text-align:right">{o["calls"]:,}</td></tr>'
+        for o in top_ops
+    ) or '<tr><td colspan="3">no rows</td></tr>'
+
+    html_doc = f"""<!DOCTYPE html><html><head><meta charset="utf-8"/>
+<title>NCL Spend Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<style>
+  body {{ font-family: -apple-system, system-ui, sans-serif; background: #0a0e1a;
+          color: #e8e8e8; margin: 0; padding: 16px; }}
+  h1 {{ font-weight: 900; letter-spacing: 0.04em; }}
+  h2 {{ font-size: 13px; letter-spacing: 0.18em; color: #888; margin-top: 28px; }}
+  .totals {{ display: flex; gap: 12px; flex-wrap: wrap; }}
+  .totals .tile {{ background: #16213e; padding: 14px 18px; border-radius: 10px;
+                    border: 1px solid #1f2a4a; min-width: 130px; }}
+  .totals .label {{ font-size: 10px; letter-spacing: 0.18em; color: #888; }}
+  .totals .value {{ font-size: 22px; font-weight: 900; color: #4ecdc4; }}
+  .bar-row {{ display: grid; grid-template-columns: 200px 1fr 100px; align-items: center;
+              gap: 10px; padding: 4px 0; font-size: 12px; }}
+  .bar-label {{ font-family: monospace; color: #ccc; overflow: hidden;
+                text-overflow: ellipsis; white-space: nowrap; }}
+  .bar-track {{ background: #1a1f3a; height: 14px; border-radius: 7px; overflow: hidden; }}
+  .bar-fill {{ height: 100%; transition: width 0.4s; }}
+  .bar-value {{ text-align: right; font-family: monospace; color: #4ecdc4; }}
+  table {{ width: 100%; border-collapse: collapse; font-size: 12px; }}
+  th, td {{ padding: 6px 10px; border-bottom: 1px solid #1f2a4a; }}
+  th {{ text-align: left; color: #888; font-weight: 600; letter-spacing: 0.1em;
+        font-size: 10px; }}
+  td {{ font-family: monospace; color: #ccc; }}
+  .footer {{ margin-top: 36px; color: #555; font-size: 11px; }}
+</style></head><body>
+<h1>NCL Spend Dashboard</h1>
+<p style="color:#888">Window: last {data.get('days_window', 14)} days · {data.get('rows_in_window', 0):,} ledger rows</p>
+<div class="totals">
+  <div class="tile"><div class="label">TODAY</div><div class="value">${totals.get('today', 0):.2f}</div></div>
+  <div class="tile"><div class="label">WINDOW</div><div class="value">${totals.get('window', 0):.2f}</div></div>
+  <div class="tile"><div class="label">DAILY AVG</div>
+    <div class="value">${(totals.get('window', 0) / max(data.get('days_window', 14), 1)):.2f}</div>
+  </div>
+</div>
+<h2>BY DAY</h2>{day_bars}
+<h2>BY SOURCE</h2>{source_bars}
+<h2>BY (SOURCE / MODEL)</h2>{model_bars}
+<h2>TOP 15 (SOURCE / OPERATION)</h2>
+<table>
+  <thead><tr><th>KEY</th><th style="text-align:right">SPEND</th><th style="text-align:right">CALLS</th></tr></thead>
+  <tbody>{op_rows}</tbody>
+</table>
+<p class="footer">NCL Cost Audit · live ledger at {_html.escape(str(data.get('ledger_path', '')))}</p>
+</body></html>"""
+    return HTMLResponse(content=html_doc.replace("__AUTH_TOKEN__", safe_token))
 
 
 @router.post("/system/costs/record")
