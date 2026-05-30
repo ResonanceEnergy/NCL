@@ -207,15 +207,51 @@ def load_bertopic_themes(save_path: Optional[Path] = None) -> Optional[dict]:
     return {"model": model, "meta": meta, "label_map": label_map}
 
 
+# Wave 14BV — stop-word-only labels are pure noise (Reddit cluster
+# "me my to" matched ~every signal). Drop any label whose tokens are
+# all in this set.
+_BERTOPIC_LABEL_STOPWORDS: frozenset[str] = frozenset({
+    "a", "an", "the", "to", "of", "in", "on", "at", "by", "for",
+    "and", "or", "but", "is", "are", "was", "were", "be", "been",
+    "being", "do", "does", "did", "have", "has", "had", "i", "me",
+    "my", "we", "us", "our", "you", "your", "he", "him", "his",
+    "she", "her", "it", "its", "they", "them", "their", "this",
+    "that", "these", "those", "with", "from", "as", "if", "so",
+    "than", "then", "when", "while", "where", "what", "which",
+    "who", "whom", "how", "why", "not", "no", "yes", "can", "will",
+    "would", "could", "should", "may", "might", "must", "shall",
+    "just", "very", "too", "some", "any", "all", "each", "every",
+    "lt", "gt",
+})
+
+_MIN_LABEL_NON_STOPWORDS = 1
+
+
+def _label_is_stopword_only(label: str) -> bool:
+    if not label:
+        return True
+    tokens = [t for t in label.lower().split() if t]
+    if not tokens:
+        return True
+    real = [t for t in tokens if t not in _BERTOPIC_LABEL_STOPWORDS]
+    return len(real) < _MIN_LABEL_NON_STOPWORDS
+
+
 def classify_themes_bertopic(
     text: str,
     loaded: dict,
     top_n: int = 1,
+    *,
+    min_score: float = 0.0,
 ) -> list[tuple[str, float]]:
     """Classify a single signal text against the loaded BERTopic model.
 
     Returns up to top_n (topic_label, score) tuples. Empty list when the
     text didn't match any topic above the noise threshold.
+
+    Wave 14BV: a label whose tokens are entirely stop-words is treated
+    as the noise topic regardless of probability. The optional
+    ``min_score`` floor drops weak matches outright.
     """
     if not text or not loaded:
         return []
@@ -234,6 +270,9 @@ def classify_themes_bertopic(
     if tid == -1:  # noise — no theme
         return []
     label = label_map.get(tid, f"topic_{tid}")
+    # Wave 14BV — drop stop-word-only labels (they match everything).
+    if _label_is_stopword_only(label):
+        return []
     # `probs` is a 2D array of per-topic probabilities — here we take
     # the assigned topic's score directly.
     score = 0.0
@@ -246,6 +285,8 @@ def classify_themes_bertopic(
                 score = float(row)
     except Exception:
         score = 0.0
+    if score < min_score:
+        return []
     return [(label, score)]
 
 
