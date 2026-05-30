@@ -70,7 +70,11 @@ log = logging.getLogger(__name__)
 
 # Models — kept here as constants so they can be overridden via env
 # without touching the call sites.
-_MODEL_PLANNER = os.getenv("NCL_BRIEF_PLANNER_MODEL", "claude-sonnet-4-20250514")
+# Wave 14AS (2026-05-30) — PLANNER moved to DeepSeek V3 default
+# (7-18× cheaper than Sonnet on Tier B routing-decision work). EXECUTOR
+# stays Sonnet 4 because the brief sections it writes are user-facing
+# (Tier A). CRITIC already Haiku — kept.
+_MODEL_PLANNER = os.getenv("NCL_BRIEF_PLANNER_MODEL", "deepseek-chat")
 _MODEL_EXECUTOR = os.getenv("NCL_BRIEF_EXECUTOR_MODEL", "claude-sonnet-4-20250514")
 _MODEL_CRITIC = os.getenv("NCL_BRIEF_CRITIC_MODEL", "claude-haiku-4-5-20251001")
 
@@ -85,12 +89,27 @@ _ANTHROPIC_BASE = "https://api.anthropic.com/v1/messages"
 _ANTHROPIC_VERSION = "2023-06-01"
 
 # Pricing for cost tracking (USD per 1M tokens). Sonnet 4 = 3/15,
-# Haiku 4.5 = 1/5 per Anthropic published rates.
+# Haiku 4.5 = 1/5 per Anthropic published rates. DeepSeek V3 = 0.14/0.28,
+# Groq Llama 3.3 70B = 0.59/0.79.
 _PRICES_PER_M = {
     "claude-sonnet-4-20250514": (3.0, 15.0),
     "claude-opus-4-20250514": (15.0, 75.0),
     "claude-haiku-4-5-20251001": (1.0, 5.0),
+    "deepseek-chat": (0.14, 0.28),
+    "deepseek-reasoner": (0.55, 2.19),
+    "llama-3.3-70b-versatile": (0.59, 0.79),
+    "llama-3.1-8b-instant": (0.05, 0.08),
 }
+
+
+def _model_provider(model: str) -> str:
+    """Return 'anthropic' | 'deepseek' | 'groq' based on model id prefix."""
+    m = (model or "").lower()
+    if m.startswith("deepseek"):
+        return "deepseek"
+    if m.startswith("llama-") or m.startswith("llama3"):
+        return "groq"
+    return "anthropic"
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -175,45 +194,85 @@ async def _anthropic_call(
     label: str,
     extra_body: dict | None = None,
 ) -> tuple[str, int, int]:
-    """One Anthropic Messages call. Returns (text, input_toks, output_toks).
+    """One LLM call — Anthropic, DeepSeek, or Groq based on model prefix.
 
-    Raises on non-2xx or empty response. Caller decides how to handle
-    failure (fall through to next stage, or bail entirely).
+    Wave 14AS: routes by ``_model_provider(model)``:
+      - "anthropic" → api.anthropic.com (existing path)
+      - "deepseek"  → api.deepseek.com (OpenAI-compatible)
+      - "groq"      → api.groq.com (OpenAI-compatible)
+
+    Returns (text, input_toks, output_toks). Raises on non-2xx or
+    empty response.
     """
     import httpx
 
-    body: dict[str, Any] = {
-        "model": model,
-        "max_tokens": max_tokens,
-        "messages": [{"role": "user", "content": prompt}],
-    }
-    if extra_body:
-        body.update(extra_body)
+    provider = _model_provider(model)
 
-    async with httpx.AsyncClient(timeout=timeout_s) as client:
-        resp = await client.post(
-            _ANTHROPIC_BASE,
-            headers={
-                "x-api-key": api_key,
-                "anthropic-version": _ANTHROPIC_VERSION,
-            },
-            json=body,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-
-    content_blocks = data.get("content", [])
-    text = ""
-    for block in content_blocks:
-        if block.get("type") == "text":
-            text = block.get("text", "")
-            break
-    if not text:
-        raise RuntimeError(f"empty text response from {label}")
-
-    usage = data.get("usage", {}) or {}
-    in_toks = int(usage.get("input_tokens", 0))
-    out_toks = int(usage.get("output_tokens", 0))
+    if provider == "anthropic":
+        body: dict[str, Any] = {
+            "model": model,
+            "max_tokens": max_tokens,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        if extra_body:
+            body.update(extra_body)
+        async with httpx.AsyncClient(timeout=timeout_s) as client:
+            resp = await client.post(
+                _ANTHROPIC_BASE,
+                headers={
+                    "x-api-key": api_key,
+                    "anthropic-version": _ANTHROPIC_VERSION,
+                },
+                json=body,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        content_blocks = data.get("content", [])
+        text = ""
+        for block in content_blocks:
+            if block.get("type") == "text":
+                text = block.get("text", "")
+                break
+        if not text:
+            raise RuntimeError(f"empty text response from {label}")
+        usage = data.get("usage", {}) or {}
+        in_toks = int(usage.get("input_tokens", 0))
+        out_toks = int(usage.get("output_tokens", 0))
+    else:
+        # OpenAI-compatible providers (DeepSeek + Groq).
+        endpoints = {
+            "deepseek": "https://api.deepseek.com/v1/chat/completions",
+            "groq": "https://api.groq.com/openai/v1/chat/completions",
+        }
+        env_keys = {"deepseek": "DEEPSEEK_API_KEY", "groq": "GROQ_API_KEY"}
+        key = os.getenv(env_keys[provider]) or api_key
+        body = {
+            "model": model,
+            "max_tokens": max_tokens,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        if extra_body:
+            body.update(extra_body)
+        async with httpx.AsyncClient(timeout=timeout_s) as client:
+            resp = await client.post(
+                endpoints[provider],
+                headers={
+                    "Authorization": f"Bearer {key}",
+                    "Content-Type": "application/json",
+                },
+                json=body,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        choices = data.get("choices") or []
+        text = ""
+        if choices:
+            text = (choices[0].get("message") or {}).get("content") or ""
+        if not text:
+            raise RuntimeError(f"empty text response from {label} ({provider})")
+        usage = data.get("usage", {}) or {}
+        in_toks = int(usage.get("prompt_tokens", 0))
+        out_toks = int(usage.get("completion_tokens", 0))
 
     # Track cost — non-fatal if cost_tracker missing
     try:
@@ -221,7 +280,13 @@ async def _anthropic_call(
 
         rates = _PRICES_PER_M.get(model, (3.0, 15.0))
         cost = (in_toks * rates[0] + out_toks * rates[1]) / 1_000_000
-        await record_cost("anthropic", cost, "intel_brief", f"{label} in={in_toks} out={out_toks}")
+        # Wave 14AS: route cost to the actual provider bucket.
+        await record_cost(
+            provider,
+            cost,
+            "intel_brief",
+            f"{label} {model} in={in_toks} out={out_toks}",
+        )
     except Exception:
         pass
 
