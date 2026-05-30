@@ -142,7 +142,14 @@ def _extract_tickers(text: str) -> set[str]:
 
 
 def _extract_themes(text: str) -> set[str]:
-    """Match text against theme clusters; return cluster names."""
+    """Match text against theme clusters; return cluster names.
+
+    Wave 14AN (2026-05-30): when a BERTopic model exists at
+    data/cross_reference/bertopic_model/ AND NCL_CROSS_REF_BERTOPIC_ENABLED
+    is truthy, the learned topic label is added to the hit set alongside
+    the keyword-matched clusters. The hardcoded clusters remain as the
+    safety net — disabling BERTopic returns to the original behavior.
+    """
     if not text:
         return set()
     t = text.lower()
@@ -152,7 +159,52 @@ def _extract_themes(text: str) -> set[str]:
             if kw in t:
                 hits.add(cluster)
                 break
+
+    # BERTopic enrichment (lazy-loaded; skipped silently if not present).
+    if os.environ.get("NCL_CROSS_REF_BERTOPIC_ENABLED", "").lower() in (
+        "1", "true", "yes", "on",
+    ):
+        try:
+            loaded = _get_bertopic_themes()
+            if loaded:
+                from . import bertopic_themes as _bt
+
+                for label, _score in _bt.classify_themes_bertopic(text, loaded, top_n=1):
+                    if label:
+                        hits.add(f"bt:{label}")
+        except Exception as e:
+            log.debug("[cross-ref] bertopic enrichment failed: %s", e)
     return hits
+
+
+# Lazy-load + cache the BERTopic model so the first signal pays the
+# load cost; subsequent calls reuse the in-memory object.
+_bertopic_loaded: Optional[dict] = None
+_bertopic_lookup_attempted: bool = False
+
+
+def _get_bertopic_themes() -> Optional[dict]:
+    global _bertopic_loaded, _bertopic_lookup_attempted
+    if _bertopic_loaded is not None:
+        return _bertopic_loaded
+    if _bertopic_lookup_attempted:
+        return None
+    _bertopic_lookup_attempted = True
+    try:
+        from . import bertopic_themes as _bt
+
+        _bertopic_loaded = _bt.load_bertopic_themes()
+    except Exception as e:
+        log.debug("[cross-ref] bertopic load failed: %s", e)
+        _bertopic_loaded = None
+    if _bertopic_loaded:
+        meta = _bertopic_loaded.get("meta", {})
+        log.info(
+            "[cross-ref] bertopic themes loaded: n_topics=%s trained_at=%s",
+            meta.get("n_topics"),
+            meta.get("trained_at"),
+        )
+    return _bertopic_loaded
 
 
 def _read_recent_signals(window_hours: int) -> list[dict]:
