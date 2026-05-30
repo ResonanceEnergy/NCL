@@ -418,6 +418,112 @@ async def get_all_events(
     return events
 
 
+# ─── Wave 14AQ (2026-05-30) — Financial vs Infotainment split ─────────
+
+
+# Categories that count as FINANCIAL — markets, macro releases, Fed,
+# earnings, expiries, futures roll. Goes to the Portfolio-adjacent
+# financial calendar stream.
+_FINANCIAL_CATEGORIES: frozenset[str] = frozenset(
+    {
+        "fomc",
+        "cpi",
+        "nfp",
+        "gdp",
+        "ppi",
+        "earnings",
+        "opex",
+        "vix_expiry",
+        "futures_roll",
+        "fed_speech",
+        "economic",
+    }
+)
+
+
+def categorize_event_stream(event: dict) -> str:
+    """Return 'financial' or 'infotainment' for an enriched event.
+
+    Used by the iOS Calendar tab to render the two streams as
+    separate sections per NATRIX directive 2026-05-30: "separate
+    financial from infotainment" — the financial calendar serves
+    PORTFOLIO decisions while infotainment serves life-schedule
+    awareness.
+    """
+    cat = (event.get("category") or "").lower()
+    return "financial" if cat in _FINANCIAL_CATEGORIES else "infotainment"
+
+
+async def get_all_events_split(
+    start: date,
+    end: date,
+    include_economic: bool = True,
+    include_local: bool = True,
+    city_id: str = "edmonton",
+) -> dict:
+    """Wave 14AQ — return events partitioned into financial + infotainment.
+
+    Combines the financial-leaning stream (get_all_events: FOMC, CPI,
+    earnings, expiries, fed speeches) with the life-schedule stream
+    (local_events: holidays, weather, ticketmaster, city open-data).
+
+    Returns:
+        {
+            "financial":    [...],   # sorted by date then priority
+            "infotainment": [...],
+            "counts":       {financial: int, infotainment: int},
+            "window":       {start, end, days, city_id}
+        }
+    """
+    # Financial-leaning events from this module
+    base_events = await get_all_events(start, end, include_economic=include_economic)
+
+    # Infotainment from local_events.py — holidays + weather + tickets +
+    # city open-data + curated.
+    local_events: list[dict] = []
+    if include_local:
+        try:
+            from .local_events import get_local_events  # local to avoid cycle
+
+            local_events = await get_local_events(city_id, start, end)
+        except Exception as e:
+            log.debug("[calendar:split] get_local_events(%s) failed: %s", city_id, e)
+            local_events = []
+
+    financial: list[dict] = []
+    infotainment: list[dict] = []
+    for ev in base_events:
+        if categorize_event_stream(ev) == "financial":
+            financial.append(ev)
+        else:
+            infotainment.append(ev)
+    for ev in local_events:
+        # Local events are infotainment by definition.
+        if categorize_event_stream(ev) == "financial":
+            financial.append(ev)
+        else:
+            infotainment.append(ev)
+
+    # Sort both streams by date then priority desc
+    financial.sort(key=lambda e: (e["date"], -e.get("priority", 0)))
+    infotainment.sort(key=lambda e: (e["date"], -e.get("priority", 0)))
+
+    return {
+        "financial": financial,
+        "infotainment": infotainment,
+        "counts": {
+            "financial": len(financial),
+            "infotainment": len(infotainment),
+        },
+        "window": {
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+            "days": (end - start).days,
+            "city_id": city_id,
+        },
+    }
+
+
 # ── Custom events persistence ─────────────────────────────────────────
 
 _CUSTOM_EVENTS_PATH = os.path.expanduser("~/NCL/data/calendar/custom_events.jsonl")

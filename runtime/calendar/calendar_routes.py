@@ -308,6 +308,32 @@ async def list_events(
     }
 
 
+@calendar_router.get("/events/split")
+async def list_events_split(
+    start: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    end: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    city_id: str = Query("edmonton", description="City for local events"),
+    authorization: str = Header(default=""),
+):
+    """Wave 14AQ — return events partitioned into financial + infotainment.
+
+    iOS Calendar tab renders each stream as a separate section per
+    NATRIX directive 2026-05-30: "separate financial from infotainment".
+
+    Returns:
+        {financial: [...], infotainment: [...], counts: {financial,
+        infotainment}, window: {start, end, days, city_id}}.
+    """
+    _verify_strike_token(authorization)
+
+    from .events import get_all_events_split
+
+    today = date.today()
+    s = date.fromisoformat(start) if start else today
+    e = date.fromisoformat(end) if end else today + timedelta(days=14)
+    return await get_all_events_split(s, e, city_id=city_id)
+
+
 @calendar_router.post("/events")
 async def create_event(request: Request, authorization: str = Header(default="")):
     """Add a custom event to the calendar."""
