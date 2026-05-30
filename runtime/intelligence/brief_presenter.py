@@ -32,16 +32,35 @@ _MD_PATTERN = re.compile(r"\*\*([^*\n]+?)\*\*|`([^`\n]+)`|^#{1,6}\s+", re.MULTIL
 # "include the industrys the indexes represent XLE (OIL)". Used by the
 # presenter to render `XLE (Energy)` etc. in rotation regime + trade ideas.
 SECTOR_LABELS: dict[str, str] = {
-    "XLE": "Energy",      "XLF": "Financials",   "XLK": "Technology",
-    "XLV": "Healthcare",  "XLI": "Industrials",  "XLP": "Consumer Staples",
-    "XLY": "Consumer Discretionary", "XLB": "Materials",
-    "XLU": "Utilities",   "XLC": "Communications", "XLRE": "Real Estate",
-    "GLD": "Gold",        "SLV": "Silver",       "USO": "Oil Futures",
-    "UNG": "Natural Gas", "ARKK": "Innovation",  "SMH": "Semiconductors",
-    "SOXX": "Semiconductors", "VTI": "Total Market", "VOO": "S&P 500",
-    "VXX": "VIX Futures", "TLT": "20Y Treasuries", "IEF": "10Y Treasuries",
-    "DIA": "Dow 30",      "SPY": "S&P 500",      "QQQ": "Nasdaq 100",
-    "IWM": "Russell 2000", "RSP": "Equal-Weight S&P", "IWD": "Russell Value",
+    "XLE": "Energy",
+    "XLF": "Financials",
+    "XLK": "Technology",
+    "XLV": "Healthcare",
+    "XLI": "Industrials",
+    "XLP": "Consumer Staples",
+    "XLY": "Consumer Discretionary",
+    "XLB": "Materials",
+    "XLU": "Utilities",
+    "XLC": "Communications",
+    "XLRE": "Real Estate",
+    "GLD": "Gold",
+    "SLV": "Silver",
+    "USO": "Oil Futures",
+    "UNG": "Natural Gas",
+    "ARKK": "Innovation",
+    "SMH": "Semiconductors",
+    "SOXX": "Semiconductors",
+    "VTI": "Total Market",
+    "VOO": "S&P 500",
+    "VXX": "VIX Futures",
+    "TLT": "20Y Treasuries",
+    "IEF": "10Y Treasuries",
+    "DIA": "Dow 30",
+    "SPY": "S&P 500",
+    "QQQ": "Nasdaq 100",
+    "IWM": "Russell 2000",
+    "RSP": "Equal-Weight S&P",
+    "IWD": "Russell Value",
     "IWF": "Russell Growth",
 }
 
@@ -295,7 +314,9 @@ def _render_block(name: str, data) -> list[str]:
     return lines
 
 
-def _render_lane_section(lane_key: str, lane_data: dict, header_label: str, parts: list[str]) -> None:
+def _render_lane_section(
+    lane_key: str, lane_data: dict, header_label: str, parts: list[str]
+) -> None:
     """Wave 14Y revised — executive prose format. NATRIX's mandate (2026-05-29 evening):
 
     'one formatted professional document... written to me as an executive in a
@@ -352,8 +373,10 @@ def _render_lane_section(lane_key: str, lane_data: dict, header_label: str, part
                 # Plan parameters as a single inline sentence.
                 plan_bits = []
                 for fld_key, fld_label in (
-                    ("entry", "Entry"), ("stop", "Stop"),
-                    ("target", "Target"), ("timeframe", "Horizon"),
+                    ("entry", "Entry"),
+                    ("stop", "Stop"),
+                    ("target", "Target"),
+                    ("timeframe", "Horizon"),
                 ):
                     v = idea.get(fld_key)
                     if v:
@@ -422,7 +445,11 @@ def _render_lane_section(lane_key: str, lane_data: dict, header_label: str, part
                     conf = it.get("confidence_pct")
                     suffix = ""
                     if direction or conf is not None:
-                        suffix = f" ({direction}, {conf}% conf)" if (direction and conf is not None) else (f" ({direction})" if direction else f" ({conf}% conf)")
+                        suffix = (
+                            f" ({direction}, {conf}% conf)"
+                            if (direction and conf is not None)
+                            else (f" ({direction})" if direction else f" ({conf}% conf)")
+                        )
                     parts.append(f"{txt}{suffix}")
                 else:
                     parts.append(_strip_markdown(str(it)))
@@ -440,6 +467,57 @@ def _render_lane_section(lane_key: str, lane_data: dict, header_label: str, part
             for it in xref[:5]:
                 txt = _strip_markdown(it.get("text", "") if isinstance(it, dict) else str(it))
                 parts.append(txt)
+            parts.append("")
+        # Wave 14AE: REDDIT PULSE — top 10 by composite score across the
+        # full 54-sub watchlist over the last 12h. AWAREBOT keeps the
+        # wide net for cross-source confirmation; the brief surfaces only
+        # the score-ranked top 10 so it stays scannable.
+        reddit_top10 = lane_data.get("reddit_top10") or []
+        # The chair MAY also nest top10 under reddit_pulse.top10 — accept
+        # both shapes so the renderer doesn't depend on a single form.
+        if not reddit_top10:
+            rp = lane_data.get("reddit_pulse") or {}
+            if isinstance(rp, dict):
+                reddit_top10 = rp.get("top10") or []
+        reddit_narrative = ""
+        rp_obj = lane_data.get("reddit_pulse") or {}
+        if isinstance(rp_obj, dict):
+            reddit_narrative = _strip_markdown(str(rp_obj.get("narrative", "")).strip())
+        if reddit_top10 or reddit_narrative:
+            parts.append("**REDDIT PULSE**")
+            if reddit_narrative:
+                parts.append(reddit_narrative)
+            for i, it in enumerate(reddit_top10[:10], 1):
+                if not isinstance(it, dict):
+                    continue
+                title = _strip_markdown(str(it.get("title", "")))[:140]
+                url = str(it.get("url", "")).strip()
+                sub = str(it.get("subreddit", "") or "").strip()
+                age_min = it.get("age_min")
+                score = it.get("score")
+                # Format age compactly: "47m" / "3h" / "1d".
+                age_str = ""
+                if isinstance(age_min, (int, float)):
+                    if age_min < 60:
+                        age_str = f"{int(age_min)}m"
+                    elif age_min < 1440:
+                        age_str = f"{int(age_min / 60)}h"
+                    else:
+                        age_str = f"{int(age_min / 1440)}d"
+                meta_bits: list[str] = []
+                if sub:
+                    meta_bits.append(f"r/{sub}")
+                if age_str:
+                    meta_bits.append(age_str)
+                if isinstance(score, (int, float)):
+                    meta_bits.append(f"score {score:.2f}")
+                meta_str = " · ".join(meta_bits)
+                line = f"{i}. {title}"
+                if meta_str:
+                    line += f"  [{meta_str}]"
+                parts.append(line)
+                if url:
+                    parts.append(f"   {url}")
             parts.append("")
 
     elif lane_key == "calendar":
@@ -638,6 +716,15 @@ def render_pro_brief(synthesis: dict, pack: dict | None = None) -> dict:
         lane = synthesis.get(key)
         if not isinstance(lane, dict) or not lane:
             lane = pack_lanes.get(key) or {}
+        # Wave 14AE: re-attach reddit_top10 from prep into the chair's
+        # intel lane so REDDIT PULSE survives even if the chair dropped
+        # the array. AWAREBOT-scored data is authoritative — chair
+        # provides only the narrative wrapper around it.
+        if key == "intel" and isinstance(lane, dict):
+            prep_intel = pack_lanes.get("intel") or {}
+            if not lane.get("reddit_top10") and prep_intel.get("reddit_top10"):
+                lane = dict(lane)
+                lane["reddit_top10"] = prep_intel["reddit_top10"]
         lanes_5[key] = lane
         _render_lane_section(key, lane, header, parts)
 

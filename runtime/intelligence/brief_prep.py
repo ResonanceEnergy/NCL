@@ -469,7 +469,7 @@ async def _collect_portfolio_snapshot(brain) -> dict:
             return {
                 "connected": False,
                 "error": "portfolio_manager not initialized — check broker adapter "
-                         "boot in start-all.sh + IBKR/Moomoo/SnapTrade env vars",
+                "boot in start-all.sh + IBKR/Moomoo/SnapTrade env vars",
             }
         summary = pm.get_summary() if hasattr(pm, "get_summary") else {}
         total_val = summary.get("total_equity_cad", 0) or summary.get("total_equity_usd", 0)
@@ -477,8 +477,8 @@ async def _collect_portfolio_snapshot(brain) -> dict:
             return {
                 "connected": False,
                 "error": "broker adapters returned NAV=0 — likely IBKR/Moomoo "
-                         "disconnect or SnapTrade auth expired. Check "
-                         "/portfolio/accounts for per-broker status.",
+                "disconnect or SnapTrade auth expired. Check "
+                "/portfolio/accounts for per-broker status.",
                 "raw_summary_keys": list(summary.keys())[:10],
             }
         out.update(
@@ -992,6 +992,7 @@ async def collect_situational_context(brain) -> dict:
     # Lunar (pure ephemeris)
     try:
         from runtime.calendar.lunar import get_moon_phase
+
         moon = get_moon_phase() or {}
         out["lunar"] = {
             "phase_name": moon.get("phase_name"),
@@ -1004,15 +1005,16 @@ async def collect_situational_context(brain) -> dict:
     # Today's calendar events (FOMC, OPEX, earnings) — read via watchlist
     try:
         from runtime.calendar.watchlist import build_watchlist
+
         todos = await build_watchlist(brain_client=brain) or []
         today_iso = date.today().isoformat()
         today_events = [
-            t for t in todos
+            t
+            for t in todos
             if isinstance(t, dict) and (t.get("date", "") or "").startswith(today_iso)
         ][:10]
         out["calendar_today"] = [
-            {"title": t.get("title", ""), "category": t.get("category", "")}
-            for t in today_events
+            {"title": t.get("title", ""), "category": t.get("category", "")} for t in today_events
         ]
         # Ticker extraction from event titles
         tx: set[str] = set()
@@ -1026,6 +1028,7 @@ async def collect_situational_context(brain) -> dict:
     # Today's morning quiz (NATRIX's stated posture)
     try:
         from runtime.journal.morning_quiz import load_today_quiz
+
         q = load_today_quiz() or {}
         if q:
             out["journal_posture"] = {
@@ -1034,12 +1037,14 @@ async def collect_situational_context(brain) -> dict:
                 "lesson": q.get("lesson_from_yesterday", ""),
             }
             # Ticker extraction from quiz text
-            txt = " ".join([
-                q.get("top_priority", ""),
-                q.get("research_question", ""),
-                q.get("lesson_from_yesterday", ""),
-                q.get("posture", ""),
-            ])
+            txt = " ".join(
+                [
+                    q.get("top_priority", ""),
+                    q.get("research_question", ""),
+                    q.get("lesson_from_yesterday", ""),
+                    q.get("posture", ""),
+                ]
+            )
             tj: set[str] = set()
             for m in _re.finditer(r"\$?([A-Z]{2,5})\b", txt):
                 tok = m.group(1)
@@ -1058,9 +1063,11 @@ async def collect_local_events(city: str = "edmonton") -> dict:
     Returns {today: [], week: []}. Never raises.
     """
     from datetime import timedelta
+
     out = {"today": [], "week": []}
     try:
         from runtime.calendar.local_events import get_local_events  # type: ignore
+
         start = date.today()
         end = start + timedelta(days=7)
         events = await get_local_events(city, start, end) or []
@@ -1221,16 +1228,121 @@ def _lane_portfolio(pack: dict) -> dict:
             "opens_today": agent.get("opens_today"),
             "closes_today": agent.get("closes_today"),
             "current_streak": agent.get("current_streak"),
-        } if isinstance(agent, dict) else {},
-        "open_positions_summary": portfolio.get("positions_summary", {}) if isinstance(portfolio, dict) else {},
+        }
+        if isinstance(agent, dict)
+        else {},
+        "open_positions_summary": portfolio.get("positions_summary", {})
+        if isinstance(portfolio, dict)
+        else {},
         "held_positions": pack.get("held_positions", []),
         "scanner_goat_top": goat[:5],
         "scanner_bravo_top": bravo[:5],
         "options_flow_top": options[:5],
-        "rotation_leading_sectors": rotation.get("leading_quadrant", []) if isinstance(rotation, dict) else [],
+        "rotation_leading_sectors": rotation.get("leading_quadrant", [])
+        if isinstance(rotation, dict)
+        else [],
         "rotation_breadth_pct": rotation.get("breadth_pct") if isinstance(rotation, dict) else None,
         "yesterday_recap": pack.get("yesterday_recap", {}),
     }
+
+
+def _collect_reddit_top10(window_hours: int = 12, limit: int = 10) -> list[dict]:
+    """Wave 14AE: top Reddit signals across the whole 54-sub pool, last N hours.
+
+    Reads ``data/intelligence/agent_signals.jsonl`` (read-only tail), keeps
+    rows where source=="reddit" and timestamp within ``window_hours``, sorts
+    by composite_score desc, returns at most ``limit`` cleaned rows.
+
+    Cleaning:
+      - Decode HTML entities Reddit leaks (e.g. `&#32;`).
+      - Strip the boilerplate "submitted by /u/X to /r/Y" suffix that
+        search.rss appends to every title.
+      - Extract subreddit from URL when tags don't carry it.
+
+    The brief INTEL lane uses this to render REDDIT PULSE without
+    duplicating the iOS firehose. Returns [] on any I/O failure.
+    """
+    import html as _html
+    import re as _re
+    from datetime import datetime, timedelta, timezone
+    from pathlib import Path as _Path
+
+    signals_path = _Path("data/intelligence/agent_signals.jsonl")
+    if not signals_path.exists():
+        return []
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=window_hours)
+    rows: list[dict] = []
+    try:
+        # Tail-read: only the last ~2MB is needed for a 12h window even at
+        # full Reddit volume (~5k signals/day total, ~250 reddit per cycle).
+        size = signals_path.stat().st_size
+        with signals_path.open("rb") as f:
+            if size > 2_000_000:
+                f.seek(size - 2_000_000)
+                f.readline()  # discard partial line
+            tail = f.read().decode("utf-8", errors="replace")
+        for line in tail.splitlines():
+            if '"source": "reddit"' not in line:
+                continue
+            try:
+                d = json.loads(line)
+            except Exception:
+                continue
+            if str(d.get("source", "")).lower() != "reddit":
+                continue
+            ts = d.get("timestamp", "")
+            try:
+                dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            except Exception:
+                continue
+            if dt < cutoff:
+                continue
+
+            raw_title = d.get("title") or d.get("content") or ""
+            # Decode HTML entities (`&#32;` → ' ', `&amp;` → '&', etc.).
+            title = _html.unescape(str(raw_title))
+            # search.rss appends "submitted by /u/AUTHOR to /r/SUBREDDIT" —
+            # strip everything from the first " submitted by " onward.
+            title = _re.split(r"\s+submitted by\s+", title, maxsplit=1)[0]
+            # Drop boilerplate prefix dashes / collapse whitespace.
+            title = " ".join(title.split()).strip(" -")
+            if not title:
+                continue
+
+            url = d.get("url", "")
+            # Subreddit: prefer tags["r/..."], else parse URL path.
+            sub = ""
+            for t in d.get("tags") or []:
+                if isinstance(t, str) and t.startswith("r/"):
+                    sub = t[2:]
+                    break
+            if not sub and "/r/" in url:
+                try:
+                    after = url.split("/r/", 1)[1]
+                    sub = after.split("/", 1)[0]
+                except Exception:
+                    pass
+
+            age_min = max(
+                0,
+                int((datetime.now(timezone.utc) - dt).total_seconds() / 60),
+            )
+            rows.append(
+                {
+                    "title": title[:160],
+                    "url": url,
+                    "subreddit": sub,
+                    "score": round(float(d.get("composite_score") or 0.0), 3),
+                    "route_level": d.get("route_level", "LOW"),
+                    "age_min": age_min,
+                }
+            )
+    except Exception:
+        return []
+
+    rows.sort(key=lambda r: r["score"], reverse=True)
+    return rows[:limit]
 
 
 def _lane_intel(pack: dict) -> dict:
@@ -1241,6 +1353,11 @@ def _lane_intel(pack: dict) -> dict:
     crypto = (pack.get("CRYPTO") or {}).get("data") or {}
     headlines = _as_list(pack.get("headlines"))
     poly_leading = _as_list(pack.get("polymarket_leading"))
+    # Wave 14AE: Reddit top-10 across all 54 subreddits, last 12h.
+    # AWAREBOT keeps the wide net so cross-source confirmation keeps working;
+    # the brief just surfaces the top 10 by composite score so it stays
+    # scannable without losing the broader pool.
+    reddit_top10 = _collect_reddit_top10(window_hours=12, limit=10)
     return {
         "ytc_recent_top": ytc[:5],
         "predictions_active_top": predictions[:5],
@@ -1251,6 +1368,7 @@ def _lane_intel(pack: dict) -> dict:
         "futures": pack.get("futures", {}),
         "vix_term_structure": pack.get("vix_term_structure", {}),
         "overnight_movers": pack.get("overnight_movers", {}),
+        "reddit_top10": reddit_top10,
     }
 
 

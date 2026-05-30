@@ -1468,8 +1468,9 @@ async def fire_morning_brief_pro(
     # makes it surface in working-context + search + timeline.
     try:
         if brain is not None and hasattr(brain, "memory_store"):
-            from runtime.memory.memory_unit import MemUnit  # type: ignore
             from runtime.memory.authority import AuthorityTier  # type: ignore
+            from runtime.memory.memory_unit import MemUnit  # type: ignore
+
             text = envelope.get("full_brief") or envelope.get("topics") or ""
             if text:
                 snapshot = MemUnit(
@@ -1487,9 +1488,9 @@ async def fire_morning_brief_pro(
                     },
                 )
                 await brain.memory_store.create_unit(snapshot)
-                logger.info("[brief_pro] snapshot ingested to memory unit_id=%s", snapshot.unit_id)
+                log.info("[brief_pro] snapshot ingested to memory unit_id=%s", snapshot.unit_id)
     except Exception as e:
-        logger.warning("[brief_pro] memory snapshot ingest failed: %s", e)
+        log.warning("[brief_pro] memory snapshot ingest failed: %s", e)
 
     return envelope
 

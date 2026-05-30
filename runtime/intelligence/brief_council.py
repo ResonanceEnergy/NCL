@@ -22,7 +22,8 @@ import os
 import time
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
+
 
 log = logging.getLogger("ncl.intel.brief_council")
 
@@ -40,9 +41,9 @@ COUNCIL_DIR = NCL_BASE / "data" / "morning-brief-council"
 # key in .env) — Flow + Tech share OpenAI but with distinct prompts so
 # the chair still sees flow-vs-tactics tension.
 _MODEL_MACRO = "claude-opus-4-20250514"  # heavy macro reasoning
-_MODEL_PULSE = "grok-4"                   # xAI — real-time sentiment, X/news
-_MODEL_FLOW = "gemini-2.5-flash"          # Google — flow analysis (GOOGLE_API_KEY)
-_MODEL_TECH = "gpt-4o"                    # OpenAI — chart setups
+_MODEL_PULSE = "grok-4"  # xAI — real-time sentiment, X/news
+_MODEL_FLOW = "gemini-2.5-flash"  # Google — flow analysis (GOOGLE_API_KEY)
+_MODEL_TECH = "gpt-4o"  # OpenAI — chart setups
 _MODEL_CHAIR = "claude-opus-4-20250514"  # heaviest synthesis
 
 # How much of the prep pack each member sees (token budget per call).
@@ -243,7 +244,8 @@ Output ONLY JSON with EXACTLY these top-level keys, IN THIS ORDER:
     "top_signals": [{{"text":"...","source":"ytc|reddit|x|predictions|polymarket|news","sig_id":"..."}}],
     "predictions_watch": [{{"text":"...","direction":"bullish|bearish|neutral","confidence_pct":int,"citations":["sig_id"]}}],
     "polymarket_watch": [{{"text":"...","citations":["sig_id"]}}],
-    "cross_reference_promotions": [{{"text":"e.g. ticker AAPL appeared in YTC + Reddit + Predictions in 4h","tickers":["AAPL"]}}]
+    "cross_reference_promotions": [{{"text":"e.g. ticker AAPL appeared in YTC + Reddit + Predictions in 4h","tickers":["AAPL"]}}],
+    "reddit_pulse": {{"narrative": "1-2 sentences: dominant themes / tickers from the top-10 Reddit posts across the full 54-sub watchlist in the last 12h. Mention any cluster (e.g. 'NVDA appeared in 4 posts'). Use the top-10 array verbatim — do not re-fetch.", "top10": "use the reddit_top10 array from PREP CONTEXT verbatim — do not re-rank or filter; brief just surfaces what AWAREBOT already scored"}}
   }},
   "calendar": {{
     "narrative": "2-3 sentences: what's on today (market events, earnings, macro releases), lunar phase impact if relevant, key dates in the next 7 days.",
@@ -280,15 +282,22 @@ Do not add or remove top-level keys. Do not change order. If a lane has no data,
 # ─────────────────────────────────────────────────────────────────────────
 
 
-async def _anthropic_call(model: str, prompt: str, *, max_tokens: int = 3000,
-                           timeout_s: float = 60.0, api_key: str = "",
-                           label: str = "council") -> tuple[str, int, int]:
+async def _anthropic_call(
+    model: str,
+    prompt: str,
+    *,
+    max_tokens: int = 3000,
+    timeout_s: float = 60.0,
+    api_key: str = "",
+    label: str = "council",
+) -> tuple[str, int, int]:
     """Call Anthropic Claude. Returns (text, input_tokens, output_tokens)."""
     if not api_key:
         api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
         raise RuntimeError("ANTHROPIC_API_KEY not set")
     import httpx
+
     payload = {
         "model": model,
         "max_tokens": max_tokens,
@@ -302,7 +311,8 @@ async def _anthropic_call(model: str, prompt: str, *, max_tokens: int = 3000,
     async with httpx.AsyncClient(timeout=timeout_s) as client:
         r = await client.post(
             "https://api.anthropic.com/v1/messages",
-            json=payload, headers=headers,
+            json=payload,
+            headers=headers,
         )
         r.raise_for_status()
         body = r.json()
@@ -316,13 +326,20 @@ async def _anthropic_call(model: str, prompt: str, *, max_tokens: int = 3000,
 
 # Wave 14X-2 — xAI (Grok) + OpenAI (GPT) call helpers. Both use the
 # OpenAI-compatible chat-completions schema so the body shape is shared.
-async def _xai_call(model: str, prompt: str, *, max_tokens: int = 3000,
-                     timeout_s: float = 60.0, label: str = "council") -> tuple[str, int, int]:
+async def _xai_call(
+    model: str,
+    prompt: str,
+    *,
+    max_tokens: int = 3000,
+    timeout_s: float = 60.0,
+    label: str = "council",
+) -> tuple[str, int, int]:
     """Call xAI (Grok). Same schema as OpenAI chat-completions."""
     api_key = os.environ.get("XAI_API_KEY", "")
     if not api_key:
         raise RuntimeError("XAI_API_KEY not set")
     import httpx
+
     payload = {
         "model": model,
         "max_tokens": max_tokens,
@@ -335,7 +352,8 @@ async def _xai_call(model: str, prompt: str, *, max_tokens: int = 3000,
     async with httpx.AsyncClient(timeout=timeout_s) as client:
         r = await client.post(
             "https://api.x.ai/v1/chat/completions",
-            json=payload, headers=headers,
+            json=payload,
+            headers=headers,
         )
         r.raise_for_status()
         body = r.json()
@@ -347,13 +365,20 @@ async def _xai_call(model: str, prompt: str, *, max_tokens: int = 3000,
     return text, in_tok, out_tok
 
 
-async def _openai_call(model: str, prompt: str, *, max_tokens: int = 3000,
-                        timeout_s: float = 60.0, label: str = "council") -> tuple[str, int, int]:
+async def _openai_call(
+    model: str,
+    prompt: str,
+    *,
+    max_tokens: int = 3000,
+    timeout_s: float = 60.0,
+    label: str = "council",
+) -> tuple[str, int, int]:
     """Call OpenAI chat-completions."""
     api_key = os.environ.get("OPENAI_API_KEY", "")
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY not set")
     import httpx
+
     payload = {
         "model": model,
         "max_tokens": max_tokens,
@@ -366,7 +391,8 @@ async def _openai_call(model: str, prompt: str, *, max_tokens: int = 3000,
     async with httpx.AsyncClient(timeout=timeout_s) as client:
         r = await client.post(
             "https://api.openai.com/v1/chat/completions",
-            json=payload, headers=headers,
+            json=payload,
+            headers=headers,
         )
         r.raise_for_status()
         body = r.json()
@@ -378,13 +404,20 @@ async def _openai_call(model: str, prompt: str, *, max_tokens: int = 3000,
     return text, in_tok, out_tok
 
 
-async def _gemini_call(model: str, prompt: str, *, max_tokens: int = 3000,
-                        timeout_s: float = 60.0, label: str = "council") -> tuple[str, int, int]:
+async def _gemini_call(
+    model: str,
+    prompt: str,
+    *,
+    max_tokens: int = 3000,
+    timeout_s: float = 60.0,
+    label: str = "council",
+) -> tuple[str, int, int]:
     """Call Google Gemini via generativeLanguage REST."""
     api_key = os.environ.get("GOOGLE_API_KEY", "")
     if not api_key:
         raise RuntimeError("GOOGLE_API_KEY not set")
     import httpx
+
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"maxOutputTokens": max_tokens},
@@ -392,8 +425,7 @@ async def _gemini_call(model: str, prompt: str, *, max_tokens: int = 3000,
     headers = {"Content-Type": "application/json"}
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
     async with httpx.AsyncClient(timeout=timeout_s) as client:
-        r = await client.post(url, json=payload, headers=headers,
-                              params={"key": api_key})
+        r = await client.post(url, json=payload, headers=headers, params={"key": api_key})
         r.raise_for_status()
         body = r.json()
     # Extract text from first candidate
@@ -418,6 +450,7 @@ def _is_credit_or_perm_error(e: Exception) -> bool:
     'available credits' / 'permission' (xAI), 429 'quota' (Google/OpenAI).
     """
     import httpx as _httpx
+
     if not isinstance(e, _httpx.HTTPStatusError):
         return False
     code = e.response.status_code if e.response is not None else 0
@@ -428,17 +461,24 @@ def _is_credit_or_perm_error(e: Exception) -> bool:
         pass
     if code in (400, 402) and ("credit balance" in body or "insufficient" in body):
         return True
-    if code == 403 and ("credit" in body or "permission" in body or "billing" in body
-                         or "spending limit" in body):
+    if code == 403 and (
+        "credit" in body or "permission" in body or "billing" in body or "spending limit" in body
+    ):
         return True
     if code == 429 and ("quota" in body or "rate" in body or "credit" in body):
         return True
     return False
 
 
-async def _dispatch_call(model: str, prompt: str, *, max_tokens: int = 3000,
-                          timeout_s: float = 60.0, api_key: str = "",
-                          label: str = "council") -> tuple[str, int, int]:
+async def _dispatch_call(
+    model: str,
+    prompt: str,
+    *,
+    max_tokens: int = 3000,
+    timeout_s: float = 60.0,
+    api_key: str = "",
+    label: str = "council",
+) -> tuple[str, int, int]:
     """Wave 14X-4b (2026-05-29): provider-chain fallback when any
     provider returns a credit/permission error. Order:
       requested model → Grok-4 → GPT-4o → Gemini 2.5 Flash
@@ -451,20 +491,36 @@ async def _dispatch_call(model: str, prompt: str, *, max_tokens: int = 3000,
     async def _primary() -> tuple[str, int, int]:
         if m.startswith("claude-"):
             return await _anthropic_call(
-                model, prompt, max_tokens=max_tokens, timeout_s=timeout_s,
-                api_key=api_key, label=label,
+                model,
+                prompt,
+                max_tokens=max_tokens,
+                timeout_s=timeout_s,
+                api_key=api_key,
+                label=label,
             )
         if m.startswith("grok-"):
             return await _xai_call(
-                model, prompt, max_tokens=max_tokens, timeout_s=timeout_s, label=label,
+                model,
+                prompt,
+                max_tokens=max_tokens,
+                timeout_s=timeout_s,
+                label=label,
             )
         if m.startswith("gpt-"):
             return await _openai_call(
-                model, prompt, max_tokens=max_tokens, timeout_s=timeout_s, label=label,
+                model,
+                prompt,
+                max_tokens=max_tokens,
+                timeout_s=timeout_s,
+                label=label,
             )
         if m.startswith("gemini-"):
             return await _gemini_call(
-                model, prompt, max_tokens=max_tokens, timeout_s=timeout_s, label=label,
+                model,
+                prompt,
+                max_tokens=max_tokens,
+                timeout_s=timeout_s,
+                label=label,
             )
         raise RuntimeError(f"unknown model provider for: {model!r}")
 
@@ -477,26 +533,51 @@ async def _dispatch_call(model: str, prompt: str, *, max_tokens: int = 3000,
             raise
         log.warning(
             "[council/%s] %s credit/perm error — starting fallback chain",
-            label, model,
+            label,
+            model,
         )
 
     # Fallback chain — skip whichever provider was the primary
     chain: list[tuple[str, callable]] = []
     if not m.startswith("grok-"):
-        chain.append(("grok-4", lambda: _xai_call(
-            "grok-4", prompt, max_tokens=max_tokens, timeout_s=timeout_s,
-            label=f"{label}/grok-fb",
-        )))
+        chain.append(
+            (
+                "grok-4",
+                lambda: _xai_call(
+                    "grok-4",
+                    prompt,
+                    max_tokens=max_tokens,
+                    timeout_s=timeout_s,
+                    label=f"{label}/grok-fb",
+                ),
+            )
+        )
     if not m.startswith("gpt-"):
-        chain.append(("gpt-4o", lambda: _openai_call(
-            "gpt-4o", prompt, max_tokens=max_tokens, timeout_s=timeout_s,
-            label=f"{label}/gpt-fb",
-        )))
+        chain.append(
+            (
+                "gpt-4o",
+                lambda: _openai_call(
+                    "gpt-4o",
+                    prompt,
+                    max_tokens=max_tokens,
+                    timeout_s=timeout_s,
+                    label=f"{label}/gpt-fb",
+                ),
+            )
+        )
     if not m.startswith("gemini-"):
-        chain.append(("gemini-2.5-flash", lambda: _gemini_call(
-            "gemini-2.5-flash", prompt, max_tokens=max_tokens, timeout_s=timeout_s,
-            label=f"{label}/gemini-fb",
-        )))
+        chain.append(
+            (
+                "gemini-2.5-flash",
+                lambda: _gemini_call(
+                    "gemini-2.5-flash",
+                    prompt,
+                    max_tokens=max_tokens,
+                    timeout_s=timeout_s,
+                    label=f"{label}/gemini-fb",
+                ),
+            )
+        )
 
     last_err: Exception = RuntimeError("no fallback providers tried")
     for fb_model, fb_call in chain:
@@ -508,23 +589,25 @@ async def _dispatch_call(model: str, prompt: str, *, max_tokens: int = 3000,
             if not _is_credit_or_perm_error(fb_err):
                 log.warning(
                     "[council/%s] fallback %s failed (non-credit): %s",
-                    label, fb_model, fb_err,
+                    label,
+                    fb_model,
+                    fb_err,
                 )
                 # On a non-credit error, keep trying next in chain anyway
                 # since the original model is also dead — better to attempt.
             else:
                 log.warning(
                     "[council/%s] fallback %s also credit-exhausted",
-                    label, fb_model,
+                    label,
+                    fb_model,
                 )
-    raise RuntimeError(
-        f"all providers exhausted (primary={model}, last_err={last_err!r})"
-    )
+    raise RuntimeError(f"all providers exhausted (primary={model}, last_err={last_err!r})")
 
 
 def _extract_json(text: str) -> dict:
     """Pull the first JSON object out of an LLM response."""
     import re
+
     text = text.strip()
     # Strip markdown fences
     text = re.sub(r"^```(json)?\s*", "", text)
@@ -541,7 +624,7 @@ def _extract_json(text: str) -> dict:
             depth -= 1
             if depth == 0 and start >= 0:
                 try:
-                    return json.loads(text[start:i + 1])
+                    return json.loads(text[start : i + 1])
                 except Exception:
                     start = -1
                     continue
@@ -553,14 +636,17 @@ def _extract_json(text: str) -> dict:
 # ─────────────────────────────────────────────────────────────────────────
 
 
-async def _run_member(name: str, prompt_fn, model: str, pack: dict,
-                       api_key: str) -> Optional[dict]:
+async def _run_member(name: str, prompt_fn, model: str, pack: dict, api_key: str) -> Optional[dict]:
     """Run one council member. Returns None on failure (chair handles)."""
     try:
         prompt = prompt_fn(pack)
         text, _, _ = await _dispatch_call(
-            model, prompt, max_tokens=2200, timeout_s=45.0,
-            api_key=api_key, label=name,
+            model,
+            prompt,
+            max_tokens=2200,
+            timeout_s=45.0,
+            api_key=api_key,
+            label=name,
         )
         return _extract_json(text)
     except Exception as e:
@@ -582,8 +668,8 @@ async def run_council(pack: dict, api_key: str = "") -> dict:
         _run_member("technical", _tech_prompt, _MODEL_TECH, pack, api_key),
     )
     members_succeeded = [
-        n for n, m in
-        (("macro", macro), ("pulse", pulse), ("flow", flow), ("technical", tech))
+        n
+        for n, m in (("macro", macro), ("pulse", pulse), ("flow", flow), ("technical", tech))
         if m is not None
     ]
     members = {
@@ -598,8 +684,12 @@ async def run_council(pack: dict, api_key: str = "") -> dict:
 
     # Chair synthesis
     chair_text, chair_in, chair_out = await _dispatch_call(
-        _MODEL_CHAIR, _chair_prompt(pack, members),
-        max_tokens=4000, timeout_s=90.0, api_key=api_key, label="chair",
+        _MODEL_CHAIR,
+        _chair_prompt(pack, members),
+        max_tokens=4000,
+        timeout_s=90.0,
+        api_key=api_key,
+        label="chair",
     )
     synthesis = _extract_json(chair_text)
     synthesis["_meta"] = {
@@ -612,12 +702,18 @@ async def run_council(pack: dict, api_key: str = "") -> dict:
     COUNCIL_DIR.mkdir(parents=True, exist_ok=True)
     out_path = COUNCIL_DIR / f"{date.today().isoformat()}.json"
     try:
-        out_path.write_text(json.dumps({
-            "members": members,
-            "synthesis": synthesis,
-            "prep_date": pack.get("date"),
-            "completed_at": datetime.now(timezone.utc).isoformat(),
-        }, indent=2, default=str))
+        out_path.write_text(
+            json.dumps(
+                {
+                    "members": members,
+                    "synthesis": synthesis,
+                    "prep_date": pack.get("date"),
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                },
+                indent=2,
+                default=str,
+            )
+        )
     except Exception as e:
         log.warning("[council] persist failed: %s", e)
     return synthesis

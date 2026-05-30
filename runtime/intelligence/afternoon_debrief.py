@@ -20,7 +20,6 @@ Six tiles (per Dashboard situational-cockpit spec):
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
@@ -28,6 +27,7 @@ import time
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Optional
+
 
 log = logging.getLogger("ncl.intel.afternoon_debrief")
 
@@ -164,16 +164,25 @@ async def build_debrief() -> dict:
     DEBRIEF_DIR.mkdir(parents=True, exist_ok=True)
     started = time.time()
 
+    # Wave 14AE: include top-10 Reddit across the full 54-sub watchlist
+    # over the last 12h so the PM Debrief carries the same Reddit pulse
+    # the AM Brief does — twice-daily summary per NATRIX directive.
+    from .brief_prep import _collect_reddit_top10
+
+    reddit_top10 = _collect_reddit_top10(window_hours=12, limit=10)
+
     pack = {
         "date": date.today().isoformat(),
         "today_eod": _read_today_eod(),
         "today_brief": _read_today_brief(),
         "cross_ref_today": _read_today_cross_refs()[:20],
         "rotation_shift": _read_rotation_today_vs_yesterday(),
+        "reddit_top10": reddit_top10,
     }
 
     try:
         from .brief_council import _dispatch_call, _extract_json
+
         text, in_tok, out_tok = await _dispatch_call(
             _MODEL, _prompt(pack), max_tokens=2000, timeout_s=60.0, label="debrief"
         )
@@ -181,6 +190,13 @@ async def build_debrief() -> dict:
     except Exception as e:
         log.error("[debrief] LLM call failed: %s", e)
         synthesis = {"error": str(e), "headline": "Debrief unavailable — LLM call failed"}
+
+    # Surface reddit_top10 at the envelope level so iOS BriefLandingCard's
+    # PM Debrief sheet can render REDDIT PULSE the same way the AM Brief
+    # does. The LLM synthesis carries the *narrative*; the persisted
+    # AWAREBOT array is the source of truth for the link list.
+    if isinstance(synthesis, dict) and reddit_top10 and not synthesis.get("reddit_top10"):
+        synthesis["reddit_top10"] = reddit_top10
 
     out = {
         "date": pack["date"],
@@ -191,13 +207,12 @@ async def build_debrief() -> dict:
             "had_eod": bool(pack["today_eod"]),
             "had_brief": bool(pack["today_brief"]),
             "cross_ref_count": len(pack["cross_ref_today"]),
+            "reddit_top10_count": len(reddit_top10),
         },
     }
 
     try:
-        (DEBRIEF_DIR / f"{pack['date']}.json").write_text(
-            json.dumps(out, indent=2, default=str)
-        )
+        (DEBRIEF_DIR / f"{pack['date']}.json").write_text(json.dumps(out, indent=2, default=str))
     except OSError as e:
         log.warning("[debrief] persist failed: %s", e)
 
