@@ -1,0 +1,73 @@
+Wave 14W-F: 5-parallel form/UX audit + 4 Intel sub-tab mandates ingested
+
+The 10-elite-team audit NATRIX requested. 5 parallel form/UX auditors
+(Information Architecture, Timestamps + Freshness, Interactivity +
+Affordances, Lane Mandates, Copy + Readability) + 1 synthesizer ran in
+parallel against FirstStrike + the NCL Brain, produced ~200 file:line
+findings, and the synthesizer collapsed them into a P0/P1/P2 backlog.
+
+DELIVERABLES this commit (NCL side):
+
+  docs/AGENDA_MANDATE.md       — 1-sentence: "What to attend to NOW"
+  docs/BRIEF_MANDATE.md        — 1-sentence: "Morning synthesized read"
+  docs/NIGHTWATCH_MANDATE.md   — 1-sentence: "Operations health log"
+  docs/FOCUS_MANDATE.md        — 1-sentence: "Scored signal stream"
+
+  Each carries Goal / What it should be / What it shouldn't be /
+  Decision it enables / Good state / Bad state / Header subtitle /
+  Backend contract / Producer constraints (load-bearing rules).
+
+  runtime/autonomous/scheduler.py
+    _ingest_mandate() now ingests 9 mandates at boot (was 5 +
+    AUTO_TRADER): the 5 lane mandates + AUTO_TRADER + the 4 new Intel
+    sub-tab mandates. Parallel asyncio.gather pattern unchanged.
+
+  outputs/audit_14W_F_reports.md     — F1-F6 raw input
+  outputs/audit_14W_F_backlog.md     — F7 synthesized P0/P1/P2 ranked
+  outputs/check_lane_router.py       — (from Wave 14W-C, untouched)
+  outputs/check_agent_bus.py         — (from Wave 14W-E, untouched)
+  outputs/check_b.py                 — (from Wave 14W-B, untouched)
+  outputs/verify_14W_C.sh            — (from Wave 14W-C, untouched)
+
+FIRESTRIKE side (separate commit):
+  P0-1: Add timestamps where data exists
+    - RotationRRGView header shows envelope.date + STALE warning
+    - NightWatchView footer renders generatedAt via FSFormat.relativeTime
+      (was a raw ISO string at 30% opacity)
+    - OptionsFlowView surfaces generatedAt (was captured but never shown)
+  P0-3: FSSectionHeader gains mandate + updatedAgo lines
+    - Agenda renders "AGENDA — What to attend to in the next hour…"
+    - Brief renders "BRIEF — Morning synthesized read…"
+    - NightWatch renders "NIGHT WATCH — Operations health log…"
+    - Focus renders "FOCUS — Scored signal stream…"
+  P0-7: Scrub internal codenames from user-facing copy
+    - AutoTrader "DRIFT (Page-Hinkley per-strategy)" → "STRATEGY DRIFT"
+    - AutoTrader "BACKTEST (M3 harness)" → "BACKTEST"
+    - Polymarket "bounce brain or wait for collector" → "collector refreshes…"
+    - Intel Focus "check back in 30min when Awarebot ticks" → "scanner refreshes every 30 min"
+    - Intel Agenda empty state — dropped raw endpoint path
+    - MemoryPinned empty state — dropped lane-refactor history
+  P0-8: Intel reorder + News retire
+    - IntelSection: Agenda first, News removed (backend source retired)
+    - .news removed from switch + loadSectionData
+  P1-6 (partial): bump RotationRRG refresh button to 44pt min tap target
+
+NATRIX's 4 stated complaints — coverage in this session:
+  "no time stamps on anything" → 3 P0-1 sites + NightWatch ISO fix
+  "some stuff is clickable some not" → tap target bump in P1-6 (full
+    P0-4/P0-5/P0-6 deferred)
+  "hard to read / understand" → 6 internal-codename scrubs (P0-7)
+  "agenda/brief/nightwatch/focus needs mandate" → 4 mandate docs + iOS
+    headers (P0-3) + scheduler ingest
+
+DEFERRED to next session (P0-2, P0-4, P0-5, P0-6 and the full P1/P2):
+  - Delete 8 ad-hoc "time ago" implementations
+  - Unify Intel signal-card interaction pattern (sheet vs inline expand)
+  - Wire orphan PositionDetailSheet to Position rows
+  - Make LifePlan rows + RotationRRG sector dots + Calendar CITIES rows tappable
+
+LIVE VERIFICATION:
+  Brain bounced (pid 46774, healthy). On next mandate-ingest cycle
+  scheduler will pick up the 4 new mandate docs. Build green on all 4
+  targets (iPhone 16e sim, iPad Pro M5 sim, physical iPhone, physical
+  iPad) — installed via simctl + devicectl.

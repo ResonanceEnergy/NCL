@@ -336,7 +336,15 @@ async def _record_anthropic_cost(input_tokens: int, output_tokens: int, detail: 
         input_tokens * COST_INPUT_PER_MTOK + output_tokens * COST_OUTPUT_PER_MTOK
     ) / 1_000_000
     try:
-        await record_cost("anthropic", cost_usd, "calendar_todo_generation", detail)
+        await record_cost(
+            "anthropic",
+            cost_usd,
+            "calendar_todo_generation",
+            detail,
+            model="claude-sonnet-4-20250514",
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+        )
     except Exception as e:
         log.debug("record_cost failed: %s", e)
 

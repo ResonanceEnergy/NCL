@@ -1,0 +1,56 @@
+Wave 14AJ: Local sentiment classification (FinBERT + twitter-roberta)
+
+Per COST_AUDIT_OSS_ADDENDUM_2026-05-30 + FREE_RESOURCES Tier D
+recommendation: replace ad-hoc Sonnet calls in AWAREBOT sentiment
+scoring with two open-weight transformer models running on M1 Ultra MPS.
+
+NEW MODULE: runtime/intelligence/local_sentiment.py
+  - score_financial(text) -> ProsusAI/finbert
+    Financial-news sentiment (Positive/Neutral/Negative). Use for
+    headlines + SEC filings + earnings transcripts + Fed press releases.
+  - score_social(text) -> cardiffnlp/twitter-roberta-base-sentiment-latest
+    Social-media sentiment trained on 124M tweets. Use for Bluesky / X /
+    Mastodon / Reddit / Telegram posts.
+  - score_batch(texts, domain) -> efficient batched inference.
+
+Lazy-loaded with thread-safe singleton pattern; first call downloads
+weights to ~/.cache/huggingface/hub (~ 440 MB FinBERT + ~500 MB
+Twitter-RoBERTa = 940 MB one-time cost). MPS-accelerated on M1 Ultra
+when torch.backends.mps is available. ~5-20ms per inference vs
+500-2000ms for an Anthropic API round-trip — and zero dollars per call.
+
+Output shape (canonical NCL format):
+  label: positive|neutral|negative
+  score: 0.0-1.0 (confidence on top class)
+  polarity: -1.0 to +1.0 (positive minus negative)
+  raw: positive, neutral, negative probabilities
+  model: finbert or twitter-roberta
+
+Verified live (M1 Ultra, MPS device, first run with cold model
+download then cached):
+  FinBERT:
+    "TSLA crushes earnings ... raises FY guide"  -> positive +0.93
+    "NVDA misses on revenue, margins decline"    -> negative -0.96
+    "Fed signals June hold; markets shrug"       -> negative -0.81
+  Twitter-RoBERTa:
+    "bitcoin breaking out hard"                  -> positive +0.69
+    "this market makes no sense, im done lol"    -> negative -0.92
+    "just hodling and ignoring the noise"        -> neutral
+
+INTEGRATION POINTS (queued for separate wiring waves to keep this
+commit a clean module-only ship):
+  - runtime/awarebot/agent.py::reason_about_signal  replaces the
+    ambiguous-signal Sonnet pass; ~30-100 calls/day saved.
+  - runtime/intelligence/brief_prep.py::_collect_reddit_top10  pre-tags
+    sentiment so chair sees structured polarity instead of needing to
+    infer it.
+  - runtime/intelligence/free_sources.py::fetch_fed_press_releases
+    sentiment-tag press-release titles for the brief headlines pack.
+
+NOTE on FinBERT2: the 2026 FinBERT2 paper (arXiv 2506.06335) reports
+9-12% over leading LLMs on 5 finance benchmarks but the weights are
+not yet on Hugging Face as of May 2026. NCL_FINBERT_MODEL env var
+lets us swap to FinBERT2 the day it lands without code change.
+
+Dependencies: transformers 5.9.0 + torch 2.12.0 already installed in
+Wave 14AF.

@@ -1,0 +1,50 @@
+Wave 14AW: Calgary events live via Eventbrite Canada JSON-LD
+
+Per NATRIX directive 2026-05-30 — Edmonton + Calgary open-data
+portals should give NATRIXs home cities native event feeds. Wave
+14AH shipped Edmonton but Calgary was stubbed because data.calgary.ca
+has no events dataset (verified again 2026-05-30 — open data portal
+only has building permits, community development, environmental data).
+
+WORKING FALLBACK: Eventbrite Canada all-events page for Calgary
+at https://www.eventbrite.ca/d/canada--calgary/all-events/ embeds
+an application/ld+json ItemList of ~20 upcoming Calgary events
+directly in the HTML. No auth, no rate limit beyond polite use.
+
+CHANGES:
+
+runtime/intelligence/free_sources.py
+  - Top of file: added missing `import json`. Was causing the prior
+    Wave 14AH stub fetch_calgary_events to silently fail with
+    NameError swallowed by the outer try/except. Other JSON-LD-using
+    callers were unaffected because they used json indirectly via
+    Socrata helpers (which use the existing httpx response.json()).
+  - fetch_calgary_events rewritten as a real JSON-LD scrape. Uses
+    httpx with a browser UA, regex-extracts script type
+    application/ld+json blocks, finds ItemList, projects each Event
+    to NCL row shape (title/date/end_date/venue/url/source/desc).
+    Cached 2h. Window-filtered by today + days_ahead.
+
+runtime/calendar/local_events.py
+  - get_local_events: added a city_id == "calgary" branch that calls
+    fetch_calgary_events for the same days-ahead window the Edmonton
+    branch uses. Events tagged source=eventbrite.ca.
+
+VERIFIED LIVE (2026-05-30, 30-day window): 17 Calgary events
+surfaced including:
+  2026-05-30  MOVIE PREMIRE @ 1216 34 Ave NE
+  2026-05-30  Search & Rescue Outdoor Show @ Capitol Hill Comm
+  2026-05-30  GARAM GLOW Night Market @ Realm Salon and Wellness
+  2026-05-31  Tamo gde se zemlja nebom meri @ Glenmore Christian
+  2026-06-03  Calgary Connect: LinkedIn Networking @ Heliopolis YYC
+  2026-06-03  Indians and Cowboys @ Festival Hall
+  2026-06-03  Legacy In Motion 35 years @ First Alliance Church
+  ... 10 more through 2026-06-20
+
+NCL_CITY=calgary now has parity with Edmonton on the local-events
+front. Both cities feed into the Calendar lanes infotainment stream
+(Wave 14AQ split endpoint).
+
+NOTE: Eventbrite renders ~20 events in their default list (paginated
+beyond that). Going deeper would require their search API (now paid).
+20 events / 30 day window is plenty for the Calendar surface.

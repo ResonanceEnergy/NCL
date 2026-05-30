@@ -259,7 +259,13 @@ async def _try_anthropic(prompt: str) -> Optional[str]:
             output_t = usage.get("output_tokens", 0)
             cost_usd = (input_t * 3.0 + output_t * 15.0) / 1_000_000
             await record_cost(
-                "anthropic", cost_usd, "war_room", f"war room synthesis in={input_t} out={output_t}"
+                "anthropic",
+                cost_usd,
+                "war_room",
+                f"war room synthesis in={input_t} out={output_t}",
+                model="claude-sonnet-4-20250514",
+                input_tokens=input_t,
+                output_tokens=output_t,
             )
         except Exception:
             pass
@@ -306,7 +312,13 @@ async def _try_xai(prompt: str) -> Optional[str]:
             output_t = usage.get("completion_tokens", 0)
             cost_usd = (input_t * 2.0 + output_t * 10.0) / 1_000_000
             await record_cost(
-                "xai", cost_usd, "war_room", f"grok war room synthesis in={input_t} out={output_t}"
+                "xai",
+                cost_usd,
+                "war_room",
+                f"grok war room synthesis in={input_t} out={output_t}",
+                model="grok-4",
+                input_tokens=input_t,
+                output_tokens=output_t,
             )
         except Exception:
             pass

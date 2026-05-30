@@ -507,7 +507,16 @@ async def lifespan(app: FastAPI):
                         o_t = usage.get("output_tokens", 0)
                         cost = (i_t * 0.80 + o_t * 4.00) / 1_000_000
                         if cost > 0:
-                            await record_cost("anthropic", cost, "journal_reflection")
+                            # Wave 14BG: thread model into metadata for spend attribution.
+                            await record_cost(
+                                "anthropic",
+                                cost,
+                                "journal_reflection",
+                                f"haiku reflection in={i_t} out={o_t}",
+                                model="claude-3-5-haiku-20241022",
+                                input_tokens=i_t,
+                                output_tokens=o_t,
+                            )
                     except Exception:
                         pass
                     return data["content"][0]["text"]

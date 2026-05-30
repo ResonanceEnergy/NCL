@@ -1,0 +1,49 @@
+Wave 14AO: BGE-M3 multilingual embedding config (Kuzu deferred)
+
+Per FREE_RESOURCES_BY_LANE_2026-05-30 Memory recommendation —
+multilingual embeddings matter for LatAm city events + multi-language
+YTC transcripts in NCL ChromaDB collections.
+
+BGE-M3 SUPPORT IN runtime/memory/store.py
+  - New _load_chroma_embed_fn() builds a custom ChromaDB embedding
+    function (SentenceTransformerEmbeddingFunction) from the
+    NCL_MEMORY_EMBED_MODEL env var.
+  - _resolve_embed_model_id maps short aliases to HF model ids:
+      bge-m3            -> BAAI/bge-m3 (568M, multilingual, 8K ctx)
+      bge-large-en-v1.5 -> BAAI/bge-large-en-v1.5 (335M, English)
+      nomic-embed-text  -> nomic-ai/nomic-embed-text-v1.5 (137M)
+      minilm            -> sentence-transformers/all-MiniLM-L6-v2
+  - MPS device detection for Apple Silicon GPU acceleration.
+  - Cached at module level; failure path falls back to None so
+    Chroma default embedder is used.
+  - Wired into _init_vector_db() — every collection (the 7 typed +
+    legacy default) gets the custom embedder when set.
+
+Verified live:
+  NCL_MEMORY_EMBED_MODEL=bge-m3 -> resolved to BAAI/bge-m3.
+  Loaded on MPS device, label=BAAI/bge-m3@mps.
+  Embedded 2 texts (English + Spanish): dim=1024.
+  Spanish El BCE mantendra tasas estables este mes embedded cleanly —
+  multilingual works as advertised.
+
+PRODUCTION ROLLOUT NOTES
+  - Existing collections keep their original embedder until reindex.
+    Setting NCL_MEMORY_EMBED_MODEL only changes how NEW collections
+    are created. Full reindex on the 14K-unit corpus would take
+    ~10-30 min on M1 Ultra MPS; deferred to a separate scripted
+    operation NATRIX runs when ready.
+  - Env var is OFF by default — collections continue to use Chroma
+    onnx-MiniLM default.
+
+KUZU EMBEDDED GRAPH DB — DEFERRED
+  Tried pip install kuzu on Python 3.14: failed during wheel build
+  (no pre-built wheel for cp314 darwin-arm64; Rust/C++ source build
+  invokes make clean which fails). Options for follow-up:
+    1. Install Python 3.13 via brew, create a venv against it
+    2. Wait for kuzu cp314 wheels
+    3. Run kuzu in a separate process via CLI + cypher driver
+  Kuzu integration also requires migrating NCL NetworkX KG
+  persistence layer — 1-2 days of work beyond the install. Deferred
+  with explicit rationale.
+
+No iOS surface change. Pure backend config.

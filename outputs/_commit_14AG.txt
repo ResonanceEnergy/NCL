@@ -1,0 +1,47 @@
+Wave 14AG: DeepSeek + Groq providers added to LLM facade
+
+Per COST_AUDIT_OSS_ADDENDUM_2026-05-30.md, two cheap hosted OSS providers
+join NCL's LLM stack:
+
+  - DeepSeek V3 @ $0.14/$0.28 per M (7-18x cheaper than Haiku 4.5)
+    For Tier B-1 work — routine summarization + classification at GPT-4
+    benchmark quality. Endpoint api.deepseek.com/v1/chat/completions.
+  - Groq Llama 3.3 70B @ $0.59/$0.79 per M, ~250 tok/sec inference
+    For Tier B-2 latency-sensitive fallback (e.g. /chat when Anthropic
+    exhausted). Endpoint api.groq.com/openai/v1/chat/completions.
+  - Groq Llama 3.1 8B Instant @ $0.05/$0.08 per M for ultra-cheap small
+    tasks.
+
+Both providers use the OpenAI-compatible /chat/completions schema, so the
+existing _call_openai_shape helper handles them — two new ~3-line wrapper
+functions and four dict entries.
+
+Changes:
+- runtime/llm/models.py — Provider.DEEPSEEK + Provider.GROQ enum values;
+  ModelSpec entries for deepseek-chat, deepseek-reasoner,
+  llama-3.3-70b-versatile, llama-3.1-8b-instant + 4 already-pulled Ollama
+  models (qwen3:8b, deepseek-r1:32b, llama3.1:70b, deepseek-coder-v2:16b)
+  that were missing from the registry.
+- runtime/llm/client.py — Provider.DEEPSEEK + Provider.GROQ added to
+  _PROVIDER_ENDPOINTS, _PROVIDER_ENV_KEYS, _PROVIDER_DISPATCH. New
+  _call_deepseek + _call_groq thin wrappers around _call_openai_shape.
+- runtime/cost_tracker.py — Anthropic daily budget LOWERED 12 -> 5 per
+  Phase 1 of the cost audit (Tier B work shifts to DeepSeek; Anthropic
+  reserved for Tier A frontier synthesis). New deepseek $2/day and
+  groq $1/day budgets. Sum 16/20 platform cap (was 20/20).
+- runtime/api/config.py — DEEPSEEK_API_KEY + GROQ_API_KEY in
+  _KEYCHAIN_ENV map (service names ncl-deepseek / ncl-groq) so they
+  hydrate from macOS Keychain at boot. Both added to _RECOMMENDED_VARS.
+  Plus MARKETAUX/TRADIER/FINNHUB placeholders for Wave 14AH.
+
+Verification (live):
+  providers: {'ollama','groq','perplexity','xai','anthropic','google',
+              'openai','deepseek'}
+  dispatch wired: 8 providers
+  deepseek-chat ModelSpec lookup OK
+  deepseek endpoint = https://api.deepseek.com/v1/chat/completions
+  groq endpoint = https://api.groq.com/openai/v1/chat/completions
+
+No code is using the new models YET — that's Wave 14AK (bulk-edit 13
+Tier B call sites from claude-sonnet-4 to deepseek-chat). Plumbing first,
+migration second. Today's commit is the dependency-free foundation.

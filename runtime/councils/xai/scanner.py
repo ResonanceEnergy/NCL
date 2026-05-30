@@ -831,6 +831,10 @@ async def _scan_account_grok(
                 cost_usd,
                 "x_scan",
                 f"grok account scan @{handle} in={input_t} out={output_t}",
+                model="grok-3",
+                input_tokens=input_t,
+                output_tokens=output_t,
+                handle=handle,
             )
         except Exception:
             pass
@@ -903,6 +907,10 @@ async def _search_keyword_grok(
                 cost_usd,
                 "x_scan",
                 f"grok keyword search '{keyword}' in={input_t} out={output_t}",
+                model="grok-3",
+                input_tokens=input_t,
+                output_tokens=output_t,
+                keyword=keyword,
             )
         except Exception:
             pass
@@ -963,7 +971,14 @@ async def _scan_trending_grok(since: datetime) -> list[XPost]:
             output_t = usage.get("completion_tokens", 0)
             cost_usd = (input_t * 2.0 + output_t * 10.0) / 1_000_000
             await record_cost(
-                "xai", cost_usd, "x_scan", f"grok trending scan in={input_t} out={output_t}"
+                "xai",
+                cost_usd,
+                "x_scan",
+                f"grok trending scan in={input_t} out={output_t}",
+                model="grok-3",
+                input_tokens=input_t,
+                output_tokens=output_t,
+                scan_kind="trending",
             )
         except Exception:
             pass

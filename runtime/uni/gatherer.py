@@ -172,6 +172,9 @@ class ResearchGatherer:
                         cost_usd,
                         "uni_gathering",
                         f"claude research in={input_t} out={output_t}",
+                        model="claude-sonnet-4-20250514",
+                        input_tokens=input_t,
+                        output_tokens=output_t,
                     )
                 except Exception:
                     pass
@@ -208,6 +211,9 @@ class ResearchGatherer:
                         cost_usd,
                         "uni_gathering",
                         f"grok-3-mini research in={input_t} out={output_t}",
+                        model="grok-3-mini",
+                        input_tokens=input_t,
+                        output_tokens=output_t,
                     )
                 except Exception:
                     pass

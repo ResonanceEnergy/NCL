@@ -307,6 +307,9 @@ async def _call_model(user_prompt: str) -> str:
                     cost_usd,
                     "x_analysis",
                     f"grok x council analysis in={input_t} out={output_t}",
+                    model="grok-3",
+                    input_tokens=input_t,
+                    output_tokens=output_t,
                 )
             except Exception:
                 pass

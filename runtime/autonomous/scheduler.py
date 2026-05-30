@@ -376,7 +376,16 @@ class AutonomousScheduler:
                                     + usage.get("output_tokens", 0) * 4.00
                                 ) / 1_000_000
                                 if cost > 0:
-                                    await record_cost("anthropic", cost, "journal_reflection")
+                                    # Wave 14BG: model attribution for spend dashboard.
+                                    await record_cost(
+                                        "anthropic",
+                                        cost,
+                                        "journal_reflection",
+                                        f"haiku reflection in={usage.get('input_tokens',0)} out={usage.get('output_tokens',0)}",
+                                        model="claude-3-5-haiku-20241022",
+                                        input_tokens=usage.get("input_tokens", 0),
+                                        output_tokens=usage.get("output_tokens", 0),
+                                    )
                             except Exception:
                                 pass
                             return data["content"][0]["text"]
@@ -718,9 +727,7 @@ class AutonomousScheduler:
         async def _morning_quiz():
             await _morning_quiz_run(self)
 
-        self._tasks.append(
-            asyncio.create_task(_morning_quiz(), name="ncl-morning-quiz")
-        )
+        self._tasks.append(asyncio.create_task(_morning_quiz(), name="ncl-morning-quiz"))
 
         # ── Ops monitor (Wave 14G — desktop) ──
         # 5s sampler writing into a 60-min ring buffer, fed via
@@ -731,9 +738,7 @@ class AutonomousScheduler:
         async def _ops_monitor():
             await _ops_monitor_run(self)
 
-        self._tasks.append(
-            asyncio.create_task(_ops_monitor(), name="ncl-ops-monitor")
-        )
+        self._tasks.append(asyncio.create_task(_ops_monitor(), name="ncl-ops-monitor"))
 
         # ── Morning Brief Pro (Wave 14H) ──
         # 02:30 ET — ncl-brief-prep:    collect overnight data into pack
@@ -742,7 +747,9 @@ class AutonomousScheduler:
         # 05:30 ET — ncl-brief-render:  presentation + market open plan
         # Falls back to Phase 14D pipeline if any stage errors.
         from .loops.brief_pro_scheduler import (
-            brief_prep_loop, brief_council_loop, brief_render_loop,
+            brief_council_loop,
+            brief_prep_loop,
+            brief_render_loop,
         )
 
         # P25 (2026-05-26): attribute is self.brain (set at __init__), NOT
@@ -773,9 +780,7 @@ class AutonomousScheduler:
         async def _drawdown_bucket():
             await drawdown_bucket_loop(self.brain)
 
-        self._tasks.append(
-            asyncio.create_task(_drawdown_bucket(), name="ncl-drawdown-bucket")
-        )
+        self._tasks.append(asyncio.create_task(_drawdown_bucket(), name="ncl-drawdown-bucket"))
 
         # ── Wave 14K Phase 2 — auto-trader decision loop ─────────────
         # PAPER TRADING ONLY. Default state.active=False; the loop
@@ -801,10 +806,10 @@ class AutonomousScheduler:
             and the dedup pass during consolidation handles overlap).
             """
             try:
-                from pathlib import Path as _Path
                 import os as _os
-                base = _Path(_os.environ.get("NCL_BASE",
-                                              str(_Path.home() / "dev" / "NCL")))
+                from pathlib import Path as _Path
+
+                base = _Path(_os.environ.get("NCL_BASE", str(_Path.home() / "dev" / "NCL")))
                 mem = getattr(self.brain, "memory_store", None)
                 if mem is None or not hasattr(mem, "create_unit"):
                     log.warning("[MANDATE] no memory_store — skipped")
@@ -827,8 +832,14 @@ class AutonomousScheduler:
                             "moved to Calendar lane. Memory promotion gated "
                             "(CRITICAL or x-source≥2 or pin)."
                         ),
-                        "tags": ["intel", "lane_mandate", "procedural",
-                                 "v1.0", "natrix_authority", "wave_14W_A"],
+                        "tags": [
+                            "intel",
+                            "lane_mandate",
+                            "procedural",
+                            "v1.0",
+                            "natrix_authority",
+                            "wave_14W_A",
+                        ],
                     },
                     {
                         "name": "MEMORY_MANDATE",
@@ -842,8 +853,14 @@ class AutonomousScheduler:
                             "portfolio significant). 25K capacity. 7-tier "
                             "authority. WC is daily-rolling 50-item subset."
                         ),
-                        "tags": ["memory", "lane_mandate", "procedural",
-                                 "v1.0", "natrix_authority", "wave_14W_A"],
+                        "tags": [
+                            "memory",
+                            "lane_mandate",
+                            "procedural",
+                            "v1.0",
+                            "natrix_authority",
+                            "wave_14W_A",
+                        ],
                     },
                     {
                         "name": "CALENDAR_MANDATE",
@@ -856,8 +873,14 @@ class AutonomousScheduler:
                             "city_cultural. Never auto-promotes to Memory "
                             "(except lunar phase + earnings day)."
                         ),
-                        "tags": ["calendar", "lane_mandate", "procedural",
-                                 "v1.0", "natrix_authority", "wave_14W_A"],
+                        "tags": [
+                            "calendar",
+                            "lane_mandate",
+                            "procedural",
+                            "v1.0",
+                            "natrix_authority",
+                            "wave_14W_A",
+                        ],
                     },
                     {
                         "name": "JOURNAL_MANDATE",
@@ -871,8 +894,14 @@ class AutonomousScheduler:
                             "ReflectionEngine nightly synthesis. LifePlan "
                             "Vision/Goal/KR/Plan structured."
                         ),
-                        "tags": ["journal", "lane_mandate", "procedural",
-                                 "v1.0", "natrix_authority", "wave_14W_A"],
+                        "tags": [
+                            "journal",
+                            "lane_mandate",
+                            "procedural",
+                            "v1.0",
+                            "natrix_authority",
+                            "wave_14W_A",
+                        ],
                     },
                     {
                         "name": "AUTO_TRADER_MANDATE",
@@ -884,9 +913,15 @@ class AutonomousScheduler:
                             "hedge-fund-manager-in-training. Hard line: "
                             "NCL never places live orders. 5%/8/2 mandate."
                         ),
-                        "tags": ["portfolio", "auto_trader", "mandate",
-                                 "procedural", "v1.0", "natrix_authority",
-                                 "wave_14W_A"],
+                        "tags": [
+                            "portfolio",
+                            "auto_trader",
+                            "mandate",
+                            "procedural",
+                            "v1.0",
+                            "natrix_authority",
+                            "wave_14W_A",
+                        ],
                     },
                     # ── Wave 14W-F — Intel sub-tab mandates ───────────────
                     # Lifts the per-sub-tab mandate into procedural memory so
@@ -904,8 +939,14 @@ class AutonomousScheduler:
                             "/intelligence/digest. Decision: where to point "
                             "Focus/Brief/chat next."
                         ),
-                        "tags": ["intel", "agenda", "sub_tab_mandate",
-                                 "procedural", "v1.0", "wave_14W_F"],
+                        "tags": [
+                            "intel",
+                            "agenda",
+                            "sub_tab_mandate",
+                            "procedural",
+                            "v1.0",
+                            "wave_14W_F",
+                        ],
                     },
                     {
                         "name": "BRIEF_MANDATE",
@@ -918,8 +959,14 @@ class AutonomousScheduler:
                             "trade_idea_count_target ≥ 4 enforce quality. "
                             "Decision: take any of the trade ideas."
                         ),
-                        "tags": ["intel", "brief", "sub_tab_mandate",
-                                 "procedural", "v1.0", "wave_14W_F"],
+                        "tags": [
+                            "intel",
+                            "brief",
+                            "sub_tab_mandate",
+                            "procedural",
+                            "v1.0",
+                            "wave_14W_F",
+                        ],
                     },
                     {
                         "name": "NIGHTWATCH_MANDATE",
@@ -931,8 +978,14 @@ class AutonomousScheduler:
                             "recommendations, system health, cost. "
                             "Decision: do I trust today's brief?"
                         ),
-                        "tags": ["intel", "nightwatch", "sub_tab_mandate",
-                                 "procedural", "v1.0", "wave_14W_F"],
+                        "tags": [
+                            "intel",
+                            "nightwatch",
+                            "sub_tab_mandate",
+                            "procedural",
+                            "v1.0",
+                            "wave_14W_F",
+                        ],
                     },
                     {
                         "name": "FOCUS_MANDATE",
@@ -945,8 +998,14 @@ class AutonomousScheduler:
                             "Decision: confirm a cluster, pin into Memory, "
                             "or fire a research card."
                         ),
-                        "tags": ["intel", "focus", "sub_tab_mandate",
-                                 "procedural", "v1.0", "wave_14W_F"],
+                        "tags": [
+                            "intel",
+                            "focus",
+                            "sub_tab_mandate",
+                            "procedural",
+                            "v1.0",
+                            "wave_14W_F",
+                        ],
                     },
                 ]
 
@@ -969,8 +1028,7 @@ class AutonomousScheduler:
                         text = mandate_path.read_text()
                         await mem.create_unit(
                             content=(
-                                f"{mandate['name']} — {mandate['summary']}"
-                                f"\n\n{text[:6000]}"
+                                f"{mandate['name']} — {mandate['summary']}" f"\n\n{text[:6000]}"
                             ),
                             source=mandate["source"],
                             importance=95.0,
@@ -991,7 +1049,8 @@ class AutonomousScheduler:
                     except Exception as e:
                         log.warning(
                             "[MANDATE] %s ingest failed (non-fatal): %s",
-                            mandate["name"], e,
+                            mandate["name"],
+                            e,
                         )
                         return mandate["name"], False
 
@@ -1003,7 +1062,8 @@ class AutonomousScheduler:
                 log.info(
                     "[MANDATE] Wave 14W-A complete — %d of %d lane "
                     "mandates ingested as procedural memory",
-                    ingested, len(mandates),
+                    ingested,
+                    len(mandates),
                 )
             except Exception as e:
                 log.warning("[MANDATE] ingest pass failed (non-fatal): %s", e)
@@ -1012,9 +1072,7 @@ class AutonomousScheduler:
             await _ingest_mandate()
             await auto_trader_loop(self.brain)
 
-        self._tasks.append(
-            asyncio.create_task(_auto_trader(), name="ncl-auto-trader-loop")
-        )
+        self._tasks.append(asyncio.create_task(_auto_trader(), name="ncl-auto-trader-loop"))
 
         # ── Wave 14U-2/10 — monthly portfolio review ─────────────────
         # Fires on 1st of month at 10:00 UTC (06:00 ET). Builds the
@@ -1028,8 +1086,7 @@ class AutonomousScheduler:
             await monthly_review_loop(self.brain)
 
         self._tasks.append(
-            asyncio.create_task(_auto_trader_monthly(),
-                                name="ncl-auto-trader-monthly-review")
+            asyncio.create_task(_auto_trader_monthly(), name="ncl-auto-trader-monthly-review")
         )
 
         # ── Wave 14K Phase 3 — auto-trader price feed ────────────────
@@ -1056,9 +1113,7 @@ class AutonomousScheduler:
         async def _auto_trader_eod():
             await eod_summary_loop()
 
-        self._tasks.append(
-            asyncio.create_task(_auto_trader_eod(), name="ncl-auto-trader-eod")
-        )
+        self._tasks.append(asyncio.create_task(_auto_trader_eod(), name="ncl-auto-trader-eod"))
 
         # Wave 14L L6 — pro-active scout loop (5min market / 30min off-hours).
         # Originates trade ideas from open positions + holdings + regime
@@ -1069,9 +1124,7 @@ class AutonomousScheduler:
         async def _auto_trader_scout():
             await scout_loop(self.brain)
 
-        self._tasks.append(
-            asyncio.create_task(_auto_trader_scout(), name="ncl-auto-trader-scout")
-        )
+        self._tasks.append(asyncio.create_task(_auto_trader_scout(), name="ncl-auto-trader-scout"))
 
         # Wave 14L L2 — quant scanner suite (30min market / 2hr off-hours).
         # 5 scanners (mean_reversion, pead, factor, pairs, whale_flow)
@@ -1091,7 +1144,8 @@ class AutonomousScheduler:
         # ncl-poly-resolution : 5min   — auto-close at endDate / market resolution
         from ..portfolio.polymarket_agent.collector_loop import poly_collector_loop
         from ..portfolio.polymarket_agent.loop import (
-            poly_decision_loop, poly_resolution_loop,
+            poly_decision_loop,
+            poly_resolution_loop,
         )
 
         async def _poly_collector():
@@ -1103,15 +1157,9 @@ class AutonomousScheduler:
         async def _poly_resolution():
             await poly_resolution_loop(self.brain)
 
-        self._tasks.append(
-            asyncio.create_task(_poly_collector(), name="ncl-poly-collector")
-        )
-        self._tasks.append(
-            asyncio.create_task(_poly_loop(), name="ncl-poly-loop")
-        )
-        self._tasks.append(
-            asyncio.create_task(_poly_resolution(), name="ncl-poly-resolution")
-        )
+        self._tasks.append(asyncio.create_task(_poly_collector(), name="ncl-poly-collector"))
+        self._tasks.append(asyncio.create_task(_poly_loop(), name="ncl-poly-loop"))
+        self._tasks.append(asyncio.create_task(_poly_resolution(), name="ncl-poly-resolution"))
 
         # Attach a done-callback to every task so a silent crash (unobserved
         # task exception) gets logged instead of disappearing.
@@ -2259,8 +2307,8 @@ class AutonomousScheduler:
                                     "Patterns: " + ", ".join(reflection.patterns_noticed[:3]) + "\n"
                                 )
                             if reflection.tomorrow_focus:
-                                summary_text += (
-                                    "Tomorrow: " + ", ".join(reflection.tomorrow_focus[:3])
+                                summary_text += "Tomorrow: " + ", ".join(
+                                    reflection.tomorrow_focus[:3]
                                 )
 
                             enqueue_alert(
@@ -3365,7 +3413,11 @@ class AutonomousScheduler:
                         cost,
                         "night_watch_council",
                         f"NW council {label} -- Opus synthesis",
-                        {"model": "claude-sonnet-4-20250514", "council": label, "step": "synthesis"},
+                        {
+                            "model": "claude-sonnet-4-20250514",
+                            "council": label,
+                            "step": "synthesis",
+                        },
                     )
                     log.info(
                         "[NIGHT-WATCH/COUNCIL] %s -- Opus synthesis done ($%.4f, total=$%.4f)",
@@ -5053,6 +5105,8 @@ class AutonomousScheduler:
                             est_cost,
                             "ytc_per_video",
                             detail=f"{len(per_video)} videos ({session_id})",
+                            model="claude-sonnet-4-20250514",
+                            videos=len(per_video),
                         )
                     except Exception as ce:
                         log.warning("[YTC-DEDICATED] record_cost failed: %s", ce)
@@ -5251,6 +5305,7 @@ class AutonomousScheduler:
                         0.30,
                         "ytc_nightshift_rollup",
                         detail=f"nightshift rollup {yesterday_local} ({session_id})",
+                        model="claude-sonnet-4-20250514",
                     )
                 except Exception as ce:
                     log.warning("[YTC-NIGHTSHIFT] record_cost failed: %s", ce)

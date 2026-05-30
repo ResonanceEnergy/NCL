@@ -66,6 +66,7 @@ import os
 import re
 from typing import Any, Optional
 
+
 log = logging.getLogger(__name__)
 
 # Models — kept here as constants so they can be overridden via env
@@ -166,16 +167,27 @@ def _model_provider(model: str) -> str:
 
 
 MACRO_LANES = (
-    "PRECIOUS METALS", "OIL", "US RATES (FED)", "BOND MARKET", "CRYPTO",
+    "PRECIOUS METALS",
+    "OIL",
+    "US RATES (FED)",
+    "BOND MARKET",
+    "CRYPTO",
     "DAILY/WEEKLY OUTLOOK",
 )
 
 SECTION_NAMES = (
-    "IMMEDIATE_ACTION", "EXECUTIVE_SUMMARY", "PORTFOLIO_HEALTH",
-    "CAPITAL_FLOW", "MACRO_LANDSCAPE", "KEY_MOVEMENTS",
-    "EMERGING_OPPORTUNITIES_AND_RISKS", "SCANNER_READOUT",
-    "PRE_MARKET_TRADE_IDEAS", "POLYMARKET_WATCH",
-    "TOP_POTENTIAL_DAILY_MOVERS", "TODAYS_RESEARCH_TOPICS",
+    "IMMEDIATE_ACTION",
+    "EXECUTIVE_SUMMARY",
+    "PORTFOLIO_HEALTH",
+    "CAPITAL_FLOW",
+    "MACRO_LANDSCAPE",
+    "KEY_MOVEMENTS",
+    "EMERGING_OPPORTUNITIES_AND_RISKS",
+    "SCANNER_READOUT",
+    "PRE_MARKET_TRADE_IDEAS",
+    "POLYMARKET_WATCH",
+    "TOP_POTENTIAL_DAILY_MOVERS",
+    "TODAYS_RESEARCH_TOPICS",
 )
 
 
@@ -286,13 +298,21 @@ async def _anthropic_call(
             cost,
             "intel_brief",
             f"{label} {model} in={in_toks} out={out_toks}",
+            model=model,
+            input_tokens=in_toks,
+            output_tokens=out_toks,
+            stage=label,
         )
     except Exception:
         pass
 
     log.info(
         "[BRIEF-PIPELINE] %s — %s in=%d out=%d chars=%d",
-        label, model, in_toks, out_toks, len(text),
+        label,
+        model,
+        in_toks,
+        out_toks,
+        len(text),
     )
     return text, in_toks, out_toks
 
@@ -330,19 +350,21 @@ def _condense_for_planner(brief, held_tickers: set[str]) -> dict:
     source_summary = []
     for src, sigs in sorted(by_source.items(), key=lambda kv: -len(kv[1])):
         top3 = sorted(sigs, key=lambda s: s.importance_score(), reverse=True)[:3]
-        source_summary.append({
-            "source": src,
-            "count": len(sigs),
-            "top3": [
-                {
-                    "id": (getattr(s, "signal_id", "") or "")[:8],
-                    "title": (s.title or "")[:100],
-                    "direction": s.direction.value,
-                    "conf": round(s.confidence, 2),
-                }
-                for s in top3
-            ],
-        })
+        source_summary.append(
+            {
+                "source": src,
+                "count": len(sigs),
+                "top3": [
+                    {
+                        "id": (getattr(s, "signal_id", "") or "")[:8],
+                        "title": (s.title or "")[:100],
+                        "direction": s.direction.value,
+                        "conf": round(s.confidence, 2),
+                    }
+                    for s in top3
+                ],
+            }
+        )
 
     return {
         "total_signals": len(brief.top_signals),
@@ -425,8 +447,12 @@ Output ONLY valid JSON matching this shape:
 No preamble, no explanation, just the JSON object."""
 
     text, _, _ = await _anthropic_call(
-        _MODEL_PLANNER, prompt,
-        max_tokens=600, timeout_s=30.0, api_key=api_key, label="planner",
+        _MODEL_PLANNER,
+        prompt,
+        max_tokens=600,
+        timeout_s=30.0,
+        api_key=api_key,
+        label="planner",
     )
     plan = _extract_json(text)
     # Defensive defaults
@@ -463,7 +489,8 @@ No preamble, no explanation, just the JSON object."""
                 plan["trade_idea_count_target"] = 6
             log.info(
                 "[planner] P17-C override: mode short→full (signals=%d, sources=%d)",
-                sig_count, src_count,
+                sig_count,
+                src_count,
             )
     except Exception as e:
         log.debug("[planner] P17-C override skipped: %s", e)
@@ -509,8 +536,11 @@ def _filter_signals_for_executor(brief, plan: dict, lane_resolvers: dict) -> dic
     # Focus-ticker slices for trade ideas
     if focus_set:
         out["focus_signals"] = [
-            s for s in brief.top_signals
-            if any(t in (s.title or "").upper() or t in (s.content or "").upper() for t in focus_set)
+            s
+            for s in brief.top_signals
+            if any(
+                t in (s.title or "").upper() or t in (s.content or "").upper() for t in focus_set
+            )
         ][:15]
     else:
         out["focus_signals"] = brief.top_signals[:15]
@@ -531,6 +561,7 @@ def _annotate_rotation_execution(executor_out: dict) -> None:
     try:
         from runtime.intelligence.rotation_tracker import load_latest_rotation
         from runtime.portfolio.rotation_execution import annotate_trade_idea
+
         snap = load_latest_rotation()
         if snap is None:
             return
@@ -553,8 +584,8 @@ def _stamp_trade_idea_ids(executor_out: dict) -> None:
 
     Mutates in-place. No-op on briefs without trade_ideas.
     """
-    import uuid
     import asyncio as _asyncio
+    import uuid
     from datetime import datetime, timezone
 
     ideas = executor_out.get("trade_ideas")
@@ -576,6 +607,7 @@ def _stamp_trade_idea_ids(executor_out: dict) -> None:
             from runtime.portfolio.trade_idea_tracker import (
                 record_trade_idea_emission,
             )
+
             # Map free-form ticker direction-like fields onto the tracker
             # schema. The brief emits descriptive strings ("entry" /
             # "stop" / "target") AND numeric counterparts ("entry_price"
@@ -589,9 +621,8 @@ def _stamp_trade_idea_ids(executor_out: dict) -> None:
 
             # Strategy bucket via risk_governor normalization
             from runtime.portfolio.risk_governor import _normalize_strategy
-            strat = _normalize_strategy(
-                idea.get("strategy_tag") or idea.get("type") or "manual"
-            )
+
+            strat = _normalize_strategy(idea.get("strategy_tag") or idea.get("type") or "manual")
             loop = _asyncio.get_running_loop()
             loop.create_task(
                 record_trade_idea_emission(
@@ -622,9 +653,7 @@ def _stamp_trade_idea_ids(executor_out: dict) -> None:
             log.debug("[J1d] emission register skipped: %s", _e)
 
 
-async def _execute_stage(
-    plan: dict, slices: dict, held_tickers: set[str], api_key: str
-) -> dict:
+async def _execute_stage(plan: dict, slices: dict, held_tickers: set[str], api_key: str) -> dict:
     """Run the Executor. Returns structured JSON brief body or raises."""
 
     # Build signal data block for the prompt
@@ -635,9 +664,13 @@ async def _execute_stage(
 
     top_block = fmt_list(slices["top_signals"])
     focus_block = fmt_list(slices["focus_signals"])
-    sectors_block = "\n".join(
-        f"- {s.sector}: {s.direction.value}, {s.signal_count} signals" for s in slices["sectors"]
-    ) or "(none)"
+    sectors_block = (
+        "\n".join(
+            f"- {s.sector}: {s.direction.value}, {s.signal_count} signals"
+            for s in slices["sectors"]
+        )
+        or "(none)"
+    )
     risks_block = "\n".join(f"- {r}" for r in slices["risk_alerts"]) or "(none)"
 
     macro_block_parts = []
@@ -659,6 +692,7 @@ async def _execute_stage(
     self_research_packet = ""
     try:
         from runtime.portfolio.auto_trader.self_research import brief_context_packet
+
         self_research_packet = await brief_context_packet()
     except Exception as e:
         log.debug("[BRIEF-EXEC] self_research packet skipped: %s", e)
@@ -823,8 +857,12 @@ OUTPUT SHAPE (strict JSON):
 Respond with ONLY the JSON object."""
 
     text, _, _ = await _anthropic_call(
-        _MODEL_EXECUTOR, prompt,
-        max_tokens=5000, timeout_s=150.0, api_key=api_key, label="executor",
+        _MODEL_EXECUTOR,
+        prompt,
+        max_tokens=5000,
+        timeout_s=150.0,
+        api_key=api_key,
+        label="executor",
     )
     return _extract_json(text)
 
@@ -874,22 +912,66 @@ _MD_PATTERN = re.compile(r"\*\*[^*\n]+?\*\*|`[^`\n]+`|^#{1,6}\s", re.MULTILINE)
 # _extract_price_claims by context substring (rejects matches near
 # 'premium', 'volume', 'flow', 'mcap', 'market cap', 'change_24h').
 _PRICE_CLAIM_PATTERN = re.compile(
-    r"\b([A-Z]{2,5})\b[^.$\n]{0,60}?\$(\d{1,5}(?:\.\d{1,2})?)"
-    r"(?![MKB%])(?![,.]?\d)",
+    r"\b([A-Z]{2,5})\b[^.$\n]{0,60}?\$(\d{1,5}(?:\.\d{1,2})?)" r"(?![MKB%])(?![,.]?\d)",
 )
 _PRICE_CLAIM_CONTEXT_BLOCKERS = (
-    "premium", "volume", "flow", "mcap", "market cap", "vol:",
-    "vol ", "imbalance", "open interest", "p/c ratio", "net option",
-    "net call", "net put", "call flow", "put flow", "block trade",
-    "in call", "in put", "in flow",
+    "premium",
+    "volume",
+    "flow",
+    "mcap",
+    "market cap",
+    "vol:",
+    "vol ",
+    "imbalance",
+    "open interest",
+    "p/c ratio",
+    "net option",
+    "net call",
+    "net put",
+    "call flow",
+    "put flow",
+    "block trade",
+    "in call",
+    "in put",
+    "in flow",
 )
 # Tickers excluded — too common as words / never quoted as a price
 _PRICE_CLAIM_EXCLUDE = {
-    "US", "USD", "EUR", "GBP", "JPY", "CNY", "RSI", "MACD", "OHLC",
-    "FED", "FOMC", "API", "CPI", "PPI", "GDP", "NFP", "ATR", "VWAP",
-    "TICKER", "TARGET", "ENTRY", "STOP", "MAX", "WHY", "TOPIC",
-    "SOURCES", "STRUCTURE", "THESIS", "OPTIONS", "STOCK", "PLAY",
-    "SETUP", "TIMEFRAME", "PRE", "POST",
+    "US",
+    "USD",
+    "EUR",
+    "GBP",
+    "JPY",
+    "CNY",
+    "RSI",
+    "MACD",
+    "OHLC",
+    "FED",
+    "FOMC",
+    "API",
+    "CPI",
+    "PPI",
+    "GDP",
+    "NFP",
+    "ATR",
+    "VWAP",
+    "TICKER",
+    "TARGET",
+    "ENTRY",
+    "STOP",
+    "MAX",
+    "WHY",
+    "TOPIC",
+    "SOURCES",
+    "STRUCTURE",
+    "THESIS",
+    "OPTIONS",
+    "STOCK",
+    "PLAY",
+    "SETUP",
+    "TIMEFRAME",
+    "PRE",
+    "POST",
 }
 
 
@@ -1012,8 +1094,15 @@ def _local_critique(executor_out: dict, valid_ids: set[str], plan: dict | None =
     _VALID_STOP_TYPES = {"price", "atr", "volatility", "time", "thesis_break"}
     for i, idea in enumerate(trade_ideas):
         missing = []
-        for fld in ("entry_price", "stop_price", "stop_type", "target_price",
-                    "stop_basis", "target_basis", "R_per_share"):
+        for fld in (
+            "entry_price",
+            "stop_price",
+            "stop_type",
+            "target_price",
+            "stop_basis",
+            "target_basis",
+            "R_per_share",
+        ):
             v = idea.get(fld)
             if v is None or v == "":
                 missing.append(fld)
@@ -1069,8 +1158,7 @@ def _local_critique(executor_out: dict, valid_ids: set[str], plan: dict | None =
                     continue
         except (TypeError, ValueError) as ex:
             reasons.append(
-                f"trade_ideas[{i}] ({idea.get('ticker', '?')}) "
-                f"price field not parseable: {ex}"
+                f"trade_ideas[{i}] ({idea.get('ticker', '?')}) " f"price field not parseable: {ex}"
             )
             failed_sections.add("trade_ideas")
             continue
@@ -1106,15 +1194,36 @@ def _local_critique(executor_out: dict, valid_ids: set[str], plan: dict | None =
     # the executor from emitting SPY+IWM+XLF+XLU 4-ETF briefs that
     # don't match NATRIX's individual-stock trading style.
     _BROAD_ETFS = {
-        "SPY", "QQQ", "IWM", "DIA", "VTI", "VOO", "VXX", "TLT", "IEF",
-        "XLF", "XLK", "XLE", "XLV", "XLI", "XLP", "XLY", "XLB", "XLU",
-        "XLC", "XLRE", "GLD", "SLV", "USO", "UNG", "ARKK", "SMH", "SOXX",
+        "SPY",
+        "QQQ",
+        "IWM",
+        "DIA",
+        "VTI",
+        "VOO",
+        "VXX",
+        "TLT",
+        "IEF",
+        "XLF",
+        "XLK",
+        "XLE",
+        "XLV",
+        "XLI",
+        "XLP",
+        "XLY",
+        "XLB",
+        "XLU",
+        "XLC",
+        "XLRE",
+        "GLD",
+        "SLV",
+        "USO",
+        "UNG",
+        "ARKK",
+        "SMH",
+        "SOXX",
     }
     if trade_ideas:
-        etf_tickers = [
-            (idea.get("ticker") or "").lstrip("$").upper()
-            for idea in trade_ideas
-        ]
+        etf_tickers = [(idea.get("ticker") or "").lstrip("$").upper() for idea in trade_ideas]
         etf_count = sum(1 for t in etf_tickers if t in _BROAD_ETFS)
         if etf_count > 1:
             offenders = [t for t in etf_tickers if t in _BROAD_ETFS]
@@ -1139,14 +1248,22 @@ def _local_critique(executor_out: dict, valid_ids: set[str], plan: dict | None =
                 # the stale year appears alongside future-tense framing
                 # like "by", "through", "upcoming", "mid-".
                 low = txt.lower()
-                if any(p in low for p in (
-                    f"by {stale_year}", f"through {stale_year}",
-                    f"upcoming {stale_year}", f"mid-{stale_year}",
-                    f"mid {stale_year}", f"late {stale_year}",
-                    f"early {stale_year}", f"q1 {stale_year}",
-                    f"q2 {stale_year}", f"q3 {stale_year}",
-                    f"q4 {stale_year}",
-                )):
+                if any(
+                    p in low
+                    for p in (
+                        f"by {stale_year}",
+                        f"through {stale_year}",
+                        f"upcoming {stale_year}",
+                        f"mid-{stale_year}",
+                        f"mid {stale_year}",
+                        f"late {stale_year}",
+                        f"early {stale_year}",
+                        f"q1 {stale_year}",
+                        f"q2 {stale_year}",
+                        f"q3 {stale_year}",
+                        f"q4 {stale_year}",
+                    )
+                ):
                     reasons.append(
                         f"stale-year reference '{stale_year}' framed as forward "
                         f"catalyst at {path}: '{txt[:120]}...'"
@@ -1194,7 +1311,9 @@ def _local_critique(executor_out: dict, valid_ids: set[str], plan: dict | None =
     }
 
 
-async def _critic_stage(executor_out: dict, valid_ids: set[str], api_key: str, plan: dict | None = None) -> dict:
+async def _critic_stage(
+    executor_out: dict, valid_ids: set[str], api_key: str, plan: dict | None = None
+) -> dict:
     """Run local critic first; only escalate to LLM if local passes.
 
     The LLM critic does a second, semantic-level pass for things the
@@ -1234,8 +1353,12 @@ Be permissive — only fail if a claim is clearly contradicted by no plausible i
 
     try:
         text, _, _ = await _anthropic_call(
-            _MODEL_CRITIC, prompt,
-            max_tokens=400, timeout_s=20.0, api_key=api_key, label="critic-llm",
+            _MODEL_CRITIC,
+            prompt,
+            max_tokens=400,
+            timeout_s=20.0,
+            api_key=api_key,
+            label="critic-llm",
         )
         llm_result = _extract_json(text)
         llm_result.setdefault("source", "llm")
@@ -1312,8 +1435,12 @@ active_lanes: {plan.get("active_lanes")}
 Re-emit the full executor JSON in the same shape. Fix every listed reason. No markdown, no preamble. Only the JSON object."""
 
     text, _, _ = await _anthropic_call(
-        _MODEL_EXECUTOR, prompt,
-        max_tokens=5000, timeout_s=150.0, api_key=api_key, label="executor-regen",
+        _MODEL_EXECUTOR,
+        prompt,
+        max_tokens=5000,
+        timeout_s=150.0,
+        api_key=api_key,
+        label="executor-regen",
     )
     return _extract_json(text)
 
@@ -1429,7 +1556,9 @@ def render_brief_to_text(out: dict) -> str:
         for idea in ideas:
             kind = (idea.get("type") or "stock").lower()
             sources = idea.get("sources") or []
-            src_line = "SOURCES: " + ", ".join(str(s).strip()[:8] for s in sources[:5]) if sources else ""
+            src_line = (
+                "SOURCES: " + ", ".join(str(s).strip()[:8] for s in sources[:5]) if sources else ""
+            )
 
             if kind == "stock":
                 stock_n += 1
@@ -1509,7 +1638,9 @@ def render_brief_to_text(out: dict) -> str:
 # ════════════════════════════════════════════════════════════════════════════
 
 
-async def run_brief_pipeline(brief, held_tickers: set[str], api_key: str, lane_resolvers: dict) -> dict:
+async def run_brief_pipeline(
+    brief, held_tickers: set[str], api_key: str, lane_resolvers: dict
+) -> dict:
     """End-to-end pipeline: plan → execute → critique → (optional regen) → render.
 
     Returns dict:
@@ -1594,7 +1725,12 @@ async def run_brief_pipeline(brief, held_tickers: set[str], api_key: str, lane_r
         try:
             if await check_budget("anthropic", _BUDGET_REGEN):
                 executor_out = await _regenerate_stage(
-                    executor_out, critic, plan, slices, held_tickers, api_key,
+                    executor_out,
+                    critic,
+                    plan,
+                    slices,
+                    held_tickers,
+                    api_key,
                 )
                 # Re-stamp after regen — regenerated ideas need their own
                 # trade_idea_ids, but preserve any existing ones the

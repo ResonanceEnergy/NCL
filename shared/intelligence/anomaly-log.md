@@ -393,3 +393,6 @@ Resolved anomalies older than 30 days are moved to `/NCL/shared/intelligence/arc
 - **[market_data/insider_cluster/bearish]** (86%) SE insider cluster: 3 insiders, net -6 ($-2,108,251)
 - **[market_data/insider_cluster/bearish]** (95%) NXST insider cluster: 11 insiders, net -11 ($-778,877)
 
+## 2026-05-29 04:49:43Z — 2 anomalies
+- **[market_data/insider_cluster/bullish]** (95%) UBCP insider cluster: 9 insiders, net +9 ($201,301)
+- **[market_data/insider_cluster/bearish]** (87%) ENLT insider cluster: 4 insiders, net -6 ($-3,650,919)

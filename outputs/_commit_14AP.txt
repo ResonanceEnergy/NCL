@@ -1,0 +1,61 @@
+Wave 14AP: WhisperX-style voice journaling + Piper spoken brief
+
+Per FREE_RESOURCES_BY_LANE_2026-05-30 Journal lane recommendations.
+Both modules backend-only; iOS plumbing in a later wave when the
+audio-capture surface is built.
+
+NEW MODULE: runtime/journal/voice_transcribe.py
+  - transcribe_with_diarization(audio_path, language, min_speakers,
+    max_speakers) — composes WhisperX equivalent on Python 3.14:
+      * mlx-whisper for transcription with word-level timestamps
+        (already running on M1 Ultra MPS in NCL since Wave 11)
+      * pyannote.audio 4.0 for speaker diarization
+      * overlap-based merge to attach speaker labels to whisper
+        segments
+  - Output shape mirrors what WhisperX would have produced:
+      text, language, duration_s, segments (w/ speaker), speakers
+      list, model label.
+  - Lazy-loaded pyannote pipeline; needs HF_TOKEN env var with
+    accepted model terms. Falls through with empty speakers list
+    when token missing (transcription still works).
+  - MPS device placement for Apple Silicon.
+
+NOTE: pip install whisperx fails on Python 3.14 — all 3.x.y wheels
+require <3.13 or <3.14, and ctranslate2==4.4.0 dep is unavailable
+for cp314. This module composes the same capability out of parts
+that DO have Py3.14 wheels (mlx-whisper + pyannote.audio).
+
+NEW MODULE: runtime/intelligence/spoken_brief.py
+  - render_text_to_wav(text, out_path) — Piper TTS to .wav file.
+  - render_brief_to_wav(brief_text, target_date) — convenience
+    wrapper that writes to data/morning-brief-pro/audio/{date}-brief.wav
+  - Voice: en_US-amy-medium by default (NCL_PIPER_VOICE override).
+  - Auto-downloads voice model from rhasspy/piper-voices on HF
+    on first use (~50MB ONNX + config). Cached to
+    data/piper_voices/.
+  - _sanitize_for_tts() strips markdown, decodes entities, replaces
+    bullet chars with commas so TTS narrates cleanly.
+
+Verified live:
+  Sample brief: "NCL Morning Brief May 30 2026. Portfolio: paper
+  account at twenty-five thousand dollars, fourteen trades closed
+  today. Intel: Reddit chatter dominated by NVIDIA and Tesla..."
+  Rendered to data/morning-brief-pro/audio/2026-05-30-tts.wav
+  Size: 1,405,484 bytes (~63s of audio). Used Piper 1.4 synthesize_wav
+  API.
+
+Dependencies installed in this commit:
+  - pyannote.audio 4.0.4 (+ lightning, torchaudio, sortedcontainers)
+  - piper-tts 1.4.2
+
+INTEGRATION POINTS — queued for a later wave when iOS surface lands:
+  - iOS Journal tab: audio recorder upload to POST /journal/voice-entry
+    -> runtime/api/routers/journal/voice.py -> voice_transcribe ->
+    JournalEntry { kind: "voice_journal", transcript, speakers,
+    duration_s }.
+  - iOS BriefLandingCard: Play button on each lane card, GET
+    /intelligence/morning-brief/pro/audio/{date}/{lane} -> serves
+    the .wav file. Brief render hook calls render_brief_to_wav()
+    after the 5-lane text emit.
+
+No iOS change today; pure backend module ship.

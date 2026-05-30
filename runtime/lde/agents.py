@@ -310,6 +310,9 @@ async def _call_grok(system: str, prompt: str, temp: float, max_tok: int) -> str
                 cost_usd,
                 "lde_grok",
                 f"lde grok call in={input_t} out={output_t}",
+                model="grok-3",
+                input_tokens=input_t,
+                output_tokens=output_t,
             )
         except Exception:
             pass

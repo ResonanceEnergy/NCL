@@ -1,0 +1,81 @@
+Wave 14W-E: Agent orchestrator — intel_request bus + 3 producer wires
+
+Phase E of LANE_ARCHITECTURE_2026-05-28 flips the auto-trader from a
+passive receiver of pushed signals into an active requester of
+services from Memory/Awarebot/Council/Calendar/Brief/Scheduler.
+
+NEW runtime/agent_bus/intel_request.py (~480 LOC pure-logic):
+  - RequestKind enum: 6 kinds — memory.fused_search,
+    awarebot.scan_now, council.spawn, calendar.add_followup,
+    brief.regenerate_focus, scheduler.queue
+  - IntelRequest + IntelResponse dataclasses
+  - intel_request(*, kind, caller, urgency, **kwargs) main entry,
+    routes to the right handler, bounded fire-and-forget so failures
+    can NEVER stall the auto-trader tick loop
+  - 6 thin handlers wrapping existing modules:
+      _h_memory_fused_search  → FusedRetriever (vector + BM25 + KG via RRF)
+      _h_awarebot_scan_now    → pin high-importance focus hint so next
+                                 Awarebot tick prioritizes it (race-safe)
+      _h_council_spawn        → brain.spawn_council_session(topic, prompt,
+                                 members) with delphi_mad_4 / haiku_quorum
+                                 panel mapping
+      _h_calendar_add_followup → append curated JSONL row
+      _h_brief_regenerate_focus → pin focus_ticker hint for brief_prep
+      _h_scheduler_queue       → dual write calendar + MemUnit
+  - set_brain(brain) singleton — auto-registered at brain __init__ so
+    handlers resolve memory_store without thread-the-brain plumbing
+  - JSONL audit trail at data/agent_bus/intel_requests.jsonl with
+    rotation at 50 MB. list_recent_requests() inspector for REST.
+  - Result summarization (fused_search hits compressed to top_unit_ids
+    so the trail doesn't blow up)
+
+WIRED 3 producers to fire the bus (LANE_ARCHITECTURE Phase E items
+10/11/13):
+
+  E2 — drift_detector.py
+    On DRIFT_DOWN *transition* (not every tick after), fire
+    intel_request(kind=council.spawn, panel=delphi_mad_4,
+    topic="Drift detected on <strategy>") so a contrarian debate
+    opens. Previously drift terminated at a MemUnit; the council
+    never saw it.
+    Env gate: NCL_AGENT_BUS_DRIFT_COUNCIL=1 (default on)
+
+  E3 — self_research.py — generate_research_topics()
+    For every new ≥3-loss cluster, schedule auto_deepdive_topic():
+      1. intel_request(memory.fused_search, query=title+rationale)
+      2. intel_request(awarebot.scan_now, focus=cluster_topic)
+      3. Sonnet 4 synthesis of (1)'s hits → 200-300 word notes
+      4. Write back as resolution_notes (status stays "open" so
+         NATRIX still closes manually)
+    Falls through to rule-based notes when Sonnet budget is exhausted.
+    Env gate: NCL_AGENT_BUS_AUTO_DEEPDIVE=1 (default on)
+
+  E4 — capability_registry.py — check_and_request()
+    On every gap, attempt 3 tiered self-heal strategies BEFORE giving up:
+      1. ENV HINT FROM MEMORY — regex-scan recent units for
+         "ENV_NAME=value" patterns and apply to process env
+      2. FALLBACK PROVIDER PROBE — _FALLBACK_MAP per cap (e.g.
+         earnings_calendar → yfinance, crypto_prices → coinpaprika);
+         probe reachability + recheck
+      3. RETRY WITH BACKOFF — for transient gaps, 200ms then 800ms
+    Successful heals appended to data/agent_bus/self_heal.jsonl.
+    Env gate: NCL_AGENT_BUS_SELFHEAL=1 (default on)
+
+INTEGRATION:
+  - brain.py __init__ now calls agent_bus.set_brain(self) — every
+    intel_request(...) caller can resolve memory_store + spawn_council
+    without threading the brain ref
+
+LIVE VERIFICATION:
+  - Brain bounced, pid 39433 healthy
+  - outputs/check_agent_bus.py smoke test passes:
+      * 6 kinds enumerated correctly
+      * Unknown kind → graceful error
+      * No-brain call → "memory_store not available" not raised
+      * scheduler.queue → dual write succeeded
+      * Audit trail at data/agent_bus/intel_requests.jsonl populated
+
+  AST clean on all 6 touched files. Ruff import-sort auto-applied.
+
+Closes Phase E of LANE_ARCHITECTURE_2026-05-28.md.
+Phases A+B+C+D+E complete — Wave 14W done.

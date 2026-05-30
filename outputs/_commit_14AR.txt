@@ -1,0 +1,42 @@
+Wave 14AR: Wire MinHashLSH into memory create_unit hot path
+
+Per FREE_RESOURCES_BY_LANE_2026-05-30 Memory recommendation —
+real-time near-dup detection on every memory write. Gated by
+NCL_MINHASH_DEDUP_ENABLED.
+
+WHAT HAPPENS ON EVERY create_unit:
+  1. After PII redaction and lane-gate pass,
+  2. _minhash_check_for_near_dup queries the persistent MinHashLSH
+     index (lazy-loaded singleton) for near-duplicates within the
+     same source AND same authority_tier.
+  3. If a high-confidence dup is found, _reinforce_existing_unit
+     bumps the existing units reinforcement_count + last_accessed
+     and returns it. No new unit is persisted.
+     _stats[minhash_dedup_hits] increments.
+  4. Otherwise: persist normally, then _minhash_add inserts the new
+     units signature into the index. Every 200 writes triggers an
+     idx.save so persistence stays cheap.
+
+SAFETY:
+  - Off by default. Existing behavior unchanged when env unset.
+  - Same-source + same-tier gating prevents cross-source collapse
+    (an Awarebot scanner restatement does NOT merge with a NATRIX
+    directive on the same topic).
+  - All MinHash failures degrade to legacy path (logged at debug).
+  - The existing 6h ncl-dedup-scan loop still runs as a backstop.
+
+NEW MemoryStore class-level methods:
+  - _minhash_load_or_init -- lazy load + open existing index from
+    data/memory/minhash_index/. Gated by env.
+  - _minhash_check_for_near_dup(source, authority_tier, text)
+    returns matching unit_id or None.
+  - _reinforce_existing_unit(unit_id) bumps reinforcement_count.
+  - _minhash_add(unit_id, text) adds to live index after persist.
+
+The 6h _dedup_scan_loop is preserved untouched; once incremental
+dedup is verified in prod over a week, the 6h scan can be retired
+in a separate commit.
+
+Verified AST parse OK. Live verification happens after brain bounce
+with NCL_MINHASH_DEDUP_ENABLED=true set explicitly — held until
+NATRIX flips the gate.

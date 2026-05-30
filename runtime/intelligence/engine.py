@@ -1422,6 +1422,9 @@ EXECUTIVE BRIEF:"""  # noqa: E501
                         cost_usd,
                         "intel_summary",
                         f"executive summary in={input_t} out={output_t}",
+                        model="claude-sonnet-4-20250514",
+                        input_tokens=input_t,
+                        output_tokens=output_t,
                     )
                 except Exception:
                     pass  # Cost tracking should never break the primary flow

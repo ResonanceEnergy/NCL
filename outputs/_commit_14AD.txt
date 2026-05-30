@@ -1,0 +1,43 @@
+Wave 14AD: Reddit RSS fallback in scanner — public path that still serves HTTP 200 when www/old.reddit JSON 403s.
+
+Background:
+- Until ~May 28 the scanner pulled Reddit signals via browser-UA scraping
+  against www.reddit.com and old.reddit.com /hot.json + /search.json.
+  8,366 real signals landed in data/intelligence/agent_signals.jsonl from
+  May 27 alone (NATRIX investigation, May 30 — URLs verified).
+- May 29/30 both JSON endpoints now 403 with any browser UA. Wave 14AC
+  shipped OAuth as the proper fix but REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET
+  are not yet provisioned in macOS Keychain.
+- Live curl from this Mac on May 30: www.reddit.com/r/Bitcoin/hot.json
+  HTTP 403, old.reddit.com/r/Bitcoin/hot.json HTTP 403,
+  www.reddit.com/r/Bitcoin/.rss HTTP 200 (99,811 bytes). RSS is the
+  surviving public path.
+
+Change:
+- New Scanner._scan_reddit_via_rss(subreddit, max_results) — fetches the
+  Atom feed at reddit.com/r/{sub}/.rss or
+  reddit.com/search.rss?type=link with a browser UA, parses with stdlib
+  xml.etree.ElementTree (no new dep), strips Reddit SC_OFF/SC_ON comments
+  + HTML tags + entity-decodes the snippet, emits InsightSignal per entry
+  with metadata.fetch_path = "rss" for provenance.
+- scan_reddit rewritten: OAuth JSON via oauth.reddit.com first when
+  credentials are configured, RSS public fallback otherwise. Dead
+  browser-UA www/old.reddit JSON path removed (always 403s now).
+- RSS lacks upvote/comment/award data so actionability + source_authority
+  default to 0.0; the 6-factor agent scoring engine ranks via
+  relevance/freshness/cross-source/novelty/source-confidence/situational.
+
+Live verification (May 30, 11:13 UTC):
+- launchctl kickstart com.resonanceenergy.ncl-brain
+- Scanner log: r/Superstonk r/options r/stocks r/StockMarket r/Daytrading
+  r/unusual_whales r/GME r/Shortsqueeze r/pennystocks r/thetagang
+  r/amcstock r/DeepFuckingValue r/investing r/ValueInvesting
+  r/swingtrading r/smallstreetbets all HTTP 200, 5-10 signals each.
+- [AGENT:SCAN] Cycle complete: 408 raw, 392 new (deduped 16) — prior
+  cycles were 145 raw / 6 new (RSS unblocked the ingest).
+- agent_signals.jsonl grew 19.83 MB -> 20.18 MB in one cycle, 251 fresh
+  Reddit signals persisted with real URLs and real titles.
+
+iOS surface unchanged — same source:reddit namespace, same AWAREBOT
+scorer, same Intel-tab pin chip. RSS metadata.fetch_path field is
+provenance only.

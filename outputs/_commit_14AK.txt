@@ -1,0 +1,66 @@
+Wave 14AK: Tier B migration (DeepSeek V3) + bare-model-ID sweep
+
+Per COST_AUDIT_2026-05-30 Phase 1 + audit OSS_ADDENDUM. Two cleanups in
+one commit because they touch the same files:
+
+A) BARE MODEL ID FIXES (had been silently 404-retrying since Wave 13)
+
+   Wave 13 swept 17 files for the bare-id bug class but missed these:
+   - runtime/autonomous/scheduler.py:3229 + :3247 — Night Watch
+     mini-council Sonnet analysis was "claude-sonnet-4" (no date).
+   - runtime/autonomous/scheduler.py:3342 + :3360 — Night Watch
+     mini-council chair was "claude-opus-4-6" (NEVER EXISTED — model
+     ID typo). Audit found this was 404-retrying for weeks at
+     ~$0.40/14d in failed retries. Demoted to Sonnet 4 per audit
+     recommendation (Opus is overkill for a mini-council chair).
+   - runtime/autonomous/night_watch/memory_cycle.py:420 + :786 —
+     Sonnet calls for contradiction scanner.
+   - runtime/autonomous/night_watch/intel_cycle.py:105 — sonnet model
+     variable for correlation pass.
+   - runtime/councils/xai/analyzer.py:57 — X_COUNCIL_MODEL default.
+   - runtime/portfolio/auto_trader/observability.py:23 — executor_model
+     label (cosmetic — no actual API call uses this string).
+
+   All swept to "claude-sonnet-4-20250514" (dated, valid). Restores
+   broken Night Watch chair + memory-cycle contradiction scanner +
+   intel cycle correlation that have been silently failing since the
+   Wave 13 sweep.
+
+B) TIER B MIGRATION (DeepSeek V3 by default)
+
+   Two high-volume call sites moved from Sonnet 4 default to
+   DeepSeek V3 ($3/$15 → $0.14/$0.28 per M, ~18x cheaper on output).
+   Both preserve env-var overrides so Sonnet remains a one-line swap:
+
+   1. runtime/awarebot/predictor.py:230
+      Awarebot prediction emitter (per converged signal) —
+      structured JSON output (prediction + confidence + reasoning).
+      DeepSeek V3 handles JSON-shaped emits cleanly at GPT-4 quality.
+      NCL_PREDICTOR_SUMMARY_MODEL env preserved.
+      Budget key auto-routes to "deepseek" when DeepSeek model used.
+
+   2. runtime/intelligence/engine.py:1404
+      Intel engine executive brief (per cycle) —
+      2-3 sentence summary. Identical quality at DeepSeek prices.
+      NCL_INTEL_SUMMARY_MODEL env preserved.
+
+NOT MIGRATED in this commit (deferred to follow-up waves):
+  - runtime/api/routers/intel/__init__.py legacy /intelligence/morning-brief
+    stub (audit recommended DELETE not migrate; iOS Wave 14Y already
+    removed the call site; standalone deletion in a separate commit).
+  - 11 other Tier B sites that use raw httpx → api.anthropic.com
+    directly rather than the runtime.llm.chat facade. Each needs a
+    site-specific refactor to either move through the facade or add
+    a sibling _deepseek call helper. Queued for Wave 14AK-2.
+
+EXPECTED COST IMPACT (after Anthropic credits restored):
+  - Predictor: ~30-100 calls/day × 0.5K tokens ≈ saves $0.05-0.15/day
+  - Intel engine summary: ~24 calls/day × 0.6K tokens ≈ saves
+    $0.01-0.03/day
+  - Plus elimination of failed-retry waste on the broken IDs.
+  - Total Phase 1 budget cap also lowered (Wave 14AG cost_tracker)
+    from anthropic $12 → $5 forcing graceful fallback before bills
+    accumulate.
+
+iOS surface unchanged — both predictor + intel engine summary feed
+internal AWAREBOT pipelines; iOS reads downstream cached outputs.

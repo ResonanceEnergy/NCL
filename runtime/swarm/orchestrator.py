@@ -665,6 +665,8 @@ class SwarmOrchestrator:
                         cost_usd,
                         "swarm_subtask",
                         f"swarm subtask {subtask_id}: {node.title[:80]}",
+                        model="claude-sonnet-4-20250514",
+                        subtask_id=subtask_id,
                     )
                 except Exception:
                     pass
@@ -897,6 +899,8 @@ class SwarmOrchestrator:
                 cost_usd,
                 "swarm_synthesis",
                 f"swarm result synthesis for task {task.task_id}",
+                model="claude-sonnet-4-20250514",
+                task_id=task.task_id,
             )
         except Exception:
             pass

@@ -1,0 +1,66 @@
+Wave 14AH: Five free data-source fetchers + integration into Calendar + Rotation
+
+Per FREE_RESOURCES_BY_LANE_2026-05-30.md, new module runtime/intelligence/
+free_sources.py with 5 working fetchers, all $0 ongoing cost, no keys
+required. Each smoke-tested live against the real upstream endpoint.
+
+NEW MODULE: runtime/intelligence/free_sources.py
+- fetch_ccxt_tickers(symbols, exchange='binance')
+  Restores the dead CoinGecko crypto path. Verified live: BTC/USDT
+  $73,671.03 +0.55% 24h, ETH $2,017.91, SOL $82.32. Public Binance
+  endpoint, no auth.
+- fetch_fed_speeches(limit=15) + fetch_fed_press_releases(limit=20)
+  Federal Reserve RSS — self-updating, replaces hardcoded FOMC_DATES_2026
+  maintenance burden. Verified: "Bowman, A Framework for Practical
+  Monetary Policy Decision Making" + recent press releases pulling clean.
+- fetch_cftc_cot(markets, limit_per_market)
+  CFTC Traders-in-Financial-Futures Aggregated (gpe5-46if). Schema-fix:
+  market names rolled to "S&P 500 Consolidated" / "NASDAQ-100 Consolidated"
+  in 2022 — legacy names returned stale 2022/2018 data. Verified live
+  2026-05-26 print: ES lev_net=-459,415 am_net=+1,006,502 dl_net=-670,416
+  (asset managers heavily long, hedge funds heavily short — meaningful
+  positioning split).
+- fetch_open_meteo_air_quality(city) — UV index + PM2.5/PM10 + ozone +
+  6 pollen types + US AQI. Verified Edmonton: UV-now 0.1, UV-max 6.9,
+  AQI 29, PM2.5 1.9.
+- fetch_edmonton_events(days_ahead, limit) — data.edmonton.ca Socrata
+  Public Events Calendar. Schema-fix: columns are `begins`/`ends`/
+  `event_venue`/`title`, NOT the `event_start_date` Socrata default.
+  Verified: 50 real events including "Outrun the Stigma Annual Run @
+  Kinsmen Park", "Parking Lot Jam @ Roads - Central", etc.
+- fetch_calgary_events() — STUB (returns []). Calgary doesn't publish
+  a curated events dataset on data.calgary.ca; the obvious dataset ids
+  point at building permits. Marked for future tourism-portal scrape.
+
+INTEGRATIONS:
+1. runtime/intelligence/rotation_tracker.py — build_rotation_snapshot()
+   now fetches CFTC COT for ES/NQ/RTY/BTC and adds `cftc_positioning`
+   block. Closes the known gap in Wave 14I (big-money positioning was
+   missing input). Sign flips week-over-week indicate positioning rotation.
+
+2. runtime/calendar/events.py — get_all_events() now calls
+   get_fed_rss_events(start, end). New helper categorizes press
+   releases containing "FOMC" / "Federal Open Market Committee" as
+   category="fomc" priority-5, others as "economic". Fed RSS has a low
+   hit rate inside a forward 14-day window (speeches typically aren't
+   pre-scheduled), but the helper is in place — eliminates the annual
+   FOMC_DATES_2026 maintenance burden the moment the feed scheduling
+   improves.
+
+3. runtime/calendar/local_events.py — get_local_events() now pulls
+   data.edmonton.ca events for city_id=="edmonton". Verified live:
+   78 total events surfaced for next 14d, 74 from data.edmonton.ca
+   (categorized as sports / concert / art / market / local). All
+   carrying venue + start_time + end_time.
+
+LIBRARIES INSTALLED (Wave 14AF):
+   sentence-transformers 5.5.1, transformers 5.9.0, spacy 3.8.13,
+   datasketch 1.10.0, ccxt 4.5.56, feedparser 6.0.12,
+   en_core_web_sm 3.8.0. Kuzu install failed on Python 3.14 — deferred
+   to Wave 14AM with the iOS-touching memory work.
+
+NEXT WAVES per "build all" directive:
+- 14AI: BGE-reranker post-RRF + datasketch MinHashLSH dedup
+- 14AJ: FinBERT2 + twitter-roberta local sentiment wired into AWAREBOT
+- 14AK: Bulk-migrate 13 Tier B Sonnet sites to DeepSeek V3
+- 14AL: Stoic corpus extending wisdom rotator

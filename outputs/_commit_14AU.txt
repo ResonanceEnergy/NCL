@@ -1,0 +1,50 @@
+Wave 14AU: FinBERT + Twitter-RoBERTa wired into AWAREBOT scorer
+
+Per FREE_RESOURCES_BY_LANE_2026-05-30 Tier D / cost-audit OSS
+addendum recommendation: replace ad-hoc Sonnet sentiment scoring
+in the AWAREBOT pipeline with local FinBERT + Twitter-RoBERTa
+classification. Free, MPS-accelerated, ~5-20ms per signal vs
+500-2000ms for an Anthropic round-trip.
+
+NEW METHOD: Awarebot._enrich_signals_with_local_sentiment(signals)
+  - Bucket signals by source: social platforms (reddit/twitter/
+    bluesky/mastodon/telegram) -> Twitter-RoBERTa, everything else
+    (news/RSS/YTC/polymarket/headlines) -> FinBERT.
+  - Run both batches concurrently via asyncio.gather.
+  - Stamp signal.metadata with sentiment_label, sentiment_polarity
+    (-1.0 to +1.0), sentiment_model.
+  - Best-effort: any import/load/inference failure leaves signals
+    unmodified; the rest of the pipeline proceeds untouched.
+
+INTEGRATION POINT: Awarebot._scan_loop
+  Inserted after scan_cycle() and BEFORE score_signals() so the
+  composite scorer can read sentiment from metadata.
+
+SCORING IMPACT in Awarebot.score_signal:
+  - Wave 14AU adds a sentiment boost to the actionability factor.
+  - When |polarity| > 0.5, actionability gets +0.30 * (polarity - 0.5)
+    capped at 1.0. So polarity=0.9 adds +0.12 to actionability;
+    polarity=1.0 adds the full +0.15.
+  - Rationale: strong directional sentiment implies the market
+    reacts — actionability factor (10% of composite) is the right
+    place to land the boost.
+
+VERIFIED:
+  agent.py AST parse OK.
+  Module imports OK (sentence-transformers + transformers + torch
+  installed in Wave 14AF; FinBERT + twitter-roberta cached in
+  ~/.cache/huggingface/hub from Wave 14AJ verification).
+
+EXPECTED COST IMPACT:
+  - Free at runtime (~$0/day saved against any future Sonnet
+    sentiment-classification work that would have been added).
+  - First-cycle warm-up: ~1-2s for model load + first batch.
+  - Steady state: ~5-20ms per signal in batches of 10-50.
+
+OBSERVABILITY:
+  stats[sentiment_enriched] += count per cycle.
+
+Note: the existing reason_about_signal LLM gate at composite 0.30-0.55
+is preserved — it already routes to Ollama (Tier C), not Sonnet.
+This commit adds sentiment as a NEW pre-scoring enrichment, not a
+replacement for the ambiguous-signal Ollama pass.

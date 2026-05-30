@@ -1,0 +1,56 @@
+Wave 14AE: REDDIT PULSE in AM Brief + PM Debrief + iOS link/timestamp polish
+
+NATRIX's directive (May 30):
+- Bigger font on the clickable Reddit links (so they're obviously tappable).
+- Every Reddit card shows a visible timestamp.
+- Twice-daily Reddit summary baked into the briefs.
+- Decision: don't cut the 54-subreddit scanner — surface top-10 by composite
+  score at the brief layer instead. AWAREBOT's cross-source confirmation
+  (15% of composite) only works with the wide net; brief readability is a
+  presentation concern, not an ingest concern.
+
+Backend:
+- `runtime/intelligence/brief_prep.py` — new `_collect_reddit_top10(window_hours=12,
+  limit=10)` helper. Tail-reads `data/intelligence/agent_signals.jsonl` (last
+  ~2 MB), filters source=="reddit" within window, decodes HTML entities,
+  strips "submitted by /u/X to /r/Y" boilerplate, extracts subreddit from
+  tags or URL, sorts by composite_score desc, returns at most 10. Pure
+  read-only over an existing file — no new ingest path. Wired into
+  `_lane_intel(pack)` as `reddit_top10`.
+- `runtime/intelligence/brief_council.py` — chair prompt's intel lane gains
+  a `reddit_pulse` block: 1-2 sentence chair narrative + the verbatim
+  reddit_top10 array from PREP CONTEXT. Chair does the theming; AWAREBOT
+  data is authoritative.
+- `runtime/intelligence/brief_presenter.py` — INTEL lane render gains a
+  REDDIT PULSE sub-block: chair narrative + numbered list of 10 entries,
+  each with `[r/SUB · 47m · score 0.63]` meta line and full clickable
+  URL on its own line. `render_pro_brief` re-attaches `reddit_top10`
+  from prep into the chair's intel lane so the section survives even if
+  the chair drops it.
+- `runtime/intelligence/afternoon_debrief.py` — PM Debrief pack now
+  includes `reddit_top10` for the LLM's themes input, and the persisted
+  envelope's `synthesis.reddit_top10` field carries the same array so iOS
+  BriefLandingCard's PM Debrief sheet can render the same 10 links the
+  AM Brief does. True twice-daily summary.
+- Pre-existing bug fix in `runtime/api/routers/intel/__init__.py` —
+  `logger.info` / `logger.warning` in the memory-snapshot ingest block
+  raised `NameError: name 'logger' is not defined` (module exports `log`,
+  not `logger`). Swept to `log.*`. Was blocking every brief fire.
+
+iOS (FirstStrike, separate commit):
+- `Sources/Views/IntelView.swift` — pinnedRow rewrites with URL surfacing,
+  bigger link font, timestamp, subreddit chip.
+
+Live verification (May 30, 11:45 UTC):
+- Brain bounced via launchctl kickstart -k.
+- `/health` HTTP 200.
+- AM Brief fired: `POST /intelligence/morning-brief/pro/fire` → HTTP 200,
+  22,463 bytes, full 5-lane format with REDDIT PULSE rendered in the
+  INTEL lane. 10 items present, all with subreddit chips, age stamps
+  ("34m"), composite scores (0.65 down to 0.63), and full reddit.com URLs.
+- Chair narrative: "Themes include AI and stock market impacts, with
+  MSFT garnering attention across multiple discussions."
+
+54-subreddit watchlist preserved. AWAREBOT scoring unchanged. The brief
+just surfaces the score-ranked top 10 — iOS Intel tab keeps the firehose
+for deep-dive.

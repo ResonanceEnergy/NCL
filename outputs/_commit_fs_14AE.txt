@@ -1,0 +1,30 @@
+Wave 14AE: PINNED row gets surfaced URL link + bigger font + timestamp + subreddit chip
+
+NATRIX's directive (May 30): "ensure the font is bigger on the clickable link, everything is timestamped and visible".
+
+Sources/Views/IntelView.swift — pinnedRow rewrite:
+- New URL resolution: metadata["url"] (canonical, written by scanner) first,
+  NSDataDetector fallback that scans content body for http(s) URLs.
+- Tappable Link widget rendered with .headline font + cyan styling +
+  rounded chip background — bumped from the prior caption-only treatment
+  so the link is finger-friendly and obviously interactive.
+- Subreddit chip ("r/options"): pulled from metadata["subreddit"] or tags
+  starting with "r/". Renders in orange to match the Reddit accent used
+  in the Intel tab elsewhere.
+- Relative timestamp ("2h ago" / "3d ago"): RelativeDateTimeFormatter with
+  .abbreviated unitsStyle, formatted from MemoryUnit.createdAtDate. Cached
+  static instance so the row doesn't churn formatters.
+- shortHost() helper that surfaces "reddit.com/r/options" instead of the
+  bare "reddit.com" host, so the chip text already tells NATRIX which
+  subreddit he's about to open.
+
+Backend (NCL commit 5994e54) shipped REDDIT PULSE in the AM Brief and PM
+Debrief — top 10 across all 54 subreddits in the last 12h, chair-narrated,
+with full clickable URLs.
+
+Live verification (May 30, 11:46 UTC):
+- Both targets built clean (Simulator + Device).
+- Installed on iPhone 16e Sim (9F77D8B9), iPad Pro M5 Sim (CE298CEE),
+  physical iPhone (00008130), physical iPad (00008027).
+- Brain bounced, brief fired HTTP 200, REDDIT PULSE confirmed in the
+  rendered envelope.full_brief with 10 items, scores, timestamps, URLs.

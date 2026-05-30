@@ -1,0 +1,53 @@
+Wave 14BF: Operator env-flag toggles — backend endpoint + iOS Settings UI
+
+NATRIX no longer has to SSH into the brain host to flip a feature
+flag. Tap a toggle in Settings, hit Save, bounce. Done.
+
+BACKEND (runtime/api/routers/system.py)
+  GET /system/env returns current values of operator-toggleable env
+  flags from os.environ.
+  POST /system/env accepts JSON {flag_name: value} and writes the
+  whitelisted entries to ~/dev/NCL/.env.flags (sourced by
+  scripts/launch-brain.sh on next bounce). Also mutates os.environ
+  in-process so API-layer endpoints see the new values immediately;
+  autonomous loops need a bounce.
+  Whitelist (Wave 14BF):
+    NCL_FUSION_BGE_RERANK_ENABLED
+    NCL_MINHASH_DEDUP_ENABLED
+    NCL_CROSS_REF_BERTOPIC_ENABLED
+    NCL_MEMORY_EMBED_MODEL
+  Empty string deletes the flag from .env.flags.
+
+  scripts/launch-brain.sh sources .env.flags between .env and the
+  PYTHONPATH export.
+
+  Verified live:
+    GET initial -> all empty
+    POST {"NCL_FUSION_BGE_RERANK_ENABLED":"true",
+          "NCL_MEMORY_EMBED_MODEL":"bge-m3",
+          "BAD_KEY":"x"}
+    -> saved 2, rejected ["BAD_KEY"]
+    .env.flags file written cleanly
+    GET back shows the new values
+
+iOS (Sources/Views/Settings/BrainFlagsView.swift, new)
+  BrainFlagsClient ObservableObject — loads on appear via GET
+  /system/env, saves via POST. Three Toggle bindings (BGE-reranker,
+  MinHash dedup, BERTopic) plus a Picker for memory embed model
+  (Default / BGE-M3 / nomic-embed / MiniLM). Save button + status
+  text + bounce-required footnote.
+
+  Sources/Views/ChatSettingsSheet.swift adds the new BrainFlagsView
+  section between brainSection and relaySection. iOS-only so the
+  Mac target keeps compiling.
+
+BUILDS:
+  xcodebuild iPhone 16e Simulator -> exit 0
+  xcodebuild generic/iOS -> exit 0
+  Installed on iPhone 16e Sim, iPad Pro M5 Sim, physical iPhone,
+  physical iPad.
+
+NATRIX now sees a BRAIN FLAGS section in Settings with four toggles
+and one picker. Each save writes the .env.flags file, autonomous
+loops pick it up on next bounce, in-process /memory/search/fused
+calls see the new BGE-reranker flag instantly.

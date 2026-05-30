@@ -1,0 +1,61 @@
+Wave 14W-C: lane_router — write-time lane stamping + memory gate
+
+NEW runtime/lane_router/__init__.py (~430 LOC pure-logic module):
+  - Lane enum: PORTFOLIO / INTEL / MEMORY / CALENDAR / JOURNAL / UNKNOWN
+  - DatumKind enum: 22 typed kinds (mandate, auto_trade_open/closed,
+    morning_quiz, brief, calendar_event, narrative_thread, etc.)
+  - SOURCE_PREFIX_LANE: longest-prefix-match table over 30+ source
+    namespaces (awarebot:*, portfolio:*, calendar:*, journal:*,
+    council:*, paper:*, scanner:*, lunar:*, life:*, mandate:*, etc.)
+  - KIND_LANE: explicit override map for typed callers
+  - apply_memory_gate(): pure (passed, reason) function implementing
+    MEMORY_MANDATE §3 — CRITICAL score OR cross_source ≥ 2 OR pin tag
+    OR authority_tier ≥ 80 OR mandate/reasoning_chain kind OR
+    procedural LML OR council:/journal:/portfolio:* allowlist source
+  - route(): main entrypoint → LaneRouteDecision dataclass with
+    primary_lane, secondary_refs[], memory_gate_passed,
+    memory_gate_reason
+
+WIRED into MemoryStore.create_unit() (store.py):
+  - Resolve DatumKind from meta["lane_kind"] hint
+  - Call route() with importance/score/cross_source/authority_tier/tags
+  - Stamp meta["lane"] + meta["lane_refs"] + meta["lane_gate_passed"]
+    + meta["lane_gate_reason"]
+  - If gate rejects: stamp meta["lane_gate_rejected"]=true,
+    bump self._stats["lane_gate_dropped"], short-circuit BEFORE persist
+  - Wrapped in try/except so legacy callers without lane_kind degrade
+    to UNKNOWN without breaking writes
+
+NEW endpoints (api/routers/memory.py):
+  - GET /memory/by-lane?lane=X&limit=N&include_gated=bool
+    Returns units with metadata.lane==X, newest-first, with
+    lane/lane_refs/lane_gate_passed/lane_gate_reason projected.
+    Foundation for iOS lane-scoped consumption.
+  - GET /memory/lane-stats
+    Quick counts per lane + gate-rejection rate. Backs the iOS
+    lane-balance widget and the verify smoke tests.
+  - Both endpoints use 8s asyncio.wait_for + _last_known_snapshot()
+    graceful-degrade pattern (mirrors dashboard_bridge.get_timeline)
+    so they survive Awarebot writer-flood post-bounce windows.
+    "degraded": true surfaces the fallback to the caller.
+
+LIVE VERIFICATION (post-bounce 22:19 ET):
+  /memory/lane-stats →
+    total_units: 24,953
+    lane_stamped: 12 (portfolio: 4, intel: 2, memory: 2,
+                     calendar: 2, journal: 2)
+    gate_rejected_persisted: 0
+    degraded: true on cold call (graceful-degrade working)
+  /memory/by-lane?lane=portfolio → catches live
+    portfolio:auto_trade_closed events plus the 4 mandates
+  /memory/by-lane?lane=unknown → 0 (no leaks)
+
+SMOKE TESTS: outputs/check_lane_router.py → 35/35 PASS
+  - 22 source_to_lane prefix-match cases
+  - 13 apply_memory_gate cases (score, x-source, tier, tags, kinds)
+  - 4 route() integration cases (awarebot HIGH/CRITICAL,
+    journal morning_quiz, auto_trade_open)
+
+Closes Phase C of LANE_ARCHITECTURE_2026-05-28.md.
+Next: Phase D (UI reorg — Memory→Intel WC display, Intel→Portfolio
+Rotation), Phase E (agent orchestrator).

@@ -1,0 +1,58 @@
+Wave 14AS: brief_pipeline PLANNER -> DeepSeek V3 + multi-provider routing
+
+Per COST_AUDIT Phase 1 + OSS addendum: PLANNER is a Tier B routing
+decision (which lanes, what mode, what include-sections) — perfectly
+suited for DeepSeek V3 quality at 7-18× lower cost than Sonnet 4.
+
+Changes in runtime/api/routers/intel/brief_pipeline.py:
+
+  - _MODEL_PLANNER default changed claude-sonnet-4-20250514 -> deepseek-chat.
+    NCL_BRIEF_PLANNER_MODEL env override preserved so a one-liner
+    switches back to Sonnet if needed.
+  - _MODEL_EXECUTOR stays Sonnet 4 (Tier A — section writer with
+    citations is user-facing).
+  - _MODEL_CRITIC stays Haiku 4.5 (already cheap).
+
+  - _PRICES_PER_M extended with DeepSeek + Groq token rates:
+      deepseek-chat              0.14 / 0.28
+      deepseek-reasoner          0.55 / 2.19
+      llama-3.3-70b-versatile    0.59 / 0.79  (Groq Llama 3.3 70B)
+      llama-3.1-8b-instant       0.05 / 0.08  (Groq Llama 3.1 8B)
+
+  - New _model_provider(model) classifier returns "anthropic" |
+    "deepseek" | "groq" by model-id prefix.
+
+  - _anthropic_call refactored to multi-provider dispatch:
+      * Anthropic path unchanged (api.anthropic.com/v1/messages,
+        Anthropic content-block response shape).
+      * DeepSeek path -> api.deepseek.com/v1/chat/completions,
+        OpenAI-compatible chat/completions response shape.
+      * Groq path -> api.groq.com/openai/v1/chat/completions,
+        same OpenAI-compatible shape.
+      * API key sourced from DEEPSEEK_API_KEY / GROQ_API_KEY env
+        (hydrated from macOS Keychain via Wave 14AG config).
+      * Token usage parsed per-provider (input_tokens vs prompt_tokens).
+
+  - Cost recording routes to the actual provider bucket
+    (deepseek/groq/anthropic) so the cost ledger correctly attributes
+    spend by source for the cost audit dashboard.
+
+Verified live:
+  PLANNER default after import: deepseek-chat
+  _model_provider routing:
+    claude-sonnet-4-20250514     -> anthropic
+    deepseek-chat                -> deepseek
+    llama-3.3-70b-versatile      -> groq
+    claude-haiku-4-5-20251001    -> anthropic
+
+End-to-end PLANNER invocation will succeed the moment NATRIX adds
+DEEPSEEK_API_KEY to macOS Keychain at ncl-deepseek (hydration wired
+in Wave 14AG). Until then any PLANNER call will fail and the brief
+pipeline already has the Phase A fallback path that bypasses this
+file entirely.
+
+EXPECTED COST IMPACT: PLANNER is ~300-tok output one shot per brief
+fire (twice daily). At Sonnet rates ~$0.0048 per call; at DeepSeek
+rates ~$0.00008 per call (60× cheaper). Annualized savings small in
+absolute terms (~$3/year) but the routing infrastructure unlocks
+similar swaps in other call sites without further refactoring.

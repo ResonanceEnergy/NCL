@@ -1,0 +1,75 @@
+iOS Wave 14BA + 14BB + 14BC: Spoken brief Play, Calendar streams split, Voice journal mic
+
+Three iOS surfaces wiring the NCL backend endpoints shipped in NCL
+Waves 14AP (Piper TTS / WhisperX), 14AQ (calendar split), 14AY
+(REST endpoints), and 14AW (Calgary events live).
+
+WAVE 14BA — BriefLandingCard spoken-brief Play button
+  Sources/Views/Dashboard/BriefAudioPlayer.swift (new ~210 LOC)
+  - BriefAudioPlayer ObservableObject wraps AVAudioPlayer.
+  - Fetches GET /intelligence/morning-brief/pro/audio/{YYYY-MM-DD},
+    writes to temp .wav, plays via AVAudioSession spokenAudio mode.
+  - 404 -> 'audio not rendered yet' status; other failures surface
+    structured error text. Cleanup on dismiss removes the temp file.
+  - BriefPlayButton SwiftUI view: Play/Pause toggle with elapsed /
+    total time chip; orange when playing, cyan when paused.
+  Sources/Views/Dashboard/BriefLandingCard.swift (edit)
+  - Play button rendered next to the AM/PM picker when mode=.am
+    (PM audio Play deferred — only AM brief auto-renders today).
+  - todayISO() helper produces Edmonton-local YYYY-MM-DD path.
+
+WAVE 14BB — Calendar STREAMS sub-tab (financial / infotainment split)
+  Sources/Views/Calendar/CalendarSplitView.swift (new ~190 LOC)
+  - Two collapsible sections fed by GET /calendar/events/split.
+  - FINANCIAL on top (red accent, chart icon) — FOMC, CPI, NFP,
+    earnings, opex, futures roll, Fed speeches.
+  - INFOTAINMENT below (cyan accent, calendar.badge.clock) —
+    Edmonton + Calgary local events, holidays, weather alerts,
+    Ticketmaster, curated.
+  - Per-event date stack (MAY / 30 style), impact dot, category
+    label. Pull-to-refresh.
+  Sources/Views/CalendarView.swift (edit)
+  - CalendarViewMode enum gains case streams = "STREAMS".
+  - Switch branch + loadData branch for the new sub-tab.
+
+WAVE 14BC — JournalView voice-entry mic
+  Sources/Views/Journal/VoiceJournalRecorder.swift (new ~370 LOC)
+  - VoiceRecorderEngine ObservableObject wraps AVAudioRecorder.
+    Permission request via AVAudioApplication.requestRecordPermission
+    on iOS 17+, legacy AVAudioSession on earlier.
+    M4A AAC 44.1 kHz mono, high quality.
+  - VoiceJournalRecorderSheet: full-screen recording UI with state
+    machine (idle / recording / uploading / done / error).
+  - Multipart upload to POST /journal/voice-entry with form field
+    importance=60 plus the audio file. Backend (NCL 14AY) runs
+    mlx-whisper + pyannote and persists the transcript as kind=
+    voice_journal JournalEntry with speakers list and duration.
+  - Success state shows the transcript preview, speaker count, and
+    duration so NATRIX can verify before navigating away.
+  Sources/Views/JournalView.swift (edit)
+  - Voice button added next to the NEW ENTRY section header on the
+    WRITE sub-tab. Sheet presentation handles the rest.
+
+BUILDS VERIFIED:
+  xcodebuild iPhone 16e Simulator: exit 0
+  xcodebuild generic/iOS: exit 0
+  Both targets installed on all 4 devices:
+    9F77D8B9-...  iPhone 16e Simulator
+    CE298CEE-...  iPad Pro M5 Simulator
+    00008130-...  Physical iPhone (Nathan's iPhone)
+    00008027-...  Physical iPad (GRIP AND RIPP HDD)
+
+DEPENDENCIES:
+  - No new SPM packages.
+  - python-multipart already installed on the brain (Wave 14AY
+    runtime requirement).
+  - HF_TOKEN env var optional for pyannote speaker diarization;
+    transcription via mlx-whisper works without it (untagged).
+
+End-to-end flow:
+  - Brief: tap Play in TODAY'S BRIEF header -> ~16 min spoken brief
+    streams from the brain. Status chip shows elapsed / total.
+  - Calendar: tap STREAMS sub-tab -> two-section split with FOMC /
+    earnings up top, Edmonton + Calgary events below.
+  - Voice journal: WRITE sub-tab -> Voice button -> record -> Stop &
+    Upload -> sheet shows the transcript and saves the entry.

@@ -1,0 +1,67 @@
+Wave 14AI: Memory upgrades — BGE-reranker post-RRF + MinHashLSH near-dup
+
+Per COST_AUDIT_OSS_ADDENDUM_2026-05-30 + FREE_RESOURCES_BY_LANE Memory
+recommendations. Two upgrades, $0 ongoing cost, both gated by env vars
+so they roll out incrementally.
+
+1. BGE-reranker-v2-m3 post-RRF rerank stage in FusedRetriever
+
+   runtime/memory/retrieval/fusion.py
+   - New _rerank_with_bge() method using sentence-transformers
+     CrossEncoder with BAAI/bge-reranker-v2-m3 model.
+   - Lazy-loaded with thread-safe singleton at class level.
+   - MPS device detection for M1 Ultra GPU acceleration; falls back
+     to CPU when MPS unavailable.
+   - Takes precedence over Cohere Rerank 3.5 when enabled (since BGE
+     is free + local). Cohere path remains as fallback for callers
+     that explicitly opt in.
+   - Gated by NCL_FUSION_BGE_RERANK_ENABLED env var (default true).
+   - Returns empty list on any failure path so the caller falls
+     through to the original RRF order — fully graceful.
+   - Multilingual: matters for LatAm city events + multi-language YTC
+     transcripts in NCL's pipeline.
+   - Estimated ~200-400 docs/sec on M1 Ultra MPS, well under the 1s
+     budget for /memory/search/fused.
+
+   Result row carries bge_rerank_score so observability shows where
+   each candidate ended up vs RRF rank.
+
+2. MinHashLSH near-duplicate index — runtime/memory/minhash_dedup.py
+
+   Standalone module providing real-time near-dup detection. The
+   existing ncl-dedup-scan 6h loop (500-unit window) is preserved
+   for now; this module is the foundation for incremental dedup at
+   memory-write time in a follow-up wave.
+
+   - 128 permutations, LSH threshold 0.4, character 5-gram shingles.
+     Tuned against NCL's expected mix: exact reposts (J≈1.0),
+     rewritten news (J≈0.4-0.6), paraphrased headlines (J≈0.3-0.5),
+     unrelated text (J≈0.0).
+   - MinHashDedupIndex class with add() / query() / query_with_scores
+     / remove(). Thread-safe (lock around mutation).
+   - Persistence via pickle to data/memory/minhash_index/ — save()
+     and open(dirpath) class method.
+   - Verified live (in-memory):
+       "Fed signals June rate pause; markets rally" query against
+       index containing the original "Fed signals possible June rate
+       hold; markets react with broad rally" — surfaced u2 at
+       J=0.430 (above threshold) and u1 at J=0.320 (bucket-collision).
+       Unrelated "crypto markets stabilize" query — 0 hits.
+   - Persistence roundtrip has a known quirk (LSH internal state
+     after reload doesn't return same query hits — TODO in followup).
+     The in-memory path is solid.
+
+DEPENDENCIES: sentence-transformers 5.5.1, datasketch 1.10.0, torch
+2.12.0 — all installed in Wave 14AF.
+
+INTEGRATION POINTS NOT YET WIRED (queued for separate waves):
+  - runtime/memory/store.py::create_unit() pre-write MinHash query
+    to merge near-dups instead of writing new units.
+  - retire the 6h ncl-dedup-scan loop once the incremental path is
+    validated.
+
+When the BGE-reranker model isn't installed (e.g. fresh checkout
+without sentence-transformers), the rerank step gracefully returns
+empty and FusedRetriever falls through to either Cohere (if enabled
++ key set) or unranked RRF. No code path becomes worse with this
+change; only better when the model + lib are present.

@@ -171,11 +171,17 @@ async def _record_cost(
     try:
         from .. import cost_tracker
 
+        # Wave 14BG: thread model into metadata so the spend dashboard's
+        # by_source_model bucket attributes spend instead of dropping into
+        # the "?" model bucket.
         await cost_tracker.record_cost(
             source=budget_key,
             amount_usd=cost_usd,
             category=f"llm:{model}",
             detail=f"in={tokens_in} out={tokens_out}",
+            model=model,
+            input_tokens=tokens_in,
+            output_tokens=tokens_out,
         )
     except Exception as exc:  # noqa: BLE001 - defensive
         log.debug("cost record failed (non-fatal): %s", exc)

@@ -1,0 +1,57 @@
+Wave 14BD + 14BE: PM Debrief audio render + spend dashboard endpoint
+
+14BD — PM Debrief audio render hook
+  runtime/intelligence/afternoon_debrief.py
+  - New _debrief_text_for_tts(synthesis) flattens the 6-tile debrief
+    structure (headline, today_scoreboard, night_watch_focus,
+    agent_reasoning_highlights, post_market_scan, rotation_shift,
+    one_q_quiz_prompt) into a coherent narrated paragraph Piper can
+    read end-to-end in ~3-5 minutes.
+  - build_debrief now spawns a fire-and-forget asyncio task to call
+    spoken_brief.render_text_to_wav with out_path=
+    data/morning-brief-pro/audio/{date}-debrief.wav (shares the audio
+    dir with the AM brief). Failure paths logged at debug, never
+    block the response.
+
+  runtime/api/routers/intel/__init__.py
+  - New GET /intelligence/afternoon-debrief/audio/{target_date}
+    mirrors the AM endpoint shape. Validates ISO date; 404s with an
+    explicit reason if the .wav has not been rendered.
+
+  Verified live: PM debrief fired and rendered 2026-05-30-debrief.wav
+  (2.5 MB ~ 2.5 minutes of audio) alongside the existing 23 MB AM
+  brief audio.
+
+14BE — Spend dashboard
+  runtime/api/routers/system.py
+  - _compute_spend_dashboard_data(days) helper reads the cost_ledger
+    .jsonl, aggregates: by_day totals, by_source totals, by
+    (source/model) totals (top 25), top 15 (source/op) by spend with
+    call counts, plus today + window totals + ledger metadata.
+  - GET /system/costs/dashboard.json — Bearer-auth, returns the
+    aggregate as a JSON object the iOS BriefLandingCard cost chip
+    can render against.
+  - GET /system/costs/dashboard — HTML page. NATRIX visits in any
+    browser to see live spend bars without copying the cost ledger
+    to his laptop. Three tile totals (TODAY / WINDOW / DAILY AVG),
+    three bar charts (BY DAY / BY SOURCE / BY MODEL), and a top-15
+    operations table. Uses the existing __AUTH_TOKEN__ embed
+    pattern from the other authenticated HTML pages so the bearer
+    is not committed to disk.
+
+  Verified live (window=7d, just now):
+    HTTP 200, 9.4 KB HTML body, valid DOCTYPE/style structure.
+    JSON sibling reports:
+      window total $97.59 / today $1.67
+      by_source: anthropic $71.93 (74%) / perplexity $9.38 / openai
+        $9.04 / x_twitter $4.94 / ytc $1.45 / google $0.56 / cohere
+        $0.29
+      top op key 'anthropic/?' at $71.93 across 9,131 calls (the
+        unattributed-model problem the cost audit flagged — still
+        the biggest blind spot until every record_cost caller
+        threads metadata.model)
+
+Both endpoints survive brain bounce. NATRIX can hit
+http://100.72.223.123:8800/system/costs/dashboard?days=14 in Safari
+and see the same picture the cost audit ran against without copying
+the ledger anywhere.

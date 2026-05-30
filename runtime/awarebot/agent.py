@@ -1931,9 +1931,7 @@ class Awarebot:
             meta = getattr(signal, "metadata", None) or {}
             polarity = abs(float(meta.get("sentiment_polarity", 0.0) or 0.0))
             if polarity > 0.5:
-                base_actionability = min(
-                    1.0, base_actionability + 0.30 * (polarity - 0.5)
-                )
+                base_actionability = min(1.0, base_actionability + 0.30 * (polarity - 0.5))
         except Exception:
             pass
         signal.actionability = base_actionability
@@ -2003,7 +2001,12 @@ class Awarebot:
 
     # Source-prefix → which local sentiment model to use.
     _SOCIAL_SOURCE_PREFIXES = (
-        "reddit", "twitter", "x_twitter", "bluesky", "mastodon", "telegram",
+        "reddit",
+        "twitter",
+        "x_twitter",
+        "bluesky",
+        "mastodon",
+        "telegram",
     )
 
     async def _enrich_signals_with_local_sentiment(self, signals: list) -> None:  # noqa: ANN001
@@ -2073,7 +2076,9 @@ class Awarebot:
             self._stats["sentiment_enriched"] += len(signals)
             log.debug(
                 "[AGENT:SENTIMENT] enriched %d signals (finbert=%d social=%d)",
-                len(signals), len(finbert_idx), len(social_idx),
+                len(signals),
+                len(finbert_idx),
+                len(social_idx),
             )
 
     async def reason_about_signal(self, signal: Signal) -> Signal:
@@ -2358,8 +2363,7 @@ Respond with ONLY a JSON object:
             score = float(getattr(signal, "composite_score", 0) or 0)
             x_src = int(getattr(signal, "cross_source_count", 0) or 0)
             tags_lower = {str(t).lower() for t in (signal.tags or [])}
-            pinned = bool(tags_lower & {"pin", "pinned", "operator_pin",
-                                          "natrix_pin"})
+            pinned = bool(tags_lower & {"pin", "pinned", "operator_pin", "natrix_pin"})
             high_caller_importance = importance >= 80.0
             critical = score >= 0.75
             confirmed = x_src >= 2
@@ -2370,7 +2374,10 @@ Respond with ONLY a JSON object:
                 log.debug(
                     "[AGENT:MEMGATE] DROP %s score=%.3f x_src=%d imp=%.1f "
                     "(below CRITICAL + not confirmed + not pinned)",
-                    signal.source, score, x_src, importance,
+                    signal.source,
+                    score,
+                    x_src,
+                    importance,
                 )
                 return
 
@@ -3392,6 +3399,9 @@ Focus on what requires attention or action."""
                     cost_usd,
                     "awarebot_brief",
                     f"executive summary in={input_t} out={output_t}",
+                    model="claude-sonnet-4-20250514",
+                    input_tokens=input_t,
+                    output_tokens=output_t,
                 )
             except Exception:
                 pass  # Cost tracking should never break the primary flow

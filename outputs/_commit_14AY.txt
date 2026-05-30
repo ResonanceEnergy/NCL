@@ -1,0 +1,51 @@
+Wave 14AY: REST endpoints for spoken brief + voice journal
+
+Backend-only iOS prep so the iOS surface in a later wave can:
+  - Fetch and play the rendered .wav for any brief date
+  - Upload audio recordings as voice-journaled JournalEntries
+
+NEW ENDPOINT: GET /intelligence/morning-brief/pro/audio/{date}
+  - Auth: verify_strike_token_dep (same as the rest of intel router)
+  - Path arg: ISO YYYY-MM-DD (validated; rejects path traversal)
+  - Reads data/morning-brief-pro/audio/{date}-brief.wav
+  - 404 with explicit reason when the audio has not been rendered.
+  - Returns FileResponse with media_type=audio/wav.
+
+NEW ENDPOINT: POST /journal/voice-entry
+  - Auth: verify_strike_token_dep.
+  - Multipart form: file (UploadFile), optional language, min_speakers,
+    max_speakers (default 1 / 4), importance (default 60), title.
+  - Writes the upload to a tempfile, runs voice_transcribe
+    .transcribe_with_diarization (mlx-whisper + pyannote when HF_TOKEN
+    set; transcription still works without pyannote, just untagged).
+  - Persists the resulting transcript as a JournalEntry with
+    entry_type=voice_journal, tags=[voice_journal, speakers:N],
+    source_context carrying transcript_language, duration_s,
+    transcript_speakers, transcript_model.
+  - Response shape: {status, entry, transcript: {language, duration_s,
+    speakers, segments_count, model}}.
+  - Tempfile is cleaned up in finally even on error paths.
+
+AUTO-RENDER ON BRIEF FIRE:
+  fire_morning_brief_pro now spawns a fire-and-forget asyncio task
+  that calls spoken_brief.render_brief_to_wav with the synthesized
+  text. Never blocks the response; failure paths log at debug and
+  leave the file missing (iOS Play endpoint returns 404 with
+  explanation in that case).
+
+VERIFIED:
+  journal AST OK
+  intel AST OK
+  Existing /pro/fire path response shape unchanged — the audio render
+  is added AFTER the envelope is built and returned.
+
+iOS WIRE-UP IN A LATER WAVE:
+  - BriefLandingCard: Play button -> GET .../audio/{today} -> AVAudioPlayer
+  - JournalView: Microphone button -> AVAudioRecorder -> POST
+    /journal/voice-entry as multipart -> append voice_journal entry to
+    journal list with speaker-tagged segments preview.
+
+Dependencies all already installed in Waves 14AF + 14AP:
+  - mlx-whisper (transcription)
+  - pyannote.audio 4.0.4 (diarization, gated by HF_TOKEN)
+  - piper-tts 1.4.2 (spoken brief render)

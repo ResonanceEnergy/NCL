@@ -22,6 +22,7 @@ from typing import Optional
 from .models import Goal, KeyResult
 from .store import LifePlanStore
 
+
 log = logging.getLogger("ncl.life_plan.synth")
 
 _MODEL = os.getenv("NCL_GOAL_SYNTH_MODEL", "claude-sonnet-4-20250514")
@@ -81,8 +82,13 @@ async def _call_anthropic(prompt: str) -> Optional[str]:
                     + int(usage.get("output_tokens", 0)) * 15.0
                 ) / 1_000_000
                 await record_cost(
-                    "anthropic", cost, "goal_synth",
+                    "anthropic",
+                    cost,
+                    "goal_synth",
                     f"weekly synth in={usage.get('input_tokens',0)} out={usage.get('output_tokens',0)}",
+                    model="claude-sonnet-4-20250514",
+                    input_tokens=int(usage.get("input_tokens", 0)),
+                    output_tokens=int(usage.get("output_tokens", 0)),
                 )
             except Exception:
                 pass
@@ -245,7 +251,9 @@ JSON only. Begin.""".strip()
 
     log.info(
         "[GOAL-SYNTH] %s → %d weekly tasks (themes=%s)",
-        parent_goal.goal_id, len(created_ids), plan.get("themes", []),
+        parent_goal.goal_id,
+        len(created_ids),
+        plan.get("themes", []),
     )
     return {
         "status": "ok",

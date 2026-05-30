@@ -22,12 +22,15 @@ from typing import Optional
 
 from .models import Vision
 
+
 log = logging.getLogger("ncl.life_plan.vision_board")
 
 _MODEL = os.getenv("NCL_VISION_BOARD_MODEL", "gpt-image-1")
 _SIZE = os.getenv("NCL_VISION_BOARD_SIZE", "1024x1024")
 _QUALITY = os.getenv("NCL_VISION_BOARD_QUALITY", "high")
-_BUDGET = float(os.getenv("NCL_VISION_BOARD_BUDGET", "0.10"))  # ~$0.04 per gen, 0.10 leaves headroom
+_BUDGET = float(
+    os.getenv("NCL_VISION_BOARD_BUDGET", "0.10")
+)  # ~$0.04 per gen, 0.10 leaves headroom
 _TIMEOUT = float(os.getenv("NCL_VISION_BOARD_TIMEOUT", "120.0"))
 
 
@@ -43,7 +46,7 @@ def _build_prompt(vision: Vision) -> str:
     pillars_text = ", ".join(vision.pillars) if vision.pillars else "balanced life"
     narrative_excerpt = (vision.narrative or "")[:600].replace("\n", " ")
     return (
-        f"A vision board collage representing the life vision: \"{vision.title}\". "
+        f'A vision board collage representing the life vision: "{vision.title}". '
         f"Pillars: {pillars_text}. "
         f"Style: warm, aspirational, photographic montage with soft natural lighting, "
         f"no text or words on the image. "
@@ -71,7 +74,12 @@ async def generate_vision_board(vision: Vision) -> dict:
     """
     api_key = os.getenv("OPENAI_API_KEY", "")
     if not api_key:
-        return {"status": "no_key", "path": None, "filename": None, "error": "OPENAI_API_KEY not set"}
+        return {
+            "status": "no_key",
+            "path": None,
+            "filename": None,
+            "error": "OPENAI_API_KEY not set",
+        }
 
     # Budget gate
     try:
@@ -111,8 +119,15 @@ async def generate_vision_board(vision: Vision) -> dict:
             data = resp.json()
     except httpx.HTTPStatusError as e:
         body = e.response.text[:300] if e.response is not None else ""
-        log.warning("[VISION-BOARD] HTTP %s: %s", e.response.status_code if e.response else "?", body)
-        return {"status": "api_error", "path": None, "filename": None, "error": f"HTTP {e.response.status_code if e.response else '?'}: {body}"}
+        log.warning(
+            "[VISION-BOARD] HTTP %s: %s", e.response.status_code if e.response else "?", body
+        )
+        return {
+            "status": "api_error",
+            "path": None,
+            "filename": None,
+            "error": f"HTTP {e.response.status_code if e.response else '?'}: {body}",
+        }
     except Exception as e:
         log.warning("[VISION-BOARD] api call failed: %s", e)
         return {"status": "api_error", "path": None, "filename": None, "error": str(e)}
@@ -136,10 +151,20 @@ async def generate_vision_board(vision: Vision) -> dict:
                 img_bytes = imgr.content
         except Exception as e:
             log.warning("[VISION-BOARD] url download failed: %s", e)
-            return {"status": "api_error", "path": None, "filename": None, "error": f"url download: {e}"}
+            return {
+                "status": "api_error",
+                "path": None,
+                "filename": None,
+                "error": f"url download: {e}",
+            }
 
     if not img_bytes:
-        return {"status": "api_error", "path": None, "filename": None, "error": "no image bytes returned"}
+        return {
+            "status": "api_error",
+            "path": None,
+            "filename": None,
+            "error": "no image bytes returned",
+        }
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     filename = f"{vision.vision_id}-{ts}.png"
@@ -152,8 +177,12 @@ async def generate_vision_board(vision: Vision) -> dict:
         from ..cost_tracker import record_cost
 
         await record_cost(
-            "openai", cost_usd, "vision_board",
+            "openai",
+            cost_usd,
+            "vision_board",
             f"vision board {vision.vision_id} -> {filename}",
+            model="gpt-image-1",
+            quality=_QUALITY,
         )
     except Exception:
         pass
@@ -173,7 +202,9 @@ async def generate_vision_board(vision: Vision) -> dict:
 
 def latest_board_for_vision(vision_id: str) -> Optional[Path]:
     """Return the most recent board file for a given vision_id, or None."""
-    matches = sorted(_board_dir().glob(f"{vision_id}-*.png"), key=lambda p: p.stat().st_mtime, reverse=True)
+    matches = sorted(
+        _board_dir().glob(f"{vision_id}-*.png"), key=lambda p: p.stat().st_mtime, reverse=True
+    )
     return matches[0] if matches else None
 
 
@@ -182,9 +213,13 @@ def list_boards(vision_id: Optional[str] = None) -> list[dict]:
     pattern = f"{vision_id}-*.png" if vision_id else "*.png"
     out = []
     for p in sorted(_board_dir().glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True):
-        out.append({
-            "filename": p.name,
-            "size_bytes": p.stat().st_size,
-            "modified_at": datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc).isoformat(),
-        })
+        out.append(
+            {
+                "filename": p.name,
+                "size_bytes": p.stat().st_size,
+                "modified_at": datetime.fromtimestamp(
+                    p.stat().st_mtime, tz=timezone.utc
+                ).isoformat(),
+            }
+        )
     return out

@@ -254,7 +254,13 @@ KNOWLEDGE GAPS:
             output_t = usage.get("completion_tokens", 0)
             cost_usd = (input_t * 2.0 + output_t * 10.0) / 1_000_000
             await record_cost(
-                "xai", cost_usd, "uni_synthesis", f"grok-3 synthesis in={input_t} out={output_t}"
+                "xai",
+                cost_usd,
+                "uni_synthesis",
+                f"grok-3 synthesis in={input_t} out={output_t}",
+                model="grok-3",
+                input_tokens=input_t,
+                output_tokens=output_t,
             )
         except Exception:
             pass

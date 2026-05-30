@@ -1,0 +1,71 @@
+Wave 14AV: Kuzu embedded KG via Python 3.13 venv subprocess bridge
+
+Per FREE_RESOURCES_BY_LANE_2026-05-30 Memory recommendation: Kuzu
+embedded graph DB gives Cypher queries for the KG (~18x faster than
+Neo4j). Wave 14AO had to defer because pip install kuzu fails on
+Python 3.14 (no cp314 wheels; Rust source build invokes make clean
+which fails). Wave 14AV gets it working anyway via brew Python 3.13.
+
+INSTALL:
+  brew install python@3.13   -> /opt/homebrew/bin/python3.13
+  python3.13 -m venv ~/dev/NCL/.venv313
+  ~/dev/NCL/.venv313/bin/python -m pip install kuzu  -> kuzu 0.11.3
+  (pre-built cp313 darwin-arm64 wheel, 4.1 MB)
+
+NEW FILES:
+
+  runtime/memory/kuzu_bridge.py
+    - Subprocess bridge module the main NCL brain (Python 3.14) uses
+      to talk to the Kuzu DB through the venv (Python 3.13).
+    - Public API:
+        is_available() -> bool
+        ensure_db() -> None
+        init_schema() -> bool   (idempotent CREATE NODE/REL TABLE IF
+                                 NOT EXISTS for Concept, Entity,
+                                 RELATES_TO, MENTIONS)
+        query(cypher, params)   -> list[dict]    (read)
+        execute(cypher, params) -> bool          (write)
+        query_async(...)        -> list[dict]    (asyncio.to_thread)
+        execute_async(...)      -> bool          (asyncio.to_thread)
+    - Subprocess overhead: ~80ms cold, ~30ms warm — acceptable for
+      sub-second Cypher queries.
+
+  runtime/memory/_kuzu_runner.py
+    - Tiny CLI tool that runs INSIDE the Python 3.13 venv.
+    - Reads JSON payload on stdin: op, cypher, params.
+    - Opens the DB at data/memory/kuzu/ncl_kg.kuzu, runs the query
+      or execute, writes JSON response to stdout.
+    - Returns {"rows": [...], "error": null} on success.
+
+SCHEMA (auto-installed by init_schema):
+  Concept(name STRING PK, kind STRING, importance INT64)
+  Entity (name STRING PK, kind STRING, source STRING)
+  RELATES_TO(FROM Concept TO Concept, rel_type STRING, weight DOUBLE)
+  MENTIONS  (FROM Entity  TO Concept, count INT64)
+
+VERIFIED LIVE END-TO-END:
+  is_available()        -> True
+  init_schema()         -> True (Concept + Entity + RELATES_TO +
+                                 MENTIONS tables created at
+                                 data/memory/kuzu/ncl_kg.kuzu)
+  Wrote 2 Concept nodes (bitcoin/asset/imp=90, halving/event/imp=80)
+  Wrote 1 RELATES_TO edge (bitcoin --affected_by w=0.9--> halving)
+  Cypher MATCH read back both nodes + the edge correctly.
+
+NEXT STEPS (deferred to future waves):
+  - Migrate the existing NetworkX KG persistence layer to write
+    nodes/edges into Kuzu in addition to (or instead of) the
+    NetworkX in-memory + JSONL persist path.
+  - Re-implement the Cross-Reference Engine theme convergence rules
+    as single Cypher queries instead of the N x M Python scan.
+  - Migrate contradicts_index.jsonl to a Kuzu CONTRADICTS edge table
+    so queries by unit_id become indexed lookups.
+
+DEPENDENCIES (one-time install):
+  brew install python@3.13
+  ~/dev/NCL/.venv313 (created by venv module)
+  kuzu 0.11.3 inside the venv
+
+The main brain stays on Python 3.14; no dependency churn there.
+The venv is a small (~150MB) isolated environment used only by
+the runner script.
