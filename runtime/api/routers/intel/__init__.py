@@ -3579,6 +3579,389 @@ async def x_posts_cached(
 
 
 # ─────────────────────────────────────────────────────────────────────
+# Wave 14BZ — Intel-tab redesign endpoints (NOW / STREAM / CONVERGENCE).
+# Three cross-source views replacing the old Pinned/Focus/Micro/Macro
+# overlap. Source-dedicated lanes (YouTube/Reddit/Polymarket/Trends/
+# News) use existing per-source endpoints — these three are the
+# AWAREBOT-aggregated cross-source views.
+# ─────────────────────────────────────────────────────────────────────
+
+
+def _signal_to_row(sig) -> dict:
+    """Compact row shape used by NOW/STREAM endpoints. Carries the
+    BERTopic + situational fields when present so iOS can chip them."""
+    md = getattr(sig, "metadata", {}) or {}
+    return {
+        "signal_id": getattr(sig, "signal_id", None),
+        "title": getattr(sig, "title", ""),
+        "content": (getattr(sig, "content", "") or "")[:280],
+        "source": _signal_source_str(sig),
+        "category": getattr(sig, "category", ""),
+        "direction": getattr(getattr(sig, "direction", None), "value", ""),
+        "importance": (
+            sig.importance_score() if hasattr(sig, "importance_score") else 0
+        ),
+        "composite_score": getattr(sig, "composite_score", None) or md.get("composite_score"),
+        "route_level": md.get("route_level") or getattr(sig, "route_level", None),
+        "score_factors": md.get("score_factors"),
+        "url": getattr(sig, "url", None),
+        "timestamp": (
+            sig.timestamp.isoformat() if getattr(sig, "timestamp", None) else None
+        ),
+        "tags": getattr(sig, "tags", []) or [],
+    }
+
+
+@router.get("/intel/now")
+async def intel_now(
+    hours: int = Query(default=4, ge=1, le=24),
+    limit: int = Query(default=50, ge=1, le=100),
+    intelligence=Depends(get_intelligence),
+    autonomous=Depends(get_autonomous),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """NOW lane — pinned working-context + last-N-hour FOCUSED signals.
+
+    Returns a dedup'd, single-list view of what NATRIX should look at
+    right now. Pinned items first (operator-flagged), then auto-salience
+    items, then any recent CRITICAL/HIGH route_level signals from the
+    last `hours` hours not already in working context.
+    """
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+
+    cutoff = _dt.now(_tz.utc) - _td(hours=hours)
+
+    pinned: list[dict] = []
+    autosalience: list[dict] = []
+    seen_ids: set[str] = set()
+
+    if autonomous and getattr(autonomous, "_working_context", None):
+        try:
+            ctx = autonomous._working_context.get_current()
+            if ctx:
+                for item in ctx.items:
+                    d = item.to_dict()
+                    sid = d.get("item_id") or d.get("id") or d.get("signal_id") or ""
+                    if sid:
+                        seen_ids.add(sid)
+                    if getattr(item, "pinned", False):
+                        pinned.append(d)
+                    else:
+                        autosalience.append(d)
+        except Exception as e:
+            log.warning("[intel/now] working_context read failed: %s", e)
+
+    recent: list[dict] = []
+    if intelligence:
+        try:
+            brief = await intelligence.get_latest_brief()
+            if brief and getattr(brief, "top_signals", None):
+                # Filter to last `hours` hours + CRITICAL/HIGH route_level
+                # OR composite_score >= 0.55 (focused tier floor).
+                for sig in brief.top_signals:
+                    ts = getattr(sig, "timestamp", None)
+                    if ts and ts < cutoff:
+                        continue
+                    md = getattr(sig, "metadata", {}) or {}
+                    route = str(md.get("route_level", "")).upper()
+                    composite = md.get("composite_score") or getattr(sig, "composite_score", 0)
+                    try:
+                        composite = float(composite or 0)
+                    except Exception:
+                        composite = 0.0
+                    if route not in ("CRITICAL", "HIGH") and composite < 0.55:
+                        continue
+                    sid = getattr(sig, "signal_id", None)
+                    if sid and sid in seen_ids:
+                        continue
+                    recent.append(_signal_to_row(sig))
+                    if sid:
+                        seen_ids.add(sid)
+        except Exception as e:
+            log.warning("[intel/now] brief read failed: %s", e)
+
+    merged = pinned[:limit] + autosalience[: limit - len(pinned)] + recent
+    merged = merged[:limit]
+
+    return {
+        "hours": hours,
+        "count": len(merged),
+        "breakdown": {
+            "pinned": len(pinned),
+            "autosalience": len(autosalience),
+            "recent_focused": len(recent),
+        },
+        "items": merged,
+    }
+
+
+@router.get("/intel/stream")
+async def intel_stream(
+    window: str = Query(default="24h", description="24h, 7d"),
+    sources: Optional[str] = Query(default=None, description="comma-separated"),
+    themes: Optional[str] = Query(default=None, description="comma-separated"),
+    min_score: float = Query(default=0.0, ge=0.0, le=1.0),
+    limit: int = Query(default=80, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    intelligence=Depends(get_intelligence),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """STREAM lane — micro/macro signals with filter facets.
+
+    Replaces the old Focus|Micro|Macro tier-row + Pinned overlap.
+    Renders the post-FOCUSED pool of signals. Source + theme filter
+    facets in the response shape so iOS can chip them.
+    """
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+
+    if window.endswith("h"):
+        hours = int(window.rstrip("h"))
+        cutoff = _dt.now(_tz.utc) - _td(hours=hours)
+    elif window.endswith("d"):
+        days = int(window.rstrip("d"))
+        cutoff = _dt.now(_tz.utc) - _td(days=days)
+    else:
+        cutoff = _dt.now(_tz.utc) - _td(hours=24)
+
+    source_filter: set[str] = set()
+    if sources:
+        source_filter = {s.strip().lower() for s in sources.split(",") if s.strip()}
+
+    theme_filter: set[str] = set()
+    if themes:
+        theme_filter = {t.strip() for t in themes.split(",") if t.strip()}
+
+    if not intelligence:
+        return {"window": window, "count": 0, "items": [], "facets": {}}
+
+    rows: list[dict] = []
+    facet_sources: dict[str, int] = {}
+    facet_themes: dict[str, int] = {}
+
+    try:
+        brief = await intelligence.get_latest_brief()
+        if brief and getattr(brief, "top_signals", None):
+            for sig in brief.top_signals:
+                ts = getattr(sig, "timestamp", None)
+                if ts and ts < cutoff:
+                    continue
+                md = getattr(sig, "metadata", {}) or {}
+                route = str(md.get("route_level", "")).upper()
+                if route in ("CRITICAL", "HIGH"):
+                    # FOCUSED tier goes to /intel/now, not here.
+                    continue
+                composite = md.get("composite_score") or getattr(sig, "composite_score", 0)
+                try:
+                    composite = float(composite or 0)
+                except Exception:
+                    composite = 0.0
+                if composite < min_score:
+                    continue
+                src = (_signal_source_str(sig) or "").lower()
+                if source_filter and src.split(":")[0] not in source_filter:
+                    continue
+                # BERTopic themes are in metadata.themes or tags prefixed bt:
+                sig_themes = set()
+                for tag in (getattr(sig, "tags", []) or []):
+                    if str(tag).startswith("bt:"):
+                        sig_themes.add(str(tag)[3:])
+                meta_themes = md.get("themes") or []
+                if isinstance(meta_themes, list):
+                    sig_themes.update(str(t) for t in meta_themes)
+                if theme_filter and not (sig_themes & theme_filter):
+                    continue
+                row = _signal_to_row(sig)
+                row["themes"] = sorted(sig_themes)
+                rows.append(row)
+                facet_sources[src.split(":")[0]] = facet_sources.get(src.split(":")[0], 0) + 1
+                for t in sig_themes:
+                    facet_themes[t] = facet_themes.get(t, 0) + 1
+    except Exception as e:
+        log.warning("[intel/stream] brief read failed: %s", e)
+        return {"window": window, "count": 0, "items": [], "facets": {}, "error": str(e)}
+
+    # Sort by composite_score desc, then importance
+    rows.sort(
+        key=lambda r: (
+            float(r.get("composite_score") or 0),
+            float(r.get("importance") or 0),
+        ),
+        reverse=True,
+    )
+    total = len(rows)
+    page = rows[offset : offset + limit]
+
+    return {
+        "window": window,
+        "min_score": min_score,
+        "sources_filter": sorted(source_filter) if source_filter else None,
+        "themes_filter": sorted(theme_filter) if theme_filter else None,
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "count": len(page),
+        "facets": {
+            "sources": dict(sorted(facet_sources.items(), key=lambda x: -x[1])),
+            "themes": dict(sorted(facet_themes.items(), key=lambda x: -x[1])[:30]),
+        },
+        "items": page,
+    }
+
+
+@router.get("/intel/convergence")
+async def intel_convergence(
+    hours: int = Query(default=24, ge=1, le=168),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """CONVERGENCE lane — Cross-Reference promotions ⨝ prediction
+    convergences joined on shared ticker/theme. One card per
+    converged ticker or theme with BOTH lineages attached.
+    """
+    import json as _json
+    import os as _os
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+    from pathlib import Path as _Path
+
+    base = _Path(_os.environ.get("NCL_BASE", str(_Path.home() / "dev" / "NCL")))
+    promo_path = base / "data" / "cross_reference" / "promotions.jsonl"
+    cutoff = _dt.now(_tz.utc) - _td(hours=hours)
+    cutoff_iso = cutoff.isoformat()
+
+    # Load cross-ref promotions
+    promotions: list[dict] = []
+    if promo_path.exists():
+        try:
+            with promo_path.open() as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        row = _json.loads(line)
+                    except Exception:
+                        continue
+                    ts = row.get("promoted_at") or ""
+                    if ts and ts < cutoff_iso:
+                        continue
+                    promotions.append(row)
+        except Exception as e:
+            log.warning("[intel/convergence] promo read failed: %s", e)
+
+    # Load convergent predictions (reuse the existing convergence builder
+    # logic from predictions.py without re-entering the handler).
+    predictions: list[dict] = []
+    pred_dir = _Path(_os.getenv("NCL_DATA_DIR", "data")) / "predictions"
+    if pred_dir.exists():
+        for pattern in ["pred-*.json", "council/council-pred-*.json"]:
+            for f in sorted(pred_dir.glob(pattern), reverse=True)[:50]:
+                try:
+                    data = _json.loads(f.read_text())
+                    preds = []
+                    if isinstance(data, list):
+                        preds = data
+                    elif isinstance(data, dict) and "predictions" in data:
+                        preds = data["predictions"]
+                    elif isinstance(data, dict):
+                        preds = [data]
+                    for pred in preds:
+                        conv = pred.get("convergence_signals") or pred.get("convergence") or []
+                        if not conv:
+                            continue
+                        predictions.append({
+                            "prediction_id": pred.get("prediction_id"),
+                            "topic": pred.get("topic"),
+                            "confidence": pred.get("confidence"),
+                            "convergence_signals": conv,
+                        })
+                except Exception:
+                    continue
+
+    # Join on ticker (cross-ref) and topic-substring (prediction).
+    # Each card key = ticker (uppercased) when present, else theme name.
+    cards: dict[str, dict] = {}
+
+    for p in promotions:
+        rule = p.get("rule", "")
+        ticker = (p.get("ticker") or "").upper()
+        theme = p.get("theme") or ""
+        key = ticker or theme or f"promo_{p.get('promoted_at','')}"
+        c = cards.setdefault(
+            key,
+            {
+                "key": key,
+                "kind": "ticker" if ticker else "theme",
+                "ticker": ticker or None,
+                "theme": theme or None,
+                "xref_promotions": [],
+                "predictions": [],
+                "sources": set(),
+                "first_seen": p.get("promoted_at", ""),
+            },
+        )
+        c["xref_promotions"].append({
+            "rule": rule,
+            "promoted_at": p.get("promoted_at"),
+            "convergence_strength": p.get("convergence_strength", 0),
+            "signal_ids": p.get("signal_ids", []),
+            "sample_titles": p.get("sample_titles", []),
+        })
+        for s in (p.get("sources") or []):
+            c["sources"].add(s)
+
+    # Attach predictions whose topic contains a known ticker/theme key.
+    keys_lower = {k.lower(): k for k in cards.keys()}
+    for pred in predictions:
+        topic = (pred.get("topic") or "").lower()
+        attached = False
+        for klower, korig in keys_lower.items():
+            if klower and klower in topic:
+                cards[korig]["predictions"].append(pred)
+                attached = True
+                break
+        if not attached:
+            # Prediction without a matching xref — create its own card
+            key = f"prediction_{pred.get('prediction_id','?')}"
+            cards[key] = {
+                "key": key,
+                "kind": "prediction_only",
+                "ticker": None,
+                "theme": pred.get("topic"),
+                "xref_promotions": [],
+                "predictions": [pred],
+                "sources": set(),
+                "first_seen": "",
+            }
+
+    # Serialize sets to sorted lists; sort cards by convergence strength.
+    out_cards: list[dict] = []
+    for c in cards.values():
+        c["sources"] = sorted(c["sources"])
+        c["has_xref"] = bool(c["xref_promotions"])
+        c["has_prediction"] = bool(c["predictions"])
+        c["dual"] = c["has_xref"] and c["has_prediction"]
+        out_cards.append(c)
+
+    out_cards.sort(
+        key=lambda c: (
+            c["dual"],  # dual lineage first
+            len(c["xref_promotions"]) + len(c["predictions"]),
+        ),
+        reverse=True,
+    )
+
+    return {
+        "hours": hours,
+        "count": len(out_cards),
+        "dual_count": sum(1 for c in out_cards if c["dual"]),
+        "xref_only": sum(1 for c in out_cards if c["has_xref"] and not c["has_prediction"]),
+        "prediction_only": sum(
+            1 for c in out_cards if c["has_prediction"] and not c["has_xref"]
+        ),
+        "cards": out_cards,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────
 # Wave 14BT — Macro snapshot (Fed RSS + CFTC COT)
 # Surfaces the free-source macro data NCL already collects via
 # free_sources.fetch_fed_speeches / fetch_fed_press_releases /
