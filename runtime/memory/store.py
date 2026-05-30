@@ -1927,10 +1927,79 @@ class MemoryStore:
 
     # ── Vector Search (ChromaDB) ─────────────────────────────────────────────
     # Adds semantic similarity search alongside existing tag-based search.
+# Wave 14AO (2026-05-30): pluggable ChromaDB embedding function.
+# When NCL_MEMORY_EMBED_MODEL is set, swap from Chroma's default
+# embedding to a sentence-transformers model. Common choices:
+#   - "bge-m3" -> BAAI/bge-m3 (568M, multilingual, 8K ctx, MTEB ~62.6)
+#   - "bge-large-en-v1.5" -> BAAI/bge-large-en-v1.5 (335M, English)
+#   - "nomic-embed-text" -> nomic-ai/nomic-embed-text-v1.5 (137M)
+# Falls back to None on any import / load failure → callers use Chroma
+# default. Cached at module level so we only load once per process.
+_CHROMA_EMBED_FN_CACHE: object = None
+_CHROMA_EMBED_FN_ATTEMPTED: bool = False
+
+
+def _resolve_embed_model_id(short: str) -> str:
+    aliases = {
+        "bge-m3": "BAAI/bge-m3",
+        "bge-large-en-v1.5": "BAAI/bge-large-en-v1.5",
+        "bge-large-en": "BAAI/bge-large-en-v1.5",
+        "nomic-embed-text": "nomic-ai/nomic-embed-text-v1.5",
+        "minilm": "sentence-transformers/all-MiniLM-L6-v2",
+    }
+    return aliases.get(short, short)
+
+
+def _load_chroma_embed_fn():  # noqa: ANN201 - dynamic chromadb type
+    """Build the configured embedding function for ChromaDB.
+
+    Returns None when no model configured or any load failure. Cached.
+    """
+    global _CHROMA_EMBED_FN_CACHE, _CHROMA_EMBED_FN_ATTEMPTED
+    if _CHROMA_EMBED_FN_CACHE is not None:
+        return _CHROMA_EMBED_FN_CACHE
+    if _CHROMA_EMBED_FN_ATTEMPTED:
+        return None
+    _CHROMA_EMBED_FN_ATTEMPTED = True
+
+    model_short = os.environ.get("NCL_MEMORY_EMBED_MODEL", "").strip()
+    if not model_short:
+        return None
+    model_id = _resolve_embed_model_id(model_short)
+    try:
+        from chromadb.utils import embedding_functions  # type: ignore
+
+        device = "cpu"
+        try:
+            import torch  # type: ignore
+
+            if torch.backends.mps.is_available():
+                device = "mps"
+        except Exception:
+            pass
+        fn = embedding_functions.SentenceTransformerEmbeddingFunction(
+            model_name=model_id,
+            device=device,
+        )
+        setattr(fn, "_ncl_label", f"{model_id}@{device}")
+        _CHROMA_EMBED_FN_CACHE = fn
+        return fn
+    except Exception as e:
+        log.warning("[chromadb] embedding function load failed for %r: %s", model_id, e)
+        return None
+
+
     # Falls back to keyword matching if chromadb is not installed.
 
     def _init_vector_db(self) -> bool:
-        """Lazily initialize typed ChromaDB collections. Returns True on success."""
+        """Lazily initialize typed ChromaDB collections. Returns True on success.
+
+        Wave 14AO (2026-05-30): when NCL_MEMORY_EMBED_MODEL is set to a
+        sentence-transformers model id (default BGE-M3 multilingual when
+        the env var is "bge-m3"), wires a SentenceTransformerEmbeddingFunction
+        into every collection. New collections embed with BGE-M3; existing
+        collections keep their original embedder until reindex.
+        """
         if hasattr(self, "_chroma_collections"):
             return bool(self._chroma_collections)
         try:
@@ -1938,16 +2007,25 @@ class MemoryStore:
 
             self._chroma_client = chromadb.PersistentClient(path=str(self.data_dir / "chromadb"))
             self._chroma_collections = {}
+            # Build optional custom embedding function before collection creation.
+            embed_fn = _load_chroma_embed_fn()
+            mk_kwargs: dict = {"metadata": {"hnsw:space": "cosine"}}
+            if embed_fn is not None:
+                mk_kwargs["embedding_function"] = embed_fn
+                log.info(
+                    "[chromadb] using custom embedding function: %s",
+                    getattr(embed_fn, "_ncl_label", repr(embed_fn))[:80],
+                )
             # Create/get all typed collections
             for mem_type, col_name in COLLECTION_MAP.items():
                 self._chroma_collections[mem_type] = self._chroma_client.get_or_create_collection(
                     name=col_name,
-                    metadata={"hnsw:space": "cosine"},
+                    **mk_kwargs,
                 )
             # Legacy default collection for backward compatibility
             self._chroma_collections["default"] = self._chroma_client.get_or_create_collection(
                 name=DEFAULT_COLLECTION,
-                metadata={"hnsw:space": "cosine"},
+                **mk_kwargs,
             )
             # Keep _chroma_collection for any code that still references it
             self._chroma_collection = self._chroma_collections["default"]
