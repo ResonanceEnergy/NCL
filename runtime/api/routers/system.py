@@ -337,6 +337,8 @@ _MANAGED_FLAGS = (
     "NCL_MINHASH_DEDUP_ENABLED",
     "NCL_CROSS_REF_BERTOPIC_ENABLED",
     "NCL_MEMORY_EMBED_MODEL",
+    # Wave 14BM — local Ollama A/B for Brief Pro council members.
+    "NCL_BRIEF_COUNCIL_LOCAL_AB",
 )
 
 

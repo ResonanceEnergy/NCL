@@ -46,6 +46,22 @@ _MODEL_FLOW = "gemini-2.5-flash"  # Google — flow analysis (GOOGLE_API_KEY)
 _MODEL_TECH = "gpt-4o"  # OpenAI — chart setups
 _MODEL_CHAIR = "claude-opus-4-20250514"  # heaviest synthesis
 
+
+def _resolve_council_models() -> tuple[str, str, str, str, str]:
+    """Wave 14BM — env-gated A/B that swaps the 2 cheapest paid members
+    for local Ollama. Reduces ~$0.42/brief → ~$0.22/brief while keeping
+    5-perspective diversity (Chair + Macro + Tech stay paid).
+
+    Set NCL_BRIEF_COUNCIL_LOCAL_AB=true to enable.
+    """
+    if os.environ.get("NCL_BRIEF_COUNCIL_LOCAL_AB", "").lower() in (
+        "1", "true", "yes", "on",
+    ):
+        pulse = os.environ.get("NCL_BRIEF_PULSE_LOCAL_MODEL", "ollama:qwen3:32b")
+        flow = os.environ.get("NCL_BRIEF_FLOW_LOCAL_MODEL", "ollama:llama3.1:70b")
+        return _MODEL_MACRO, pulse, flow, _MODEL_TECH, _MODEL_CHAIR
+    return _MODEL_MACRO, _MODEL_PULSE, _MODEL_FLOW, _MODEL_TECH, _MODEL_CHAIR
+
 # How much of the prep pack each member sees (token budget per call).
 _PACK_BUDGET_CHARS = 12000
 
@@ -441,6 +457,40 @@ async def _gemini_call(
     return text, in_tok, out_tok
 
 
+async def _ollama_call(
+    model: str,
+    prompt: str,
+    *,
+    max_tokens: int = 3000,
+    timeout_s: float = 120.0,
+    label: str = "council",
+) -> tuple[str, int, int]:
+    """Wave 14BM — local Ollama HTTP API call. Strips ``ollama:`` prefix
+    so callers can use either form. No cost — free local inference.
+    """
+    if model.startswith("ollama:"):
+        model = model[len("ollama:") :]
+    host = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
+    import httpx
+
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "stream": False,
+        "options": {"num_predict": max_tokens},
+    }
+    async with httpx.AsyncClient(timeout=timeout_s) as client:
+        r = await client.post(f"{host}/api/generate", json=payload)
+        r.raise_for_status()
+        body = r.json()
+    text = body.get("response", "") or ""
+    # Ollama returns prompt_eval_count + eval_count for token counts.
+    in_tok = int(body.get("prompt_eval_count", 0))
+    out_tok = int(body.get("eval_count", 0))
+    log.info("[council/%s] %s (ollama) in=%d out=%d", label, model, in_tok, out_tok)
+    return text, in_tok, out_tok
+
+
 def _is_credit_or_perm_error(e: Exception) -> bool:
     """Detect 'no credits / no permission' across providers.
 
@@ -520,6 +570,25 @@ async def _dispatch_call(
                 prompt,
                 max_tokens=max_tokens,
                 timeout_s=timeout_s,
+                label=label,
+            )
+        # Wave 14BM — local Ollama support. Both prefix "ollama:" and
+        # bare model ids like "qwen3:32b" / "llama3.1:70b" / "deepseek-r1:32b"
+        # are routed to the local daemon. Use longer default timeout —
+        # local large models can take 30-60s on Mac Studio.
+        if (
+            m.startswith("ollama:")
+            or m.startswith("qwen")
+            or m.startswith("llama")
+            or m.startswith("deepseek-r1")
+            or m.startswith("mistral")
+            or m.startswith("phi")
+        ):
+            return await _ollama_call(
+                model,
+                prompt,
+                max_tokens=max_tokens,
+                timeout_s=max(timeout_s, 120.0),
                 label=label,
             )
         raise RuntimeError(f"unknown model provider for: {model!r}")
@@ -660,12 +729,17 @@ async def run_council(pack: dict, api_key: str = "") -> dict:
         api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     started = time.time()
 
+    # Wave 14BM — resolve actual model ids (A/B may swap pulse + flow
+    # for local Ollama). Recorded into the synthesis envelope below so
+    # the operator can see which models ran on each brief.
+    m_macro, m_pulse, m_flow, m_tech, m_chair = _resolve_council_models()
+
     # Members in parallel
     macro, pulse, flow, tech = await asyncio.gather(
-        _run_member("macro", _macro_prompt, _MODEL_MACRO, pack, api_key),
-        _run_member("pulse", _pulse_prompt, _MODEL_PULSE, pack, api_key),
-        _run_member("flow", _flow_prompt, _MODEL_FLOW, pack, api_key),
-        _run_member("technical", _tech_prompt, _MODEL_TECH, pack, api_key),
+        _run_member("macro", _macro_prompt, m_macro, pack, api_key),
+        _run_member("pulse", _pulse_prompt, m_pulse, pack, api_key),
+        _run_member("flow", _flow_prompt, m_flow, pack, api_key),
+        _run_member("technical", _tech_prompt, m_tech, pack, api_key),
     )
     members_succeeded = [
         n
@@ -684,7 +758,7 @@ async def run_council(pack: dict, api_key: str = "") -> dict:
 
     # Chair synthesis
     chair_text, chair_in, chair_out = await _dispatch_call(
-        _MODEL_CHAIR,
+        m_chair,
         _chair_prompt(pack, members),
         max_tokens=4000,
         timeout_s=90.0,
@@ -692,6 +766,19 @@ async def run_council(pack: dict, api_key: str = "") -> dict:
         label="chair",
     )
     synthesis = _extract_json(chair_text)
+    # Wave 14BM — stamp council member models on the synthesis so the
+    # iOS / dashboard / debug consumers can see which providers ran.
+    synthesis.setdefault("_meta", {})
+    synthesis["_meta"]["council_models"] = {
+        "macro": m_macro,
+        "pulse": m_pulse,
+        "flow": m_flow,
+        "technical": m_tech,
+        "chair": m_chair,
+    }
+    synthesis["_meta"]["local_ab_enabled"] = os.environ.get(
+        "NCL_BRIEF_COUNCIL_LOCAL_AB", ""
+    ).lower() in ("1", "true", "yes", "on")
     synthesis["_meta"] = {
         "members_succeeded": members_succeeded,
         "elapsed_s": round(time.time() - started, 1),
