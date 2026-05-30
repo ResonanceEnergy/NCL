@@ -3226,7 +3226,10 @@ class AutonomousScheduler:
                         "https://api.anthropic.com/v1/messages",
                         headers=anthropic_headers,
                         json={
-                            "model": "claude-sonnet-4",
+                            # Wave 14AK (2026-05-30): fixed bare model id
+                            # "claude-sonnet-4" → dated id. Wave 13 sweep
+                            # missed this site; was silently 404-retrying.
+                            "model": "claude-sonnet-4-20250514",
                             "max_tokens": 1024,
                             "messages": [{"role": "user", "content": prompt}],
                         },
@@ -3244,7 +3247,7 @@ class AutonomousScheduler:
                         cost,
                         "night_watch_council",
                         f"NW council {label} -- Sonnet analysis",
-                        {"model": "claude-sonnet-4", "council": label, "step": "analysis"},
+                        {"model": "claude-sonnet-4-20250514", "council": label, "step": "analysis"},
                     )
                     log.info(
                         "[NIGHT-WATCH/COUNCIL] %s -- Sonnet analysis done ($%.4f)", label, cost
@@ -3339,7 +3342,12 @@ class AutonomousScheduler:
                         "https://api.anthropic.com/v1/messages",
                         headers=anthropic_headers,
                         json={
-                            "model": "claude-opus-4-6",
+                            # Wave 14AK: "claude-opus-4-6" doesn't exist —
+                            # was 404-retrying since Wave 13. Mini-council
+                            # chair gracefully demoted to Sonnet 4 (the audit
+                            # noted Opus is overkill here; user doesn't read
+                            # every mini-council chair output).
+                            "model": "claude-sonnet-4-20250514",
                             "max_tokens": 1024,
                             "messages": [{"role": "user", "content": council_synthesis_prompt}],
                         },
@@ -3357,7 +3365,7 @@ class AutonomousScheduler:
                         cost,
                         "night_watch_council",
                         f"NW council {label} -- Opus synthesis",
-                        {"model": "claude-opus-4-6", "council": label, "step": "synthesis"},
+                        {"model": "claude-sonnet-4-20250514", "council": label, "step": "synthesis"},
                     )
                     log.info(
                         "[NIGHT-WATCH/COUNCIL] %s -- Opus synthesis done ($%.4f, total=$%.4f)",

@@ -227,11 +227,17 @@ Format your response as JSON with keys: prediction, confidence (0-1), reasoning.
         try:
             from ..llm import chat  # lazy import — avoids circular ref
 
+            # Wave 14AK (2026-05-30) — Tier B migration. Predictor JSON
+            # emit was Sonnet 4 at $3/M input / $15/M output. DeepSeek V3
+            # ($0.14/$0.28 per M, ~18× cheaper) handles structured JSON
+            # emission with equivalent quality. Override via env when needed.
+            _model = os.getenv("NCL_PREDICTOR_SUMMARY_MODEL", "deepseek-chat")
+            _budget = "deepseek" if _model.startswith("deepseek") else "anthropic"
             llm_result = await chat(
-                model=os.getenv("NCL_PREDICTOR_SUMMARY_MODEL", "claude-sonnet-4-20250514"),
+                model=_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=512,
-                budget_key="anthropic",
+                budget_key=_budget,
                 timeout_s=12.0,
             )
             text = llm_result.text
