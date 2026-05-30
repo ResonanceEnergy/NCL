@@ -144,6 +144,17 @@ def seed_default_wisdom() -> int:
     except Exception as e:  # noqa: BLE001
         log.debug("[WISDOM] v2 extension append failed: %s", e)
 
+    # Wave 14AZ — third extension pass (~330 more entries).
+    try:
+        from .wisdom_corpus_v3 import extend_wisdom_corpus as _v3
+
+        added = _v3(f)
+        if added:
+            log.info("[WISDOM] Wave 14AZ appended %d more entries", added)
+        written += added
+    except Exception as e:  # noqa: BLE001
+        log.debug("[WISDOM] v3 extension append failed: %s", e)
+
     return written
 
 
