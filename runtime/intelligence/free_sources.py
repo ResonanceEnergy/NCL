@@ -31,6 +31,7 @@ Consumers wire each fetcher in the appropriate place:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from datetime import datetime, timedelta, timezone
@@ -437,12 +438,13 @@ async def fetch_open_meteo_air_quality(city: str = "edmonton") -> dict:
 _EDMONTON_EVENTS_DATASET = "https://data.edmonton.ca/resource/64u3-c7bh.json"
 # "Public Events Calendar Listings"
 
-# Calgary doesn't publish a curated event-listings dataset on the Socrata
-# portal (the obvious ids point at building permits / community
-# development — see outputs/_probe_schemas.py). Wave 14AH leaves this as
-# a stub that returns []; future work should try the City of Calgary's
-# Tourism Calgary or `visitcalgary.com` event RSS instead.
+# Wave 14AW (2026-05-30): Calgary doesn't publish an events dataset on
+# the Socrata portal, but Eventbrite Canada's all-Calgary page renders
+# a JSON-LD ItemList of ~20 upcoming events directly in HTML — public,
+# no auth, no rate limit beyond reasonable politeness. We parse the
+# JSON-LD block out of the HTML and project to NCL's event row shape.
 _CALGARY_EVENTS_DATASETS: tuple[str, ...] = ()
+_CALGARY_EVENTBRITE_URL = "https://www.eventbrite.ca/d/canada--calgary/all-events/"
 
 
 async def fetch_edmonton_events(days_ahead: int = 14, limit: int = 50) -> list[dict]:
@@ -500,49 +502,104 @@ async def fetch_edmonton_events(days_ahead: int = 14, limit: int = 50) -> list[d
 
 
 async def fetch_calgary_events(days_ahead: int = 14, limit: int = 50) -> list[dict]:
-    """Public events from data.calgary.ca for the next N days."""
+    """Wave 14AW: public events for Calgary via Eventbrite Canada JSON-LD.
+
+    data.calgary.ca has no events dataset (probed 2026-05-30). The
+    Eventbrite Canada all-events page for Calgary embeds a JSON-LD
+    ItemList of ~20 upcoming events as ``application/ld+json`` blocks.
+    We pull the page with a browser UA, regex-extract the JSON-LD
+    blocks, find the Event entries, and project to NCL's row shape.
+
+    Returns rows: {title, date, end_date, venue, city, source, url,
+    description, category}. Sorted by date asc. Cached 2h.
+    """
+    import re as _re
+
     cache_key = f"cal:events:{days_ahead}"
     cached = _cache_get(cache_key)
     if cached is not None:
         return list(cached)[:limit]  # type: ignore[arg-type]
 
     client = await _http()
-    start = datetime.now(timezone.utc).date()
-    end = start + timedelta(days=days_ahead)
-    out: list[dict] = []
-    for ds in _CALGARY_EVENTS_DATASETS:
-        try:
-            params = {
-                "$where": f"start_date >= '{start.isoformat()}' AND start_date <= '{end.isoformat()}'",
-                "$order": "start_date ASC",
-                "$limit": str(limit),
-            }
-            r = await client.get(ds, params=params)
-            r.raise_for_status()
-            rows = r.json() or []
-        except Exception as e:
-            log.debug("[calgary-events] fetch failed for %s: %s", ds, e)
-            continue
-        for row in rows:
-            title = row.get("name") or row.get("event_name") or ""
-            if not title:
-                continue
-            out.append(
-                {
-                    "title": title,
-                    "category": (row.get("category") or row.get("event_type") or "local").lower(),
-                    "date": row.get("start_date") or row.get("event_start_date") or "",
-                    "end_date": row.get("end_date") or row.get("event_end_date") or "",
-                    "venue": row.get("venue") or row.get("location") or "",
-                    "city": "calgary",
-                    "source": "data.calgary.ca",
-                    "url": row.get("url") or row.get("link") or "",
-                    "description": (row.get("description") or "")[:300],
-                }
-            )
-        if out:
-            break
+    today = datetime.now(timezone.utc).date()
+    horizon = today + timedelta(days=days_ahead)
 
+    try:
+        r = await client.get(
+            _CALGARY_EVENTBRITE_URL,
+            headers={"User-Agent": "Mozilla/5.0 (NCL personal-AI)"},
+            timeout=20.0,
+        )
+        r.raise_for_status()
+        html = r.text
+    except Exception as e:
+        log.warning("[calgary-events] eventbrite fetch failed: %s", e)
+        return []
+
+    out: list[dict] = []
+    try:
+        blocks = _re.findall(
+            r'<script type="application/ld\+json">(.+?)</script>',
+            html,
+            _re.DOTALL,
+        )
+        for block in blocks:
+            try:
+                data = json.loads(block)
+            except Exception:
+                continue
+            # ItemList containing event refs
+            if isinstance(data, dict) and data.get("@type") == "ItemList":
+                items = data.get("itemListElement") or []
+                for entry in items:
+                    if not isinstance(entry, dict):
+                        continue
+                    item = entry.get("item") if isinstance(entry.get("item"), dict) else entry
+                    if not isinstance(item, dict):
+                        continue
+                    title = (item.get("name") or "").strip()
+                    if not title:
+                        continue
+                    raw_start = item.get("startDate") or ""
+                    raw_end = item.get("endDate") or ""
+                    try:
+                        evt_date = datetime.fromisoformat(
+                            raw_start.replace("Z", "+00:00")
+                        ).date()
+                    except Exception:
+                        try:
+                            evt_date = datetime.fromisoformat(raw_start[:10]).date()
+                        except Exception:
+                            evt_date = None
+                    if evt_date is not None and not (today <= evt_date <= horizon):
+                        continue
+                    location = item.get("location") or {}
+                    venue = ""
+                    if isinstance(location, dict):
+                        venue = (
+                            location.get("name", "")
+                            or (location.get("address") or {}).get("addressLocality", "")
+                            if isinstance(location.get("address"), dict)
+                            else location.get("name", "") or ""
+                        )
+                    out.append(
+                        {
+                            "title": title[:200],
+                            "category": "local",
+                            "date": (evt_date.isoformat() if evt_date else raw_start[:10]),
+                            "end_date": raw_end[:10] if raw_end else "",
+                            "venue": (venue or "")[:120],
+                            "city": "calgary",
+                            "source": "eventbrite.ca",
+                            "url": item.get("url", ""),
+                            "description": (item.get("description") or "")[:300],
+                        }
+                    )
+    except Exception as e:
+        log.warning("[calgary-events] JSON-LD parse failed: %s", e)
+
+    # Sort by date
+    out.sort(key=lambda r: r["date"] or "9999")
     _cache_put(cache_key, out, ttl_s=3600 * 2)
     return out[:limit]
 

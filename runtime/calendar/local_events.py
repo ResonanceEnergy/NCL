@@ -545,6 +545,39 @@ async def get_local_events(
         except Exception as e:
             log.debug("[local-events] edmonton open-data fetch failed: %s", e)
 
+    # Wave 14AW (2026-05-30): Calgary events from Eventbrite Canada JSON-LD.
+    # data.calgary.ca has no events dataset; this is the working fallback.
+    if city_id == "calgary":
+        try:
+            from ..intelligence import free_sources as _fs
+
+            window_days = max(1, (end - start).days)
+            cgy_events = await _fs.fetch_calgary_events(days_ahead=window_days, limit=100)
+            for row in cgy_events:
+                d = row.get("date", "")
+                if not d:
+                    continue
+                try:
+                    evt_date = date.fromisoformat(d[:10])
+                except Exception:
+                    continue
+                if not (start <= evt_date <= end):
+                    continue
+                events.append(
+                    {
+                        "date": evt_date.isoformat(),
+                        "title": row["title"][:120],
+                        "venue": row.get("venue", ""),
+                        "category": "local",
+                        "city": "calgary",
+                        "source": "eventbrite.ca",
+                        "impact": "low",
+                        "url": row.get("url", ""),
+                    }
+                )
+        except Exception as e:
+            log.debug("[local-events] calgary eventbrite fetch failed: %s", e)
+
     # Enrich with category metadata
     for event in events:
         cat = event.get("category", "local")
