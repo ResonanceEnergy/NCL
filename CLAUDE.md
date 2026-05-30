@@ -1,6 +1,69 @@
 # NCL (NUREALCORTEXLINK) — Standalone Personal-AI Brain
 
-**Status**: Authoritative spec, rewritten 2026-05-23, updated 2026-05-25 (Wave 14A-G arc) and 2026-05-29 (Wave 14X + 14Y arcs — see latest summaries first below) — supersedes pre-retirement docs in `archive/docs-pre-retirement/`.
+**Status**: Authoritative spec, rewritten 2026-05-23, updated 2026-05-25 (Wave 14A-G arc), 2026-05-29 (Wave 14X + 14Y arcs), and 2026-05-30 (Wave 14AA-14BT arcs — see top block below) — supersedes pre-retirement docs in `archive/docs-pre-retirement/`.
+
+**Recent wave summary (2026-05-30)** — **REVAMP execution arc** (NATRIX's "build all" directive + 12-hour hammer session, ~30 waves):
+
+The morning began with NATRIX's flagship directive: rebuild the brief, integrate BERTopic / GDELT / SEC EDGAR / FinBERT2 / Tradier / CFTC COT / Edmonton+Calgary open data / Fed RSS / Open-Meteo / WhisperX / Piper TTS / Stoic corpus / BGE-reranker / BGE-M3 / Kuzu / MinHashLSH, plus a 4-tier LLM hierarchy (DeepSeek V3, Groq Llama 3.3 70B, local Ollama qwen3:32b + deepseek-r1, full local stack). All shipped without deviation, plus a 16-wave operator/dashboard arc that closes the cost-visibility loop:
+
+**Waves 14AA → 14AZ** — REVAMP build-all:
+- **14AG** — DeepSeek V3 + Groq Llama 3.3 70B provider plumbing in `runtime/llm/client.py`. Multi-provider routing by model-name prefix (claude/deepseek/llama/grok/gpt/gemini).
+- **14AH** — Free data sources added to `runtime/intelligence/free_sources.py`: CCXT (crypto), Federal Reserve RSS speeches + press releases, CFTC TFF Aggregated dataset `gpe5-46if` for Commitments-of-Traders, Open-Meteo Air Quality (UV/pollen/AQI), Edmonton+Calgary open-data portals.
+- **14AI** — Memory upgrades: BGE-reranker-v2-m3 cross-encoder post-RRF stage + datasketch MinHashLSH for near-duplicate detection.
+- **14AJ + 14AU** — FinBERT + Twitter-RoBERTa wired into AWAREBOT scorer as the local sentiment factor (MPS-accelerated, cuts Sonnet calls).
+- **14AK + 14AS** — 24 Tier B Sonnet sites migrated to DeepSeek V3 (~$0.27 → $0.014 per 1M tokens).
+- **14AL + 14AT + 14AZ** — Stoic public-domain corpus pushed from 50 → 800+ entries in the wisdom rotator (zero LLM cost).
+- **14AM** — SEC EDGAR full-text + Form 4 insider + earnings calendar, GDELT 2.0 DOC API geopolitical events, Tradier sandbox aggregated Greeks for OPTIONS tab.
+- **14AN** — BERTopic dynamic theme clusters in Cross-Reference Engine (`runtime/cross_reference/bertopic_themes.py`) replacing the 5 hardcoded keyword clusters; lazy-loaded + env-gated.
+- **14AO + 14AX** — BGE-M3 multilingual embeddings (1024-dim, MPS-accelerated). Kuzu embedded graph DB via Python 3.13 brew venv + subprocess bridge (Python 3.14 incompatible with kuzu).
+- **14AP** — WhisperX-equivalent voice journaling (mlx-whisper + pyannote.audio overlap-merge for speaker labels) + Piper TTS for spoken-brief render.
+- **14AQ** — Calendar lane financial-vs-infotainment split, surfaced via `/calendar/events/split?city_id=`.
+- **14AR** — MinHashLSH wired into memory `create_unit` hot path as a near-dup write gate.
+- **14AW** — Calgary tourism events scrape from Eventbrite Canada JSON-LD (17 live events; the data.calgary.ca portal doesn't host an events dataset).
+- **14AY** — REST endpoints for spoken brief audio + voice journal entry upload (multipart).
+- **14BA + 14BB + 14BC + 14BD** — iOS BriefLandingCard audio Play button + Calendar split-section rendering + JournalView voice-entry mic + PM Debrief audio render hook.
+
+**Waves 14BE → 14BT** — Operator visibility + cost-control arc (~16 waves):
+
+- **14BE** (`afc0037`) — Spend dashboard endpoint + HTML page at `GET /system/costs/dashboard.json` + `GET /system/costs/dashboard` (HTML with bar charts). `_compute_spend_dashboard_data` helper shared by both. By-source-model attribution dominated by `?` ("anthropic/?" $71.93) pre-14BG.
+
+- **14BF** (`9790137` + iOS `f935fd9`) — Operator env-flag toggles. `GET/POST /system/env` with `_MANAGED_FLAGS` whitelist (`NCL_FUSION_BGE_RERANK_ENABLED`, `NCL_MINHASH_DEDUP_ENABLED`, `NCL_CROSS_REF_BERTOPIC_ENABLED`, `NCL_MEMORY_EMBED_MODEL`, `NCL_BRIEF_COUNCIL_LOCAL_AB`). Writes `~/dev/NCL/.env.flags` sourced by `scripts/launch-brain.sh` between `.env` and PYTHONPATH. iOS `Settings → Brain Flags` section with 4 toggles + 1 Picker.
+
+- **14BG** (`d081200`) — `record_cost` model attribution across 16 silent sites. Threaded `model=` kwarg through llm/client.py (covers every `complete_chat` caller) + Haiku journal-reflection + YTC per-video + nightshift rollup + awarebot brief + brief pipeline + intel summary + uni gatherer/synthesizer + LDE + swarm + war room + xAI analyzer + 3 xAI scanners + calendar todo + goal synth + vision board. Dashboard `by_source_model` now attributes on every new call.
+
+- **14BH** (FirstStrike `a4a91fa`) — Spend chip on `BriefLandingCard.header`. `SpendChip.swift` ~120 LOC fetches `/system/costs/dashboard.json?days=1` on 60s timer. Green ≤ $10 / yellow ≤ $20 / red > $20 (daily-cap split).
+
+- **14BI** (`64999b6` + iOS `c5c18f7`) — Form 4 insider chip on Portfolio tab. New `GET /portfolio/insider/form4?days_back=N` walks held tickers, calls `fetch_sec_form4_insider`, returns grouped rows. iOS `InsiderForm4Chip.swift` ~180 LOC hides when zero filings; tap-to-expand sheet listing ticker + date + company + "Open filing" link.
+
+- **14BJ** (`622dbe0`) — AWAREBOT source-stratified BERTopic. Per-source models under `data/cross_reference/bertopic_model/{source}/`. `train_source_stratified_bertopic` + `load_source_stratified_bertopic` + `classify_themes_for_source` + bootstrap script `scripts/train_source_stratified_bertopic.py`. Trained on 14d (27,304 signals) producing 8 models: reddit (244 topics), options_flow (276), google_trends (101), polymarket (45), youtube (24), news (5), city_events (2), unknown (9). Per-source models take precedence over the global model; global remains as fallback.
+
+- **14BK** (`9b88e7e`) — BERTopic weekly retrain (Sun 04:00 ET) + manual fire endpoint. New `runtime/cross_reference/retrain_loop.py` with `retrain_once()` + `_bertopic_retrain_loop()`. Scheduler registered as `ncl-bertopic-retrain` (34 → 35 total loops). New `POST /system/bertopic/retrain` + `GET /system/bertopic/status`. In-process cache invalidates after each cycle.
+
+- **14BL** (`c33443c`) — AWAREBOT scorer reads BERTopic themes via situational. `compute_situational_relevance` gains `themes_active` + `source` kwargs (+0.30 boost on theme overlap with active context). `AwarebotAgent._get_situational_ctx()` TTL-cached (30 min) reads today's morning quiz + Brief Pro topics. `score_signal_realtime` now passes `situational=` to `compute_composite_score`.
+
+- **14BM** (`c8f1394` + iOS `a2f41f1`) — Brief Pro council compression A/B. New `_ollama_call` helper + `_resolve_council_models` reads `NCL_BRIEF_COUNCIL_LOCAL_AB`: swaps Pulse → `ollama:qwen3:8b` (default) and Flow → `ollama:qwen3:8b` (default). Macro/Tech/Chair stay paid. Saves ~$0.20/brief while preserving 5-perspective diversity.
+
+- **14BN** (`1749658`) — Backfilled `metadata.model` on 13,719 historical cost rows. `scripts/backfill_cost_ledger_metadata_model.py` (180 LOC) infers model from category prefix (`llm:<model>`) + feature heuristics. Atomic with timestamped `.bak`. Dashboard: anthropic/? $71.93 → anthropic/claude-sonnet-4-20250514 $83.97 + perplexity/sonar-pro $17.47 + openai/gpt-4o $12.51.
+
+- **14BO** (`f8f9002`) — Live A/B fire shook out four production bugs blocking the A/B chain: (1) `OLLAMA_HOST=localhost:11434` (no scheme) — httpx rejected; defensive prepend in `_ollama_call`. (2) Empty error logs — `_run_member` logged `%s` on exception with empty `str(e)`; now logs `type(e).__name__ + repr`. (3) qwen3 thinking-mode burns token budget on `<think>` preamble; top-level `{"think": false}` disables it (the `/no_think` prompt marker is silently ignored). (4) Mac Studio cannot keep qwen3:32b + llama3.1:70b resident simultaneously (Ollama 500 "model runner has unexpectedly stopped"); defaulted both members to qwen3:8b which coexists cleanly. Also fixed `_compute_spend_dashboard_data` `top_ops` regression (read `operation` not `category`). Live verified: `members_succeeded=[macro, pulse, flow, technical]`, confidence 0.9, both Ollama calls succeeded.
+
+- **14BP** (`6c91617` + iOS `acfa5f5`) — Cross-Reference telemetry endpoint + iOS chip. NEW `GET /cross-reference/recent?hours=N&rule=...&limit=N` + `GET /cross-reference/today`. iOS `CrossRefChip.swift` ~190 LOC renders XREF (N) when count > 0, sheet groups by rule (ticker_converge / theme_converge / news_trends_double) with sources + sample titles. Live: 24 promotions today across 5 sources.
+
+- **14BQ** (iOS `d111998`) — PM Debrief audio player. `BriefPlayButton` gains `audioPath` kwarg; BriefLandingCard switches between `/intelligence/morning-brief/pro/audio` (AM) and `/intelligence/afternoon-debrief/audio` (PM). `BriefAudioPlayer` tracks `lastAudioPath` and resets cleanly on mode flip.
+
+- **14BR** (`6d51192` + iOS `f14e491`) — Council A/B badge on BriefLandingCard. Backend fix: brief_council was clobbering its own `_meta` stamp; now writes a single `council_run_meta` into both `_meta` (legacy) and `council_meta` (the field brief_presenter passes through). iOS `CouncilABBadge.swift` ~145 LOC: cyan LOCAL chip when any model contains "ollama", gray PAID otherwise. Tap → sheet with per-role model id + success flag, color-coded by provider.
+
+- **14BS** (`6c58d27` + iOS `318c20f`) — SEC EDGAR earnings calendar endpoint + iOS chip. NEW `GET /portfolio/earnings/calendar?days_back=N&days_ahead=N` walks held tickers, calls `fetch_sec_earnings_calendar` for 8-K Item 2.02 filings in window. iOS `EarningsChip.swift` ~180 LOC: EARNINGS (N) chip when `is_earnings=true` rows exist; sheet shows earnings filings + other 8-K bucket + held-tickers-probed list.
+
+- **14BT** (`b790cca` + iOS `0465e12`) — Macro snapshot endpoint + Dashboard chip. NEW `GET /intelligence/macro/today` aggregates Fed RSS speeches + press releases + CFTC TFF COT into one payload via `asyncio.gather(return_exceptions=True)` so single-source failure doesn't 502. iOS `MacroChip.swift` ~225 LOC: yellow MACRO chip when loaded; sheet has three sections — Fed speeches, Fed press releases, CFTC COT positioning (Lev/Asset/Dealer net per market, green/red sign coloring). Live verified: 22 KB / 1.4s response, populated.
+
+**Dashboard chip set post-14BT** — BriefLandingCard header now carries: `[audio play]` `[SpendChip $X.XX]` `[XREF N]` `[LOCAL/PAID]` `[MACRO]` `|` `[AM/PM picker]`. Portfolio tab POSITIONS header: `[INSIDER N]` `[EARNINGS N]`.
+
+**Scheduler post-14BT**: 35 unique `ncl-*` task names. Net new since Wave 14X-Y: `ncl-bertopic-retrain` (+1). Loops baseline 34 → 35.
+
+**Operator-toggleable env flags** (`POST /system/env`): `NCL_FUSION_BGE_RERANK_ENABLED`, `NCL_MINHASH_DEDUP_ENABLED`, `NCL_CROSS_REF_BERTOPIC_ENABLED` (4 currently on — live), `NCL_MEMORY_EMBED_MODEL=bge-m3`, `NCL_BRIEF_COUNCIL_LOCAL_AB` (gates Brief Pro Ollama A/B).
+
+---
 
 **Recent wave summary (2026-05-29 evening)** — **Wave 14Y arc — 5-lane brief restructure** (NATRIX's flagship correction):
 
