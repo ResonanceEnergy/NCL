@@ -3579,6 +3579,92 @@ async def x_posts_cached(
 
 
 # ─────────────────────────────────────────────────────────────────────
+# Wave 14BT — Macro snapshot (Fed RSS + CFTC COT)
+# Surfaces the free-source macro data NCL already collects via
+# free_sources.fetch_fed_speeches / fetch_fed_press_releases /
+# fetch_cftc_cot. Cached 30 min per call inside the helpers.
+# ─────────────────────────────────────────────────────────────────────
+
+
+@router.get("/intelligence/macro/today")
+async def intelligence_macro_today(
+    fed_speeches_limit: int = Query(default=8, ge=1, le=25),
+    fed_press_limit: int = Query(default=8, ge=1, le=25),
+    cftc_markets: Optional[str] = Query(
+        default=None,
+        description="Comma-separated CFTC tickers (e.g. 'ES,NQ,GC'). Defaults to full map.",
+    ),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Today's macro snapshot — Federal Reserve speeches + press releases
+    + latest CFTC Commitments-of-Traders positioning. All three are
+    free, no key required, cached at the source-helper layer.
+    """
+    from datetime import datetime as _dt, timezone as _tz
+    import asyncio as _asyncio
+
+    try:
+        from runtime.intelligence.free_sources import (
+            fetch_fed_speeches as _fed_speeches,
+            fetch_fed_press_releases as _fed_press,
+            fetch_cftc_cot as _cftc_cot,
+        )
+    except Exception as e:
+        log.exception("[macro/today] free_sources import failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+    markets_tuple: Optional[tuple[str, ...]] = None
+    if cftc_markets:
+        parsed = [m.strip().upper() for m in cftc_markets.split(",") if m.strip()]
+        if parsed:
+            markets_tuple = tuple(parsed)
+
+    started = _dt.now(_tz.utc)
+    try:
+        speeches, presses, cot = await _asyncio.gather(
+            _fed_speeches(limit=fed_speeches_limit),
+            _fed_press(limit=fed_press_limit),
+            _cftc_cot(markets=markets_tuple),
+            return_exceptions=True,
+        )
+    except Exception as e:
+        log.exception("[macro/today] gather failed: %s", e)
+        raise HTTPException(status_code=502, detail=str(e))
+
+    def _ok(value):
+        if isinstance(value, Exception):
+            return []
+        return value or []
+
+    speeches = _ok(speeches)
+    presses = _ok(presses)
+    cot = _ok(cot)
+
+    # Group COT by ticker so iOS can render per-market positioning
+    cot_by_ticker: dict[str, list[dict]] = {}
+    for row in cot:
+        if isinstance(row, dict):
+            tkr = row.get("ticker", "?")
+            cot_by_ticker.setdefault(tkr, []).append(row)
+
+    finished = _dt.now(_tz.utc)
+    return {
+        "as_of": finished.isoformat(),
+        "elapsed_s": round((finished - started).total_seconds(), 2),
+        "fed_speeches": speeches[:fed_speeches_limit],
+        "fed_press_releases": presses[:fed_press_limit],
+        "cftc_cot": cot,
+        "cftc_cot_by_ticker": cot_by_ticker,
+        "counts": {
+            "fed_speeches": len(speeches),
+            "fed_press_releases": len(presses),
+            "cftc_cot_rows": len(cot),
+            "cftc_markets": len(cot_by_ticker),
+        },
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────
 # Wave 14BP — Cross-Reference telemetry
 # Reads data/cross_reference/promotions.jsonl produced by the
 # ncl-cross-reference loop (14X-Y Phase 1B-3) and serves recent
