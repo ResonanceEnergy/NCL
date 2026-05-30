@@ -57,6 +57,12 @@ The morning began with NATRIX's flagship directive: rebuild the brief, integrate
 
 - **14BT** (`b790cca` + iOS `0465e12`) — Macro snapshot endpoint + Dashboard chip. NEW `GET /intelligence/macro/today` aggregates Fed RSS speeches + press releases + CFTC TFF COT into one payload via `asyncio.gather(return_exceptions=True)` so single-source failure doesn't 502. iOS `MacroChip.swift` ~225 LOC: yellow MACRO chip when loaded; sheet has three sections — Fed speeches, Fed press releases, CFTC COT positioning (Lev/Asset/Dealer net per market, green/red sign coloring). Live verified: 22 KB / 1.4s response, populated.
 
+- **14BV** (`0f1bf0f`) — BERTopic noise filter. `classify_themes_bertopic` now drops labels whose tokens are entirely in a 60-word stop-word set (the Reddit `me my to` cluster was matching ~every signal) and accepts a `min_score` floor. Verified: `me my to` → dropped, `crypto bitcoin market` → kept. Theme-converge rule volume drops ~10-15%.
+
+- **14BW** (`13338d8` + iOS `6343e4b`) — Air quality endpoint + iOS Calendar banner. NEW `GET /calendar/air-quality?city_id=<slug>` surfaces `fetch_open_meteo_air_quality` (AQI + UV now/max + PM2.5/PM10 + per-tree pollen). iOS `AirQualityCard.swift` ~180 LOC renders compact banner above CalendarSunView with EPA-scale AQI color, WHO-scale UV color, and pollen row when any pollen > 0. Auto-refreshes on city change.
+
+**Session-close health probe (14BX)**: 10 endpoint probes (health, /system/env, /system/bertopic/status, /system/costs/dashboard.json, /portfolio/insider/form4, /portfolio/earnings/calendar, /cross-reference/today, /intelligence/macro/today, /calendar/air-quality, autonomous/loops) → **all 200**. Scheduler at 35 loops including `ncl-bertopic-retrain`.
+
 **Dashboard chip set post-14BT** — BriefLandingCard header now carries: `[audio play]` `[SpendChip $X.XX]` `[XREF N]` `[LOCAL/PAID]` `[MACRO]` `|` `[AM/PM picker]`. Portfolio tab POSITIONS header: `[INSIDER N]` `[EARNINGS N]`.
 
 **Scheduler post-14BT**: 35 unique `ncl-*` task names. Net new since Wave 14X-Y: `ncl-bertopic-retrain` (+1). Loops baseline 34 → 35.
