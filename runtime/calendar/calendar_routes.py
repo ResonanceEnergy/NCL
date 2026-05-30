@@ -925,3 +925,29 @@ async def calendar_refresh(request: Request, authorization: str = Header(default
     except Exception as exc:
         log.exception("calendar/refresh failed")
         return _err_response(f"refresh failed: {exc}")
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Wave 14BW — Air quality snapshot (Open-Meteo, free, no key).
+# Surfaces UV / PM2.5 / pollen for the selected city.
+# ─────────────────────────────────────────────────────────────────────
+
+
+@calendar_router.get("/air-quality")
+async def calendar_air_quality(
+    city_id: str = "edmonton",
+    authorization: str = Header(default=""),
+):
+    """Current AQI + UV + PM2.5/PM10 + per-tree pollen for a city.
+
+    Returns the raw dict shape from
+    `intelligence/free_sources.fetch_open_meteo_air_quality`. Empty
+    dict when the city slug is unknown or the upstream API failed.
+    """
+    _verify_strike_token(authorization)
+    try:
+        from ..intelligence.free_sources import fetch_open_meteo_air_quality
+        return await fetch_open_meteo_air_quality(city=city_id)
+    except Exception as exc:
+        log.exception("calendar/air-quality failed for %s", city_id)
+        return _err_response(f"air-quality failed: {exc}")
