@@ -1,0 +1,50 @@
+Wave 14BR: brief_council preserves _meta + Council A/B badge on iOS
+
+Two ends of the same fix.
+
+Backend (runtime/intelligence/brief_council.py):
+  The Wave 14BM stamp of council_models + local_ab_enabled into
+  synthesis._meta was clobbered by a second assignment that
+  replaced _meta wholesale with members_succeeded only. Refactored
+  to build one council_run_meta dict and write it into BOTH
+  synthesis._meta (legacy) and synthesis.council_meta (the field
+  brief_presenter passes through to iOS). The chair's own
+  council_meta entries (confidence, contradictions_resolved) are
+  preserved by overlaying the operational fields on top.
+
+  After this fix the iOS-facing brief envelope contains:
+    council_meta: {
+      members_succeeded: [...],
+      elapsed_s: ...,
+      chair_in_tokens: ...,
+      chair_out_tokens: ...,
+      council_models: {macro, pulse, flow, technical, chair},
+      local_ab_enabled: true/false,
+      confidence: ...,                  // chair-supplied
+      contradictions_resolved: [...],   // chair-supplied
+    }
+
+iOS (Sources/Views/Dashboard/CouncilABBadge.swift, new ~145 LOC):
+  CouncilABBadge renders inline on BriefLandingCard header:
+    - cyan LOCAL chip when any council_models value contains
+      "ollama" (i.e. the A/B path actually fired)
+    - gray PAID chip otherwise
+    - hidden when council_models is empty
+  Tap -> CouncilABSheet listing each role + actual model id +
+  ✓/✗ from members_succeeded. Color-codes per provider
+  (cyan=ollama, orange=claude, purple=grok, blue=gemini,
+  green=gpt). Footer points to Settings -> Brain Flags toggle.
+
+BriefLandingCard wired to read council_meta off whichever
+synthesis (AM or PM) is currently shown. Mode flip swaps the
+badge contents automatically.
+
+Header chip set is now:
+  [audio play] [spend $X.XX] [XREF N] [LOCAL/PAID] | picker
+
+Builds: sim BUILD SUCCEEDED, generic iOS BUILD SUCCEEDED.
+Installed: iPhone 16e sim + iPad Pro M5 sim + physical iPhone
++ physical iPad.
+
+NATRIX now sees council A/B status at a glance every time the
+app opens.

@@ -796,25 +796,38 @@ async def run_council(pack: dict, api_key: str = "") -> dict:
         label="chair",
     )
     synthesis = _extract_json(chair_text)
-    # Wave 14BM — stamp council member models on the synthesis so the
-    # iOS / dashboard / debug consumers can see which providers ran.
-    synthesis.setdefault("_meta", {})
-    synthesis["_meta"]["council_models"] = {
-        "macro": m_macro,
-        "pulse": m_pulse,
-        "flow": m_flow,
-        "technical": m_tech,
-        "chair": m_chair,
-    }
-    synthesis["_meta"]["local_ab_enabled"] = os.environ.get(
-        "NCL_BRIEF_COUNCIL_LOCAL_AB", ""
-    ).lower() in ("1", "true", "yes", "on")
-    synthesis["_meta"] = {
+    # Wave 14BM + 14BR — stamp council member models + run telemetry
+    # on the synthesis so the iOS / dashboard / debug consumers can
+    # see which providers ran. Merge into BOTH `_meta` (legacy) and
+    # `council_meta` (the field the brief_presenter passes through
+    # to iOS) so the chair's own emitted council_meta doesn't shadow
+    # the operational fields.
+    council_run_meta = {
         "members_succeeded": members_succeeded,
         "elapsed_s": round(time.time() - started, 1),
         "chair_in_tokens": chair_in,
         "chair_out_tokens": chair_out,
+        "council_models": {
+            "macro": m_macro,
+            "pulse": m_pulse,
+            "flow": m_flow,
+            "technical": m_tech,
+            "chair": m_chair,
+        },
+        "local_ab_enabled": os.environ.get(
+            "NCL_BRIEF_COUNCIL_LOCAL_AB", ""
+        ).lower() in ("1", "true", "yes", "on"),
     }
+    # Replace _meta wholesale — chair's _meta isn't used by anyone.
+    synthesis["_meta"] = council_run_meta
+    # Merge into council_meta — the chair may have written its own
+    # confidence / contradictions_resolved here; we preserve those
+    # and overlay the operational fields on top.
+    chair_council_meta = synthesis.get("council_meta") or {}
+    if not isinstance(chair_council_meta, dict):
+        chair_council_meta = {}
+    chair_council_meta.update(council_run_meta)
+    synthesis["council_meta"] = chair_council_meta
     # Persist
     COUNCIL_DIR.mkdir(parents=True, exist_ok=True)
     out_path = COUNCIL_DIR / f"{date.today().isoformat()}.json"
