@@ -367,9 +367,19 @@ def compute_situational_relevance(
     tickers_in_journal_today: Optional[set[str]] = None,
     tickers_with_calendar_event_today: Optional[set[str]] = None,
     morning_quiz_focus: Optional[str] = None,
+    *,
+    themes_active: Optional[set[str]] = None,
+    source: Optional[str] = None,
 ) -> float:
     """Wave 14X-Y Phase 1B-4: score how much a signal matches NATRIX's
     current time/life situation. 0 → no match, 1 → strong match.
+
+    Wave 14BL (2026-05-30): when ``themes_active`` is passed (set of
+    theme cluster names or ``bt:<label>`` strings active in NATRIX's
+    current context — morning quiz lessons, brief topics, recent
+    journal entries), the helper classifies the signal text against
+    the keyword + per-source BERTopic clusters and gives a +0.30 boost
+    on overlap. ``source`` selects which BERTopic model to apply.
 
     Pure stateless helper — caller assembles the context. Used by the
     Awarebot scorer + can be reused elsewhere.
@@ -400,6 +410,20 @@ def compute_situational_relevance(
             if w in text:
                 score += 0.2
                 break
+
+    # Wave 14BL — BERTopic / keyword theme overlap with active context.
+    # Pull theme labels from the cross-reference engine (source-aware
+    # BERTopic when NCL_CROSS_REF_BERTOPIC_ENABLED). Skipped silently
+    # when the engine isn't importable (e.g. tests).
+    if themes_active:
+        try:
+            from ..cross_reference import _extract_themes  # type: ignore
+
+            sig_themes = _extract_themes(signal_text, source=source)
+            if sig_themes & themes_active:
+                score += 0.30
+        except Exception:
+            pass
 
     return min(1.0, score)
 
@@ -835,6 +859,13 @@ class Awarebot:
         # ── SimHash index for near-duplicate detection ───────────────
         # Maps fingerprint → (simhash_64bit, unix_timestamp)
         self._simhash_index: dict[str, tuple[int, float]] = {}
+
+        # Wave 14BL — situational context cache (themes + tickers active
+        # in NATRIX's current journal/calendar context). Refreshed every
+        # 30 min; pure read of cheap disk artifacts.
+        self._situational_ctx_cache: Optional[dict] = None
+        self._situational_ctx_loaded_at: float = 0.0
+        self._SITUATIONAL_TTL_S = 1800.0
 
         # ── Context windows ──────────────────────────────────────────
         self._context_top10: deque[Signal] = deque(maxlen=CONTEXT_TOP10_SIZE)
@@ -1959,6 +1990,28 @@ class Awarebot:
                 f"{signal.title} {signal.content}", signal.source
             )
 
+        # Wave 14BL — situational relevance factor (themes + tickers
+        # active in NATRIX's working context today). Cached on the agent
+        # via _load_situational_context() so we only pay the I/O once
+        # per scoring batch.
+        situational = 0.0
+        try:
+            ctx = self._get_situational_ctx()
+            if ctx:
+                head = (signal.source or "").split(":")[0].lower()
+                situational = compute_situational_relevance(
+                    f"{signal.title} {signal.content}"[:1500],
+                    tickers_in_journal_today=ctx.get("tickers_in_journal_today"),
+                    tickers_with_calendar_event_today=ctx.get(
+                        "tickers_with_calendar_event_today"
+                    ),
+                    morning_quiz_focus=ctx.get("morning_quiz_focus"),
+                    themes_active=ctx.get("themes_active"),
+                    source=head,
+                )
+        except Exception as _sit_err:
+            log.debug(f"[AGENT:SCORE] situational compute failed: {_sit_err}")
+
         # ── COMPOSITE: 6-factor weighted blend ──────────────────────
         signal.composite_score = compute_composite_score(
             signal.relevance,
@@ -1967,6 +2020,7 @@ class Awarebot:
             signal.authority,
             freshness,
             cross_source=cross_source,
+            situational=situational,
         )
 
         # Store score factors in metadata
@@ -1977,6 +2031,7 @@ class Awarebot:
             "source_confidence": round(signal.authority * 100, 1),
             "actionability": round(signal.actionability * 100, 1),
             "novelty": round(signal.novelty * 100, 1),
+            "situational": round(situational * 100, 1),
         }
 
         # Classify route level
@@ -2483,6 +2538,78 @@ Respond with ONLY a JSON object:
                 log.debug(f"[AGENT:CONTEXT] Working context add_item also failed: {inner_e}")
         except Exception as e:
             log.debug(f"[AGENT:CONTEXT] Working context injection failed: {e}")
+
+    # ═══════════════════════════════════════════════════════════════════
+    # SITUATIONAL CONTEXT (Wave 14BL)
+    # ═══════════════════════════════════════════════════════════════════
+
+    def _get_situational_ctx(self) -> dict:
+        """Return today's situational context dict, TTL-cached at 30 min.
+
+        Pulls from cheap on-disk artifacts:
+          - morning_quiz: today's priority + lesson + research question
+          - calendar today: tickers with earnings/FOMC/event today
+          - today's brief topics: theme keywords currently active
+
+        Returns a dict with keys consumed by ``compute_situational_relevance``:
+          tickers_in_journal_today, tickers_with_calendar_event_today,
+          morning_quiz_focus, themes_active.
+        """
+        now_ts = time.time()
+        if (
+            self._situational_ctx_cache is not None
+            and (now_ts - self._situational_ctx_loaded_at) < self._SITUATIONAL_TTL_S
+        ):
+            return self._situational_ctx_cache
+
+        ctx: dict = {
+            "tickers_in_journal_today": set(),
+            "tickers_with_calendar_event_today": set(),
+            "morning_quiz_focus": "",
+            "themes_active": set(),
+        }
+
+        try:
+            base = Path(os.environ.get("NCL_BASE", str(Path.home() / "dev" / "NCL")))
+            today_iso = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+            # Morning quiz today
+            mq_path = base / "data" / "journal" / "morning-quiz" / f"{today_iso}.json"
+            if mq_path.exists():
+                try:
+                    mq = json.loads(mq_path.read_text())
+                    focus = (mq.get("priority", "") or "") + " " + (mq.get("research_question", "") or "")
+                    ctx["morning_quiz_focus"] = focus.strip()
+                    # Tickers mentioned anywhere in the quiz
+                    blob = json.dumps(mq)
+                    ctx["tickers_in_journal_today"] |= set(
+                        re.findall(r"\$([A-Z]{1,5})\b", blob)
+                    )
+                except Exception:
+                    pass
+
+            # Today's brief topics (theme keywords from the brief lanes)
+            brief_path = base / "data" / "morning-brief-pro" / f"{today_iso}.json"
+            if brief_path.exists():
+                try:
+                    brief = json.loads(brief_path.read_text())
+                    # Topics carry a "label" field — they are exactly the
+                    # cluster names emitted by _extract_themes.
+                    for t in (brief.get("topics") or []):
+                        if isinstance(t, dict):
+                            lbl = (t.get("label") or t.get("name") or "").strip()
+                            if lbl:
+                                ctx["themes_active"].add(lbl)
+                                # Also accept the BERTopic-flavored prefix
+                                ctx["themes_active"].add(f"bt:{lbl}")
+                except Exception:
+                    pass
+        except Exception as e:
+            log.debug(f"[AGENT:CONTEXT] situational ctx load failed: {e}")
+
+        self._situational_ctx_cache = ctx
+        self._situational_ctx_loaded_at = now_ts
+        return ctx
 
     # ═══════════════════════════════════════════════════════════════════
     # CROSS-SOURCE & CONTEXT KEYWORD SCORING
