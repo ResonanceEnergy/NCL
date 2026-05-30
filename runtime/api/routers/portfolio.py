@@ -3651,3 +3651,87 @@ async def portfolio_insider_form4(
         "by_ticker": by_ticker,
         "total": len(rows),
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Wave 14BS — Earnings calendar for held tickers
+# Reads SEC EDGAR 8-K Item 2.02 filings (Results of Operations and Financial
+# Condition — the standard earnings release item code). Mirrors the Form 4
+# walker pattern: held equity tickers → fetch_sec_earnings_calendar.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@router.get("/earnings/calendar")
+async def portfolio_earnings_calendar(
+    days_back: int = Query(default=14, ge=1, le=60),
+    days_ahead: int = Query(default=14, ge=1, le=60),
+    pm=Depends(get_portfolio_mgr),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """SEC EDGAR earnings 8-K filings for currently-held tickers within
+    days_back to days_ahead of today.
+
+    Response shape:
+      {
+        days_back, days_ahead,
+        tickers: [str, ...],
+        rows: [{ticker, company, date, accession, items, form, url, is_earnings}, ...],
+        by_ticker: {ticker: [row, ...]},
+        total: int,
+      }
+    """
+    pm = _require_manager(pm)
+
+    try:
+        positions = pm.get_positions(account_filter="all") or []
+    except Exception as e:
+        log.exception("[earnings/calendar] get_positions failed: %s", e)
+        positions = []
+
+    tickers: set[str] = set()
+    for p in positions:
+        if not isinstance(p, dict):
+            continue
+        t = (p.get("symbol") or p.get("ticker") or "").strip().upper()
+        if not t or len(t) > 5 or not t.isalpha():
+            continue
+        asset = (p.get("asset_type") or p.get("instrument_type") or "").lower()
+        if asset in {"option", "options", "future", "futures", "crypto", "cash"}:
+            continue
+        tickers.add(t)
+
+    if not tickers:
+        return {
+            "days_back": days_back,
+            "days_ahead": days_ahead,
+            "tickers": [],
+            "rows": [],
+            "by_ticker": {},
+            "total": 0,
+        }
+
+    try:
+        from runtime.intelligence.free_sources import fetch_sec_earnings_calendar
+
+        rows = await fetch_sec_earnings_calendar(
+            tuple(sorted(tickers)),
+            days_back=days_back,
+            days_ahead=days_ahead,
+            limit_per_ticker=5,
+        )
+    except Exception as e:
+        log.exception("[earnings/calendar] fetch failed: %s", e)
+        raise HTTPException(status_code=502, detail=f"SEC EDGAR fetch failed: {e}")
+
+    by_ticker: dict[str, list[dict]] = {}
+    for row in rows:
+        by_ticker.setdefault(row["ticker"], []).append(row)
+
+    return {
+        "days_back": days_back,
+        "days_ahead": days_ahead,
+        "tickers": sorted(tickers),
+        "rows": rows,
+        "by_ticker": by_ticker,
+        "total": len(rows),
+    }
