@@ -213,6 +213,22 @@ async def build_rotation_snapshot() -> dict:
     # Breadth
     breadth_pct = round((breadth_above_sma / breadth_total) * 100.0, 1) if breadth_total else None
 
+    # Wave 14AH (2026-05-30) — CFTC Commitments of Traders positioning.
+    # Adds big-money sentiment to the rotation snapshot: leveraged_net
+    # (hedge fund), asset_mgr_net (mutual fund / pension), dealer_net
+    # (sell-side market makers). Sign flips week-over-week indicate
+    # positioning rotation. Closes a known gap NATRIX flagged in the
+    # Calendar-lane mandate (big-money positioning was the missing input).
+    cftc_positioning: list[dict] = []
+    try:
+        from . import free_sources as _fs
+
+        cftc_positioning = await _fs.fetch_cftc_cot(
+            markets=("ES", "NQ", "RTY", "BTC"), limit_per_market=2
+        )
+    except Exception as e:
+        log.warning("[rotation] CFTC COT fetch failed: %s", e)
+
     # Sort sectors by RS-Ratio descending so Leading comes first
     sectors_data.sort(
         key=lambda s: (s.get("ratio_pct_chg_20d") or -999),
@@ -247,6 +263,7 @@ async def build_rotation_snapshot() -> dict:
         "by_quadrant": by_quadrant,
         "sectors": sectors_data,
         "leadership_summary": _summarize_leadership(by_quadrant, sectors_data),
+        "cftc_positioning": cftc_positioning,
     }
 
     # Persist

@@ -12,6 +12,7 @@ import logging
 import os
 import time
 from datetime import date, datetime, timedelta, timezone
+from typing import Optional
 
 import httpx
 
@@ -304,6 +305,73 @@ def _build_economic_description(item: dict) -> str:
     return " | ".join(parts)
 
 
+# ── Wave 14AH — Federal Reserve RSS (free, self-updating) ────────────
+
+
+async def get_fed_rss_events(start: date, end: date) -> list[dict]:
+    """Federal Reserve speeches + press releases inside the date window.
+
+    Pulls live feeds; ranks press-release titles containing 'FOMC' as
+    fomc category (priority 5), all other press releases as economic,
+    speeches as fed_speech.
+    """
+    from email.utils import parsedate_to_datetime
+
+    from ..intelligence import free_sources as _fs
+
+    events: list[dict] = []
+    speeches = await _fs.fetch_fed_speeches(limit=30)
+    press = await _fs.fetch_fed_press_releases(limit=40)
+
+    def _parse(pub: str) -> Optional[date]:
+        if not pub:
+            return None
+        try:
+            return parsedate_to_datetime(pub).date()
+        except Exception:
+            try:
+                return date.fromisoformat(pub[:10])
+            except Exception:
+                return None
+
+    for item in speeches:
+        d = _parse(item.get("published", ""))
+        if d is None or not (start <= d <= end):
+            continue
+        events.append(
+            {
+                "date": d.isoformat(),
+                "title": item["title"][:140],
+                "category": "fed_speech",
+                "description": (item.get("description") or "")[:200] or "Federal Reserve speech",
+                "impact": "low",
+                "url": item.get("url", ""),
+                "source": "fed_rss",
+                "all_day": True,
+            }
+        )
+
+    for item in press:
+        d = _parse(item.get("published", ""))
+        if d is None or not (start <= d <= end):
+            continue
+        title_lc = item["title"].lower()
+        is_fomc = "fomc" in title_lc or "federal open market committee" in title_lc
+        events.append(
+            {
+                "date": d.isoformat(),
+                "title": item["title"][:140],
+                "category": "fomc" if is_fomc else "economic",
+                "description": (item.get("description") or "")[:200] or "Federal Reserve press release",
+                "impact": "high" if is_fomc else "medium",
+                "url": item.get("url", ""),
+                "source": "fed_rss",
+                "all_day": True,
+            }
+        )
+    return events
+
+
 # ── Combined calendar ─────────────────────────────────────────────────
 
 
@@ -321,6 +389,15 @@ async def get_all_events(
     if include_economic:
         econ = await get_economic_events(start, end)
         events.extend(econ)
+
+    # Wave 14AH (2026-05-30) — Federal Reserve RSS speeches + press
+    # releases. Free, no key, self-updating. Replaces the maintenance
+    # burden of the hardcoded FOMC_DATES_2026 list with a live feed.
+    try:
+        fed_events = await get_fed_rss_events(start, end)
+        events.extend(fed_events)
+    except Exception as e:
+        log.debug("[calendar] fed-rss events fetch failed: %s", e)
 
     # Load custom events from disk
     custom = _load_custom_events(start, end)

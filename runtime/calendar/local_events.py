@@ -509,6 +509,42 @@ async def get_local_events(
     curated = _load_curated_events(city_id, start, end)
     events.extend(curated)
 
+    # Wave 14AH (2026-05-30): Edmonton Public Events from data.edmonton.ca
+    # — Socrata API, free, no key, 50 events / 14 days window. Fills the
+    # gap in the Edmonton city payload where Ticketmaster was the only
+    # auto-populated event source.
+    if city_id == "edmonton":
+        try:
+            from ..intelligence import free_sources as _fs
+
+            window_days = max(1, (end - start).days)
+            edm_events = await _fs.fetch_edmonton_events(days_ahead=window_days, limit=100)
+            for row in edm_events:
+                d = row.get("date", "")
+                if not d:
+                    continue
+                try:
+                    evt_date = date.fromisoformat(d[:10])
+                except Exception:
+                    continue
+                if not (start <= evt_date <= end):
+                    continue
+                events.append(
+                    {
+                        "date": evt_date.isoformat(),
+                        "title": row["title"][:120],
+                        "venue": row.get("venue", ""),
+                        "category": _edmonton_category_map(row.get("category", "local")),
+                        "city": "edmonton",
+                        "source": "data.edmonton.ca",
+                        "impact": "low",
+                        "start_time": row.get("start_time", ""),
+                        "end_time": row.get("end_time", ""),
+                    }
+                )
+        except Exception as e:
+            log.debug("[local-events] edmonton open-data fetch failed: %s", e)
+
     # Enrich with category metadata
     for event in events:
         cat = event.get("category", "local")
@@ -522,6 +558,23 @@ async def get_local_events(
     events.sort(key=lambda e: (e["date"], -e.get("priority", 0)))
 
     return events
+
+
+# ─── Wave 14AH helpers (module-level, not nested) ─────────────────────
+
+
+def _edmonton_category_map(raw: str) -> str:
+    """Map Edmonton open-data event_type → local_events category key."""
+    r = (raw or "").lower()
+    if any(k in r for k in ("concert", "music", "festival")):
+        return "concert"
+    if any(k in r for k in ("sport", "game", "match")):
+        return "sports"
+    if any(k in r for k in ("art", "gallery", "exhibition", "theatre")):
+        return "art"
+    if "market" in r or "fair" in r:
+        return "market"
+    return "local"
 
 
 def get_cities_list() -> list[dict]:
