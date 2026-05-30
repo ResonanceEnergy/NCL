@@ -3578,4 +3578,132 @@ async def x_posts_cached(
     }
 
 
+# ─────────────────────────────────────────────────────────────────────
+# Wave 14BP — Cross-Reference telemetry
+# Reads data/cross_reference/promotions.jsonl produced by the
+# ncl-cross-reference loop (14X-Y Phase 1B-3) and serves recent
+# convergences for iOS / dashboards. Each promotion is a row emitted
+# by one of three rules: ticker_converge, theme_converge,
+# news_trends_double.
+# ─────────────────────────────────────────────────────────────────────
+
+
+@router.get("/cross-reference/recent")
+async def cross_reference_recent(
+    hours: int = Query(default=24, ge=1, le=168),
+    rule: Optional[str] = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Return Cross-Reference promotions from the last *hours* hours.
+
+    Optional *rule* filter (ticker_converge | theme_converge |
+    news_trends_double). Returns newest first.
+    """
+    import json as _json
+    import os as _os
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+    from pathlib import Path as _Path
+
+    base = _Path(_os.environ.get("NCL_BASE", str(_Path.home() / "dev" / "NCL")))
+    path = base / "data" / "cross_reference" / "promotions.jsonl"
+    if not path.exists():
+        return {"hours": hours, "count": 0, "rule_filter": rule, "promotions": []}
+
+    cutoff = _dt.now(_tz.utc) - _td(hours=hours)
+    cutoff_iso = cutoff.isoformat()
+    rows: list[dict] = []
+    try:
+        with path.open() as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = _json.loads(line)
+                except Exception:
+                    continue
+                ts = row.get("promoted_at") or ""
+                if ts and ts < cutoff_iso:
+                    continue
+                if rule and row.get("rule") != rule:
+                    continue
+                rows.append(row)
+    except Exception as e:
+        log.exception("[/cross-reference/recent] read failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+    rows.sort(key=lambda r: r.get("promoted_at", ""), reverse=True)
+    rows = rows[:limit]
+
+    # Stats by rule
+    by_rule: dict[str, int] = {}
+    by_source: dict[str, int] = {}
+    for r in rows:
+        by_rule[r.get("rule", "?")] = by_rule.get(r.get("rule", "?"), 0) + 1
+        for s in (r.get("sources") or []):
+            by_source[s] = by_source.get(s, 0) + 1
+
+    return {
+        "hours": hours,
+        "rule_filter": rule,
+        "count": len(rows),
+        "by_rule": by_rule,
+        "by_source": by_source,
+        "promotions": rows,
+    }
+
+
+@router.get("/cross-reference/today")
+async def cross_reference_today(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Convenience alias for /cross-reference/recent?hours=24&limit=100.
+
+    Direct read instead of re-entering the dependency-injected handler
+    so the today shortcut doesn't double-verify the bearer token.
+    """
+    import json as _json
+    import os as _os
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+    from pathlib import Path as _Path
+
+    base = _Path(_os.environ.get("NCL_BASE", str(_Path.home() / "dev" / "NCL")))
+    path = base / "data" / "cross_reference" / "promotions.jsonl"
+    if not path.exists():
+        return {"hours": 24, "count": 0, "promotions": []}
+
+    cutoff = _dt.now(_tz.utc) - _td(hours=24)
+    cutoff_iso = cutoff.isoformat()
+    rows: list[dict] = []
+    with path.open() as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = _json.loads(line)
+            except Exception:
+                continue
+            ts = row.get("promoted_at") or ""
+            if ts and ts < cutoff_iso:
+                continue
+            rows.append(row)
+    rows.sort(key=lambda r: r.get("promoted_at", ""), reverse=True)
+    rows = rows[:100]
+    by_rule: dict[str, int] = {}
+    by_source: dict[str, int] = {}
+    for r in rows:
+        by_rule[r.get("rule", "?")] = by_rule.get(r.get("rule", "?"), 0) + 1
+        for s in (r.get("sources") or []):
+            by_source[s] = by_source.get(s, 0) + 1
+    return {
+        "hours": 24,
+        "count": len(rows),
+        "by_rule": by_rule,
+        "by_source": by_source,
+        "promotions": rows,
+    }
+
+
 __all__ = ["router", "OutcomeBody"]

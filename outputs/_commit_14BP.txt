@@ -1,0 +1,42 @@
+Wave 14BP: Cross-Reference telemetry endpoint + iOS chip
+
+Two new REST endpoints + iOS surface that makes the 14X-Y Phase
+1B-3 Cross-Reference Engine visible to NATRIX:
+
+Backend (runtime/api/routers/intel/__init__.py):
+  GET /cross-reference/recent?hours=N&rule=...&limit=N
+    Reads data/cross_reference/promotions.jsonl, filters by window
+    + optional rule, returns rows newest-first with per-rule + per-
+    source rollups. 1 <= hours <= 168, 1 <= limit <= 200.
+  GET /cross-reference/today
+    Convenience: hours=24, limit=100. Direct read (does not
+    re-enter the recent handler) so dependency resolution stays
+    clean.
+
+Live verified:
+  count=24 today across 3 rules:
+    ticker_converge:    18
+    theme_converge:      4
+    news_trends_double:  2
+  by_source: reddit=21, youtube=16, google_trends=12, news=5,
+             polymarket=3
+
+iOS (Sources/Views/Dashboard/CrossRefChip.swift, new ~190 LOC):
+  CrossRefClient ObservableObject fetches /cross-reference/today
+  CrossRefChip renders inline on BriefLandingCard header next
+    to the spend chip + audio play button. Hidden when count=0.
+    Auto-refreshes every 5 min while the card is mounted.
+  CrossRefSheet groups promotions by rule, shows
+    ticker/theme + convergence_strength + sources + sample
+    titles. Bottom section lists sources contributing.
+
+BriefLandingCard wired:
+  audio play button -> spend chip -> XREF chip -> picker spacer
+
+Builds: sim BUILD SUCCEEDED, generic iOS BUILD SUCCEEDED.
+Installed: iPhone 16e sim + iPad Pro M5 sim + physical iPhone
++ physical iPad.
+
+NATRIX now sees daily convergence count at a glance every time
+he opens the app. Taps -> drilldown to which AWAREBOT sources
+agreed on what ticker / theme today.
