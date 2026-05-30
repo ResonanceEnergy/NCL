@@ -1924,6 +1924,18 @@ class Awarebot:
             base_actionability = max(base_actionability, 0.6 + signal.confidence * 0.2)
         if signal.change_pct is not None and abs(signal.change_pct) > 10:
             base_actionability = max(base_actionability, 0.7)
+        # Wave 14AU: local-sentiment boost. Strong polarity (>0.5 abs)
+        # adds up to +0.15 to actionability — directional sentiment
+        # implies the market reacts. Capped at 1.0.
+        try:
+            meta = getattr(signal, "metadata", None) or {}
+            polarity = abs(float(meta.get("sentiment_polarity", 0.0) or 0.0))
+            if polarity > 0.5:
+                base_actionability = min(
+                    1.0, base_actionability + 0.30 * (polarity - 0.5)
+                )
+        except Exception:
+            pass
         signal.actionability = base_actionability
 
         # ── FRESHNESS: HN-gravity time decay ────────────────────────
@@ -1984,6 +1996,85 @@ class Awarebot:
     # ═══════════════════════════════════════════════════════════════════
     # REASONING GATE (LLM only for ambiguous signals)
     # ═══════════════════════════════════════════════════════════════════
+
+    # ═══════════════════════════════════════════════════════════════════
+    # LOCAL SENTIMENT ENRICHMENT (Wave 14AU)
+    # ═══════════════════════════════════════════════════════════════════
+
+    # Source-prefix → which local sentiment model to use.
+    _SOCIAL_SOURCE_PREFIXES = (
+        "reddit", "twitter", "x_twitter", "bluesky", "mastodon", "telegram",
+    )
+
+    async def _enrich_signals_with_local_sentiment(self, signals: list) -> None:  # noqa: ANN001
+        """Batch-classify signals with FinBERT (financial) or
+        Twitter-RoBERTa (social) and stamp polarity on signal.metadata.
+
+        Free, local, MPS-accelerated. Replaces ad-hoc Sonnet sentiment
+        calls in the AWAREBOT pipeline. Best-effort — any failure path
+        leaves signals unmodified so the rest of the scoring proceeds.
+        """
+        if not signals:
+            return
+        try:
+            from ..intelligence import local_sentiment as ls
+        except Exception as e:
+            log.debug("[AGENT:SENTIMENT] import failed: %s", e)
+            return
+
+        # Bucket signals by which model they should go through. Social
+        # platforms use Twitter-RoBERTa (better on slang/emojis);
+        # everything else (news, RSS, YTC, polymarket) uses FinBERT.
+        social_idx: list[int] = []
+        finbert_idx: list[int] = []
+        for i, sig in enumerate(signals):
+            src = (getattr(sig, "source", "") or "").lower()
+            if any(src.startswith(p) for p in self._SOCIAL_SOURCE_PREFIXES):
+                social_idx.append(i)
+            else:
+                finbert_idx.append(i)
+
+        async def _run_batch(indices: list[int], domain: str) -> None:
+            if not indices:
+                return
+            texts = []
+            for i in indices:
+                sig = signals[i]
+                title = str(getattr(sig, "title", "") or "")
+                content = str(getattr(sig, "content", "") or "")[:400]
+                texts.append(f"{title}. {content}".strip(". "))
+            try:
+                results = await ls.score_batch(texts, domain=domain)
+            except Exception as e:
+                log.debug("[AGENT:SENTIMENT] %s batch failed: %s", domain, e)
+                return
+            for i, r in zip(indices, results):
+                sig = signals[i]
+                meta = getattr(sig, "metadata", None)
+                if not isinstance(meta, dict):
+                    meta = {}
+                    try:
+                        sig.metadata = meta
+                    except Exception:
+                        continue
+                meta["sentiment_label"] = r.get("label", "neutral")
+                meta["sentiment_polarity"] = float(r.get("polarity", 0.0) or 0.0)
+                meta["sentiment_model"] = r.get("model", domain)
+
+        # Run both batches concurrently
+        await asyncio.gather(
+            _run_batch(finbert_idx, "financial"),
+            _run_batch(social_idx, "social"),
+            return_exceptions=True,
+        )
+
+        if signals:
+            self._stats.setdefault("sentiment_enriched", 0)
+            self._stats["sentiment_enriched"] += len(signals)
+            log.debug(
+                "[AGENT:SENTIMENT] enriched %d signals (finbert=%d social=%d)",
+                len(signals), len(finbert_idx), len(social_idx),
+            )
 
     async def reason_about_signal(self, signal: Signal) -> Signal:
         """
@@ -3713,6 +3804,12 @@ Focus on what requires attention or action."""
             try:
                 # PERCEIVE
                 new_signals = await self.scan_cycle()
+
+                # Wave 14AU (2026-05-30): batch local-sentiment enrichment
+                # BEFORE the deterministic score pass so the actionability
+                # factor can read the polarity from signal.metadata. Free,
+                # MPS-accelerated, ~5-20ms per signal — no Anthropic calls.
+                await self._enrich_signals_with_local_sentiment(new_signals)
 
                 # SCORE (REASON — deterministic pass)
                 scored_signals = self.score_signals(new_signals)
