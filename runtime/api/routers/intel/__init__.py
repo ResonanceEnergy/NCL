@@ -1492,7 +1492,57 @@ async def fire_morning_brief_pro(
     except Exception as e:
         log.warning("[brief_pro] memory snapshot ingest failed: %s", e)
 
+    # Wave 14AY (2026-05-30): render spoken-brief .wav so iOS Play
+    # button can fetch it later. Fire-and-forget — never blocks the
+    # response. If Piper TTS isn't installed or fails the file just
+    # won't exist and the audio endpoint returns 404.
+    try:
+        import asyncio as _asyncio
+        from ....intelligence.spoken_brief import render_brief_to_wav as _render_wav
+
+        text = envelope.get("full_brief") or envelope.get("topics") or ""
+        if text:
+            _asyncio.create_task(_render_wav(text))
+    except Exception as e:
+        log.debug("[brief_pro] spoken-brief render kick-off failed: %s", e)
+
     return envelope
+
+
+@router.get("/intelligence/morning-brief/pro/audio/{target_date}")
+async def serve_brief_audio(
+    target_date: str,
+    _: None = Depends(verify_strike_token_dep),
+):
+    """Wave 14AY: serve the rendered Piper TTS .wav for a given date.
+
+    File lives at data/morning-brief-pro/audio/{date}-brief.wav.
+    Returns 404 with explicit reason if the audio hasn't been rendered
+    yet (e.g. Piper not installed or first brief of the day hasn't
+    fired). iOS Brief player polls /pro then this endpoint.
+    """
+    # Defensive: only accept ISO YYYY-MM-DD to keep path traversal off
+    if not (len(target_date) == 10 and target_date[4] == "-" and target_date[7] == "-"):
+        raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
+    import os as _os
+    from fastapi.responses import FileResponse
+
+    audio_dir = (
+        Path(_os.environ.get("NCL_BASE", str(Path.home() / "dev" / "NCL")))
+        / "data"
+        / "morning-brief-pro"
+        / "audio"
+    )
+    wav_path = audio_dir / f"{target_date}-brief.wav"
+    if not wav_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"audio not rendered for {target_date}; "
+                f"fire the brief first or wait for the scheduled 05:30 ET render"
+            ),
+        )
+    return FileResponse(str(wav_path), media_type="audio/wav", filename=wav_path.name)
 
 
 @router.get("/intelligence/briefs")

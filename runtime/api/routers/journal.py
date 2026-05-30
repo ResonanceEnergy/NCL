@@ -31,7 +31,7 @@ from __future__ import annotations  # noqa: I001
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
 from ..deps import (
@@ -103,6 +103,128 @@ async def create_journal_entry(
     except Exception as e:
         log.exception("Endpoint error: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.post("/journal/voice-entry")
+async def create_journal_voice_entry(
+    file: UploadFile = File(...),
+    language: str | None = Form(default=None),
+    min_speakers: int = Form(default=1),
+    max_speakers: int = Form(default=4),
+    importance: int = Form(default=60),
+    title: str | None = Form(default=None),
+    journal_store=Depends(get_journal_store),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Wave 14AY: voice journal upload + diarized transcription.
+
+    Accepts a multipart audio file (.wav / .mp3 / .m4a / .ogg / .webm),
+    runs runtime/journal/voice_transcribe.transcribe_with_diarization
+    (mlx-whisper + pyannote when HF_TOKEN set), and persists the
+    resulting transcript as a JournalEntry kind=voice_journal.
+
+    Response:
+        {
+            "status": "created",
+            "entry": {...},
+            "transcript": {
+                "language": "en",
+                "duration_s": 42.1,
+                "speakers": ["SPEAKER_00", ...],
+                "model": "mlx-whisper:... + pyannote:..."
+            }
+        }
+    """
+    if not journal_store:
+        raise HTTPException(status_code=503, detail="Journal store not initialized")
+
+    import os as _os
+    import tempfile
+    from pathlib import Path as _Path
+
+    # Persist the uploaded blob to a temp file so the transcriber can read
+    # it. Same-process cleanup via context manager.
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="empty audio file")
+    suffix = ".wav"
+    if file.filename:
+        _, ext = _os.path.splitext(file.filename)
+        if ext.lower() in (".wav", ".mp3", ".m4a", ".ogg", ".webm", ".flac"):
+            suffix = ext.lower()
+
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(raw)
+            tmp_path = _Path(tmp.name)
+
+        try:
+            from ...journal.voice_transcribe import transcribe_with_diarization
+        except Exception as e:
+            log.warning("voice_transcribe import failed: %s", e)
+            raise HTTPException(
+                status_code=503,
+                detail="voice transcription module unavailable (Wave 14AP)",
+            )
+
+        result = await transcribe_with_diarization(
+            tmp_path,
+            language=language,
+            min_speakers=min_speakers,
+            max_speakers=max_speakers,
+        )
+    finally:
+        try:
+            if tmp_path and tmp_path.exists():
+                tmp_path.unlink()
+        except Exception:
+            pass
+
+    text = result.get("text", "").strip()
+    if not text:
+        return {
+            "status": "error",
+            "error": result.get("error", "no transcript produced"),
+            "transcript": result,
+        }
+
+    speakers = result.get("speakers", [])
+    tags = ["voice_journal"]
+    if speakers:
+        tags.append(f"speakers:{len(speakers)}")
+
+    try:
+        entry = await journal_store.create_entry(
+            content=text,
+            entry_type="voice_journal",
+            title=title or f"Voice entry ({result.get('duration_s', 0)}s)",
+            tags=tags,
+            importance=importance,
+            source_context={
+                "transcript_language": result.get("language"),
+                "transcript_duration_s": result.get("duration_s"),
+                "transcript_speakers": speakers,
+                "transcript_model": result.get("model"),
+            },
+        )
+    except Exception as e:
+        log.exception("voice-entry create failed: %s", e)
+        raise HTTPException(status_code=500, detail="journal entry create failed")
+
+    return {
+        "status": "created",
+        "entry": entry if isinstance(entry, dict) else (
+            entry.__dict__ if hasattr(entry, "__dict__") else vars(entry)
+        ),
+        "transcript": {
+            "language": result.get("language"),
+            "duration_s": result.get("duration_s"),
+            "speakers": speakers,
+            "segments_count": len(result.get("segments") or []),
+            "model": result.get("model"),
+        },
+    }
 
 
 @router.get("/journal/entries")
