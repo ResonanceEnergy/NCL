@@ -331,6 +331,90 @@ async def system_costs_record(
     return {"status": "recorded"}
 
 
+# Wave 14BF (2026-05-30) — Operator-toggleable env flags.
+_MANAGED_FLAGS = (
+    "NCL_FUSION_BGE_RERANK_ENABLED",
+    "NCL_MINHASH_DEDUP_ENABLED",
+    "NCL_CROSS_REF_BERTOPIC_ENABLED",
+    "NCL_MEMORY_EMBED_MODEL",
+)
+
+
+@router.get("/system/env")
+async def system_env_flags(_: None = Depends(verify_strike_token_dep)) -> dict:
+    """Return current values of operator-toggleable env flags."""
+    import os as _os
+
+    return {
+        "flags": {name: _os.environ.get(name, "") for name in _MANAGED_FLAGS},
+        "managed": list(_MANAGED_FLAGS),
+        "note": (
+            "POST /system/env writes the .env.flags file (sourced by "
+            "scripts/launch-brain.sh on next bounce). In-process os.environ "
+            "is also updated so API-layer endpoints see the new values."
+        ),
+    }
+
+
+@router.post("/system/env")
+async def system_env_flags_set(
+    request: Request,
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Update one or more managed env flags."""
+    import os as _os
+    from pathlib import Path as _Path
+
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid JSON body")
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="body must be a flag dict")
+
+    rejected: list[str] = []
+    accepted: dict[str, str] = {}
+    for k, v in body.items():
+        if k not in _MANAGED_FLAGS:
+            rejected.append(k)
+            continue
+        accepted[k] = "" if v is None else str(v)
+
+    flags_path = _Path(
+        _os.environ.get("NCL_BASE", str(_Path.home() / "dev" / "NCL"))
+    ) / ".env.flags"
+    existing: dict[str, str] = {}
+    if flags_path.exists():
+        for line in flags_path.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            existing[key.strip()] = val.strip()
+    for k, v in accepted.items():
+        if v == "":
+            existing.pop(k, None)
+        else:
+            existing[k] = v
+    new_text = "# NCL managed env flags — written by /system/env (Wave 14BF)\n"
+    for k in sorted(existing):
+        new_text += f"{k}={existing[k]}\n"
+    tmp = flags_path.with_suffix(".tmp")
+    tmp.write_text(new_text)
+    tmp.replace(flags_path)
+    for k, v in accepted.items():
+        if v == "":
+            _os.environ.pop(k, None)
+        else:
+            _os.environ[k] = v
+    return {
+        "saved": accepted,
+        "rejected": rejected,
+        "flags_file": str(flags_path),
+        "note": "Brain bounce required for autonomous loops to pick up new values.",
+    }
+
+
 @router.post("/system/costs/reset")
 async def system_costs_reset(_: None = Depends(verify_strike_token_dep)):
     """Reset today's cost tracking. Use at start of new billing period."""

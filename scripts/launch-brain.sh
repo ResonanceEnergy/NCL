@@ -39,6 +39,16 @@ else
     echo "launch-brain: no $NCL_DIR/.env found — relying on macOS keychain (see docs/SECRETS.md)" >&2
 fi
 
+# 2.5 Source operator-toggleable env flags managed via POST /system/env
+# (Wave 14BF). NCL_FUSION_BGE_RERANK_ENABLED, NCL_MINHASH_DEDUP_ENABLED,
+# NCL_CROSS_REF_BERTOPIC_ENABLED, NCL_MEMORY_EMBED_MODEL.
+if [ -f "$NCL_DIR/.env.flags" ]; then
+    set -a
+    # shellcheck source=/dev/null
+    source "$NCL_DIR/.env.flags"
+    set +a
+fi
+
 # 3. Ensure PYTHONPATH includes the project root
 export PYTHONPATH="$NCL_DIR${PYTHONPATH:+:$PYTHONPATH}"
 
