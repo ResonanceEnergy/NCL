@@ -102,7 +102,8 @@ async def run(scheduler) -> dict:
         log.warning("[NIGHT-WATCH/INTEL] No ANTHROPIC_API_KEY — LLM tasks will be skipped")
 
     tracker = await get_tracker()
-    sonnet_model_intel = "claude-sonnet-4"
+    # Wave 14AK (2026-05-30): fixed bare model id; Wave 13 sweep missed this.
+    sonnet_model_intel = "claude-sonnet-4-20250514"
     api_headers = {
         "x-api-key": api_key,
         "anthropic-version": "2023-06-01",

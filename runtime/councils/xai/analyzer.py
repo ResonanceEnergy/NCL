@@ -54,7 +54,10 @@ def _get_ollama_host() -> str:
     return _normalize_ollama_host(os.getenv("OLLAMA_HOST", "http://localhost:11434"))
 
 
-ANALYSIS_MODEL = os.getenv("X_COUNCIL_MODEL", "claude-sonnet-4")
+# Wave 14AK (2026-05-30): default fixed from bare "claude-sonnet-4" to
+# dated id. Currently DORMANT (X scanner paused), but Wave 13 sweep missed
+# this site and it would 404 on first X re-enable.
+ANALYSIS_MODEL = os.getenv("X_COUNCIL_MODEL", "claude-sonnet-4-20250514")
 
 
 X_ANALYSIS_SYSTEM_PROMPT = """You are the X (Twitter) Intelligence Analyst for NATRIX (NCL Council).

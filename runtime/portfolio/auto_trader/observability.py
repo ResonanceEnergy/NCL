@@ -20,7 +20,7 @@ Schema:
     "strategy": str,
     "ticker": str,
     "model_meta": {                  # who said this
-        "executor_model": "claude-sonnet-4",
+        "executor_model": "claude-sonnet-4-20250514",
         "executor_thinking": bool,
         "brief_revision": int,
     },

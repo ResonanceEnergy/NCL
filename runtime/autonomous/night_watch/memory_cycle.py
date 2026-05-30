@@ -417,7 +417,9 @@ async def run(scheduler) -> dict:
                                 "content-type": "application/json",
                             },
                             json={
-                                "model": "claude-sonnet-4",
+                                # Wave 14AK (2026-05-30): fixed bare id
+                                # — Wave 13 sweep missed this site.
+                                "model": "claude-sonnet-4-20250514",
                                 "max_tokens": 300,
                                 "messages": [{"role": "user", "content": p}],
                             },
@@ -783,7 +785,8 @@ async def run(scheduler) -> dict:
                                         "content-type": "application/json",
                                     },
                                     json={
-                                        "model": "claude-sonnet-4",
+                                        # Wave 14AK: fixed bare id
+                                        "model": "claude-sonnet-4-20250514",
                                         "max_tokens": 200,
                                         "messages": [{"role": "user", "content": p}],
                                     },
