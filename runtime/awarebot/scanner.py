@@ -15,6 +15,7 @@ import logging
 import math
 import time
 import uuid
+import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Optional
@@ -390,6 +391,7 @@ class Scanner:
         and the caller falls back to public-endpoint scraping (which 403s).
         """
         import time as _time
+
         if not self.reddit_client_id or not self.reddit_client_secret:
             return None
         if self._reddit_token and self._reddit_token_expires > _time.time():
@@ -479,63 +481,245 @@ class Scanner:
                 return response.json()
             raise
 
-    async def scan_reddit(self, subreddit: str, max_results: int = 10) -> list[InsightSignal]:
-        """Scan Reddit via JSON API with browser UA rotation and old.reddit fallback."""
-        signals = []
+    async def _scan_reddit_via_rss(
+        self, subreddit: str, max_results: int = 10
+    ) -> list[InsightSignal]:
+        """Wave 14AD: public RSS/Atom fallback.
+
+        The .json endpoints on www.reddit.com and old.reddit.com now 403
+        with browser UAs, but the Atom feeds at `/r/{sub}/.rss` and
+        `/search.rss?q={q}&type=link` still serve HTTP 200. RSS doesn't
+        expose upvote/comment counts, so the actionability factor is left
+        at 0.0 and the 6-factor agent scoring engine drives ranking via
+        relevance/freshness/cross-source/source-confidence/novelty. Stdlib
+        xml.etree (no new dependency).
+        """
+        signals: list[InsightSignal] = []
+        is_search = subreddit.startswith("search:")
+        if is_search:
+            query = subreddit[7:].strip()
+            url = "https://www.reddit.com/search.rss"
+            params: dict = {
+                "q": query,
+                "sort": "new",
+                "type": "link",
+                "limit": min(max_results, 25),
+            }
+            tag_label = f"search:{query}"
+        else:
+            url = f"https://www.reddit.com/r/{subreddit}/.rss"
+            params = {"limit": min(max_results, 25)}
+            tag_label = f"r/{subreddit}"
+
+        ua = self._next_reddit_ua()
         try:
-            if subreddit.startswith("search:"):
-                query = subreddit[7:].strip()
-                url = "https://www.reddit.com/search.json"
-                params = {"q": query, "sort": "new", "limit": min(max_results, 25)}
-            else:
-                url = f"https://www.reddit.com/r/{subreddit}/hot.json"
-                params = {"limit": min(max_results, 25)}
+            response = await self._request_with_retry(
+                "GET",
+                url,
+                platform="reddit",
+                params=params,
+                headers={"User-Agent": ua},
+            )
+            body = response.text
+            root = ET.fromstring(body)
+            ns = {"atom": "http://www.w3.org/2005/Atom"}
+            entries = root.findall("atom:entry", ns)
 
-            data = await self._reddit_get_json(url, params)
+            for entry in entries[:max_results]:
+                title_el = entry.find("atom:title", ns)
+                link_el = entry.find("atom:link", ns)
+                author_el = entry.find("atom:author/atom:name", ns)
+                updated_el = entry.find("atom:updated", ns)
+                content_el = entry.find("atom:content", ns)
 
-            for post in data.get("data", {}).get("children", []):
-                post_data = post.get("data", {})
-                title = post_data.get("title", "")
-                selftext = post_data.get("selftext", "")[:500]
-                content = f"{title} - {selftext}" if selftext else title
+                title = (title_el.text or "").strip() if title_el is not None else ""
+                link = link_el.get("href", "") if link_el is not None else ""
+                author = (author_el.text or "").strip() if author_el is not None else ""
+                updated = updated_el.text if updated_el is not None else ""
+                # content is HTML — strip tags crudely for the scorer.
+                snippet = ""
+                if content_el is not None and content_el.text:
+                    import re as _re
 
-                engagement = self._reddit_engagement_score(post_data)
-                created_utc = post_data.get("created_utc", time.time())
+                    raw_html = content_el.text
+                    # Drop Reddit's SC_OFF/SC_ON comment markers + any HTML tag.
+                    cleaned = _re.sub(r"<!--.*?-->", " ", raw_html, flags=_re.DOTALL)
+                    cleaned = _re.sub(r"<[^>]+>", " ", cleaned)
+                    # Decode the handful of HTML entities Reddit emits.
+                    cleaned = (
+                        cleaned.replace("&amp;", "&")
+                        .replace("&lt;", "<")
+                        .replace("&gt;", ">")
+                        .replace("&quot;", '"')
+                        .replace("&#39;", "'")
+                        .replace("&nbsp;", " ")
+                    )
+                    snippet = " ".join(cleaned.split())[:500]
+
+                if not title or not link:
+                    continue
+
+                # Parse Atom timestamp -> epoch seconds for freshness scoring
+                created_utc = time.time()
+                if updated:
+                    try:
+                        # Atom uses RFC 3339: 2026-05-30T06:07:41+00:00
+                        dt = datetime.fromisoformat(updated.replace("Z", "+00:00"))
+                        created_utc = dt.timestamp()
+                    except Exception:
+                        pass
+
                 freshness = self._time_sensitivity_score(created_utc)
+                content = f"{title} - {snippet}" if snippet else title
+
+                # Derive subreddit name from URL when in search mode so
+                # downstream tagging matches the JSON path's shape.
+                if is_search and "/r/" in link:
+                    try:
+                        sub_from_url = link.split("/r/", 1)[1].split("/", 1)[0]
+                    except Exception:
+                        sub_from_url = "search"
+                else:
+                    sub_from_url = subreddit
 
                 signal = InsightSignal(
                     signal_id=str(uuid.uuid4()),
                     source_platform="reddit",
                     content=content,
-                    url=f"https://reddit.com{post_data.get('permalink', '')}",
+                    url=link,
                     importance_score=0.0,
                     relevance=0.0,
                     novelty=0.0,
-                    actionability=engagement,
-                    source_authority=engagement,
+                    # RSS has no upvote/comment data — actionability is 0,
+                    # the agent scorer will rank on the other 5 factors.
+                    actionability=0.0,
+                    source_authority=0.0,
                     time_sensitivity=freshness,
                     timestamp=datetime.now(timezone.utc),
-                    tags=["reddit", f"r/{subreddit}"],
+                    tags=["reddit", tag_label],
                 )
                 signal.metadata = {
-                    "upvotes": post_data.get("ups", 0),
-                    "downvotes": post_data.get("downs", 0),
-                    "comments": post_data.get("num_comments", 0),
-                    "awards": post_data.get("total_awards_received", 0),
-                    "upvote_ratio": post_data.get("upvote_ratio", 0.5),
-                    "subreddit": post_data.get("subreddit", subreddit),
-                    "author": post_data.get("author", ""),
+                    "upvotes": 0,
+                    "downvotes": 0,
+                    "comments": 0,
+                    "awards": 0,
+                    "upvote_ratio": 0.5,
+                    "subreddit": sub_from_url,
+                    "author": author.lstrip("/u/").lstrip("u/"),
                     "created_utc": created_utc,
-                    "engagement_score": engagement,
+                    "engagement_score": 0.0,
                     "freshness_score": freshness,
+                    "fetch_path": "rss",  # provenance: distinguishes from json/oauth path
                 }
                 signals.append(signal)
 
-            logger.info(f"[scanner] Reddit RSS: got {len(signals)} signals from r/{subreddit}")
+            logger.info(
+                "[scanner] Reddit RSS: got %d signals from %s",
+                len(signals),
+                tag_label,
+            )
         except Exception as e:
-            logger.warning(f"Failed to scan Reddit (RSS) '{subreddit}': {e}")
+            logger.warning("Failed to scan Reddit RSS '%s': %s", subreddit, e)
 
         return signals
+
+    async def scan_reddit(self, subreddit: str, max_results: int = 10) -> list[InsightSignal]:
+        """Scan Reddit via JSON API (OAuth-preferred) with RSS public fallback.
+
+        Order:
+          1. OAuth JSON (oauth.reddit.com) — when REDDIT_CLIENT_ID + SECRET set.
+          2. Public RSS (.rss / search.rss) — Wave 14AD fallback, no creds needed.
+
+        The pre-Wave-14AC browser-UA JSON scraping path is no longer attempted
+        because both www.reddit.com/*.json and old.reddit.com/*.json now 403
+        reliably. RSS is the only public path Reddit still serves with HTTP 200.
+        """
+        signals: list[InsightSignal] = []
+
+        # Try OAuth JSON when credentials are configured.
+        token = await self._get_reddit_oauth_token()
+        if token:
+            try:
+                if subreddit.startswith("search:"):
+                    query = subreddit[7:].strip()
+                    url = "https://oauth.reddit.com/search.json"
+                    params: dict = {
+                        "q": query,
+                        "sort": "new",
+                        "limit": min(max_results, 25),
+                    }
+                else:
+                    url = f"https://oauth.reddit.com/r/{subreddit}/hot.json"
+                    params = {"limit": min(max_results, 25)}
+
+                response = await self._request_with_retry(
+                    "GET",
+                    url,
+                    platform="reddit",
+                    params=params,
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "User-Agent": self.reddit_user_agent,
+                    },
+                )
+                data = response.json()
+
+                for post in data.get("data", {}).get("children", []):
+                    post_data = post.get("data", {})
+                    title = post_data.get("title", "")
+                    selftext = post_data.get("selftext", "")[:500]
+                    content = f"{title} - {selftext}" if selftext else title
+
+                    engagement = self._reddit_engagement_score(post_data)
+                    created_utc = post_data.get("created_utc", time.time())
+                    freshness = self._time_sensitivity_score(created_utc)
+
+                    signal = InsightSignal(
+                        signal_id=str(uuid.uuid4()),
+                        source_platform="reddit",
+                        content=content,
+                        url=f"https://reddit.com{post_data.get('permalink', '')}",
+                        importance_score=0.0,
+                        relevance=0.0,
+                        novelty=0.0,
+                        actionability=engagement,
+                        source_authority=engagement,
+                        time_sensitivity=freshness,
+                        timestamp=datetime.now(timezone.utc),
+                        tags=["reddit", f"r/{subreddit}"],
+                    )
+                    signal.metadata = {
+                        "upvotes": post_data.get("ups", 0),
+                        "downvotes": post_data.get("downs", 0),
+                        "comments": post_data.get("num_comments", 0),
+                        "awards": post_data.get("total_awards_received", 0),
+                        "upvote_ratio": post_data.get("upvote_ratio", 0.5),
+                        "subreddit": post_data.get("subreddit", subreddit),
+                        "author": post_data.get("author", ""),
+                        "created_utc": created_utc,
+                        "engagement_score": engagement,
+                        "freshness_score": freshness,
+                        "fetch_path": "oauth",
+                    }
+                    signals.append(signal)
+
+                logger.info(
+                    "[scanner] Reddit OAuth: got %d signals from %s",
+                    len(signals),
+                    subreddit,
+                )
+                if signals:
+                    return signals
+                # OAuth returned empty — fall through to RSS as backstop.
+            except Exception as e:
+                logger.warning("[reddit] OAuth scan failed (%s) — falling back to RSS", e)
+                # If 401, invalidate cached token so the next call refreshes.
+                if "401" in str(e):
+                    self._reddit_token = None
+                    self._reddit_token_expires = 0.0
+
+        # Public RSS fallback — works without credentials.
+        return await self._scan_reddit_via_rss(subreddit, max_results)
 
     async def close(self) -> None:
         """Close HTTP client and thread pool."""
