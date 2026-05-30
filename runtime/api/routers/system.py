@@ -415,6 +415,63 @@ async def system_env_flags_set(
     }
 
 
+# Wave 14BK (2026-05-30) — Manual BERTopic per-source retrain.
+@router.post("/system/bertopic/retrain")
+async def system_bertopic_retrain(
+    days: int = Body(default=14, embed=True),
+    min_docs_per_source: int = Body(default=30, embed=True),
+    min_topic_size: int = Body(default=5, embed=True),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Fire one BERTopic per-source retrain cycle on demand.
+
+    Returns the full result envelope from `retrain_once` —
+    {status, n_signals, per_source_counts, trained, skipped,
+    elapsed_s, saved_to}. Empty/invalid env flag NCL_CROSS_REF_BERTOPIC_ENABLED
+    does NOT block retraining; the flag only gates whether the engine
+    USES the per-source models. Retrained models are picked up on the
+    next signal without a brain bounce (in-process cache invalidates).
+    """
+    from ...cross_reference.retrain_loop import retrain_once
+
+    return await retrain_once(
+        days=days,
+        min_docs_per_source=min_docs_per_source,
+        min_topic_size=min_topic_size,
+    )
+
+
+@router.get("/system/bertopic/status")
+async def system_bertopic_status(_: None = Depends(verify_strike_token_dep)) -> dict:
+    """Return current per-source BERTopic state — what's loaded, how
+    many topics each model has, when each was trained.
+    """
+    import json
+    from pathlib import Path
+
+    base = Path(os.environ.get("NCL_BASE", str(Path.home() / "dev" / "NCL")))
+    root = base / "data" / "cross_reference" / "bertopic_model"
+    out: dict = {"root": str(root), "exists": root.exists(), "sources": {}}
+    if not root.exists():
+        return out
+    for sub in sorted(root.iterdir()):
+        if sub.is_dir() and not sub.name.startswith("_"):
+            meta = sub / "meta.json"
+            if meta.exists():
+                try:
+                    out["sources"][sub.name] = json.loads(meta.read_text())
+                except Exception as e:
+                    out["sources"][sub.name] = {"error": str(e)}
+    # Also include the legacy global model if present
+    global_meta = root / "meta.json"
+    if global_meta.exists():
+        try:
+            out["_global"] = json.loads(global_meta.read_text())
+        except Exception as e:
+            out["_global"] = {"error": str(e)}
+    return out
+
+
 @router.post("/system/costs/reset")
 async def system_costs_reset(_: None = Depends(verify_strike_token_dep)):
     """Reset today's cost tracking. Use at start of new billing period."""

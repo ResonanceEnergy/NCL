@@ -553,6 +553,19 @@ class AutonomousScheduler:
         except Exception as e:
             log.warning(f"[SCHEDULER] memory-eval loop disabled: {e}")
 
+        # Wave 14BK — Weekly BERTopic per-source retrain (Sun 04:00 ET).
+        try:
+            from ..cross_reference.retrain_loop import _bertopic_retrain_loop
+
+            self._tasks.append(
+                asyncio.create_task(
+                    _bertopic_retrain_loop(self.brain),
+                    name="ncl-bertopic-retrain",
+                )
+            )
+        except Exception as e:
+            log.warning(f"[SCHEDULER] bertopic-retrain loop disabled: {e}")
+
         # Loop 4: ChromaDB garbage collection (hourly purge of ghost embeddings)
         try:
             from ..memory.chroma_gc import _chroma_gc_loop
@@ -1257,6 +1270,14 @@ class AutonomousScheduler:
             from ..memory.eval.loop import _memory_eval_loop as _mem_eval
 
             self._task_factories["ncl-memory-eval"] = lambda: _mem_eval(self.brain)
+        except Exception:
+            pass
+
+        # Wave 14BK — bertopic per-source retrain factory for supervisor.
+        try:
+            from ..cross_reference.retrain_loop import _bertopic_retrain_loop as _bt_retrain
+
+            self._task_factories["ncl-bertopic-retrain"] = lambda: _bt_retrain(self.brain)
         except Exception:
             pass
         if hasattr(self, "_chroma_gc_wrapper"):

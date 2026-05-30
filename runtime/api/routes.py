@@ -3404,6 +3404,14 @@ async def autonomous_loops(authorization: str = Header(default="")) -> dict:
             "enabled": True,
             "description": "Weekly memory eval (Sunday 3am ET): hit@5/MRR/recall@10, regression alerts",  # noqa: E501
         },
+        # Wave 14BK (2026-05-30) — BERTopic per-source retrain.
+        {
+            "name": "BERTopic Retrain",
+            "id": "ncl-bertopic-retrain",
+            "interval": 604800,
+            "enabled": True,
+            "description": "Weekly per-source BERTopic retrain (Sunday 4am ET) — keeps Cross-Reference theme clusters fresh as the AWAREBOT signal stream evolves",  # noqa: E501
+        },
         {
             "name": "ChromaDB GC",
             "id": "ncl-chroma-gc",
@@ -3577,6 +3585,8 @@ async def autonomous_loops(authorization: str = Header(default="")) -> dict:
         # New 2026-05-22 memory loops
         "ncl-bm25-rebuild": _autonomous._stats.get("last_bm25_build"),
         "ncl-memory-eval": _autonomous._stats.get("last_memory_eval_at"),
+        # Wave 14BK (2026-05-30)
+        "ncl-bertopic-retrain": _autonomous._stats.get("last_bertopic_retrain_at"),
         "ncl-chroma-gc": _autonomous._stats.get("last_chroma_gc"),
         "ncl-conflict-arb": _autonomous._stats.get("last_conflict_arbitration"),
         "ncl-staleness": _autonomous._stats.get("last_staleness_check"),
