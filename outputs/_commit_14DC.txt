@@ -1,0 +1,129 @@
+Wave 14DC: Dashboard BriefFullDocumentSheet unified with ProfessionalMarkdownView + long-value layout fix
+
+NATRIX: "i asked for this to be professionally formated in
+sections what happened?"
+
+Screenshot proof: AM Brief Dashboard sheet was rendering trade
+ideas as a wall of concatenated text —
+"type=stock · ticker=XLK · thesis=Strong growth ... · entry=N/A ·
+type=stock · ticker=MSFT · thesis=..."
+— no line breaks, no structure, no priority cues.
+
+# Root cause
+
+Wave 14CY shipped the ProfessionalMarkdownView component but only
+wired it into the Intel tab's `BriefIntelConsolidatedView`. The
+Dashboard's `BriefFullDocumentSheet` (in BriefLandingCard.swift)
+was still using its own primitive `parseBlocks()` that recognized
+only H1/H2/H3/text and joined bullet-prefixed `- ` lines into
+paragraph blobs. SwiftUI's Text(AttributedString(markdown:)) then
+treated newlines as spaces inside a paragraph, producing the wall.
+
+Two surfaces, two renderers, one inconsistent experience.
+
+# Fix
+
+Sources/Views/Dashboard/BriefLandingCard.swift
+
+  BriefFullDocumentSheet now uses ProfessionalMarkdownView:
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    if !generatedAt.isEmpty {
+                        // clock-icon + "Generated 17h ago" line
+                    }
+                    ProfessionalMarkdownView(markdown: markdown, accent: accent)
+                }
+                .padding(16)
+            }
+            ...
+        }
+    }
+
+  Accent color derived from title.lowercased() — purple for PM
+  Debrief, orange for AM Brief. Same color story as the Intel
+  tab consolidated picker.
+
+  Inline parseBlocks + Block enum + manual H1/H2/H3 rendering
+  blocks DELETED (replaced by ProfessionalMarkdownView's block
+  parser which understands H1/H2/H3 + bullets + rules).
+
+  Generated-at line gets the clock-icon treatment so the
+  Dashboard sheet matches the Intel BRIEF tab visually.
+
+# Trade-idea layout fix (BriefIntelConsolidatedView.swift)
+
+`keyValueBullet` was rendering ALL key=value pairs in a horizontal
+HStack which works for `entry=450.5 stop=440` (short scalar values)
+but cramped long values like
+`thesis=Strong growth momentum and current sector leadership...`
+
+NEW kvRow() helper:
+  - Detects long-value keys (`thesis / structure / rotation_shift /
+    lesson / narrative / headline / best_setup / worst_setup`) OR
+    any value >40 chars
+  - Long values get a VStack: KEY uppercase mono caption above the
+    wrapping body text (fixedSize vertical: true so SwiftUI wraps
+    instead of clipping)
+  - Short values keep the inline HStack: key mono-bold-gray =
+    value mono-semibold-cyan
+
+  Padding increased to .padding(.vertical, 2) on the bullet so
+  consecutive trade ideas have visible separation.
+
+This change is automatically picked up by the Dashboard sheet too
+because both surfaces now route through the same component.
+
+# Result for trade ideas
+
+  BEFORE:
+    type=stock · ticker=XLK · thesis=Strong growth momentum...
+    type=stock · ticker=MSFT · thesis=Strong institutional support
+    type=stock · ticker=GRRR · thesis=Institutional investors are...
+
+    (one wall of concatenated text — bullets dropped, line breaks
+     dropped, structure dropped)
+
+  AFTER (per bullet, stacked):
+    • TYPE       stock
+      TICKER     XLK
+      THESIS:
+        Strong growth momentum and current sector leadership in
+        a late-cycle environment.
+      ENTRY      N/A
+      STOP       N/A
+      TARGET     N/A
+      TIMEFRAME  N/A
+      SOURCES    ["a1b2c3d4"]
+
+    • TYPE       stock
+      TICKER     MSFT
+      ...
+
+# Files modified (2)
+
+  M Sources/Views/Dashboard/BriefLandingCard.swift
+    - Deleted inline parseBlocks/Block enum/renderedMarkdown
+    - Body now: ProfessionalMarkdownView(markdown:, accent:)
+    - Generated-at line gains clock-icon styling
+
+  M Sources/Views/Intel/BriefIntelConsolidatedView.swift
+    - kvRow() helper extracts row rendering logic from
+      keyValueBullet
+    - Long-value detection via 8-key whitelist OR value.count > 40
+    - VStack layout for long values + fixedSize(vertical: true)
+
+# Deployed to 4 targets
+
+  iPhone 16e sim (pid 10486)
+  iPad Pro M5 sim (pid 10631)
+  Physical iPhone 15 Pro Max
+  Physical iPad Pro 11"
+
+The next time NATRIX opens the AM Brief sheet from the Dashboard
+or from the Intel BRIEF tab, both will render identically with
+proper H2 cyan headers (with rule underneath), bulleted trade
+ideas (each as its own indented row with • marker), and long-
+value layouts for thesis/structure/etc.
