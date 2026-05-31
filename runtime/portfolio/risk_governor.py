@@ -181,6 +181,15 @@ def _normalize_strategy(tag: Optional[str]) -> str:
         return "crypto_carry"
     if t == "manual":
         return "manual"
+    # Wave 14CT — brief-emitted ideas tag type="stock" or "options".
+    # "stock" was falling to "unknown" → governor capped at 5% NAV →
+    # any $2000+ R rejected as "Strategy 'unknown' heat would breach cap".
+    # Treat brief-stock as momentum (goat-style) since that's what the
+    # brief's PORTFOLIO lane typically picks.
+    if t in ("stock", "stocks", "equity", "equities", "brief", "brief_stock"):
+        return "goat"
+    if t in ("future", "futures", "es", "nq"):
+        return "manual"  # treat futures as manual until a budget bucket lands
     return "unknown"
 
 

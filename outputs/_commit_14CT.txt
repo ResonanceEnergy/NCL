@@ -1,0 +1,99 @@
+Wave 14CT: Auto-trader threshold/schema audit — FIRST PAPER TRADE OPENED in 4 days (GRRR)
+
+NATRIX: "check his thresholds he skipped trades on a good green day"
+
+Audit on reasoning_chains.jsonl found the post-14CR/14CS chains
+were still all REJECT despite brief→tracker wiring working.
+Root causes in priority order:
+
+1. **brief stocks tagged strategy="stock"** → _normalize_strategy
+   returned "unknown" → governor capped at 5% NAV → "Strategy
+   'unknown' heat would breach cap" reject. (18 historical
+   rejects with this reason.)
+
+2. **R_per_share never computed** → policy "no R_per_share"
+   reject. (14 of 20 24h chains.) Brief gives entry + stop;
+   R is trivially |entry - stop|.
+
+3. **options ideas mix premium with underlying price** — brief
+   chair emits "$110 put with $20 max_risk and $50 target",
+   where entry is the OPTION premium and target/stop refer to
+   underlying. Synthesizing a stock-style stop from max_risk
+   produced trades with insane R:R (MSFT registered as
+   entry=450/stop=350/target=40 → governor saw R=$100 ×
+   qty=100 = $10K, breaching 25% total cap).
+
+4. **null entry/stop/target** ideas (1 of 20) wasted a chain
+   slot.
+
+5. **stop_type=None** passed the gate but my 14CT-v1 default
+   "absolute" wasn't in policy.VALID_STOP_TYPES (price/atr/
+   volatility/time/thesis_break).
+
+Fixes:
+
+  runtime/portfolio/risk_governor.py _normalize_strategy
+    - Map "stock"/"stocks"/"equity"/"brief"/"brief_stock" → "goat"
+      (brief stocks are momentum-style — goat is the right bucket)
+    - Map "future"/"futures"/"es"/"nq" → "manual" placeholder
+      (no futures budget bucket yet)
+
+  runtime/intelligence/brief_archiver.py _register_trade_ideas
+    - Normalize entry/stop/target FIRST then compute
+      R_per_share = round(abs(entry - stop), 4) if missing
+    - SKIP type="options" ideas entirely (defer until brief
+      gets proper strike/DTE/premium schema). The fake-stop
+      synthesis from max_risk was producing nonsense.
+    - SKIP ideas where any of entry/stop/target is None
+    - Default stop_type to "price" (in VALID_STOP_TYPES)
+
+Live verification end-to-end (3 brief fires + 3 ticks):
+
+  Tick @ 23:43 (pre-fix):
+    5 chains, 5 REJECT
+    Reasons: 3× "invalid stop_type 'absolute'" (14CT-v1 bug),
+             2× governor heat-cap from bogus options
+
+  Tick @ 23:50 (post-fix):
+    4 chains, 1 OPENED, 3 REJECT
+    REJECT bfc9edd4621b4daa (PLTR): R:R 1.33 below 1.5 floor
+    REJECT 016b5a58df5f49dd (MSFT): heat cap (options residue)
+    REJECT f6f4ab8b24584b1a (NBIS): beta cap 168% NAV vs 50%
+    *** OPENED GRRR qty=100 @ $21.02 ***
+    paper_trade_id=69a6679f-22c4-406e-8a69-6c3ee0b532ba
+    trade_idea_id=ef084dc7a83b4bd4
+    effective_R=$150.00
+
+The auto-trader has opened its FIRST paper trade in 4 days.
+The 12K-LOC TRADERAGENT stack downstream of the loop
+(bandit / outcome_attributor / SHAP / drift / friction /
+graduation) now has data to operate on for the first time
+since deployment.
+
+Remaining tunes for Wave 14CU (not blocking):
+
+  - **R:R 1.5 floor** — PLTR rejected at 1.33. NATRIX may
+    want to relax to 1.25 for swing trades or keep tight.
+    Currently in policy.json `min_R_R_ratio`.
+  - **Beta cap 50%** — NBIS rejected at 168% beta-adj net.
+    Healthy guard but PLTR/NBIS/MSFT may all be high-beta
+    growth names, biasing the gate against the brief's
+    favored sector. Maybe raise to 80% or split by sector.
+  - **Stale options ideas in tracker** — pre-14CT-v2 options
+    with bogus prices (entry=450 stop=350 target=40) still
+    sit in trade_ideas_state.json. They keep triggering
+    heat-cap rejections. Either purge them or mark them
+    outcome="superseded".
+  - **Proper options schema in brief** — chair prompt needs
+    to emit `option_strike` + `option_dte` + `premium` +
+    `underlying_target` as separate fields. Then the
+    archiver can register options for real instead of
+    skipping.
+
+Files modified (2):
+  M runtime/intelligence/brief_archiver.py   (compute R, skip
+    options, skip null-priced, default stop_type=price)
+  M runtime/portfolio/risk_governor.py       (stock + futures
+    strategy aliases)
+
+Status: AUTO-TRADER OPERATING. First green-day trade landed.

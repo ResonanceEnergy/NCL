@@ -275,9 +275,52 @@ async def _register_trade_ideas(envelope: dict, mode: str, brief_id: str) -> int
             idea["trade_idea_id"] = uuid.uuid4().hex[:16]
         if not idea.get("issued_at_iso"):
             idea["issued_at_iso"] = now_iso
+
+        # Wave 14CT — normalize numeric fields first so we can derive
+        # R_per_share + synthesize options stop from max_risk.
+        entry_p = _f(idea, "entry_price") or _f(idea, "entry")
+        stop_p  = _f(idea, "stop_price")  or _f(idea, "stop")
+        target_p = _f(idea, "target_price") or _f(idea, "target")
+        idea_type = (idea.get("type") or "stock").lower()
+
+        # Wave 14CT — SKIP options for now. The brief's options ideas
+        # mix underlying-stock price with option-premium price (e.g.
+        # "$450 Call with $100 max_risk and $40 target" — target<entry
+        # means it's premium-not-underlying). Paper trade engine
+        # expects stock-style price triples. Synthesizing a fake stop
+        # from max_risk produced trades with insane R:R (MSFT option
+        # registered as entry=450/stop=350/target=40, which the engine
+        # would treat as a short position with crashing reward).
+        # Defer options until the brief gets a proper schema with
+        # strike + DTE + premium fields. Stock ideas continue normally.
+        if idea_type == "options":
+            log.info(
+                "[brief_archiver] skipping options idea ticker=%s — "
+                "options registration deferred (brief schema ambiguous)",
+                idea.get("ticker"),
+            )
+            continue
+
+        # Compute R_per_share if missing: |entry - stop| is the
+        # canonical per-share risk. Without this 14/20 24h chains
+        # were rejecting on "no R_per_share".
+        R_per_share = _f(idea, "R_per_share")
+        if R_per_share is None and entry_p is not None and stop_p is not None:
+            R_per_share = round(abs(entry_p - stop_p), 4)
+
+        # Skip ideas with no usable price at all (LLM sometimes
+        # emits all-None placeholders). Better than a useless chain.
+        if entry_p is None or stop_p is None or target_p is None:
+            log.info(
+                "[brief_archiver] skipping idea ticker=%s — missing prices "
+                "(entry=%s stop=%s target=%s type=%s)",
+                idea.get("ticker"), entry_p, stop_p, target_p, idea_type,
+            )
+            continue
+
         try:
             strat = _normalize_strategy(
-                idea.get("strategy_tag") or idea.get("type") or "brief"
+                idea.get("strategy_tag") or idea_type or "brief"
             )
             # Wave 14CR — pass sources= top-level kwarg so the new
             # TradeIdea.sources field gets populated and policy.py's
@@ -294,12 +337,12 @@ async def _register_trade_ideas(envelope: dict, mode: str, brief_id: str) -> int
                 strategy=strat,
                 ticker=str(idea.get("ticker") or "").upper(),
                 direction=idea.get("direction"),
-                entry_price=_f(idea, "entry_price") or _f(idea, "entry"),
-                stop_price=_f(idea, "stop_price") or _f(idea, "stop"),
-                target_price=_f(idea, "target_price") or _f(idea, "target"),
-                R_per_share=_f(idea, "R_per_share"),
+                entry_price=entry_p,
+                stop_price=stop_p,
+                target_price=target_p,
+                R_per_share=R_per_share,
                 planned_qty=_f(idea, "planned_qty"),
-                stop_type=idea.get("stop_type"),
+                stop_type=idea.get("stop_type") or "price",  # 14CT — "price" is in policy.VALID_STOP_TYPES
                 stop_basis=idea.get("stop_basis"),
                 target_basis=idea.get("target_basis"),
                 thesis=idea.get("thesis"),
