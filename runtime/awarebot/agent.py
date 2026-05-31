@@ -217,8 +217,23 @@ class Signal:
     llm_adjusted_score: Optional[float] = None
 
     def fingerprint(self) -> str:
-        """Generate dedup fingerprint from content + source."""
-        raw = f"{self.source}:{self.title[:100]}:{self.content[:200]}"
+        """Generate dedup fingerprint from content + source.
+
+        Wave 14CG (2026-05-30) — tightened. The old (source + title[:100]
+        + content[:200]) fingerprint missed near-dupes because per-cycle
+        content varied by a few chars (timestamps in YTC rollups,
+        floating-point price drift in Polymarket markets), so we got
+        234x the same YTC rollup and 169x the same polymarket question.
+        New fingerprint normalizes whitespace + numbers out of the title
+        so it stays stable across cycles.
+        """
+        import re as _re
+        norm = (self.title or "").lower()
+        # Collapse whitespace, drop numbers + punctuation that drift per cycle
+        norm = _re.sub(r"\d+(?:[.,]\d+)?", "#", norm)
+        norm = _re.sub(r"[^a-z0-9# ]", " ", norm)
+        norm = _re.sub(r"\s+", " ", norm).strip()[:80]
+        raw = f"{self.source}::{norm}"
         return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
     def to_dict(self) -> dict[str, Any]:
@@ -1762,7 +1777,16 @@ class Awarebot:
                         if not line.strip():
                             continue
                         entry = json.loads(line)
-                        source = entry.get("source", "unknown")
+                        # Wave 14CG — was defaulting to "unknown" which
+                        # produced 920 source=unknown signals. The
+                        # source_council field carries the actual origin
+                        # ("youtube_council"); fall back through that
+                        # before stamping unknown.
+                        source = (
+                            entry.get("source")
+                            or entry.get("source_council")
+                            or "youtube_council"
+                        )
                         s = Signal(
                             signal_id=entry.get("signal_id", f"council-sig-{uuid.uuid4().hex[:8]}"),
                             source=source,
@@ -4500,7 +4524,26 @@ Focus on what requires attention or action."""
         (default 50 MB) it is renamed to ``agent_signals.jsonl.1`` (oldest
         ``.1`` dropped), preventing unbounded growth that previously pushed
         the file past 65 MB.
+
+        Wave 14CG (2026-05-30) — write-time hollow-skip gate. A signal
+        whose content is empty AND title==content (Reddit title-only)
+        AND url is empty is functionally just a keyword. Drop it before
+        it pollutes STREAM. Counted in stats so we can see how much
+        noise this is filtering out.
         """
+        # Wave 14CG hollow-skip
+        title = (signal.title or "").strip()
+        content = (signal.content or "").strip()
+        url = (signal.url or "").strip()
+        is_hollow = (
+            not content
+            or (content == title and not url)
+        )
+        if is_hollow:
+            self._stats.setdefault("signals_dropped_hollow", 0)
+            self._stats["signals_dropped_hollow"] += 1
+            return
+
         try:
             _maybe_rotate_agent_signals(self._signals_file)
         except Exception as e:

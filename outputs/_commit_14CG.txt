@@ -1,0 +1,60 @@
+Wave 14CG: Signal dedup tightening + hollow-skip + 52% historical prune
+
+NATRIX: "30,735 signals doesn't seem right.. signals seem to have no value
+other than identifying a keyword". Audit showed he was half right —
+content existed but the stream was 49% duplicates and 28% had no URL.
+
+Four concrete fixes:
+
+1. Tightened Signal.fingerprint() — runtime/awarebot/agent.py
+   Old: source + title[:100] + content[:200] hash. Missed near-dupes
+   because per-cycle content varied by a few chars (timestamps in
+   YTC rollups, float drift in Polymarket prices). Result: same YTC
+   rollup wrote 234 times; same Polymarket market wrote 169 times.
+
+   New: source + title with numbers replaced by # + lowercased +
+   punct-stripped + collapsed whitespace, capped at 80 chars. The
+   234x YTC rollup now produces 1 fingerprint; the Polymarket market
+   only re-fingerprints when title text itself changes (i.e. genuine
+   market evolution, not price tick).
+
+2. Hollow-skip gate in _persist_signal — runtime/awarebot/agent.py
+   Before write: skip when content is empty OR (title == content AND
+   url is empty). Counted under _stats["signals_dropped_hollow"] so
+   operator can see how much noise is filtered out.
+
+3. source=unknown leak fix — runtime/awarebot/agent.py:1780
+   The council-signal-bridge loop defaulted to "unknown" when entry
+   lacked a source field, which produced 920 source=unknown rows
+   over time. Now falls through entry.source_council → "youtube_council"
+   before stamping unknown.
+
+4. Prune script + one-shot cleanup — scripts/prune_agent_signals.py
+   New 180 LOC script that:
+     - Re-fingerprints every row with the tightened formula
+     - Within a 24h sliding window per fingerprint, keeps the first
+       row + any later row whose composite_score bumped by >= 0.05 or
+       whose direction flipped (genuine update vs noise refresh)
+     - Drops hollow rows + source=unknown rows
+     - Atomic rewrite with timestamped .bak backup
+
+   Live result on data/intelligence/agent_signals.jsonl:
+     read:                 31,122
+     dropped source=unknown:  920
+     dropped duplicate:    15,297
+     kept:                 14,905  (3,614 are legitimate score bumps)
+     total removed:        16,217  (52.1%)
+
+Live verified via /intel/stream after the prune:
+  Before:  7,032 signals in 24h window
+  After:   3,084 signals in 24h window  (same source coverage:
+           reddit 2033, google_trends 506, youtube 277, options_flow
+           225, polymarket 43)
+
+Half the rows, same intel coverage. NATRIX's STREAM will now read
+as a real feed instead of a refresh-noise wall. Forward writes are
+protected by the tightened fingerprint + hollow-skip so the file
+won't drift back to 30k+.
+
+Daily prune scheduler loop is on deck (Wave 14CH) — for now the
+prune script can be re-run manually whenever desired.
