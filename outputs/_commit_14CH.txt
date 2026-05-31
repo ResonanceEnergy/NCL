@@ -1,0 +1,74 @@
+Wave 14CH: promo filter + score_factors persist + YouTube scanner provenance
+
+NATRIX screenshot: a TECHWITHTIM "AI coding tools" promo video was
+rated CRITICAL, asked "why did this analyze this youtube video, this
+creator isn't on my list". Three concrete fixes + the answer.
+
+ROOT CAUSE OF THE TECHWITHTIM LEAK
+
+The video came from AWAREBOT's YouTube SEARCH scanner, NOT from the
+YTC curated 14-channel scrape. The AWAREBOT scanner does keyword
+queries across all of YouTube ("AI dev tools", "AI business", "crypto
+trading", etc. — 6 watch queries per CLAUDE.md). "AI dev tools"
+matched TECHWITHTIM's promo video. The scanner doesn't care if the
+channel is on NATRIX's list because it never consults the list.
+
+THREE FIXES SHIPPED
+
+14CH-a — Promo content detector (agent.py)
+  New _is_promo_text() module helper with 20-marker list (my code /
+  promo code / use code / sponsored by / try for free / free for 14
+  days / patreon.com / linktr.ee / etc.). YouTube SEARCH scanner now
+  calls it on (title + content) for every result; on hit:
+    - metadata["promo_detected"] = True
+    - tags.append("filter:promo")
+    - route_level capped at MEDIUM (was CRITICAL)
+    - composite_score capped at 0.50
+  Net effect: TECHWITHTIM-class promos stop landing in NOW lane.
+
+14CH-b — Signal.to_dict() now persists metadata
+  Previously dropped the metadata dict (which carries the 7-factor
+  score_factors breakdown, themes, sentiment, all the operator-
+  visible stuff). iOS detail sheet only had composite + importance
+  to render. Now the full metadata round-trips so the Signal Detail
+  shows all 7 factors and the new provenance fields.
+
+14CH-c — Source distinction: youtube_search vs youtube_council
+  AWAREBOT YouTube SEARCH scanner now stamps:
+    source = "youtube_search"
+    tags += "scan:youtube_search"
+    metadata["search_query"] = query that surfaced this
+    metadata["pulled_by"] = "awarebot_youtube_keyword_search"
+  YTC curated-channel emit (Wave 14CD) already uses
+  source = "youtube_council". The two are now distinguishable in
+  STREAM facets, in the Intel YOUTUBE filter, and in the detail
+  sheet provenance block.
+
+iOS: provenance block in IntelSignalDetailSheet
+  New block under the timestamp/badge row renders any of:
+    Pulled by:     awarebot_youtube_keyword_search    (orange)
+    Search query:  "AI dev tools"                     (cyan)
+    Channel:       <channel name>                     (purple)
+    Promo content detected — route capped at MEDIUM   (yellow)
+  Answers NATRIX's "why is this in front of me" question every
+  time he taps any signal. Hidden when metadata has none of these
+  fields (other sources stay clean).
+
+Build: sim BUILD SUCCEEDED, device BUILD SUCCEEDED.
+Installed: 2 sims + 2 physical devices.
+Brain bounced — next scan cycle exercises the promo filter.
+
+ANSWERS NATRIX'S QUESTION
+
+"why did this analyze this youtube video, this creator isnt on my
+list" — because the AWAREBOT YouTube SEARCH scanner does keyword
+queries across all of YouTube and isn't bounded by the channel
+list. The fix doesn't disable that scanner (the keyword search
+still catches valuable real talks from non-list channels) but it
+now (1) marks them clearly as youtube_search not youtube, (2)
+attaches the query that pulled them, and (3) downgrades obvious
+promos.
+
+If you want the keyword scanner GONE entirely, set the YouTube
+watch_queries list to [] in your watch-query config — that kills
+all off-list YouTube and leaves YTC as the only YouTube source.

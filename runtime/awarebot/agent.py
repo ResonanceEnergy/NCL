@@ -175,6 +175,52 @@ def _maybe_rotate_agent_signals(path: Path) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# PROMO DETECTION (Wave 14CH-a)
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Creator sponsorships pollute YouTube SEARCH signals because the video
+# description carries the CTA ("Use my code TECHWITHTIM", "free for 14
+# days", affiliate link). These videos get scored as CRITICAL by the
+# AWAREBOT scorer because the description has high actionability +
+# strong CTA verbs. Cap them at MEDIUM so they never reach NOW lane.
+
+_PROMO_MARKERS = (
+    "my code ",
+    "promo code",
+    "discount code",
+    "coupon code",
+    "use code",
+    "affiliate link",
+    "sponsored by",
+    "sponsor of this",
+    "free for 14 days",
+    "free for 30 days",
+    "try for free",
+    "start free trial",
+    "newsletter",
+    "patreon.com",
+    "buymeacoffee",
+    "ko-fi.com",
+    "linktr.ee",
+    "merch store",
+    "join my discord",
+)
+
+
+def _is_promo_text(text: str) -> bool:
+    """Heuristic — does this look like a creator promo / sponsored CTA?
+
+    Catches "Try X Pro free for 14 days + get an extra month free with
+    my code TECHWITHTIM" and similar sponsorship boilerplate. Conservative
+    — single marker triggers. Easy to extend.
+    """
+    if not text:
+        return False
+    t = text.lower()
+    return any(marker in t for marker in _PROMO_MARKERS)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # SIGNAL DATA MODEL
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -237,7 +283,15 @@ class Signal:
         return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize for JSON persistence."""
+        """Serialize for JSON persistence.
+
+        Wave 14CH (2026-05-30) — metadata field now persisted.
+        Previously the score_factors dict (the 7-factor breakdown the
+        AWAREBOT scorer builds), themes, route_level metadata, and
+        sentiment polarity were dropped at serialization time. iOS
+        IntelSignalDetailSheet only had composite + importance to
+        render. Now the full metadata round-trips.
+        """
         return {
             "signal_id": self.signal_id,
             "source": self.source,
@@ -255,6 +309,8 @@ class Signal:
             "direction": self.direction,
             "category": self.category,
             "confidence": self.confidence,
+            # Wave 14CH-b — full metadata for detail sheet rendering
+            "metadata": self.metadata,
         }
 
     @classmethod
@@ -1319,16 +1375,41 @@ class Awarebot:
         else:
             log.warning("[AGENT:SCAN:X] X scanner disabled (X_SCANNER_ENABLED != true)")
 
-        # YouTube queries
+        # YouTube SEARCH queries — distinct from YTC curated-channel
+        # scrape. Wave 14CH (2026-05-30):
+        #   - source renamed "youtube" → "youtube_search" so iOS can
+        #     distinguish keyword-search results (off-list, description-
+        #     only context) from YTC's transcript+analysis pipeline
+        #     (curated channels, real content).
+        #   - The search query that surfaced each video is stashed in
+        #     metadata.search_query so the detail sheet can show
+        #     "Pulled by query: 'AI dev tools'" — answers NATRIX's
+        #     "why did this analyze this video, this creator isn't on
+        #     my list" question by surfacing the actual mechanism.
+        #   - Promo detector caps route_level at MEDIUM for sponsored
+        #     content (creators with affiliate codes, "try X free for
+        #     N days" CTAs, etc.) so promos stop landing in NOW.
         for query in self._watch_queries.get("youtube", []):
             try:
                 await self._rate_limiters["youtube"].acquire()
                 raw = await self.scanner.scan_youtube(query, max_results=10)
                 for sig in raw:
                     s = Signal.from_insight_signal(sig)
-                    s.tags.append("scan:youtube")
+                    s.source = "youtube_search"
+                    s.tags.append("scan:youtube_search")
+                    s.metadata["search_query"] = query
+                    s.metadata["pulled_by"] = "awarebot_youtube_keyword_search"
+                    # Wave 14CH-a: promo-content downgrade
+                    if _is_promo_text(f"{s.title} {s.content}"):
+                        s.metadata["promo_detected"] = True
+                        s.tags.append("filter:promo")
+                        # Cap route_level — promos shouldn't reach NOW
+                        if s.route_level in ("CRITICAL", "HIGH"):
+                            s.route_level = "MEDIUM"
+                        # Soften composite so the cap sticks if scored later
+                        s.composite_score = min(s.composite_score, 0.50)
                     signals.append(s)
-                    self._stats["signals_by_source"]["youtube"] += 1
+                    self._stats["signals_by_source"]["youtube_search"] += 1
             except Exception as e:
                 log.warning(f"[AGENT:SCAN:YT] Query '{query}' failed: {e}")
                 self._stats["source_errors"]["youtube"] += 1
