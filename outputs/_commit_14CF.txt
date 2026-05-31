@@ -1,0 +1,62 @@
+Wave 14CF: Intel UX fix pass — STREAM filter + refresh visibility
+
+NATRIX trial-run feedback consolidated into one wave.
+
+Backend (runtime/api/routers/intel/__init__.py):
+
+  /intel/stream root cause:
+    Was reading from brief.top_signals which only retains the top
+    ~50 signals after the authority filter. The 24h window returned
+    0 because everything in brief.top_signals was CRITICAL/HIGH
+    (eligible for NOW only) and the carve-out excluded them.
+
+  Fix:
+    Read from data/intelligence/agent_signals.jsonl directly. Tail-
+    scan the last ~50MB / 10k lines so the 30k+ line file doesn't
+    matter. Drop the CRITICAL/HIGH exclusion entirely — STREAM is
+    now the full ranked feed within the window, NOW still owns the
+    last-4h-focused + working_context combined surface.
+
+  Live result:
+    /intel/stream?window=24h
+    total: 7,032 signals (was 0)
+    facets: reddit=4334 youtube=1176 google_trends=624 options_flow=564 polymarket=334
+
+Backend (runtime/api/routers/system.py):
+  NEW GET /system/refresh-cadence
+    Single source of truth for "how often is this refreshing".
+    Returns 14 backend scheduler loops with cadences + produces
+    field, plus 11 iOS polling surfaces with endpoints + intervals.
+    Built so the iOS Refresh Status sheet (below) never has to
+    hardcode this knowledge.
+
+iOS (Sources/Views/Intel/RefreshStatusSheet.swift, new ~140 LOC):
+  RefreshStatusClient pulls /system/refresh-cadence.
+  RefreshStatusSheet renders two sections: NCL BRAIN loops with
+  per-loop cadence + produces field, FIRSTSTRIKE iOS UI refreshes
+  with per-surface endpoint + interval. Footer note explains
+  background suspension behavior.
+  LastRefreshedBadge tiny view shows "Xs ago" relative.
+
+iOS wiring (IntelNowView / IntelStreamView / IntelConvergenceView):
+  Each lane header now carries:
+    - LastRefreshedBadge — relative time since last fetch
+    - Tap area opens RefreshStatusSheet (info icon)
+  Each load() stamps lastFetched = Date() on success so badge
+  updates without a clock dependency.
+
+What NATRIX gets:
+  - STREAM 24h finally shows real content (7k+ rows)
+  - Every Intel lane header shows "5m ago" relative refresh time
+  - Tap "i" on any lane → full sheet listing every brain loop +
+    iOS poll interval. Answers the recurring "how often is this
+    refreshing" question with one tap.
+
+Build: sim BUILD SUCCEEDED, generic iOS BUILD SUCCEEDED.
+Installed: 2 sims + 2 physical devices.
+
+Still on deck for next wave:
+  - Predictions header reformat (title + probability prominent)
+  - XREF card detail enrichment (currently vague)
+  - NIGHTWATCH + FOCUS trial-tab data wiring
+  - Portfolio-close events emitting as signals

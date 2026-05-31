@@ -3731,38 +3731,93 @@ async def intel_stream(
     if themes:
         theme_filter = {t.strip() for t in themes.split(",") if t.strip()}
 
-    if not intelligence:
-        return {"window": window, "count": 0, "items": [], "facets": {}}
+    # Wave 14CF — STREAM reads directly from agent_signals.jsonl
+    # instead of brief.top_signals. The brief only retains the top N
+    # signals after authority filter (typically ~50), so the 24h
+    # window was returning empty even when 30k+ signals existed in
+    # the canonical jsonl. Read tail-N lines so the file size doesn't
+    # matter.
+    import json as _json
+    import os as _os
+    from pathlib import Path as _Path
+
+    base = _Path(_os.environ.get("NCL_BASE", str(_Path.home() / "dev" / "NCL")))
+    signals_path = base / "data" / "intelligence" / "agent_signals.jsonl"
 
     rows: list[dict] = []
     facet_sources: dict[str, int] = {}
     facet_themes: dict[str, int] = {}
 
+    if not signals_path.exists():
+        return {"window": window, "count": 0, "items": [], "facets": {}}
+
+    # Tail-read the last ~10k lines so we don't scan the entire 30k+
+    # line file on every request. Each cycle adds <1k signals so a
+    # 10k tail covers > 7 days easily.
+    max_lines = 10_000
     try:
-        brief = await intelligence.get_latest_brief()
-        if brief and getattr(brief, "top_signals", None):
-            for sig in brief.top_signals:
-                ts = getattr(sig, "timestamp", None)
-                if ts and ts < cutoff:
-                    continue
-                md = getattr(sig, "metadata", {}) or {}
-                route = str(md.get("route_level", "")).upper()
-                if route in ("CRITICAL", "HIGH"):
-                    # FOCUSED tier goes to /intel/now, not here.
-                    continue
-                composite = md.get("composite_score") or getattr(sig, "composite_score", 0)
+        with signals_path.open("rb") as fh:
+            try:
+                fh.seek(-50_000_000, _os.SEEK_END)  # ~50 MB tail
+            except OSError:
+                fh.seek(0)
+            else:
+                fh.readline()  # skip partial first line
+            raw_lines = fh.read().decode("utf-8", errors="ignore").splitlines()
+        recent_lines = raw_lines[-max_lines:]
+    except Exception as e:
+        log.warning("[/intel/stream] tail-read failed: %s", e)
+        recent_lines = []
+
+    cutoff_iso = cutoff.isoformat()
+
+    try:
+        for line in recent_lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                sig = _json.loads(line)
+            except Exception:
+                continue
+            if not isinstance(sig, dict):
+                continue
+            ts = sig.get("timestamp") or ""
+            if ts and ts < cutoff_iso:
+                continue
+            # Build a Signal-like accessor view for the existing
+            # filter code below. Construct a small shim that exposes
+            # both dict access and the attribute-style API.
+            class _SigShim:
+                __slots__ = ("_d",)
+                def __init__(self, d): self._d = d
+                def __getattr__(self, name):
+                    if name.startswith("_"): raise AttributeError(name)
+                    return self._d.get(name)
+
+            _shim = _SigShim(sig)
+            for _check in [True]:  # one-pass per signal
+                # Inlined filter loop — reuses the existing per-source
+                # / per-theme / per-score logic but operates on the
+                # dict directly so we don't have to construct full
+                # Signal objects for 10k rows.
+                md = sig.get("metadata") or {}
+                composite = (
+                    sig.get("composite_score")
+                    or md.get("composite_score")
+                    or 0
+                )
                 try:
                     composite = float(composite or 0)
                 except Exception:
                     composite = 0.0
                 if composite < min_score:
                     continue
-                src = (_signal_source_str(sig) or "").lower()
+                src = str(sig.get("source") or "").lower()
                 if source_filter and src.split(":")[0] not in source_filter:
                     continue
-                # BERTopic themes are in metadata.themes or tags prefixed bt:
                 sig_themes = set()
-                for tag in (getattr(sig, "tags", []) or []):
+                for tag in (sig.get("tags") or []):
                     if str(tag).startswith("bt:"):
                         sig_themes.add(str(tag)[3:])
                 meta_themes = md.get("themes") or []
@@ -3770,14 +3825,29 @@ async def intel_stream(
                     sig_themes.update(str(t) for t in meta_themes)
                 if theme_filter and not (sig_themes & theme_filter):
                     continue
-                row = _signal_to_row(sig)
-                row["themes"] = sorted(sig_themes)
+                row = {
+                    "signal_id": sig.get("signal_id"),
+                    "title": sig.get("title", ""),
+                    "content": (sig.get("content") or "")[:280],
+                    "source": sig.get("source", ""),
+                    "category": sig.get("category", ""),
+                    "direction": sig.get("direction", ""),
+                    "importance": sig.get("composite_score") or 0,
+                    "composite_score": composite,
+                    "route_level": sig.get("route_level") or md.get("route_level"),
+                    "score_factors": md.get("score_factors"),
+                    "url": sig.get("url"),
+                    "timestamp": ts,
+                    "tags": sig.get("tags") or [],
+                    "themes": sorted(sig_themes),
+                }
                 rows.append(row)
                 facet_sources[src.split(":")[0]] = facet_sources.get(src.split(":")[0], 0) + 1
                 for t in sig_themes:
                     facet_themes[t] = facet_themes.get(t, 0) + 1
+
     except Exception as e:
-        log.warning("[intel/stream] brief read failed: %s", e)
+        log.warning("[intel/stream] tail-scan failed: %s", e)
         return {"window": window, "count": 0, "items": [], "facets": {}, "error": str(e)}
 
     # Sort by composite_score desc, then importance

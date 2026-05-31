@@ -484,6 +484,51 @@ async def system_bertopic_status(_: None = Depends(verify_strike_token_dep)) -> 
     return out
 
 
+@router.get("/system/refresh-cadence")
+async def system_refresh_cadence(_: None = Depends(verify_strike_token_dep)) -> dict:
+    """Wave 14CF — what refreshes when, single source of truth.
+
+    NATRIX kept asking "how often is this refreshing". Returns a
+    structured map of every loop / endpoint cadence so iOS can
+    render it in a "Refresh status" sheet rather than having NATRIX
+    guess. Two halves: backend scheduler loops (real cron-ish) +
+    iOS-side polling intervals (documented, not enforced here).
+    """
+    return {
+        "as_of": datetime.now(timezone.utc).isoformat(),
+        "backend_loops": [
+            {"name": "AWAREBOT agent",        "id": "ncl-awarebot-agent",   "cadence": "per-source rate limits", "produces": "scored signals"},
+            {"name": "YTC dedicated",         "id": "ncl-ytc-dedicated",    "cadence": "1h",   "produces": "per-video reports + emit Signal (Wave 14CD)"},
+            {"name": "YTC nightshift rollup", "id": "ncl-ytc-nightshift",   "cadence": "daily 03:00 local", "produces": "consolidated rollup"},
+            {"name": "Cross-Reference",       "id": "ncl-cross-reference",  "cadence": "5m",   "produces": "promotions"},
+            {"name": "Brief prep",            "id": "ncl-brief-prep",       "cadence": "daily 02:30 ET", "produces": "context pack"},
+            {"name": "Brief council",         "id": "ncl-brief-council",    "cadence": "daily 05:00 ET", "produces": "synthesis"},
+            {"name": "Brief render",          "id": "ncl-brief-render",     "cadence": "daily 05:30 ET", "produces": "rendered AM brief"},
+            {"name": "Afternoon debrief",     "id": "ncl-afternoon-debrief","cadence": "daily 16:30 local", "produces": "PM debrief"},
+            {"name": "Working context",       "id": "ncl-working-ctx",      "cadence": "06:00 / 12:00 / 23:00", "produces": "pinned + auto-salience"},
+            {"name": "BERTopic retrain",      "id": "ncl-bertopic-retrain", "cadence": "weekly Sun 04:00 ET", "produces": "per-source theme models"},
+            {"name": "Cache warmer",          "id": "ncl-cache-warmer",     "cadence": "5m",   "produces": "pre-touched lookups"},
+            {"name": "Health rollup",         "id": "ncl-health-rollup",    "cadence": "60s",  "produces": "system health snapshot"},
+            {"name": "Memory consolidation",  "id": "ncl-memory",           "cadence": "1h",   "produces": "decay + dedup + cluster"},
+            {"name": "BM25 rebuild",          "id": "ncl-bm25-rebuild",     "cadence": "30m",  "produces": "keyword index"},
+        ],
+        "ios_polling": [
+            {"surface": "Dashboard / Spend chip",       "endpoint": "/system/costs/dashboard.json?days=1", "every": "60s"},
+            {"surface": "Dashboard / XREF chip",        "endpoint": "/cross-reference/today",              "every": "5m"},
+            {"surface": "Dashboard / MACRO chip",       "endpoint": "/intelligence/macro/today",           "every": "15m"},
+            {"surface": "Intel / NOW lane",             "endpoint": "/intel/now?hours=4",                  "every": "on tab open + pull-to-refresh"},
+            {"surface": "Intel / STREAM lane",          "endpoint": "/intel/stream?window=24h",            "every": "on tab open + pull-to-refresh + filter change"},
+            {"surface": "Intel / XREF lane",            "endpoint": "/intel/convergence?hours=24",         "every": "on tab open + pull-to-refresh"},
+            {"surface": "Portfolio / Insider chip",     "endpoint": "/portfolio/insider/form4",            "every": "on tab open"},
+            {"surface": "Portfolio / Earnings chip",    "endpoint": "/portfolio/earnings/calendar",        "every": "on tab open"},
+            {"surface": "Calendar / Air Quality",       "endpoint": "/calendar/air-quality?city_id=",      "every": "on city change"},
+            {"surface": "OPTIONS / Tradier Greeks",     "endpoint": "/portfolio/options/tradier-chain",    "every": "on tab open"},
+            {"surface": "Brain Status heartbeat",       "endpoint": "/health",                             "every": "15s"},
+        ],
+        "note": "iOS auto-refresh fires only while the surface is mounted. Background app stops timers — relaunch or pull-to-refresh after suspending.",
+    }
+
+
 @router.post("/system/costs/reset")
 async def system_costs_reset(_: None = Depends(verify_strike_token_dep)):
     """Reset today's cost tracking. Use at start of new billing period."""
