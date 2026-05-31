@@ -159,6 +159,51 @@ Output ONLY JSON in this shape:
 """
 
 
+def _adapt_pm_to_envelope(out: dict) -> dict:
+    """Wave 14CV — map PM debrief shape onto the 5-lane envelope so
+    brief_archiver.archive_brief can render a .md document.
+
+    PM debrief has its own structure (scoreboard/night_watch/scan/etc).
+    We project it into PORTFOLIO + INTEL + MEMORY lanes so the .md
+    renderer treats it like an evening complement to the AM brief.
+    Empty lanes (CALENDAR/JOURNAL) keep the section count visually
+    consistent with AM but stay clearly labeled as 'PM'.
+    """
+    synth = out.get("synthesis") or {}
+    scoreboard = synth.get("today_scoreboard") or {}
+    return {
+        "date": out.get("date"),
+        "generated_at": out.get("built_at"),
+        "headline": synth.get("headline", ""),
+        "council_meta": {"mode": "pm", "model": _MODEL},
+        "lanes": {
+            "portfolio": {
+                "narrative": synth.get("headline", ""),
+                "today_scoreboard": scoreboard,
+                "agent_reasoning_highlights": synth.get("agent_reasoning_highlights", []),
+                "post_market_scan": synth.get("post_market_scan", []),
+                "rotation_shift": synth.get("rotation_shift", ""),
+            },
+            "intel": {
+                "narrative": "Today's converged intel + reddit pulse",
+                "night_watch_focus": synth.get("night_watch_focus", []),
+                "reddit_top10": (synth.get("reddit_top10") or [])[:10],
+            },
+            "calendar": {
+                "narrative": "(see AM brief for today's calendar)",
+            },
+            "journal": {
+                "narrative": "End-of-day reflection prompt",
+                "one_q_quiz_prompt": synth.get("one_q_quiz_prompt", ""),
+            },
+            "memory": {
+                "narrative": "Seeds for tonight's Night Watch cycle",
+                "themes_to_carry": synth.get("night_watch_focus", []),
+            },
+        },
+    }
+
+
 async def build_debrief() -> dict:
     """Single Opus call. Returns synthesized debrief dict; persists to disk."""
     DEBRIEF_DIR.mkdir(parents=True, exist_ok=True)
@@ -215,6 +260,18 @@ async def build_debrief() -> dict:
         (DEBRIEF_DIR / f"{pack['date']}.json").write_text(json.dumps(out, indent=2, default=str))
     except OSError as e:
         log.warning("[debrief] persist failed: %s", e)
+
+    # Wave 14CV — write the unified .md archive so BriefLandingCard
+    # can render PM debrief as a single document (same UX as AM brief).
+    # We adapt the PM synthesis shape into the lanes envelope shape that
+    # archive_brief expects. Trade-idea registration is a no-op for PM
+    # (auto-trader's already seen AM's ideas; PM is reflection only).
+    try:
+        from runtime.intelligence.brief_archiver import archive_brief
+        pm_envelope = _adapt_pm_to_envelope(out)
+        await archive_brief(pm_envelope, pack=None, mode="pm", brain=None)
+    except Exception as e:
+        log.warning("[debrief] archive_brief failed: %s", e)
 
     # Wave 14BD (2026-05-30): render Piper TTS spoken-debrief .wav so
     # iOS BriefLandingCard PM mode Play button can fetch it. Fire-and-

@@ -1,0 +1,111 @@
+Wave 14CV: BriefLandingCard single-document UI + PM debrief .md archive
+
+NATRIX: "morning and evening brief on dashboard should be one
+doc not 5 boxes. also last night's afternoon brief didn't fire
+and i don't see it investigate"
+
+# Investigation: PM debrief DID fire (file evidence)
+
+Yesterday's afternoon debrief at 16:30 ET fired correctly.
+File on disk: data/afternoon-debrief/2026-05-30.json (4822 B
+written at the right wall-clock time). The miss NATRIX saw was
+an **iOS visibility problem**, not a scheduler problem — the
+old BriefLandingCard rendered the JSON envelope through a
+5-tile grid that didn't naturally surface PM content.
+
+Plus the PM scheduler loop logs in UTC ("next run at
+2026-05-31T16:30:00" 60K seconds out) which can read as wrong
+on first glance but matches local 16:30 ET correctly when the
+ET conversion lands.
+
+# The fix: brief becomes ONE document
+
+## Backend (runtime/intelligence/afternoon_debrief.py)
+
+After persisting the JSON, we now adapt the PM shape into a
+5-lane envelope and call brief_archiver.archive_brief(mode="pm").
+This produces data/morning-brief-md/<date>-pm.md alongside the
+existing AM .md, so iOS gets a single Markdown surface for both
+modes with consistent rendering.
+
+_adapt_pm_to_envelope() projects PM tiles into lanes:
+  PORTFOLIO: today_scoreboard + agent_reasoning + post_market_scan
+             + rotation_shift + headline narrative
+  INTEL: night_watch_focus + reddit_top10
+  CALENDAR: pointer back to AM brief (empty body)
+  JOURNAL: one_q_quiz_prompt
+  MEMORY: themes_to_carry forward to tonight's Night Watch
+
+archive_brief is called from build_debrief() right after the
+JSON persist. Memory snapshot + tracker registration are no-ops
+for PM (auto-trader already saw AM's ideas; PM is reflection
+only) but the .md write is the user-facing piece.
+
+## iOS (Sources/Views/Dashboard/BriefLandingCard.swift)
+
+Full rewrite from 5-tile LazyVGrid → single-document renderer.
+
+Header preserves everything: AM/PM picker, audio play button
+(Wave 14BA + 14BQ), Spend chip, XRef chip, Council A/B badge,
+Macro chip. None of that surface was disturbed.
+
+Body now:
+  - Headline (from synthesis or first H1 in the .md)
+  - Markdown preview: first 8 prose lines from the PORTFOLIO
+    section, rendered with AttributedString(markdown:) so bold
+    + italics actually render. Falls back to plain text on parse
+    failure.
+  - Action row: "Read full brief" button + refresh.
+  - Generated-at timestamp footer.
+
+Tapping "Read full brief" opens BriefFullDocumentSheet — a
+ScrollView that parses the .md into H1/H2/H3/text blocks and
+renders each with appropriate font weight (H2 cyan, H3 secondary,
+text via AttributedString). YAML front-matter stripped before
+display. Done button dismisses.
+
+Load() prioritizes the canonical .md endpoint:
+  GET /intelligence/briefs/archive/{date}/{am,pm}
+  → if 200, render directly
+  → if 404, fall back to JSON via BriefMarkdownComposer.compose()
+    which builds the same lane structure on-the-fly. Keeps the
+    card working for any brief fired BEFORE Wave 14CQ shipped.
+
+A background JSON fetch still runs after the .md loads to
+populate council_meta for the A/B badge — failure is silent.
+
+BriefMarkdownComposer is a tiny embedded fallback:
+  - Reads `lanes` (AM envelope) → renders 5 sections in fixed order
+  - Reads PM flat tiles → renders Today's Scoreboard / Night Watch
+    Focus / Agent Reasoning / Post-Market Scan / Rotation Shift /
+    One-Q Quiz as H2 sections
+  - stringify() handles String / [String] / [[String:Any]] /
+    [String:Any] / scalar
+
+Live verification:
+  Backend bounce → /intelligence/afternoon-debrief/fire kicked
+    → /intelligence/briefs/archive returned 3 docs:
+      2026-05-31-pm.md (4566 B, just-fired)
+      2026-05-31-am.md (11226 B)
+      2026-05-30-am.md (10562 B)
+  iOS build succeeded on 4 targets:
+    iPhone 16e sim (pid 13669)
+    iPad Pro M5 sim (pid 13863)
+    Physical iPhone 15 Pro Max
+    Physical iPad Pro 11"
+
+Files (2 + 1 rewrite):
+  M runtime/intelligence/afternoon_debrief.py  (+ _adapt_pm_to_envelope
+    + archive_brief call after persist)
+  M Sources/Views/Dashboard/BriefLandingCard.swift (full rewrite —
+    5-tile LazyVGrid → markdown preview + full-document sheet +
+    fallback composer)
+
+Net result:
+  - One document on Dashboard for both AM and PM modes
+  - PM debriefs now surface in the same UI as AM
+  - "Read full brief" sheet shows the complete .md with proper
+    heading hierarchy
+  - YAML front-matter hidden but parseable for generated_at
+  - All existing chips (Spend / XRef / A/B / Macro / audio Play)
+    preserved
