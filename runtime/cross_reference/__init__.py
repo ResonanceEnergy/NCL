@@ -238,6 +238,12 @@ def _get_bertopic_themes() -> Optional[dict]:
     except Exception as e:
         log.debug("[cross-ref] bertopic load failed: %s", e)
         _bertopic_loaded = None
+        # Wave 14CS — counter for silent BERTopic load failure
+        try:
+            from runtime.observability import bump as _bump
+            _bump("crossref_bertopic_load_failed", reason=type(e).__name__)
+        except Exception:
+            pass
     if _bertopic_loaded:
         meta = _bertopic_loaded.get("meta", {})
         log.info(

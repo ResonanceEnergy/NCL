@@ -368,6 +368,11 @@ async def auto_trader_loop(brain) -> None:
                                 strategy_tag=str(strat),
                                 R_dollars_proposed=proposed_R,
                                 symbol=ticker,
+                                # Wave 14CS — pass loop's normalized band
+                                # so governor uses our coerced value
+                                # ("unknown" when NAV race) instead of
+                                # racing the bucket read.
+                                band_override=band,
                             )
                             cb_governor.record_success()
                         except Exception as e:

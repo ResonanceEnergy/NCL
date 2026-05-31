@@ -208,6 +208,7 @@ async def check_proposed_trade(
     symbol: Optional[str] = None,
     broker: Optional[str] = None,
     nav_cad_override: Optional[float] = None,
+    band_override: Optional[str] = None,
 ) -> dict:
     """Composes J0b + J0c + heat caps in one decision.
 
@@ -221,6 +222,13 @@ async def check_proposed_trade(
 
     `nav_cad_override` is for testing — if set, used instead of the
     portfolio_manager's live NAV. Floor: NCL_HEAT_NAV_FLOOR_CAD.
+
+    `band_override` (Wave 14CS): accept the loop's already-normalized
+    band so we don't lose the loop's NAV=$0 → band="unknown" coercion
+    to a stale bucket read race. Without this, the governor was
+    independently re-reading the bucket and could see band=halt during
+    the few ms before the loop's set_drawdown_halt(False, "unknown")
+    write propagated → false REJECT on every NAV-race tick. Audit B4.4.
     """
     from .drawdown_bucket import get_drawdown_bucket
     from .position_risk_state import get_risk_store
@@ -230,6 +238,26 @@ async def check_proposed_trade(
     dd_state = await bucket.get_state()
     band = dd_state.get("band", "green")
     multiplier = float(dd_state.get("sizing_multiplier", 1.0))
+
+    # Wave 14CS — NAV=$0 guard mirroring loop.py:217-227. If the bucket
+    # currently says halt but NAV is $0, treat as data-unavailable
+    # rather than 100% drawdown (the portfolio sync just hasn't
+    # completed yet). Operator's loop applies the same guard
+    # asymmetrically; this propagates it to anyone calling the governor
+    # directly (the brief pipeline + manual ops + tests).
+    if band == "halt":
+        try:
+            nav_for_guard = float(dd_state.get("current_nav_cad") or 0)
+        except (TypeError, ValueError):
+            nav_for_guard = 0.0
+        if nav_for_guard < 100:
+            band = "unknown"
+            multiplier = 1.0  # reset sizing — no halt means no haircut
+
+    # Caller's explicit override always wins (e.g. loop passing
+    # already-normalized band so the two reads can't race).
+    if band_override is not None:
+        band = str(band_override)
 
     # 2. Current heat (from PositionRiskStore aggregate)
     risk_store = await get_risk_store()

@@ -368,6 +368,33 @@ async def system_env_flags(_: None = Depends(verify_strike_token_dep)) -> dict:
     }
 
 
+@router.get("/system/silent-failures")
+async def system_silent_failures(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Wave 14CS — visibility into subsystems that silently catch + degrade.
+
+    Audit B4.7 finding: EntityClusterer / AuthorityLearner / BERTopic /
+    situational / promo-marker / persist-dedup were all `log.debug`-only
+    on failure. Now bumped into process-wide counters via
+    runtime.observability.silent_failure_counters so the operator can
+    see at a glance which silent paths are firing.
+    """
+    from runtime.observability import snapshot as _snapshot
+    return _snapshot()
+
+
+@router.post("/system/silent-failures/reset")
+async def system_silent_failures_reset(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Clear silent-failure counters. Useful after a fix lands so the
+    operator can baseline whether the silent path stops firing."""
+    from runtime.observability import reset as _reset
+    _reset()
+    return {"ok": True, "message": "silent-failure counters reset"}
+
+
 @router.post("/system/env")
 async def system_env_flags_set(
     request: Request,

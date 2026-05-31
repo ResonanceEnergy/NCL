@@ -244,11 +244,22 @@ def _is_promo_text(text: str) -> bool:
     Catches "Try X Pro free for 14 days + get an extra month free with
     my code TECHWITHTIM" and similar sponsorship boilerplate. Conservative
     — single marker triggers. Easy to extend.
+
+    Wave 14CS — when a marker fires, increment a per-marker counter so
+    we can see WHICH markers are dominating + spot false positives.
     """
     if not text:
         return False
     t = text.lower()
-    return any(marker in t for marker in _PROMO_MARKERS)
+    for marker in _PROMO_MARKERS:
+        if marker in t:
+            try:
+                from runtime.observability import bump as _bump
+                _bump("awarebot_promo_match", reason=marker[:32])
+            except Exception:
+                pass
+            return True
+    return False
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -2104,6 +2115,12 @@ class Awarebot:
                     signal.authority = 0.7 * signal.authority + 0.3 * learned_mean
             except Exception as auth_err:
                 log.debug(f"[AGENT:SCORE] AuthorityLearner blend failed: {auth_err}")
+                # Wave 14CS — surface silent fall-backs to /system/silent-failures
+                try:
+                    from runtime.observability import bump as _bump
+                    _bump("awarebot_authority_blend_failed", reason=type(auth_err).__name__)
+                except Exception:
+                    pass
 
         # ── ACTIONABILITY: engagement + directional signals ─────────
         base_actionability = signal.actionability  # from scanner engagement
@@ -2141,6 +2158,12 @@ class Awarebot:
                     cross_source = min(1.0, 1.0 - math.exp(-0.6 * n_sources))
             except Exception as ec_err:
                 log.debug(f"[AGENT:SCORE] EntityClusterer failed, falling back: {ec_err}")
+                # Wave 14CS — counter for silent EntityClusterer falls
+                try:
+                    from runtime.observability import bump as _bump
+                    _bump("awarebot_entity_cluster_failed", reason=type(ec_err).__name__)
+                except Exception:
+                    pass
         if cross_source == 0.0:
             cross_source = self._compute_cross_source(
                 f"{signal.title} {signal.content}", signal.source
@@ -2165,6 +2188,12 @@ class Awarebot:
                 )
         except Exception as _sit_err:
             log.debug(f"[AGENT:SCORE] situational compute failed: {_sit_err}")
+            # Wave 14CS — counter for silent situational fall-back
+            try:
+                from runtime.observability import bump as _bump
+                _bump("awarebot_situational_failed", reason=type(_sit_err).__name__)
+            except Exception:
+                pass
 
         # ── COMPOSITE: 6-factor weighted blend ──────────────────────
         signal.composite_score = compute_composite_score(
@@ -4695,6 +4724,13 @@ Focus on what requires attention or action."""
                 if fp in self._persist_dedup_cache:
                     self._stats.setdefault("signals_dropped_persist_dedup", 0)
                     self._stats["signals_dropped_persist_dedup"] += 1
+                    # Wave 14CS — global counter (audit B4.7 silent leak)
+                    try:
+                        from runtime.observability import bump as _bump
+                        _bump("awarebot_persist_dedup_drop",
+                              reason=(signal.source or "?").split(":")[0])
+                    except Exception:
+                        pass
                     return
                 self._persist_dedup_cache[fp] = now_ts
                 # Bound the cache so it doesn't grow unbounded — Reddit

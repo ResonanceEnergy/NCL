@@ -1,0 +1,134 @@
+Wave 14CS: Audit-final 3 — BERTopic verified clean, NAV-race fix, silent-failure counters
+
+Closes the last 3 items on the AWAREBOT_TRADERAGENT_FLOW_AUDIT
+punch list. After this, the audit's full 10-fix list is closed
+or explicitly deferred-to-low-priority.
+
+# 1. Audit #4 — BERTopic XREF junk verification (no code change needed)
+
+Audit hypothesis: BERTopic per-source theme labels might bypass
+the ticker_universe whitelist (Wave 14CM) and inject stop-word
+themes ("they / never / only") into theme_converge promotions.
+
+Verification post-bounce:
+  promotions.jsonl theme_converge rows: only 4 distinct theme
+    labels ever emitted — rate_policy, geopolitical, ai_capex,
+    energy_supply — the hardcoded clusters defined in
+    _THEME_CLUSTERS. Zero BERTopic `bt:` labels leak into the
+    final theme list.
+
+  ticker_converge: 32 historical junk-word rows
+    (NEVER/REST/THEY/ONLY/...) all promoted BEFORE Wave 14CM
+    landed at 21:06 ET. Latest junk row is 02:13 UTC; nothing
+    junk since the whitelist landed. Rows will age out of the
+    24h iOS window naturally.
+
+No additional fix required. The audit's "hypothesis (b)" did
+not hold — BERTopic enrichment writes `bt:<label>` into a SET
+that's only consumed by the theme overlap path, never written
+to promotions.ticker.
+
+# 2. Audit #7 — risk_governor NAV=$0 → halt-band race
+
+`runtime/portfolio/auto_trader/loop.py:217-227` correctly guards
+against the portfolio sync race: when bucket reads band=halt
+AND NAV < $100, the loop coerces band="unknown" and clears the
+drawdown_halt flag. But `runtime/portfolio/risk_governor.py:228`
+was independently re-reading the bucket in the same tick →
+saw band=halt → returned REJECT before the loop's clear took
+effect. 26/106 historical rejects were this race.
+
+Fix in `runtime/portfolio/risk_governor.py`:
+  - check_proposed_trade gains a `band_override=` kwarg
+  - When band_override is None (legacy callers), apply the
+    same NAV<$100 guard inline before the band-halt branch
+    decides REJECT. Reset multiplier to 1.0 alongside the band
+    coercion so no haircut sneaks through.
+  - When band_override is set, use it verbatim (caller knows
+    best).
+
+Fix in `runtime/portfolio/auto_trader/loop.py:365-371`:
+  - Pass `band_override=band` into check_proposed_trade so the
+    loop's normalized "unknown" band wins.
+
+After this, governor + loop see the SAME band per tick. Race
+window closed.
+
+# 3. Audit #10 — observability counters for silent fall-backs
+
+NEW `runtime/observability/` package with one module:
+  `silent_failure_counters.py` (~85 LOC)
+    Process-wide thread-safe Counter store + per-counter
+    "by reason" breakdown.
+    Public API:
+      bump(name, reason=None, n=1)
+      snapshot() -> {counters, by_reason, first/last_bump_at}
+      reset()
+
+Wired into 5 silent-fallback sites:
+  runtime/awarebot/agent.py
+    - score loop: AuthorityLearner blend failed
+      → awarebot_authority_blend_failed
+    - score loop: EntityClusterer failed
+      → awarebot_entity_cluster_failed
+    - score loop: situational compute failed
+      → awarebot_situational_failed
+    - _persist_signal dedup drop
+      → awarebot_persist_dedup_drop (reason = source head)
+    - _is_promo_text hit
+      → awarebot_promo_match (reason = exact marker, top 32 chars)
+  runtime/cross_reference/__init__.py
+    - BERTopic global load failed
+      → crossref_bertopic_load_failed
+
+NEW REST endpoints:
+  GET  /system/silent-failures
+  POST /system/silent-failures/reset
+
+Live verification post-bounce (2 min uptime):
+  /system/silent-failures returned 1 counter:
+    awarebot_promo_match: 10
+    by_reason: {
+      "in 2025": 2, "subscribe": 2, "patreon.com": 1,
+      "in 2026": 1, "for beginners": 1, ...
+    }
+  All other silent paths inactive — confirms the awarebot
+  scoring loop and BERTopic load are clean.
+
+The dominant marker "in 2025" / "in 2026" suggests the promo
+detector might over-fire on legitimate date-stamped content
+("Outlook for 2026"). Worth a Wave 14CT tune: drop generic
+year-stamps from the marker list.
+
+# Files modified (8)
+
+  + runtime/observability/__init__.py            (NEW, 4 LOC)
+  + runtime/observability/silent_failure_counters.py (NEW, ~85 LOC)
+  M runtime/portfolio/risk_governor.py           (NAV guard + band_override kwarg)
+  M runtime/portfolio/auto_trader/loop.py        (thread band into governor)
+  M runtime/awarebot/agent.py                    (5 bump() sites)
+  M runtime/cross_reference/__init__.py          (BERTopic load counter)
+  M runtime/api/routers/system.py                (+ 2 endpoints)
+
+# Audit punch list — FINAL STATUS
+
+  #1  brief → tracker wiring            ✅ Wave 14CQ + 14CR
+  #2  "sig_id" literal placeholder      ✅ Wave 14CQ + 14CN scrubber
+  #3  TradeIdea.sources field           ✅ Wave 14CR-A
+  #4  BERTopic verify                   ✅ Wave 14CS-1 (no fix needed)
+  #5  trend_tracker baseline            ✅ Wave 14CR-B
+  #6  news_trends_double harden         ✅ Wave 14CR-C
+  #7  risk_governor NAV race            ✅ Wave 14CS-2
+  #8  options_flow ticker enrichment    ✅ Wave 14CR-D
+  #9  youtube_council phantom           ✅ Wave 14CR-E
+  #10 observability counters            ✅ Wave 14CS-3
+
+All 10 audit items resolved. The auto-trader has source-
+attributed trade ideas flowing from the brief, the trend
+tracker emits only real signals (no fading-100pct noise),
+the XREF / news+trends rules emit only validated tickers,
+and the silent-failure surfaces are visible via REST.
+
+Next session can validate end-to-end auto-trader behavior
+with the new ideas flowing (expecting non-REJECT reasoning
+chains for the first time since 2026-05-29 22:02).
