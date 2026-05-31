@@ -124,12 +124,28 @@ def _is_intel_source(source: str) -> bool:
 
 
 def _extract_tickers(text: str) -> set[str]:
-    """Extract candidate tickers, filtered against stoplist."""
+    """Extract candidate tickers, filtered against the known-good universe.
+
+    Wave 14CM (2026-05-31): bare-uppercase matches now must clear the
+    ticker_universe whitelist. NATRIX trial-run flagged 35+ false
+    positives (NOW / REST / THIS / FREE / OS / NEED / YOUR / WILL /
+    GREAT / etc.) — stop-list alone can't catch them all. The $TICKER
+    notation stays always-trusted; bare matches go through is_valid_ticker.
+    """
     if not text:
         return set()
+    try:
+        from ..intelligence.ticker_universe import is_valid_ticker
+    except Exception:
+        # Universe unavailable — fall back to stop-list-only (legacy
+        # behavior). Loud at debug so we notice in logs.
+        is_valid_ticker = None
     found: set[str] = set()
     for m in _TICKER_RX.finditer(text):
-        ticker = m.group(1) or m.group(2)
+        # group(1) = $TICKER (always trusted), group(2) = bare uppercase
+        dollar_ticker = m.group(1)
+        bare_ticker = m.group(2)
+        ticker = dollar_ticker or bare_ticker
         if not ticker:
             continue
         ticker = ticker.upper()
@@ -137,6 +153,10 @@ def _extract_tickers(text: str) -> set[str]:
             continue
         if len(ticker) < 2:
             continue
+        # Bare uppercase MUST be in the universe; $TICKER bypass
+        if not dollar_ticker and is_valid_ticker is not None:
+            if not is_valid_ticker(ticker):
+                continue
         found.add(ticker)
     return found
 

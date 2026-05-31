@@ -60,10 +60,31 @@ _TICKER_BLOCKLIST = frozenset({
 
 
 def _extract_tickers(text: str) -> set[str]:
+    """Wave 14CM — must clear the ticker_universe whitelist.
+
+    Same fix as cross_reference._extract_tickers — the trend tracker
+    was producing trend alerts for NOW / WILL / GREAT etc. because
+    the regex alone caught any 2-5 char uppercase token. Whitelist
+    gates bare uppercase; the stop-word blocklist stays as a fast
+    rejection layer before the lookup.
+    """
     if not text:
         return set()
+    try:
+        from .ticker_universe import is_valid_ticker
+    except Exception:
+        is_valid_ticker = None
     raw = set(_TICKER_RX.findall(text))
-    return {t for t in raw if t not in _TICKER_BLOCKLIST and 2 <= len(t) <= 5}
+    out: set[str] = set()
+    for t in raw:
+        if t in _TICKER_BLOCKLIST:
+            continue
+        if not (2 <= len(t) <= 5):
+            continue
+        if is_valid_ticker is not None and not is_valid_ticker(t):
+            continue
+        out.add(t)
+    return out
 
 
 def _hour_bucket(ts_iso: str) -> str:

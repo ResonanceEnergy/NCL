@@ -1,0 +1,66 @@
+Wave 14CM: ticker-universe whitelist — XREF + trend tracker stop firing on common English words
+
+NATRIX trial-run pushback: XREF is "just hot words and waste of time
+and compute". Audit confirmed: 49 XREF ticker cards, 85% of which
+were common English words misidentified as tickers:
+  NOW REST THIS FREE OS TV PC NEED YOUR WILL ANY CAN POINT DM AMA
+  III LIVE GOP DEV IA GREAT EA WR JUST MLB SORRY UI FC ITS IRS
+  MVP UC DIRE TRADE DON HR NEVER THEY ONLY
+
+Root cause: bare-uppercase regex `\b[A-Z]{2,5}\b` matches every
+ALL-CAPS English word, and the 80-word stoplist couldn't catch
+them all (English has thousands of 2-5 letter caps abbreviations).
+
+Fix: universe whitelist — only emit ticker convergences for symbols
+that appear in a curated known-good universe. The `$TICKER` notation
+stays always-trusted (operators don't prefix English words with $).
+Bare matches now must clear `is_valid_ticker()`.
+
+NEW runtime/intelligence/ticker_universe.py (~150 LOC)
+  Built-in seed universe (~400 unique symbols):
+    - S&P 100 mega-caps (AAPL/MSFT/NVDA/etc.)
+    - Major ETFs (SPY/QQQ/IWM + sector SPDRs + crypto ETFs +
+      leveraged + commodities + thematic)
+    - Popular retail/meme stocks (GME/PLTR/HOOD/RIOT/MSTR/etc.)
+    - Top 50 crypto symbols
+    - Macro tickers (WTI/BRENT/NIFTY/VIX/DXY/etc.)
+  Optional operator extensions via data/tickers/universe.txt
+  (one symbol per line, # comments). get_universe() merges both;
+  reload_universe() invalidates the cache.
+
+Updates:
+  runtime/cross_reference/__init__.py
+    _extract_tickers gates bare matches through is_valid_ticker.
+    $TICKER bypass preserved.
+
+  runtime/intelligence/trend_tracker.py
+    Same whitelist gate applied to the rollup.
+
+  runtime/api/routers/intel/__init__.py (/intel/convergence)
+    Whitelist gate at READ time too — historical garbage in
+    promotions.jsonl is suppressed in iOS immediately without
+    waiting for it to age out of the 24h window.
+
+Live verification post-bounce:
+
+  XREF (/intel/convergence?hours=24):
+    BEFORE: 49 ticker cards (NOW/REST/THIS/FREE/NEED/GREAT/...)
+    AFTER:   5 ticker cards (NOW/WTI/NIFTY/XLM/XRP) + 3 themes
+             (rate_policy/geopolitical/energy_supply)
+
+  Trend tracker (/intelligence/trends/refresh):
+    BEFORE: 10,128 buckets, 273 alerts (mostly garbage)
+    AFTER:   1,848 buckets, 82 alerts of real tickers:
+              GME +477% (z=3.8) ANOMALY+SPIKING
+              SI  +489% (z=3.5) ANOMALY+SPIKING
+              GLD +312% spiking
+              SOFI fading 100% (z=-3.7)
+              SPX/XLE/EEM fading
+              AMZN/NQ z=-3.5 anomaly fade
+
+This is actually tradeable signal now.
+
+To extend the universe with new symbols (e.g., a new ticker you
+want monitored): append to data/tickers/universe.txt one per line,
+then either bounce the brain or call reload_universe() in any
+Python REPL attached to the process.

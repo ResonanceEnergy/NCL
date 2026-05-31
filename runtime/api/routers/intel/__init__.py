@@ -3898,6 +3898,14 @@ async def intel_convergence(
     cutoff_iso = cutoff.isoformat()
 
     # Load cross-ref promotions
+    # Wave 14CM — apply ticker-universe whitelist at READ time so iOS
+    # immediately stops showing historical garbage (NEED / GREAT / WILL /
+    # OS / etc.) even before the old entries age out of the window.
+    try:
+        from runtime.intelligence.ticker_universe import is_valid_ticker as _is_valid_ticker
+    except Exception:
+        _is_valid_ticker = None
+
     promotions: list[dict] = []
     if promo_path.exists():
         try:
@@ -3913,6 +3921,14 @@ async def intel_convergence(
                     ts = row.get("promoted_at") or ""
                     if ts and ts < cutoff_iso:
                         continue
+                    # Whitelist gate for ticker promotions
+                    if (
+                        row.get("rule") == "ticker_converge"
+                        and _is_valid_ticker is not None
+                    ):
+                        tkr = (row.get("ticker") or "").upper()
+                        if tkr and not _is_valid_ticker(tkr):
+                            continue
                     promotions.append(row)
         except Exception as e:
             log.warning("[intel/convergence] promo read failed: %s", e)
