@@ -1,0 +1,98 @@
+Wave 14CN: NOW/STREAM unbreak — exclude metadata aggregates, raise NOW bar, default-drop YT search, stem-dedup polymarket variants
+
+NATRIX trial-run: "now is broken stream is broken".
+
+Audit findings:
+  NOW returned 50 narrative_thread/mandate metadata aggregates
+  ("Thread on $AI: 3499 units", "AUTO_TRADER decision sentinel",
+  "Analysis failed [<retry>]"). Working_context auto-salience was
+  surfacing memory-side bookkeeping into the user-facing lane.
+
+  STREAM returned 5 YouTube clickbait promo cards at the top
+  ("HOW I LEARNED PYTHON IN 1 WEEK", "MILLIONAIRE BEFORE 25",
+  etc.). The Wave 14CH promo detector is forward-only — it tags
+  newly-emitted signals but historical promos already in
+  agent_signals.jsonl were never re-filtered.
+
+  After first-pass filter (drop narrative_thread/portfolio/mandate
+  sources + Analysis-failed/AUTO_TRADER content prefixes) NOW
+  dropped to 6 — but then dropped to 0 when I added too many
+  exclusions. Then dropped to 50 google_trends sports topics
+  (savannah guthrie / orioles / jarren duran) when I relaxed the
+  filter back. So NOW = sports = also broken.
+
+Wave 14CN final shape:
+
+  /intel/now restructure:
+    - Skip working_context auto-salience entirely
+      (operator-pinned items still get in)
+    - Tail-scan agent_signals.jsonl for FOCUSED route signals
+    - Composite floor 0.55 → 0.70 so MEDIUM-tier google_trends
+      sports drops out (only HIGH/CRITICAL plus ≥0.70 composite)
+    - Exclude src startswith: narrative_thread, portfolio:,
+      mandate:, *_mandate, auto_trader
+    - Exclude content startswith: "Analysis failed",
+      "[Position closed]", "AUTO_TRADER"
+    - Exclude src_head in (youtube, youtube_search) — same
+      noise as STREAM (NATRIX already said curated YTC pipeline
+      is the right surface for video content)
+    - Read-time _is_promo_text() filter on title + content
+      head for pre-fix garbage still in jsonl
+    - Stem-dedup per (source, number-normalized-title) so
+      polymarket per-outcome variants collapse ("Will Musk
+      post 500+ tweets", "80-99 tweets", "100-149 tweets"
+      → one card). Operator-pinned items bypass dedup.
+
+  /intel/stream:
+    - Default-exclude source_head in (youtube, youtube_search)
+      unless user passes ?sources= explicitly (NATRIX called
+      them "creator noise that buries real intel"). Curated
+      YTC pipeline reports come through source=youtube_council.
+    - Read-time _is_promo_text() filter
+    - Drop narrative_thread metadata aggregates
+    - Same stem-dedup as NOW
+
+Extended _PROMO_MARKERS in awarebot/agent.py with 30+ markers:
+  "how i learned", "lessons learned", "millionaire before",
+  "before 30", "before 25", "side hustle", "passive income",
+  "watch this before", "you won't believe", "in just",
+  "10 things", "5 reasons", "top 10", "billionaire", etc.
+  Promo detection caps signal at MEDIUM route, blocking
+  promotional content from reaching CRITICAL/HIGH.
+
+Before / After:
+
+  /intel/now (count=50)
+    BEFORE: 50 google_trends sports (savannah guthrie / orioles
+            / fever vs portland / jarren duran / jeff hoffman)
+    AFTER:  13 polymarket HIGH-route geopolitical/macro
+            (US x Iran peace deal / Brazil election / Trump
+            Hormuz blockade / aliens before 2027 / Elon tweets)
+
+  /intel/stream (total signals 24h)
+    BEFORE: 3,714 — top 5 all "Will Elon post N tweets" dupes
+    AFTER:  2,416 — top 5 diverse (Musk 500+ vs Musk 90-114 in
+            different date window kept distinct, Fed rate cut,
+            Trump Hormuz, Bitcoin $150K)
+
+  Dedup ratio: 1,298 collapsed (35%) — mostly polymarket per-
+    outcome variants + reddit cross-post copies.
+
+Note on Musk-tweet dedup:
+  "post 500+ from May 26 to June 2" vs "post 80-99 from May 26
+  to June 2" → same stem → collapsed
+  "post 500+ from May 26 to June 2" vs "post 90-114 from May 28
+  to May 30" → different stem (month-day words differ) → kept
+  This is correct: different time windows = different questions.
+
+Files:
+  runtime/api/routers/intel/__init__.py
+    /intel/now restructured (skip working_context auto-sal,
+      tail-scan signals, raise threshold, source/content
+      exclusions, promo filter, stem dedup)
+    /intel/stream gains source default-exclude, read-time
+      promo filter, narrative_thread drop, stem dedup
+  runtime/awarebot/agent.py
+    _PROMO_MARKERS extended with 30+ listicle/clickbait
+
+Wave 14CN closes "now broken stream broken" trial-run feedback.

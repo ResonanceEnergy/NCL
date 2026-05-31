@@ -204,6 +204,37 @@ _PROMO_MARKERS = (
     "linktr.ee",
     "merch store",
     "join my discord",
+    # Wave 14CN — YouTube clickbait / listicle / "actually use" tropes
+    # that NATRIX flagged as noise even when not formally sponsored.
+    "get started with",
+    "(that i actually use)",
+    "actually use",
+    "i tried 100",
+    "i tried every",
+    "best ai tools",
+    "only ones worth",
+    "only x worth",
+    "worth using",
+    "tutorial:",
+    "step by step",
+    "in 2025",
+    "in 2026",
+    "for beginners",
+    "for free",
+    "100% free",
+    "subscribe",
+    "smash that like",
+    "click the link in",
+    "link in description",
+    "link in bio",
+    "promo:",
+    "deal:",
+    "limited time",
+    "free download",
+    "free course",
+    "wispr flow",
+    "elementor one",
+    "try flow",
 )
 
 
@@ -274,6 +305,7 @@ class Signal:
         so it stays stable across cycles.
         """
         import re as _re
+
         norm = (self.title or "").lower()
         # Collapse whitespace, drop numbers + punctuation that drift per cycle
         norm = _re.sub(r"\d+(?:[.,]\d+)?", "#", norm)
@@ -1864,9 +1896,7 @@ class Awarebot:
                         # ("youtube_council"); fall back through that
                         # before stamping unknown.
                         source = (
-                            entry.get("source")
-                            or entry.get("source_council")
-                            or "youtube_council"
+                            entry.get("source") or entry.get("source_council") or "youtube_council"
                         )
                         s = Signal(
                             signal_id=entry.get("signal_id", f"council-sig-{uuid.uuid4().hex[:8]}"),
@@ -2107,9 +2137,7 @@ class Awarebot:
                 situational = compute_situational_relevance(
                     f"{signal.title} {signal.content}"[:1500],
                     tickers_in_journal_today=ctx.get("tickers_in_journal_today"),
-                    tickers_with_calendar_event_today=ctx.get(
-                        "tickers_with_calendar_event_today"
-                    ),
+                    tickers_with_calendar_event_today=ctx.get("tickers_with_calendar_event_today"),
                     morning_quiz_focus=ctx.get("morning_quiz_focus"),
                     themes_active=ctx.get("themes_active"),
                     source=head,
@@ -2683,13 +2711,15 @@ Respond with ONLY a JSON object:
             if mq_path.exists():
                 try:
                     mq = json.loads(mq_path.read_text())
-                    focus = (mq.get("priority", "") or "") + " " + (mq.get("research_question", "") or "")
+                    focus = (
+                        (mq.get("priority", "") or "")
+                        + " "
+                        + (mq.get("research_question", "") or "")
+                    )
                     ctx["morning_quiz_focus"] = focus.strip()
                     # Tickers mentioned anywhere in the quiz
                     blob = json.dumps(mq)
-                    ctx["tickers_in_journal_today"] |= set(
-                        re.findall(r"\$([A-Z]{1,5})\b", blob)
-                    )
+                    ctx["tickers_in_journal_today"] |= set(re.findall(r"\$([A-Z]{1,5})\b", blob))
                 except Exception:
                     pass
 
@@ -2700,7 +2730,7 @@ Respond with ONLY a JSON object:
                     brief = json.loads(brief_path.read_text())
                     # Topics carry a "label" field — they are exactly the
                     # cluster names emitted by _extract_themes.
-                    for t in (brief.get("topics") or []):
+                    for t in brief.get("topics") or []:
                         if isinstance(t, dict):
                             lbl = (t.get("label") or t.get("name") or "").strip()
                             if lbl:
@@ -4498,9 +4528,7 @@ Focus on what requires attention or action."""
                     or "(untitled YTC report)"
                 )
                 content = (
-                    getattr(vid, "transcript_summary", None)
-                    or getattr(vid, "summary", None)
-                    or ""
+                    getattr(vid, "transcript_summary", None) or getattr(vid, "summary", None) or ""
                 )
                 if not content:
                     insights = getattr(vid, "insights", None) or []
@@ -4513,11 +4541,7 @@ Focus on what requires attention or action."""
                         )
                 content = (content or "")[:1500]
 
-                channel = (
-                    meta.get("channel")
-                    or meta.get("channel_name")
-                    or ""
-                )
+                channel = meta.get("channel") or meta.get("channel_name") or ""
                 video_id = meta.get("video_id") or ""
                 url = meta.get("url") or (
                     f"https://www.youtube.com/watch?v={video_id}" if video_id else None
@@ -4616,10 +4640,7 @@ Focus on what requires attention or action."""
         title = (signal.title or "").strip()
         content = (signal.content or "").strip()
         url = (signal.url or "").strip()
-        is_hollow = (
-            not content
-            or (content == title and not url)
-        )
+        is_hollow = not content or (content == title and not url)
         if is_hollow:
             self._stats.setdefault("signals_dropped_hollow", 0)
             self._stats["signals_dropped_hollow"] += 1
@@ -4646,8 +4667,7 @@ Focus on what requires attention or action."""
                 window_s = dedup_hours * 3600
                 # Prune expired
                 expired = [
-                    k for k, ts in self._persist_dedup_cache.items()
-                    if now_ts - ts > window_s
+                    k for k, ts in self._persist_dedup_cache.items() if now_ts - ts > window_s
                 ]
                 for k in expired:
                     self._persist_dedup_cache.pop(k, None)

@@ -1498,6 +1498,7 @@ async def fire_morning_brief_pro(
     # won't exist and the audio endpoint returns 404.
     try:
         import asyncio as _asyncio
+
         from ....intelligence.spoken_brief import render_brief_to_wav as _render_wav
 
         text = envelope.get("full_brief") or envelope.get("topics") or ""
@@ -1523,6 +1524,7 @@ async def serve_debrief_audio(
     if not (len(target_date) == 10 and target_date[4] == "-" and target_date[7] == "-"):
         raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
     import os as _os
+
     from fastapi.responses import FileResponse
 
     audio_dir = (
@@ -1559,6 +1561,7 @@ async def serve_brief_audio(
     if not (len(target_date) == 10 and target_date[4] == "-" and target_date[7] == "-"):
         raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
     import os as _os
+
     from fastapi.responses import FileResponse
 
     audio_dir = (
@@ -3598,16 +3601,12 @@ def _signal_to_row(sig) -> dict:
         "source": _signal_source_str(sig),
         "category": getattr(sig, "category", ""),
         "direction": getattr(getattr(sig, "direction", None), "value", ""),
-        "importance": (
-            sig.importance_score() if hasattr(sig, "importance_score") else 0
-        ),
+        "importance": (sig.importance_score() if hasattr(sig, "importance_score") else 0),
         "composite_score": getattr(sig, "composite_score", None) or md.get("composite_score"),
         "route_level": md.get("route_level") or getattr(sig, "route_level", None),
         "score_factors": md.get("score_factors"),
         "url": getattr(sig, "url", None),
-        "timestamp": (
-            sig.timestamp.isoformat() if getattr(sig, "timestamp", None) else None
-        ),
+        "timestamp": (sig.timestamp.isoformat() if getattr(sig, "timestamp", None) else None),
         "tags": getattr(sig, "tags", []) or [],
     }
 
@@ -3627,7 +3626,9 @@ async def intel_now(
     items, then any recent CRITICAL/HIGH route_level signals from the
     last `hours` hours not already in working context.
     """
-    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+    from datetime import datetime as _dt
+    from datetime import timedelta as _td
+    from datetime import timezone as _tz
 
     cutoff = _dt.now(_tz.utc) - _td(hours=hours)
 
@@ -3635,53 +3636,172 @@ async def intel_now(
     autosalience: list[dict] = []
     seen_ids: set[str] = set()
 
+    # Wave 14CN — NOW only reads OPERATOR-PINNED items from working
+    # context (drops auto-salience which is dominated by memory-engine
+    # aggregates, mandate docs, and narrative threads — operational
+    # bookkeeping, not intel). For non-pinned NOW content we use the
+    # high-tier signals tail-scan below.
     if autonomous and getattr(autonomous, "_working_context", None):
         try:
             ctx = autonomous._working_context.get_current()
             if ctx:
                 for item in ctx.items:
+                    if not getattr(item, "pinned", False):
+                        continue  # auto-salience is operational garbage
                     d = item.to_dict()
+                    src = (d.get("source") or "").lower()
+                    if (
+                        src.startswith("narrative_thread")
+                        or src.startswith("portfolio:")
+                        or src.startswith("mandate:")
+                        or "_mandate" in src
+                        or "auto_trader" in src
+                    ):
+                        continue
+                    content_blob = (d.get("content") or "").strip()
+                    if (
+                        content_blob.startswith("Analysis failed")
+                        or content_blob.startswith("[Position closed]")
+                        or content_blob.upper().startswith("AUTO_TRADER")
+                    ):
+                        continue
                     sid = d.get("item_id") or d.get("id") or d.get("signal_id") or ""
                     if sid:
                         seen_ids.add(sid)
-                    if getattr(item, "pinned", False):
-                        pinned.append(d)
-                    else:
-                        autosalience.append(d)
+                    pinned.append(d)
         except Exception as e:
             log.warning("[intel/now] working_context read failed: %s", e)
 
+    # Wave 14CN — read recent high-tier signals directly from
+    # agent_signals.jsonl tail (same approach STREAM uses since 14CF),
+    # not brief.top_signals. The brief only retains ~50 post-filter
+    # signals; NOW needs the actual FOCUSED-tier slice from disk.
     recent: list[dict] = []
-    if intelligence:
-        try:
-            brief = await intelligence.get_latest_brief()
-            if brief and getattr(brief, "top_signals", None):
-                # Filter to last `hours` hours + CRITICAL/HIGH route_level
-                # OR composite_score >= 0.55 (focused tier floor).
-                for sig in brief.top_signals:
-                    ts = getattr(sig, "timestamp", None)
-                    if ts and ts < cutoff:
-                        continue
-                    md = getattr(sig, "metadata", {}) or {}
-                    route = str(md.get("route_level", "")).upper()
-                    composite = md.get("composite_score") or getattr(sig, "composite_score", 0)
-                    try:
-                        composite = float(composite or 0)
-                    except Exception:
-                        composite = 0.0
-                    if route not in ("CRITICAL", "HIGH") and composite < 0.55:
-                        continue
-                    sid = getattr(sig, "signal_id", None)
-                    if sid and sid in seen_ids:
-                        continue
-                    recent.append(_signal_to_row(sig))
-                    if sid:
-                        seen_ids.add(sid)
-        except Exception as e:
-            log.warning("[intel/now] brief read failed: %s", e)
+    try:
+        import json as _json
+        import os as _os
+        from pathlib import Path as _Path
+
+        sig_base = _Path(_os.environ.get("NCL_BASE", str(_Path.home() / "dev" / "NCL")))
+        sig_path = sig_base / "data" / "intelligence" / "agent_signals.jsonl"
+        cutoff_iso = cutoff.isoformat()
+        if sig_path.exists():
+            try:
+                from runtime.awarebot.agent import _is_promo_text
+            except Exception:
+                _is_promo_text = lambda _t: False
+            with sig_path.open("rb") as fh:
+                try:
+                    fh.seek(-20_000_000, _os.SEEK_END)
+                except OSError:
+                    fh.seek(0)
+                else:
+                    fh.readline()
+                raw_lines = fh.read().decode("utf-8", errors="ignore").splitlines()
+            for line in raw_lines[-5000:]:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    sig = _json.loads(line)
+                except Exception:
+                    continue
+                ts = sig.get("timestamp") or ""
+                if ts and ts < cutoff_iso:
+                    continue
+                md = sig.get("metadata") or {}
+                route = str(md.get("route_level") or sig.get("route_level") or "").upper()
+                composite = sig.get("composite_score") or md.get("composite_score") or 0
+                try:
+                    composite = float(composite or 0)
+                except Exception:
+                    composite = 0.0
+                # Wave 14CN — raised NOW threshold. composite floor
+                # 0.55 → 0.70 (was letting in MEDIUM-tier google_trends
+                # sports topics like savannah guthrie / orioles).
+                # CRITICAL/HIGH route still bypasses.
+                if route not in ("CRITICAL", "HIGH") and composite < 0.70:
+                    continue
+                # Same NOW exclusions as working_context — narrative
+                # threads, mandate docs, "Analysis failed" wrappers.
+                src = (sig.get("source") or "").lower()
+                if (
+                    src.startswith("narrative_thread")
+                    or src.startswith("portfolio:")
+                    or src.startswith("mandate:")
+                    or "_mandate" in src
+                    or "auto_trader" in src
+                ):
+                    continue
+                content_blob = (sig.get("content") or "").strip()
+                if (
+                    content_blob.startswith("Analysis failed")
+                    or content_blob.startswith("[Position closed]")
+                    or content_blob.upper().startswith("AUTO_TRADER")
+                ):
+                    continue
+                # Drop raw YouTube SEARCH from NOW too — promo/keyword
+                # noise has no place in the "what to look at right now"
+                # lane. YTC pipeline (youtube_council) still passes.
+                src_head = src.split(":")[0]
+                if src_head in ("youtube", "youtube_search"):
+                    continue
+                if _is_promo_text((sig.get("title") or "") + " " + content_blob[:400]):
+                    continue
+                sid = sig.get("signal_id")
+                if sid and sid in seen_ids:
+                    continue
+                recent.append(
+                    {
+                        "signal_id": sid,
+                        "title": sig.get("title", ""),
+                        "content": content_blob[:280],
+                        "source": sig.get("source", ""),
+                        "category": sig.get("category", ""),
+                        "direction": sig.get("direction", ""),
+                        "importance": composite,
+                        "composite_score": composite,
+                        "route_level": route,
+                        "score_factors": md.get("score_factors"),
+                        "url": sig.get("url"),
+                        "timestamp": ts,
+                        "tags": sig.get("tags") or [],
+                    }
+                )
+                if sid:
+                    seen_ids.add(sid)
+    except Exception as e:
+        log.warning("[intel/now] tail-scan failed: %s", e)
 
     merged = pinned[:limit] + autosalience[: limit - len(pinned)] + recent
     merged = merged[:limit]
+
+    # Wave 14CN — same stem-dedup as /intel/stream so polymarket
+    # per-outcome variants ("Will Elon post 500+ tweets" / "80-99"
+    # / "100-149") collapse to one card in NOW. Operator-pinned
+    # items bypass dedup (they're explicitly chosen).
+    import re as _re_now
+
+    _NUMS_RX_NOW = _re_now.compile(r"\d+")
+    _PUNCT_RX_NOW = _re_now.compile(r"[^\w\s]")
+    seen_stems_now: set[tuple[str, str]] = set()
+    pinned_ids_now = {p.get("item_id") for p in pinned if p.get("item_id")}
+    deduped_now: list[dict] = []
+    for it in merged:
+        if it.get("item_id") in pinned_ids_now:
+            deduped_now.append(it)
+            continue
+        src_h = str(it.get("source") or "").split(":")[0].lower()
+        title_n = str(it.get("title") or "").lower().strip()
+        title_n = _NUMS_RX_NOW.sub("#", title_n)
+        title_n = _PUNCT_RX_NOW.sub(" ", title_n)
+        title_n = " ".join(title_n.split())[:80]
+        k = (src_h, title_n)
+        if k in seen_stems_now:
+            continue
+        seen_stems_now.add(k)
+        deduped_now.append(it)
+    merged = deduped_now
 
     return {
         "hours": hours,
@@ -3712,7 +3832,9 @@ async def intel_stream(
     Renders the post-FOCUSED pool of signals. Source + theme filter
     facets in the response shape so iOS can chip them.
     """
-    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+    from datetime import datetime as _dt
+    from datetime import timedelta as _td
+    from datetime import timezone as _tz
 
     if window.endswith("h"):
         hours = int(window.rstrip("h"))
@@ -3785,14 +3907,19 @@ async def intel_stream(
             ts = sig.get("timestamp") or ""
             if ts and ts < cutoff_iso:
                 continue
+
             # Build a Signal-like accessor view for the existing
             # filter code below. Construct a small shim that exposes
             # both dict access and the attribute-style API.
             class _SigShim:
                 __slots__ = ("_d",)
-                def __init__(self, d): self._d = d
+
+                def __init__(self, d):
+                    self._d = d
+
                 def __getattr__(self, name):
-                    if name.startswith("_"): raise AttributeError(name)
+                    if name.startswith("_"):
+                        raise AttributeError(name)
                     return self._d.get(name)
 
             _shim = _SigShim(sig)
@@ -3802,11 +3929,7 @@ async def intel_stream(
                 # dict directly so we don't have to construct full
                 # Signal objects for 10k rows.
                 md = sig.get("metadata") or {}
-                composite = (
-                    sig.get("composite_score")
-                    or md.get("composite_score")
-                    or 0
-                )
+                composite = sig.get("composite_score") or md.get("composite_score") or 0
                 try:
                     composite = float(composite or 0)
                 except Exception:
@@ -3814,16 +3937,41 @@ async def intel_stream(
                 if composite < min_score:
                     continue
                 src = str(sig.get("source") or "").lower()
-                if source_filter and src.split(":")[0] not in source_filter:
+                src_head = src.split(":")[0]
+                if source_filter and src_head not in source_filter:
                     continue
+                # Wave 14CN — default-exclude raw YouTube keyword
+                # search results from STREAM. NATRIX called them out
+                # as creator noise that buries real intel. YTC pipeline
+                # signals (source=youtube_council) still pass — those
+                # are curated channels with real transcripts. User can
+                # re-add youtube/youtube_search via ?sources= filter.
+                if not source_filter and src_head in ("youtube", "youtube_search"):
+                    continue
+                # Wave 14CN — read-time promo detector for any pre-fix
+                # YouTube SEARCH signals still in the file (forward-
+                # only Wave 14CH detector misses these).
+                try:
+                    from runtime.awarebot.agent import _is_promo_text
+
+                    title_for_promo = sig.get("title") or ""
+                    content_for_promo = (sig.get("content") or "")[:600]
+                    if _is_promo_text(title_for_promo + " " + content_for_promo):
+                        continue
+                except Exception:
+                    pass
                 sig_themes = set()
-                for tag in (sig.get("tags") or []):
+                for tag in sig.get("tags") or []:
                     if str(tag).startswith("bt:"):
                         sig_themes.add(str(tag)[3:])
                 meta_themes = md.get("themes") or []
                 if isinstance(meta_themes, list):
                     sig_themes.update(str(t) for t in meta_themes)
                 if theme_filter and not (sig_themes & theme_filter):
+                    continue
+                # Wave 14CN — also drop narrative_thread metadata
+                # signals from STREAM (they belong nowhere user-facing).
+                if src.startswith("narrative_thread"):
                     continue
                 row = {
                     "signal_id": sig.get("signal_id"),
@@ -3858,6 +4006,28 @@ async def intel_stream(
         ),
         reverse=True,
     )
+    # Wave 14CN — read-time per-(source, normalized-title-stem) dedup
+    # so polymarket per-outcome variants ("Will Elon post 500+", "80-99",
+    # "100-149", etc.) collapse to one row. Normalization strips digits
+    # + punctuation so "post 500+ tweets" and "post 80-99 tweets" match.
+    import re as _re
+
+    _NUMS_RX = _re.compile(r"\d+")
+    _PUNCT_RX = _re.compile(r"[^\w\s]")
+    seen_stems: set[tuple[str, str]] = set()
+    deduped: list[dict] = []
+    for r in rows:
+        src_head = str(r.get("source") or "").split(":")[0].lower()
+        title = str(r.get("title") or "").lower().strip()
+        title = _NUMS_RX.sub("#", title)
+        title = _PUNCT_RX.sub(" ", title)
+        title = " ".join(title.split())[:80]
+        stem_key = (src_head, title)
+        if stem_key in seen_stems:
+            continue
+        seen_stems.add(stem_key)
+        deduped.append(r)
+    rows = deduped
     total = len(rows)
     page = rows[offset : offset + limit]
 
@@ -3889,7 +4059,9 @@ async def intel_convergence(
     """
     import json as _json
     import os as _os
-    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+    from datetime import datetime as _dt
+    from datetime import timedelta as _td
+    from datetime import timezone as _tz
     from pathlib import Path as _Path
 
     base = _Path(_os.environ.get("NCL_BASE", str(_Path.home() / "dev" / "NCL")))
@@ -3922,10 +4094,7 @@ async def intel_convergence(
                     if ts and ts < cutoff_iso:
                         continue
                     # Whitelist gate for ticker promotions
-                    if (
-                        row.get("rule") == "ticker_converge"
-                        and _is_valid_ticker is not None
-                    ):
+                    if row.get("rule") == "ticker_converge" and _is_valid_ticker is not None:
                         tkr = (row.get("ticker") or "").upper()
                         if tkr and not _is_valid_ticker(tkr):
                             continue
@@ -3953,12 +4122,14 @@ async def intel_convergence(
                         conv = pred.get("convergence_signals") or pred.get("convergence") or []
                         if not conv:
                             continue
-                        predictions.append({
-                            "prediction_id": pred.get("prediction_id"),
-                            "topic": pred.get("topic"),
-                            "confidence": pred.get("confidence"),
-                            "convergence_signals": conv,
-                        })
+                        predictions.append(
+                            {
+                                "prediction_id": pred.get("prediction_id"),
+                                "topic": pred.get("topic"),
+                                "confidence": pred.get("confidence"),
+                                "convergence_signals": conv,
+                            }
+                        )
                 except Exception:
                     continue
 
@@ -3984,14 +4155,16 @@ async def intel_convergence(
                 "first_seen": p.get("promoted_at", ""),
             },
         )
-        c["xref_promotions"].append({
-            "rule": rule,
-            "promoted_at": p.get("promoted_at"),
-            "convergence_strength": p.get("convergence_strength", 0),
-            "signal_ids": p.get("signal_ids", []),
-            "sample_titles": p.get("sample_titles", []),
-        })
-        for s in (p.get("sources") or []):
+        c["xref_promotions"].append(
+            {
+                "rule": rule,
+                "promoted_at": p.get("promoted_at"),
+                "convergence_strength": p.get("convergence_strength", 0),
+                "signal_ids": p.get("signal_ids", []),
+                "sample_titles": p.get("sample_titles", []),
+            }
+        )
+        for s in p.get("sources") or []:
             c["sources"].add(s)
 
     # Attach predictions whose topic contains a known ticker/theme key.
@@ -4040,9 +4213,7 @@ async def intel_convergence(
         "count": len(out_cards),
         "dual_count": sum(1 for c in out_cards if c["dual"]),
         "xref_only": sum(1 for c in out_cards if c["has_xref"] and not c["has_prediction"]),
-        "prediction_only": sum(
-            1 for c in out_cards if c["has_prediction"] and not c["has_xref"]
-        ),
+        "prediction_only": sum(1 for c in out_cards if c["has_prediction"] and not c["has_xref"]),
         "cards": out_cards,
     }
 
@@ -4070,8 +4241,9 @@ async def intelligence_trends_refresh(
     _: None = Depends(verify_strike_token_dep),
 ) -> dict:
     """Fire one trend rollup + alert pass on demand."""
-    from runtime.intelligence.trend_tracker import trend_once
     import asyncio as _asyncio
+
+    from runtime.intelligence.trend_tracker import trend_once
 
     return await _asyncio.to_thread(trend_once)
 
@@ -4098,14 +4270,19 @@ async def intelligence_macro_today(
     + latest CFTC Commitments-of-Traders positioning. All three are
     free, no key required, cached at the source-helper layer.
     """
-    from datetime import datetime as _dt, timezone as _tz
     import asyncio as _asyncio
+    from datetime import datetime as _dt
+    from datetime import timezone as _tz
 
     try:
         from runtime.intelligence.free_sources import (
-            fetch_fed_speeches as _fed_speeches,
-            fetch_fed_press_releases as _fed_press,
             fetch_cftc_cot as _cftc_cot,
+        )
+        from runtime.intelligence.free_sources import (
+            fetch_fed_press_releases as _fed_press,
+        )
+        from runtime.intelligence.free_sources import (
+            fetch_fed_speeches as _fed_speeches,
         )
     except Exception as e:
         log.exception("[macro/today] free_sources import failed: %s", e)
@@ -4186,7 +4363,9 @@ async def cross_reference_recent(
     """
     import json as _json
     import os as _os
-    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+    from datetime import datetime as _dt
+    from datetime import timedelta as _td
+    from datetime import timezone as _tz
     from pathlib import Path as _Path
 
     base = _Path(_os.environ.get("NCL_BASE", str(_Path.home() / "dev" / "NCL")))
@@ -4225,7 +4404,7 @@ async def cross_reference_recent(
     by_source: dict[str, int] = {}
     for r in rows:
         by_rule[r.get("rule", "?")] = by_rule.get(r.get("rule", "?"), 0) + 1
-        for s in (r.get("sources") or []):
+        for s in r.get("sources") or []:
             by_source[s] = by_source.get(s, 0) + 1
 
     return {
@@ -4249,7 +4428,9 @@ async def cross_reference_today(
     """
     import json as _json
     import os as _os
-    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+    from datetime import datetime as _dt
+    from datetime import timedelta as _td
+    from datetime import timezone as _tz
     from pathlib import Path as _Path
 
     base = _Path(_os.environ.get("NCL_BASE", str(_Path.home() / "dev" / "NCL")))
@@ -4279,7 +4460,7 @@ async def cross_reference_today(
     by_source: dict[str, int] = {}
     for r in rows:
         by_rule[r.get("rule", "?")] = by_rule.get(r.get("rule", "?"), 0) + 1
-        for s in (r.get("sources") or []):
+        for s in r.get("sources") or []:
             by_source[s] = by_source.get(s, 0) + 1
     return {
         "hours": 24,
