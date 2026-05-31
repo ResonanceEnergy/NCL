@@ -1,0 +1,92 @@
+Wave 14CZ: Brain boot-race fix — launch-brain.sh waits for Tailscale, falls back to 0.0.0.0
+
+NATRIX: "why didn't ncl brain and firststrike fire up on startup"
+
+# Root cause
+
+scripts/launch-brain.sh exec'd uvicorn with --host 100.72.223.123
+(the Tailscale IP). At login, launchd fires the brain LaunchAgent
+BEFORE the Tailscale daemon has finished registering its utun
+interface — so uvicorn bind() returns EADDRNOTAVAIL [Errno 49]
+"can't assign requested address". The brain process exits.
+
+KeepAlive=true on the plist + ThrottleInterval=10 caught this and
+retried every 10s. Once Tailscale caught up (typically 30-60s
+after login on this Mac), the next retry succeeded.
+
+Net effect on NATRIX: brain shows offline for the first
+~30-60s after rebooting, and any client (NCL Desktop, iOS) that
+hits 100.72.223.123:8800 in that window gets a connection-refused
+error / "brain offline" toast.
+
+This boot, the user reboot was at 10:22; the brain didn't bind
+successfully until ~10:24. Log shows:
+
+  10:22 boot
+  10:22 first attempt → EADDRNOTAVAIL → exit 1
+  10:22 second attempt → EADDRNOTAVAIL → exit 1
+  10:23 third attempt → EADDRNOTAVAIL → exit 1
+  10:24 fourth attempt → success
+
+Plus a secondary issue: Tailscale was actually stopped (not just
+slow). When Tailscale is offline, 100.72.223.123 never comes up
+and the brain never binds. With Wave 14CZ, brain still comes up
+on 0.0.0.0 so localhost access works.
+
+# Fix
+
+scripts/launch-brain.sh
+
+  Before exec'ing uvicorn, poll for the Tailscale IP on any
+  interface for up to 60s:
+
+    TS_IP="100.72.223.123"
+    BIND_HOST=""
+    for i in $(seq 1 60); do
+        if /sbin/ifconfig | /usr/bin/grep -q "inet $TS_IP"; then
+            BIND_HOST="$TS_IP"; break
+        fi
+        sleep 1
+    done
+    [ -z "$BIND_HOST" ] && BIND_HOST="0.0.0.0"
+    exec uvicorn ... --host "$BIND_HOST"
+
+  Behavior:
+    - Tailscale up before brain login: binds 100.72.223.123
+      within ~1s (no perceptible delay)
+    - Tailscale slow at boot: waits up to 60s for the IP, then
+      binds it normally. No first-boot exit-1 churn anymore.
+    - Tailscale stopped entirely: falls through to 0.0.0.0 so
+      localhost still works (iOS/iPad over Tailscale can't reach
+      until Tailscale comes up — that's an OS-level issue, not
+      a launch issue).
+
+  Log lines added so future debugging is trivial:
+    "launch-brain: waiting for Tailscale IP $TS_IP (max 60s)…"
+    "launch-brain: Tailscale IP bound after ${i}s"
+    "launch-brain: WARNING — fallback to 0.0.0.0"
+
+# What NATRIX should do now
+
+1. **Start Tailscale.** Today's boot has Tailscale stopped
+   (`Tailscale is stopped` from the CLI). Click the Tailscale
+   menubar icon → Connect. Until that's done, iOS/iPad can't
+   reach 100.72.223.123 regardless of brain status.
+
+2. **Enable "Run Tailscale at login"** in Tailscale Preferences
+   if NATRIX wants this fully automatic on every reboot.
+
+# Files modified
+
+  M scripts/launch-brain.sh
+
+# Note on NCL Desktop
+
+A small follow-on (Wave 14DA, not in this commit) is to make
+NCL Desktop fall back to 127.0.0.1 when its configured Tailscale
+host doesn't respond — that way the same-Mac NCL Desktop is
+robust against Tailscale being down too. The change is one line
+in MacSources/MainWindow.swift but exposes pre-existing Mac-
+build breakage in the new Intel lane views (iOS-only API:
+RefreshStatusSheet, LastRefreshedBadge, navigationBarTitleDisplayMode).
+Walling those for the Mac target is a separate small task.

@@ -52,11 +52,38 @@ fi
 # 3. Ensure PYTHONPATH includes the project root
 export PYTHONPATH="$NCL_DIR${PYTHONPATH:+:$PYTHONPATH}"
 
+# Wave 14CZ (2026-05-31) — wait for Tailscale to bind 100.72.223.123
+# before exec-ing uvicorn. NATRIX reported "why didn't ncl brain and
+# firststrike fire up on startup" — the brain was failing first boot
+# with EADDRNOTAVAIL because launchd fires before tailscaled has
+# bound the utun interface. KeepAlive=true was eventually catching
+# the restart but the first ~30s post-login showed brain offline.
+#
+# Strategy: poll for the Tailscale IP for up to 60s, then either bind
+# it (success path) or fall back to 0.0.0.0 (degraded — host-firewall
+# protects the port; iOS clients still reach via Tailscale).
+TS_IP="100.72.223.123"
+BIND_HOST=""
+echo "launch-brain: waiting for Tailscale IP $TS_IP (max 60s)…" >&2
+for i in $(seq 1 60); do
+    if /sbin/ifconfig 2>/dev/null | /usr/bin/grep -q "inet $TS_IP"; then
+        BIND_HOST="$TS_IP"
+        echo "launch-brain: Tailscale IP bound after ${i}s" >&2
+        break
+    fi
+    sleep 1
+done
+
+if [ -z "$BIND_HOST" ]; then
+    BIND_HOST="0.0.0.0"
+    echo "launch-brain: WARNING — Tailscale IP $TS_IP never came up after 60s; falling back to $BIND_HOST" >&2
+fi
+
 # 4. Exec the brain server (replace this shell process so launchd tracks the right PID)
 cd "$NCL_DIR"
 # W8-A1 Q1 (2026-05-24): bind to Tailscale only. Port 8800 must be reachable
 # from Tailscale peers (iPhone, iPad) but NOT from any LAN/coffee-shop network
 # the Mac happens to be on. 100.72.223.123 is this host's stable Tailscale IP.
 exec /opt/homebrew/bin/python3 -m uvicorn runtime.api.routes:versioned_app \
-    --host 100.72.223.123 \
+    --host "$BIND_HOST" \
     --port 8800
