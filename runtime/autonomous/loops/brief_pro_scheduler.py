@@ -96,8 +96,9 @@ async def _run_council() -> bool:
         return False
 
 
-async def _run_render() -> bool:
+async def _run_render(brain=None) -> bool:
     try:
+        from runtime.intelligence.brief_archiver import archive_brief
         from runtime.intelligence.brief_council import load_latest_council
         from runtime.intelligence.brief_presenter import render_pro_brief
         from runtime.intelligence.brief_prep import load_latest_prep_pack
@@ -107,7 +108,17 @@ async def _run_render() -> bool:
             return False
         pack = load_latest_prep_pack()
         synthesis = council.get("synthesis") or council
-        render_pro_brief(synthesis, pack=pack)
+        envelope = render_pro_brief(synthesis, pack=pack)
+        # Wave 14CQ — same archive close-loop as /morning-brief/pro/fire.
+        # Materializes .md, snapshots to memory, registers trade_ideas
+        # with trade_idea_tracker so the auto-trader actually sees them.
+        try:
+            archive_result = await archive_brief(
+                envelope, pack=pack, mode="am", brain=brain,
+            )
+            log.info("[brief-pro] archive complete: %s", archive_result)
+        except Exception as e:
+            log.warning("[brief-pro] archive failed: %s", e)
         log.info("[brief-pro] RENDER stage complete")
         return True
     except Exception as e:
@@ -173,7 +184,7 @@ async def brief_render_loop(brain) -> None:
             sleep_s = _seconds_until(RENDER_TARGET_ET, now)
             log.info("[brief-pro] render next run in %.0fs (target 05:30 ET)", sleep_s)
             await asyncio.sleep(sleep_s)
-            ok = await _run_render()
+            ok = await _run_render(brain=brain)
             state = _load_state()
             state["last_render_at"] = datetime.now(timezone.utc).isoformat()
             state["last_render_ok"] = ok

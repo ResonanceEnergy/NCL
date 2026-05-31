@@ -247,6 +247,8 @@ SYNTHESIS RULES (apply across all 5 sections):
 6. Resolve contradictions between members. If macro is bullish but flow is bearish, call it out and lean on the one with better evidence.
 7. PORTFOLIO trade_ideas MUST contain at least 3 stock ideas AND 2 options ideas (5 total minimum). NATRIX's mandate (Wave 14AA): "i want 3 profatable looking stock ideas and 2 options ideas". Stock ideas have type="stock" with entry/stop/target/timeframe. Options ideas have type="options" with structure (e.g. "AAPL Jun 200C", "TSLA Jul 250/270 call vertical"), entry premium, max_risk, target value, timeframe (DTE). Every idea must have a SOURCES citation list.
 
+8. CITATION RULE (CRITICAL — Wave 14CQ): The strings shown in the schema below like "sig_001" / "sig_042" / "sig_007" are EXAMPLE FORMATS, not literal values to copy. EVERY `sig_id`, `sources`, and `citations` value MUST be replaced with the REAL 8-char alphanumeric `id=` token from the member outputs (e.g. id=a1b2c3d4). NEVER emit the literal strings "sig_id" / "sig_001" / "sig_042" / "sig_007" — those are placeholders. If no real id is available for a claim, omit the array entirely (use []) rather than fabricating one.
+
 Output ONLY JSON with EXACTLY these top-level keys, IN THIS ORDER:
 
 {{
@@ -259,15 +261,15 @@ Output ONLY JSON with EXACTLY these top-level keys, IN THIS ORDER:
       "drift_flags": ["bravo: DRIFT_DOWN since 5/27" or similar, empty list if none]
     }},
     "paper_state": {{"balance_usd": float_or_null, "open_positions": int, "today_closes": int, "today_realized_r": float_or_null}},
-    "trade_ideas": [{{"type":"stock|options|futures","ticker":"...","thesis":"...","entry":"...","stop":"...","target":"...","timeframe":"...","structure":"..." (options only),"max_risk":"..." (options only),"sources":["sig_id"]}}],
+    "trade_ideas": [{{"type":"stock|options|futures","ticker":"...","thesis":"...","entry":"...","stop":"...","target":"...","timeframe":"...","structure":"..." (options only),"max_risk":"..." (options only),"sources":["<real 8-char id from member output, e.g. a1b2c3d4>"]}}],
     "rotation_regime": {{"current_phase":"...","leading_sectors":[],"weakening_sectors":[],"breadth_pct":float_or_null,"one_liner":"..."}},
     "risk_flags": [{{"text":"...","severity":"low|med|high"}}]
   }},
   "intel": {{
     "narrative": "2-3 sentences: top YTC reports, hot Reddit signals, prediction shifts, polymarket movement. What story is the intel pool telling today? Includes id= citations.",
-    "top_signals": [{{"text":"...","source":"ytc|reddit|x|predictions|polymarket|news","sig_id":"..."}}],
-    "predictions_watch": [{{"text":"...","direction":"bullish|bearish|neutral","confidence_pct":int,"citations":["sig_id"]}}],
-    "polymarket_watch": [{{"text":"...","citations":["sig_id"]}}],
+    "top_signals": [{{"text":"...","source":"ytc|reddit|x|predictions|polymarket|news","sig_id":"<real 8-char id from member output>"}}],
+    "predictions_watch": [{{"text":"...","direction":"bullish|bearish|neutral","confidence_pct":int,"citations":["<real 8-char id>"]}}],
+    "polymarket_watch": [{{"text":"...","citations":["<real 8-char id>"]}}],
     "cross_reference_promotions": [{{"text":"e.g. ticker AAPL appeared in YTC + Reddit + Predictions in 4h","tickers":["AAPL"]}}],
     "reddit_pulse": {{"narrative": "1-2 sentences: dominant themes / tickers from the top-10 Reddit posts across the full 54-sub watchlist in the last 12h. Mention any cluster (e.g. 'NVDA appeared in 4 posts'). Use the top-10 array verbatim — do not re-fetch.", "top10": "use the reddit_top10 array from PREP CONTEXT verbatim — do not re-rank or filter; brief just surfaces what AWAREBOT already scored"}}
   }},

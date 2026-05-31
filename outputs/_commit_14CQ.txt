@@ -1,0 +1,140 @@
+Wave 14CQ: Brief unifier — .md archive + memory snapshot + auto-trader bridge (closes audit B4.1 showstopper)
+
+NATRIX: "morning brief all one doc with sections possibly .md or
+json and enabled for memory storage as a timestamp of events at
+this time this day for future refrence from ncl brain memory does
+this make sense?"
+
+PLUS the AWAREBOT_TRADERAGENT_FLOW_AUDIT (Wave 14CP) surfaced 3
+showstoppers — two of them in this same code path:
+  B4.1 — Pro Brief never registers trade_ideas with the tracker.
+         Auto-trader has been starved since 2026-05-29 22:02.
+  A4.1 — Chair LLM parrots the literal string "sig_id" from the
+         example value in the schema as the citation value itself.
+         Today's brief: trade_ideas[*].sources == ["sig_id"] × 5.
+
+Wave 14CQ fixes all three in one module.
+
+NEW runtime/intelligence/brief_archiver.py (~460 LOC, 1 module)
+
+  Public API: archive_brief(envelope, pack, mode="am"|"pm", brain)
+  Returns: {brief_id, mode, date, md_path, memory_unit_id,
+            ideas_registered, elapsed_s}
+
+  Internal pipeline per fire:
+
+  1. _scrub_citations(envelope) — strips placeholder strings
+     ("sig_id" / "sig_001" / "sig_042" / "...") from
+     trade_ideas[*].sources + top_signals[*].sig_id +
+     predictions_watch[*].citations + polymarket_watch[*].citations.
+     Real 8-char hex ids pass; everything else is dropped.
+
+  2. _render_md(envelope, mode, brief_id) — builds single
+     markdown document:
+       ---  (YAML front matter)
+       brief_id: 2026-05-31:am:034622
+       mode: am
+       date: 2026-05-31
+       generated_at: ...
+       members_succeeded: [macro, pulse, flow, technical]
+       council_confidence: 0.78
+       n_trade_ideas: 5
+       paper_balance_usd: 25000.0
+       ...
+       ---
+       # AM Brief — 2026-05-31
+       ## PORTFOLIO  (narrative + structured sub-sections)
+       ## INTEL
+       ## CALENDAR
+       ## JOURNAL
+       ## MEMORY
+     Persisted to data/morning-brief-md/<date>-<mode>.md.
+
+  3. _persist_to_memory(brain, envelope, md_text, mode, brief_id):
+     Creates ONE MemUnit with:
+       source         = brief:archive:{am|pm}
+       content_type   = brief_snapshot
+       content        = full .md text
+       importance     = 95 (HIGH — surfaces in working_context)
+       tier           = brain
+       authority_tier = BRAIN
+       metadata = {brief_id, brief_mode, date, generated_at,
+                   lanes_present, n_trade_ideas,
+                   snapshot_format=markdown_v1,
+                   tag=brief:YYYY-MM-DD:{am|pm}}
+     Future /memory/search/fused?q="May 31 brief" surfaces it.
+
+  4. _register_trade_ideas(envelope, mode, brief_id) — CRITICAL.
+     Walks envelope["lanes"]["portfolio"]["trade_ideas"] and calls
+     record_trade_idea_emission for each with:
+       source=brief:{am|pm}, ticker, direction, entry/stop/target
+       (numeric, with $-stripping fallback), R_per_share,
+       planned_qty, stop_type/basis, target_basis, thesis,
+       trade_idea_id (auto-generated if missing), and metadata
+       including brief_id + brief_mode for retrospective grouping.
+     Strategy normalized via risk_governor._normalize_strategy.
+     This is the audit's #1 showstopper fix.
+
+WIRED INTO:
+
+  runtime/api/routers/intel/__init__.py /morning-brief/pro/fire
+    Replaces the Wave 14Z snapshot block. archive_result returned
+    in the response envelope so the operator can inspect what was
+    persisted + how many ideas got registered.
+
+  runtime/autonomous/loops/brief_pro_scheduler.py _run_render
+    Now takes brain= kwarg and calls archive_brief. The 05:30 ET
+    scheduled fire gets the same archive + memory + tracker close-
+    loop as the manual /fire endpoint.
+
+  runtime/intelligence/brief_council.py chair prompt
+    Replaced literal "sig_id" example values with explicit
+    <real 8-char id from member output> placeholders, plus a
+    NEW Rule 8 making the citation contract explicit:
+      "Every sig_id / sources / citations value MUST be replaced
+      with the REAL 8-char alphanumeric id= token. NEVER emit the
+      literal 'sig_id' / 'sig_001' — those are placeholders. If
+      no real id is available, omit the array entirely."
+
+REST endpoints added:
+
+  GET /intelligence/briefs/archive?limit=N
+    Most-recent-first listing of archived briefs ({date, mode,
+    path, size_bytes, mtime}).
+
+  GET /intelligence/briefs/archive/{date}/{mode}
+    Returns the .md text directly. iOS can render as markdown
+    or just dump as a copy/share.
+
+Impact:
+
+  BEFORE: brief renders → JSON to disk → iOS reads → end. Ideas
+          dropped on floor (auto-trader starved 4 days). Citations
+          literal junk. Memory snapshot was Wave 14Z text-only
+          importance 80, didn't carry trade ideas as structured
+          data, didn't reach scheduler path.
+
+  AFTER:  brief renders → archive close-loop:
+            (a) .md on disk per (date,mode) — single document
+                NATRIX (or future Claude) can grep / cat / search
+            (b) MemUnit importance 95 — surfaces in working_context,
+                FusedRetriever, and /memory/search/fused queries
+            (c) trade_ideas registered with tracker → auto_trader
+                sees them next tick → reasoning chain → paper_trade
+                → outcome_attributor → strategy_bandit
+            (d) placeholder citations stripped before disk + memory
+          The dead 12K-LOC TRADERAGENT stack starts getting data.
+
+Files modified (5):
+  + runtime/intelligence/brief_archiver.py  (NEW, ~460 LOC)
+  M runtime/intelligence/brief_council.py   (3 chair-prompt edits)
+  M runtime/api/routers/intel/__init__.py   (replace Wave 14Z block + 2 new endpoints)
+  M runtime/autonomous/loops/brief_pro_scheduler.py (wire archiver)
+
+Closes audit punch-list items #1 + #2 (the two SHOWSTOPPERS) in
+one ship.
+
+Remaining audit items deferred to Wave 14CR+ (TradeIdea.sources
+top-level field, news_trends_double retirement, BERTopic stop-
+word filter, trend_tracker baseline divisor, options_flow ticker
+enrichment).

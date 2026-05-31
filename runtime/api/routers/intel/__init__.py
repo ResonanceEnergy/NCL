@@ -1430,6 +1430,41 @@ async def get_morning_brief_pro_council(
     return council
 
 
+@router.get("/intelligence/briefs/archive")
+async def list_brief_archive(
+    limit: int = Query(default=30, ge=1, le=200),
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Wave 14CQ — list the most recent archived brief .md files.
+
+    NATRIX's mandate: future "what did NCL say on May 30?" should
+    surface a clickable archive of every brief fire (AM + PM).
+    """
+    from runtime.intelligence.brief_archiver import list_archived_briefs
+
+    rows = list_archived_briefs(limit=limit)
+    return {"count": len(rows), "briefs": rows}
+
+
+@router.get("/intelligence/briefs/archive/{date}/{mode}")
+async def get_brief_archive(
+    date: str,
+    mode: str,
+    _: None = Depends(verify_strike_token_dep),
+):
+    """Wave 14CQ — return a single archived brief as markdown text."""
+    from fastapi.responses import PlainTextResponse
+
+    from runtime.intelligence.brief_archiver import load_archived_brief
+
+    if mode not in ("am", "pm"):
+        raise HTTPException(status_code=400, detail="mode must be 'am' or 'pm'")
+    md = load_archived_brief(date, mode)
+    if md is None:
+        raise HTTPException(status_code=404, detail="not archived")
+    return PlainTextResponse(content=md, media_type="text/markdown")
+
+
 @router.post("/intelligence/morning-brief/pro/fire")
 async def fire_morning_brief_pro(
     skip_prep: bool = Query(default=False, description="Reuse today's prep pack if available"),
@@ -1462,35 +1497,22 @@ async def fire_morning_brief_pro(
     # 3. Render
     envelope = render_pro_brief(synthesis, pack=pack)
 
-    # 4. Wave 14Z — preserve as a snapshot of today in memory.
-    # NATRIX's mandate: "a document to be preserved in memory as a
-    # snapshot of today for reference". Importance 80 (BRAIN tier)
-    # makes it surface in working-context + search + timeline.
+    # 4. Wave 14CQ — unified close-loop: .md archive + memory snapshot
+    # + trade_idea_tracker wiring (the CRITICAL audit-B4.1 fix that's
+    # been starving the auto-trader since 2026-05-29 22:02 because the
+    # Pro Brief path was rendering ideas to disk but never registering
+    # them with the tracker the auto-trader reads from).
+    archive_result: dict = {}
     try:
-        if brain is not None and hasattr(brain, "memory_store"):
-            from runtime.memory.authority import AuthorityTier  # type: ignore
-            from runtime.memory.memory_unit import MemUnit  # type: ignore
+        from runtime.intelligence.brief_archiver import archive_brief
 
-            text = envelope.get("full_brief") or envelope.get("topics") or ""
-            if text:
-                snapshot = MemUnit(
-                    source="brief:morning_pro",
-                    content_type="reflection",
-                    content=text,
-                    importance=80,
-                    tier="brain",
-                    authority_tier=AuthorityTier.BRAIN.value,
-                    metadata={
-                        "date": envelope.get("date"),
-                        "generated_at": envelope.get("generated_at"),
-                        "lanes_present": list((envelope.get("lanes") or {}).keys()),
-                        "source_kind": "morning_brief_pro_5lane",
-                    },
-                )
-                await brain.memory_store.create_unit(snapshot)
-                log.info("[brief_pro] snapshot ingested to memory unit_id=%s", snapshot.unit_id)
+        archive_result = await archive_brief(
+            envelope, pack=pack, mode="am", brain=brain,
+        )
+        log.info("[brief_pro] archive complete: %s", archive_result)
     except Exception as e:
-        log.warning("[brief_pro] memory snapshot ingest failed: %s", e)
+        log.warning("[brief_pro] archive_brief failed: %s", e)
+    envelope["archive"] = archive_result
 
     # Wave 14AY (2026-05-30): render spoken-brief .wav so iOS Play
     # button can fetch it later. Fire-and-forget — never blocks the

@@ -1,0 +1,52 @@
+Wave 14CO (iOS): swallow URL cancellation in Intel lane loaders — kills the bogus "cancelled" overlay on NOW + STREAM + XREF + MOVES
+
+NATRIX trial-run screenshots showed NOW and STREAM rendering
+"cancelled" in red where the items list should have been —
+even though the header counts populated (NOW count=13,
+STREAM total=2,441 with facets visible) confirming the
+underlying fetch succeeded.
+
+Root cause: SwiftUI `.task { await load() }` is aggressive
+about cancelling on view re-evaluation. Every time `@State`
+changed (chip toggle, picker change, even sibling-view rerender
+from `total = ...` self-assignment) the in-flight URLSession
+task got cancelled mid-flight. The catch handler dumped
+`error.localizedDescription` straight into errorMsg, which
+for NSURLErrorCancelled is the literal string "cancelled".
+
+Fix in 4 Intel lane loaders:
+  IntelNowView.load()
+  IntelStreamView.load()
+  IntelConvergenceView.load()
+  IntelTrendsView (TrendsAPI.load + .refreshNow)
+
+Pattern — single retry on cancel + silent on second cancel:
+
+  for attempt in 0..<2 {
+    do {
+      // fetch + decode + state assignment
+      return
+    } catch {
+      let nse = error as NSError
+      let isCancel = nse.code == NSURLErrorCancelled
+        || (error is CancellationError)
+      if isCancel && attempt == 0 {
+        try? await Task.sleep(200ms)
+        continue
+      }
+      if isCancel { return }      // silent on second cancel
+      errorMsg = error.localizedDescription
+      return
+    }
+  }
+
+200ms back-off gives SwiftUI a tick to settle. The second
+cancel (rare) is silently dropped — the user sees the previous
+state instead of a misleading error overlay, and the next
+real load (refresh / tab-switch-back) fixes it.
+
+Verified end-to-end: built all 4 targets (iPhone 16e sim,
+iPad Pro M5 sim, physical iPhone 15 Pro Max, physical iPad
+Pro 11"). Installed + launched on all four. No more
+"cancelled" overlay on NOW or STREAM during normal tab
+navigation.
