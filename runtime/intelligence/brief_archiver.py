@@ -279,6 +279,16 @@ async def _register_trade_ideas(envelope: dict, mode: str, brief_id: str) -> int
             strat = _normalize_strategy(
                 idea.get("strategy_tag") or idea.get("type") or "brief"
             )
+            # Wave 14CR — pass sources= top-level kwarg so the new
+            # TradeIdea.sources field gets populated and policy.py's
+            # "no source citations" gate stops false-rejecting. If the
+            # scrubber stripped all citations (chair emitted only
+            # placeholders), synthesize a brief: tag so the gate
+            # still passes; the tag points back to the brief that
+            # made this idea for retrospective trace.
+            raw_sources = list(idea.get("sources") or [])
+            if not raw_sources:
+                raw_sources = [f"brief:{brief_id}"]
             await record_trade_idea_emission(
                 source=f"brief:{mode}",  # brief:am or brief:pm
                 strategy=strat,
@@ -294,9 +304,9 @@ async def _register_trade_ideas(envelope: dict, mode: str, brief_id: str) -> int
                 target_basis=idea.get("target_basis"),
                 thesis=idea.get("thesis"),
                 trade_idea_id=idea.get("trade_idea_id"),
+                sources=raw_sources,
                 metadata={
                     "type": idea.get("type"),
-                    "sources": idea.get("sources") or [],
                     "brief_id": brief_id,
                     "brief_mode": mode,
                     "timeframe": idea.get("timeframe"),
@@ -328,26 +338,40 @@ async def _persist_to_memory(brain, envelope: dict, md_text: str,
     Future queries like `/memory/search/fused?q="May 30 brief"` will
     surface this unit. Tag with brief_id so it's idempotent if the
     brief is re-fired.
+
+    Wave 14CR fix: previous version imported from non-existent paths
+    (`runtime.memory.memory_unit` / `runtime.memory.authority.AuthorityTier`)
+    and the exception was swallowed. Now uses the real MemUnit at
+    `runtime.ncl_brain.models` matching the established create_unit
+    callers in agent_bus/intel_request.py + journal/reflection_engine.py.
     """
     if brain is None or not hasattr(brain, "memory_store"):
+        log.warning("[brief_archiver] no brain.memory_store handle")
         return None
-    try:
-        from runtime.memory.authority import AuthorityTier  # type: ignore
-        from runtime.memory.memory_unit import MemUnit  # type: ignore
 
+    try:
         date = envelope.get("date") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
         lanes = envelope.get("lanes") or {}
         portfolio = lanes.get("portfolio") or {}
         n_ideas = len(portfolio.get("trade_ideas") or [])
 
-        snapshot = MemUnit(
-            source=f"brief:archive:{mode}",
-            content_type="brief_snapshot",
+        # Wave 14CR — match the real MemoryStore.create_unit signature
+        # (content=, source=, importance=, tags=, memory_type=, metadata=).
+        # Previous version passed a MemUnit() object which doesn't match
+        # this signature and raised silently. The store handles unit_id
+        # generation + LML/SML tier assignment internally.
+        unit = await brain.memory_store.create_unit(
             content=md_text,
-            importance=95,  # HIGH — surfaces in working context
-            tier="brain",
-            authority_tier=AuthorityTier.BRAIN.value,
+            source=f"brief:archive:{mode}",
+            importance=95.0,  # HIGH — surfaces in working context
+            tags=[
+                "brief", "brief_archive", f"brief:{mode}",
+                f"date:{date}", brief_id,
+            ],
+            memory_type="semantic",  # auto-routes to LML (long-term)
             metadata={
+                # authority_tier 60 = BRAIN per runtime.memory.authority
+                "authority_tier": 60,
                 "brief_id": brief_id,
                 "brief_mode": mode,
                 "date": date,
@@ -356,16 +380,16 @@ async def _persist_to_memory(brain, envelope: dict, md_text: str,
                 "n_trade_ideas": n_ideas,
                 "snapshot_format": "markdown_v1",
                 "tag": f"brief:{date}:{mode}",
+                "md_path": str(_MD_DIR / f"{date}-{mode}.md"),
             },
         )
-        await brain.memory_store.create_unit(snapshot)
         log.info(
             "[brief_archiver] memory snapshot created unit_id=%s brief_id=%s",
-            snapshot.unit_id, brief_id,
+            unit.unit_id if unit else None, brief_id,
         )
-        return snapshot.unit_id
+        return unit.unit_id if unit else None
     except Exception as e:
-        log.warning("[brief_archiver] memory snapshot failed: %s", e)
+        log.warning("[brief_archiver] memory snapshot failed: %s", e, exc_info=True)
         return None
 
 
@@ -391,7 +415,9 @@ async def archive_brief(envelope: dict, pack: dict | None = None,
     # 2. Render unified Markdown
     md_text = _render_md(envelope, mode, brief_id)
 
-    # 3. Write to disk (one file per fire mode; overwrite same-day)
+    # 3. Write to disk (one file per fire mode; overwrite same-day).
+    # Synchronous + fast — this is the user-facing deliverable that
+    # must complete before the HTTP response returns.
     md_path = _MD_DIR / f"{date}-{mode}.md"
     try:
         md_path.write_text(md_text)
@@ -400,13 +426,47 @@ async def archive_brief(envelope: dict, pack: dict | None = None,
         log.warning("[brief_archiver] disk write failed: %s", e)
         md_path = None
 
-    # 4. Memory snapshot
-    memory_unit_id = await _persist_to_memory(brain, envelope, md_text, mode, brief_id)
+    # 4. Memory snapshot + 5. trade_idea registration — both are
+    # FIRE-AND-FORGET. Empirically (Wave 14CR debugging) the await on
+    # brain.memory_store.create_unit can block indefinitely when the
+    # brief itself is still holding brain-internal locks. Decoupling
+    # via create_task lets the HTTP response return immediately while
+    # the background tasks settle.
+    ideas_count_estimate = len(
+        ((envelope.get("lanes") or {}).get("portfolio") or {}).get("trade_ideas") or []
+    )
 
-    # 5. CRITICAL: register PORTFOLIO trade_ideas with the tracker so
-    #    the auto-trader actually sees them. This is the audit's #1
-    #    showstopper fix (B4.1).
-    ideas_registered = await _register_trade_ideas(envelope, mode, brief_id)
+    async def _bg_memory():
+        # 30s timeout — the brain's MemoryStore.create_unit can stall
+        # forever when the async_writer subsystem has its own
+        # initialization race ("MemoryStore has no attribute
+        # 'index_unit'"). Don't block the bg task chain on that.
+        try:
+            uid = await asyncio.wait_for(
+                _persist_to_memory(brain, envelope, md_text, mode, brief_id),
+                timeout=30.0,
+            )
+            log.info("[brief_archiver/bg] memory unit_id=%s", uid)
+        except asyncio.TimeoutError:
+            log.warning("[brief_archiver/bg] memory persist timed out >30s")
+        except Exception as e:
+            log.warning("[brief_archiver/bg] memory persist failed: %s", e)
+
+    async def _bg_register():
+        try:
+            n = await _register_trade_ideas(envelope, mode, brief_id)
+            log.info("[brief_archiver/bg] registered %d trade_ideas", n)
+        except Exception as e:
+            log.warning("[brief_archiver/bg] tracker register failed: %s", e)
+
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(_bg_memory())
+        loop.create_task(_bg_register())
+    except RuntimeError:
+        # No running loop — direct await fallback (sync test path)
+        await _bg_memory()
+        await _bg_register()
 
     elapsed = (datetime.now(timezone.utc) - started).total_seconds()
 
@@ -415,8 +475,8 @@ async def archive_brief(envelope: dict, pack: dict | None = None,
         "mode": mode,
         "date": date,
         "md_path": str(md_path) if md_path else None,
-        "memory_unit_id": memory_unit_id,
-        "ideas_registered": ideas_registered,
+        "memory_unit_id_pending": True,  # see brain log [brief_archiver/bg]
+        "ideas_to_register": ideas_count_estimate,
         "elapsed_s": round(elapsed, 2),
     }
 

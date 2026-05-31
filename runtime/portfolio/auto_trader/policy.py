@@ -255,7 +255,15 @@ async def auto_open_eligible(
 
     # 6. Source citation requirement
     if policy.require_source_citations:
-        sources = idea.get("sources") or []
+        # Wave 14CR — read top-level OR metadata.sources for back-compat.
+        # The scanner:goat path stamps metadata["sources"] not a top-level
+        # field; the new TradeIdea.sources field is the canonical home but
+        # we fall through to metadata so legacy entries don't false-reject.
+        sources = (
+            idea.get("sources")
+            or (idea.get("metadata") or {}).get("sources")
+            or []
+        )
         if not sources:
             return False, "no source citations"
 

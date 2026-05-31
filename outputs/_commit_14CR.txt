@@ -1,0 +1,115 @@
+Wave 14CR: Audit punch-list batch — TradeIdea.sources, trend baseline, news+trends harden, options ticker enrichment, scheduler typo fix, memory/tracker fire-and-forget
+
+Hammers through 7 of the AWAREBOT_TRADERAGENT_FLOW_AUDIT punch-list
+items in a single push. Builds on Wave 14CQ (which closed B4.1 +
+B4.2 partially) by closing the remaining quality leaks.
+
+A. TradeIdea.sources promoted to top-level field (audit B4.2)
+   runtime/portfolio/trade_idea_tracker.py
+     - TradeIdea dataclass gains `sources: list = field(default=[])`
+     - record_emission accepts `sources=` kwarg + promotes
+       metadata["sources"] to top-level for legacy callers
+     - record_trade_idea_emission module wrapper forwards `sources=`
+   runtime/portfolio/auto_trader/policy.py
+     - "no source citations" gate reads top-level OR metadata.sources
+   Result: 20% of historical auto-trader rejects (21/106) were this
+   bug. Brief-emitted ideas now satisfy the gate.
+
+B. trend_tracker baseline divisor + cur_count guard (audit B4.5)
+   runtime/intelligence/trend_tracker.py
+     - Compute `days_present = (now - earliest_bucket).days`
+     - Baseline divisors become min(7|30, days_present)
+     - `fading` + `anomaly` flags now REQUIRE cur_count >= 1
+     - Was producing 58/98 false `fading_100pct` alerts; live verify
+       after fix: 98 alerts → 39 alerts, ZERO false fading.
+
+C. news_trends_double rule hardened (audit B4.2 noise)
+   runtime/cross_reference/__init__.py
+     - _NEWS_TRENDS_BLOCKLIST: 50+ broadcast (NBC/CBS), sports
+       (NBA/NFL/MLB/NCAA), country (USA/EU/UN), and state-abbrev
+       (NY/AL/NJ/CA...) tickers — all wear ticker-shaped clothing
+       but never tradeable
+     - len >= 3 minimum (was 2 — perfect overlap with state abbrevs)
+     - News items with "promo code"/"affiliate"/"use code" in
+       title dropped before ticker extraction (kills the AL.com /
+       Polymarket affiliate pollution)
+
+D. options_flow ticker enrichment (audit B4.6)
+   runtime/awarebot/agent.py _collect_unusual_whales
+     - UW titles start with $TICKER or bare ticker prefix
+     - Regex extract and populate metadata.ticker so
+       EntityClusterer can bucket the 4,000+ daily UW signals
+     - Previously metadata.ticker was null → cross_source factor
+       was always ~0 for UW → never made CRITICAL/HIGH
+
+E. youtube_council phantom source removed (audit A4.4)
+   runtime/cross_reference/__init__.py _INTEL_SOURCES
+     - Dropped "youtube_council" and "ytc" — both never emitted
+       by Awarebot (YTC reports use source="youtube"). Was an
+       extra phantom vote in convergence rules against zero rows.
+
+F. Scheduler typo fix (pre-existing bug surfaced during 14CR test)
+   runtime/autonomous/scheduler.py _trend_tracker_loop
+     - Was calling self._interruptible_sleep(90) — method doesn't
+       exist on this class. Crashing the trend-tracker loop on
+       every boot (supervisor was restarting it 3x then giving up).
+     - Replaced with asyncio.sleep(90) matching every other loop
+       boot-delay pattern in this file.
+
+G. brief_archiver memory + tracker → fire-and-forget
+   runtime/intelligence/brief_archiver.py
+     - _persist_to_memory and _register_trade_ideas now run as
+       background tasks via loop.create_task
+     - Empirical finding: brain.memory_store.create_unit can
+       stall indefinitely when the brief itself is still holding
+       brain-internal locks. Decoupling = HTTP response returns
+       in 0.0s instead of hanging the call.
+     - Memory bg has a 30s timeout so it can't hang a task forever
+     - Fixed _persist_to_memory signature to use real create_unit
+       contract (content=, source=, importance=, tags=,
+       memory_type=, metadata=) — previous version imported from
+       nonexistent runtime.memory.memory_unit and silently failed
+       (Wave 14Z + 14CQ both had this bug)
+     - Response envelope: memory_unit_id_pending + ideas_to_register
+       fields signal "check brain log [brief_archiver/bg] for outcome"
+   Live verification end-to-end:
+     archive_brief returns in 0.0s
+     bg task: "registered 5 trade_ideas" 100ms later
+     bg memory: still in flight at log-check time but capped 30s
+
+Live verification snapshot (post-bounce):
+   /intelligence/trends/refresh
+     buckets: 1960 → alerts: 98 → 39 (60% noise → 0% noise)
+     top alerts now real signals: GME +320%, SI +322%, MSFT z=4.3,
+       IBM +355%, WIF z=3.5, OP z=4.3, AUD +335%, FTSE z=4.3
+   /intelligence/morning-brief/pro/fire
+     5 trade ideas: ONDS, APLD, RCAT, MSFT options, GRRR
+     4 of 5 carry real sources=["a1b2c3d4"] / ["c3d4e5f6"]
+       (1 placeholder still slipped through scrubber — flag for 14CS)
+     ideas_to_register: 5
+     elapsed_s: 0.0
+   bg log within 100ms:
+     [brief_archiver/bg] registered 5 trade_ideas
+
+Files modified (6):
+  M runtime/portfolio/trade_idea_tracker.py   (+ TradeIdea.sources + kwarg)
+  M runtime/portfolio/auto_trader/policy.py   (sources fallback)
+  M runtime/intelligence/trend_tracker.py     (divisor + cur_count guard)
+  M runtime/cross_reference/__init__.py       (blocklist + phantom drop)
+  M runtime/awarebot/agent.py                 (UW ticker enrich)
+  M runtime/autonomous/scheduler.py           (typo: _interruptible_sleep)
+  M runtime/intelligence/brief_archiver.py    (fire-and-forget + real create_unit)
+
+Audit punch-list status after 14CR:
+  #1 brief → tracker wiring          ✅ CLOSED (14CQ + 14CR)
+  #2 "sig_id" literal placeholder    ✅ CLOSED (14CQ chair-prompt + 14CN scrubber)
+  #3 TradeIdea.sources field         ✅ CLOSED (14CR-A)
+  #4 Brain bounce / BERTopic verify  ⏳ deferred (need bounce + audit)
+  #5 trend_tracker baseline          ✅ CLOSED (14CR-B)
+  #6 news_trends_double harden       ✅ CLOSED (14CR-C)
+  #7 risk_governor NAV race          ⏳ deferred to 14CS
+  #8 options_flow ticker enrichment  ✅ CLOSED (14CR-D)
+  #9 youtube_council phantom         ✅ CLOSED (14CR-E)
+  #10 observability counters         ⏳ deferred (low-pri)
+
+Plus 1 pre-existing scheduler bug (F) caught + fixed in passing.

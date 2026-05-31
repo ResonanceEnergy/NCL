@@ -1612,7 +1612,20 @@ class Awarebot:
     #     return signals
 
     async def _collect_unusual_whales(self) -> list[Signal]:
-        """Collect options flow from Unusual Whales."""
+        """Collect options flow from Unusual Whales.
+
+        Wave 14CR — ticker enrichment fix (audit B4.6). UW titles always
+        start with a $TICKER prefix (e.g. "$NVDA flow alert: $1.2M call
+        sweep"). Extract that into metadata.ticker so EntityClusterer
+        can bucket the 4,000+ daily UW signals — previously
+        metadata.ticker was null which collapsed cross_source factor
+        to ~0 for the highest-volume source.
+        """
+        import re as _re
+
+        # Match leading $TICKER or VIX/SPX-style bare uppercase
+        _UW_TICKER_RX = _re.compile(r"^\$?([A-Z]{1,5})\b")
+
         signals = []
         if not self.intelligence_engine:
             return signals
@@ -1623,6 +1636,14 @@ class Awarebot:
             for sig in raw:
                 s = Signal.from_intel_signal(sig)
                 s.tags.append("scan:unusual_whales")
+                # Wave 14CR — enrich metadata.ticker from title prefix
+                if not (s.metadata or {}).get("ticker"):
+                    title = (s.title or "").strip()
+                    m = _UW_TICKER_RX.match(title)
+                    if m:
+                        if s.metadata is None:
+                            s.metadata = {}
+                        s.metadata["ticker"] = m.group(1)
                 signals.append(s)
                 self._stats["signals_by_source"]["unusual_whales"] += 1
         except Exception as e:

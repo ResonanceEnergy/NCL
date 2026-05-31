@@ -198,6 +198,28 @@ def compute_alerts(buckets: dict[tuple[str, str, str], int]) -> list[dict]:
     cutoff_7d = (now - timedelta(days=7)).strftime("%Y-%m-%dT%H")
     cutoff_30d = (now - timedelta(days=30)).strftime("%Y-%m-%dT%H")
 
+    # Wave 14CR — actual-history-span divisor. Audit B4.5: hardcoded
+    # /7.0 + /30.0 produced inflated daily averages on the 4-day history
+    # window (agent_signals.jsonl rotation ceiling = ~13d). Any ticker
+    # mentioned 3-4d ago but not in last 24h triggered `fading_100pct`
+    # → 58/98 alerts (60%) were noise. Now divides by min(window,
+    # actual_days_present), MIN 1.0 to avoid divide-by-zero.
+    earliest_hour = min(
+        (h for (_, _, h) in buckets.keys()),
+        default=now.strftime("%Y-%m-%dT%H"),
+    )
+    try:
+        earliest_dt = datetime.strptime(
+            earliest_hour + ":00:00+00:00", "%Y-%m-%dT%H:%M:%S%z"
+        )
+        days_present = max(
+            1.0, (now - earliest_dt).total_seconds() / 86400.0
+        )
+    except Exception:
+        days_present = 7.0
+    div_7d = min(7.0, days_present)
+    div_30d = min(30.0, days_present)
+
     # Group counts per (source, ticker) → list of (hour, count)
     by_key: dict[tuple[str, str], list[tuple[str, int]]] = defaultdict(list)
     for (source, ticker, hour), n in buckets.items():
@@ -213,8 +235,8 @@ def compute_alerts(buckets: dict[tuple[str, str, str], int]) -> list[dict]:
             continue
 
         cur_count = sum(last_24h)
-        baseline_7d = sum(last_7d) / 7.0 if last_7d else 0
-        baseline_30d = sum(last_30d) / 30.0 if last_30d else 0
+        baseline_7d = sum(last_7d) / div_7d if last_7d else 0
+        baseline_30d = sum(last_30d) / div_30d if last_30d else 0
 
         # Variance for z-score
         if len(last_30d) > 1:
@@ -237,9 +259,15 @@ def compute_alerts(buckets: dict[tuple[str, str, str], int]) -> list[dict]:
         ratio_7d = (cur_count / baseline_7d) if baseline_7d else 0
         if baseline_7d >= 1 and ratio_7d >= 3.0:
             flags.append(f"spiking_{int(ratio_7d * 100)}pct_vs_7d")
-        elif baseline_7d >= 1 and ratio_7d <= 0.4:
+        elif baseline_7d >= 1 and ratio_7d <= 0.4 and cur_count >= 1:
+            # Wave 14CR — require ≥1 mention in last 24h before flagging
+            # `fading`. Without this, tickers that briefly appeared days
+            # ago but had zero today triggered noise. "Fading" means
+            # decay from active state, not absence. cur_count=0 is
+            # silence, not fade.
             flags.append(f"fading_{int((1 - ratio_7d) * 100)}pct_vs_7d")
-        if abs(z) >= 3:
+        if abs(z) >= 3 and cur_count >= 1:
+            # Same rationale — anomaly must be present, not absent.
             flags.append(f"anomaly_z{z:.1f}")
 
         if not flags:

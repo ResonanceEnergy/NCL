@@ -5460,8 +5460,12 @@ class AutonomousScheduler:
         and emit threshold-cross alerts. Reads agent_signals.jsonl
         tail-only; writes to data/trends/{buckets,alerts}-YYYY-MM-DD.
         Zero LLM cost. Boot delay 90s so we don't fire mid-startup.
+
+        Wave 14CR — `_interruptible_sleep` doesn't exist on this class
+        (typo from 14CK); using plain asyncio.sleep here matches every
+        other loop boot-delay pattern in this file.
         """
-        await self._interruptible_sleep(90)
+        await asyncio.sleep(90)
         while self._running:
             if EMERGENCY_STOP_EVENT.is_set():
                 log.critical("[TREND] emergency stop — halting trend-tracker")

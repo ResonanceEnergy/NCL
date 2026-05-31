@@ -46,7 +46,11 @@ PROMO_LOG = PROMO_DIR / "promotions.jsonl"
 # Anything NOT in this set is portfolio-side / decision-grade and doesn't
 # count as a cross-reference vote.
 _INTEL_SOURCES = {
-    "reddit", "youtube", "youtube_council", "ytc",
+    "reddit", "youtube",
+    # Wave 14CR — dropped phantom "youtube_council" / "ytc". The YTC
+    # rollup emits with source="youtube" — these two were never used
+    # by anything and counted as one extra vote in convergence rules
+    # against zero rows.
     "polymarket", "google_trends", "news",
     "x_twitter", "x", "twitter",
     "markets", "yfinance",  # ambient market context counts as 0.5 (see _is_intel_source)
@@ -362,8 +366,32 @@ def _rule_theme_converge(signals: list[dict], window_hours: int = 24) -> list[Pr
     return out
 
 
+# Wave 14CR — broadcast/sports stoplist for news_trends_double.
+# Audit B4.2: rule emitted NBC/NY/NBA/AL/CBS/USA/NCAA from Polymarket
+# affiliate-promo article titles ("Polymarket promo code ELITE: Team USA
+# World Cup — AL.com"). These are real listed tickers (NY = New York
+# Times) but the rule semantics ("news + search = real signal") doesn't
+# hold for sports/broadcast outlets being verbatim-extracted from URLs.
+_NEWS_TRENDS_BLOCKLIST = frozenset({
+    "NBC", "CBS", "ABC", "FOX", "NPR", "PBS", "CNN", "MSNBC", "BBC",
+    "NBA", "NFL", "NHL", "MLB", "WNBA", "NCAA", "NCAAB", "NCAAF",
+    "USA", "EU", "UK", "UN", "NATO", "OPEC",
+    "NY", "AL", "TX", "FL", "CA", "PA", "OH", "NJ", "MA", "VA",
+    "NC", "GA", "MI", "WI", "MN", "CO", "OR", "WA", "AZ", "NV",
+})
+
+
 def _rule_news_trends_double(signals: list[dict]) -> list[PromotedCandidate]:
-    """Rule 3: ticker hit in BOTH news AND google_trends on same day."""
+    """Rule 3: ticker hit in BOTH news AND google_trends on same day.
+
+    Wave 14CR hardening (audit B4.2):
+      - Min ticker length 3 (was 2 — perfectly overlapped NY/NJ/AL state
+        abbrevs and 2-letter sports leagues).
+      - Drop tickers in _NEWS_TRENDS_BLOCKLIST (broadcast/sports/macro).
+      - Require news source to be reputable — drop ".com" promo-domain
+        prefixes like AL.com / Elite Sports NY where the "news" item
+        is actually an affiliate code post.
+    """
     now_iso = datetime.now(timezone.utc).isoformat()
     news_tickers: set[str] = set()
     trends_tickers: set[str] = set()
@@ -371,7 +399,21 @@ def _rule_news_trends_double(signals: list[dict]) -> list[PromotedCandidate]:
     for s in signals:
         head = (s.get("source", "") or "").split(":")[0].lower()
         text = (s.get("title", "") + " " + s.get("content", ""))[:500]
+        # Drop affiliate-promo news items (audit B4.2 root cause)
+        if head == "news":
+            title_lower = (s.get("title") or "").lower()
+            if (
+                "promo code" in title_lower
+                or "affiliate" in title_lower
+                or "use code" in title_lower
+            ):
+                continue
         ticks = _extract_tickers(text)
+        # Min-3 length + blocklist gate
+        ticks = {
+            t for t in ticks
+            if len(t) >= 3 and t not in _NEWS_TRENDS_BLOCKLIST
+        }
         if head == "news":
             news_tickers |= ticks
             for t in ticks:

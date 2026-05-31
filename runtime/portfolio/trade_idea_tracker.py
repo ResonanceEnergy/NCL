@@ -92,6 +92,11 @@ class TradeIdea:
     R_multiple: Optional[float] = None
     holding_days: Optional[float] = None
     notes: str = ""
+    # Wave 14CR — promote sources to a top-level field so policy.py
+    # can read `idea.get("sources")` without metadata-key spelunking.
+    # Resolves audit B4.2 "no source citations" false rejects (20% of
+    # the auto-trader's 106 historical rejects were this single bug).
+    sources: list = field(default_factory=list)
     metadata: dict = field(default_factory=dict)
 
 
@@ -203,10 +208,24 @@ class TradeIdeaTracker:
         thesis: Optional[str] = None,
         trade_idea_id: Optional[str] = None,
         metadata: Optional[dict] = None,
+        sources: Optional[list] = None,
     ) -> dict:
-        """Record a new trade idea. Returns the persisted dict."""
+        """Record a new trade idea. Returns the persisted dict.
+
+        Wave 14CR: `sources` is now a first-class kwarg AND a top-level
+        TradeIdea field. Callers can pass it directly OR nest it under
+        metadata["sources"] (back-compat); both get promoted.
+        """
         await self.initialize()
         tid = trade_idea_id or uuid.uuid4().hex[:16]
+        # Promote metadata["sources"] to top-level so legacy callers
+        # don't suddenly start hitting the no-citation policy gate.
+        meta = dict(metadata or {})
+        sources_final = list(sources or [])
+        if not sources_final:
+            nested = meta.get("sources")
+            if isinstance(nested, list) and nested:
+                sources_final = list(nested)
         async with self._lock:
             if tid in self._ideas:
                 # Idempotent — return existing without overwriting
@@ -228,7 +247,8 @@ class TradeIdeaTracker:
                 thesis=thesis,
                 issued_at_iso=_now_iso(),
                 outcome="emitted",
-                metadata=metadata or {},
+                sources=sources_final,
+                metadata=meta,
             )
             self._ideas[tid] = idea
             await self._persist_state()
@@ -391,7 +411,10 @@ async def record_trade_idea_emission(
     thesis: Optional[str] = None,
     trade_idea_id: Optional[str] = None,
     metadata: Optional[dict] = None,
+    sources: Optional[list] = None,
 ) -> dict:
+    """Wave 14CR — `sources` kwarg added so brief callers can populate
+    the new TradeIdea.sources top-level field directly."""
     tracker = await get_trade_idea_tracker()
     return await tracker.record_emission(
         source=source,
@@ -409,4 +432,5 @@ async def record_trade_idea_emission(
         thesis=thesis,
         trade_idea_id=trade_idea_id,
         metadata=metadata,
+        sources=sources,
     )
