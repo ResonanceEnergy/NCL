@@ -1,0 +1,116 @@
+Wave 14CY: BRIEF priority + Intel reorder + professional formatting + CLAUDE.md update
+
+NATRIX: "morning brief executive brief and afternoon debrief
+need professional formatting, and all listed under brief in
+intel, also BRIEF should be first button in top row and given
+priority status update claude .md files and fix".
+
+# 1. BRIEF promoted to position #1
+
+Sources/Views/IntelView.swift
+  IntelSection.allCases reordered:
+    BEFORE: [now, stream, convergence, trendAlerts, ytc,
+             reddit, polymarket, trends, news]
+    AFTER:  [brief, now, stream, convergence, trendAlerts,
+             ytc, reddit, polymarket, trends, news]
+
+  Trial row (below picker) BEFORE: [brief, nightWatch, agenda,
+    focus, predictions] — BRIEF was hidden in trial.
+  Trial row AFTER: [nightWatch, agenda, focus, predictions].
+
+# 2. Priority hero button above picker
+
+NEW IntelView.priorityBriefButton
+  - Orange accent + "BRIEF" + PRIORITY chip + doc icon
+  - "Morning · Executive · Debrief" subtitle
+  - Selected state inverts (orange fill, white text)
+  - Always sits above the FSSectionPicker so it reads as
+    the primary entry point regardless of which sub-tab
+    is currently active
+
+NEW IntelSection.isPriority
+  Returns true only for .brief — gives future styling code
+  a single source of truth for which tabs are "priority".
+
+# 3. NEW BriefIntelConsolidatedView (~480 LOC)
+
+Sources/Views/Intel/BriefIntelConsolidatedView.swift
+
+  3-mode card picker:
+    Morning   — sunrise.fill icon, orange accent
+                "05:30 ET — full council pre-market read"
+    Executive — doc.text.magnifyingglass, cyan accent
+                "Live digest — top signals, risks, working context"
+    Debrief   — moon.stars.fill, purple accent
+                "16:30 ET — post-close reflection + night watch focus"
+
+  Morning + Debrief render through ProfessionalMarkdownView:
+    - H1 → 22pt heavy
+    - H2 → 15pt mono with vertical accent bar + horizontal
+            accent rule underneath (the section breakers)
+    - H3 → 11pt mono uppercase caption
+    - Paragraphs use AttributedString(markdown:) so bold/
+      italic/code render natively
+    - Bullets get accent-colored • markers
+    - Key=value bullet detection: "entry=450.5 · stop=440 ·
+      target=468" renders keys in monospace gray + values
+      in monospace cyan so prices pop
+    - `---` rules render as Dividers
+
+  Executive mode renders structured cards from /intelligence/digest:
+    - Stale-warning banner when brief_age_hours > 12
+      (Wave 14CX flag) with yellow accent + clock icon
+    - "TODAY'S PRO BRIEF" card when fresh_pro_brief
+      payload is populated (orange accent)
+    - KEY SIGNALS section: route badge (red/orange/yellow/
+      gray by level) + source chip + 3-line title cards
+    - RISK ALERTS section: orange accent, bulleted text
+    - SOURCE BREAKDOWN section: purple accent, source name
+      monospace cyan + count heavy mono right-aligned
+
+  Endpoint priority:
+    1. GET /intelligence/briefs/archive/{date}/{am,pm}
+       (canonical .md from Wave 14CQ + 14CV)
+    2. fallback to JSON envelopes for legacy briefs
+    3. Executive always pulls /intelligence/digest
+
+  Load is force-refreshable via header refresh button.
+  Each mode is cached independently (no re-fetch on mode flip).
+
+# 4. CLAUDE.md updates
+
+dev/NCL/CLAUDE.md
+  Top header bumped to include 14CV-14CY arc.
+  NEW "Recent wave summary (2026-05-31)" block with detailed
+  per-wave coverage of 14CV/14CW/14CX/14CY.
+  NEW "Wave 14CP-14CU arc" block summarizing the auto-trader
+  unblock from this same overnight session.
+  Old 2026-05-30 block remains intact below.
+
+Projects/FirstStrike/CLAUDE.md
+  Top status bumped to 2026-05-31.
+  NEW "Wave 14CY" block documenting the BRIEF priority +
+  consolidated view + professional formatting.
+  NEW "Wave 14CV" block documenting the single-doc Dashboard
+  rewrite + PM debrief .md archive wiring.
+  Old "Wave 14Y" block remains intact below.
+
+# Live verification
+
+  iOS build succeeded after xcodegen generate.
+  Deployed to 4 targets:
+    iPhone 16e sim (pid 28317)
+    iPad Pro M5 sim (pid 28509)
+    Physical iPhone 15 Pro Max (devicectl install OK)
+    Physical iPad Pro 11" (devicectl install OK)
+
+  Backend untouched in 14CY (all endpoints from 14CV-14CX).
+  archive listing returns 3 docs: 2026-05-31 am + pm, plus
+  2026-05-30 am.
+
+# Files modified
+
+  M dev/NCL/CLAUDE.md
+  M Projects/FirstStrike/CLAUDE.md
+  M Projects/FirstStrike/Sources/Views/IntelView.swift
+  + Projects/FirstStrike/Sources/Views/Intel/BriefIntelConsolidatedView.swift
