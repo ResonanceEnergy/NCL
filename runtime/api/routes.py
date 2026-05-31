@@ -621,6 +621,11 @@ app.include_router(polymarket_strategies_router)
 app.include_router(calendar_router)
 app.include_router(feedback_router)
 
+# Wave 14DB (2026-05-31) — Watchlist tickers in Intel context.
+from .routers.watchlist import router as watchlist_router  # noqa: E402
+
+app.include_router(watchlist_router)
+
 # Extracted sub-routers (W4-12 onward) — /system/* lives in routers/system.py.
 # Other prefixes follow in subsequent waves. See runtime/api/routers/__init__.py
 # for the registry; routes.py is being incrementally drained into focused modules.

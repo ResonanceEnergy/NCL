@@ -484,6 +484,7 @@ def compute_situational_relevance(
     *,
     themes_active: Optional[set[str]] = None,
     source: Optional[str] = None,
+    tickers_in_watchlist: Optional[set[str]] = None,
 ) -> float:
     """Wave 14X-Y Phase 1B-4: score how much a signal matches NATRIX's
     current time/life situation. 0 → no match, 1 → strong match.
@@ -515,6 +516,19 @@ def compute_situational_relevance(
         for t in tickers_with_calendar_event_today:
             if t.lower() in text:
                 score += 0.4
+                break
+
+    # Wave 14DB (2026-05-31) — NATRIX-curated TradingView watchlist.
+    # "ensure the watch list is always in context in intel". When any
+    # signal text mentions a watchlist ticker, boost situational by
+    # +0.45 — slightly less than journal (0.5) since the watchlist is
+    # persistent intent vs journal's daily intent, but still strong
+    # enough to consistently bubble watchlist hits to NOW/HIGH.
+    if tickers_in_watchlist:
+        for t in tickers_in_watchlist:
+            tl = t.lower() if isinstance(t, str) else ""
+            if tl and tl in text:
+                score += 0.45
                 break
 
     # Morning quiz priority keywords match → moderate
@@ -2178,6 +2192,9 @@ class Awarebot:
             ctx = self._get_situational_ctx()
             if ctx:
                 head = (signal.source or "").split(":")[0].lower()
+                # Wave 14DB — pull watchlist tickers from disk (cheap;
+                # cached for 5 min via _get_situational_ctx).
+                wl_tickers = ctx.get("tickers_in_watchlist") or set()
                 situational = compute_situational_relevance(
                     f"{signal.title} {signal.content}"[:1500],
                     tickers_in_journal_today=ctx.get("tickers_in_journal_today"),
@@ -2185,7 +2202,20 @@ class Awarebot:
                     morning_quiz_focus=ctx.get("morning_quiz_focus"),
                     themes_active=ctx.get("themes_active"),
                     source=head,
+                    tickers_in_watchlist=wl_tickers,
                 )
+                # Wave 14DB — stamp the matched ticker into metadata so
+                # iOS rows can show a yellow WATCH badge without re-
+                # scanning the title client-side.
+                if wl_tickers:
+                    text_lower = f"{signal.title} {signal.content}".lower()
+                    for t in wl_tickers:
+                        tl = t.lower() if isinstance(t, str) else ""
+                        if tl and tl in text_lower:
+                            if signal.metadata is None:
+                                signal.metadata = {}
+                            signal.metadata["watchlist_hit"] = t
+                            break
         except Exception as _sit_err:
             log.debug(f"[AGENT:SCORE] situational compute failed: {_sit_err}")
             # Wave 14CS — counter for silent situational fall-back
@@ -2750,7 +2780,17 @@ Respond with ONLY a JSON object:
             "tickers_with_calendar_event_today": set(),
             "morning_quiz_focus": "",
             "themes_active": set(),
+            # Wave 14DB — operator-curated TradingView watchlist tickers.
+            "tickers_in_watchlist": set(),
         }
+
+        # Wave 14DB — load watchlist tickers from disk. Cheap JSON read;
+        # cached for the same 30 min TTL as everything else here.
+        try:
+            from runtime.api.routers.watchlist import get_watchlist_tickers
+            ctx["tickers_in_watchlist"] = set(get_watchlist_tickers())
+        except Exception:
+            pass
 
         try:
             base = Path(os.environ.get("NCL_BASE", str(Path.home() / "dev" / "NCL")))

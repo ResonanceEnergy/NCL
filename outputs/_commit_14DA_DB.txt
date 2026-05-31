@@ -1,0 +1,157 @@
+Wave 14DA + 14DB: WATCHLIST tab + tickers in Intel context + PAPER cleanup + RRG timestamps
+
+NATRIX (composite ask across two turns):
+  "i want my WATCHLIST in portfolio.. get my tradingview watchlist
+   url and display it in portfolio as a tab next to portfolio before
+   AGENT, in PAPER tab its listing my portfolio stocks and paper i
+   just want paper in this tab, RRG needs to have time stamps and
+   percentage change so i can verify its actually real actionable
+   data"
+  + "ensure the watch list is always in context in intel"
+
+Two waves shipped together because they share state (the watchlist
+tickers).
+
+# Wave 14DA — Portfolio surface changes
+
+## WATCHLIST sub-tab (NEW)
+
+PortfolioView.swift
+  PortfolioSection enum: NEW `.watchlist = "WATCHLIST"` case
+  positioned between `.portfolio` and `.agent` per NATRIX's exact
+  ordering. Yellow accent so it visually separates from PORTFOLIO
+  cyan and AGENT cyan.
+
+NEW Sources/Views/Portfolio/WatchlistView.swift (~220 LOC)
+  Renamed to `PortfolioWatchlistTradingViewTab` to avoid colliding
+  with the legacy `WatchlistView` in StocksView.swift.
+
+  Header: list.star icon + WATCHLIST label + "TradingView" chip +
+  gear icon.
+
+  Body: WKWebView loading
+        https://www.tradingview.com/watchlists/330949579/
+        (NATRIX's URL from the message). Desktop UA so TradingView's
+        web view renders the full layout.
+
+  Settings sheet (gear icon):
+    - URL field (paste a public TradingView watchlist URL)
+    - Tickers field (Wave 14DB — see below)
+    - Saves to @AppStorage AND POSTs to backend.
+    - "Reset URL to NATRIX default" button.
+
+  WKWebView is platform-walled: iOS uses UIViewRepresentable, Mac
+  uses NSViewRepresentable.
+
+## PAPER cleanup
+
+PaperTradingView.swift
+  /paper/trades returns 15 rows but 13 are broker-position
+  snapshots (strategy="snapshot") from NATRIX's 5/29 manual close.
+  The 2 real paper trades are GRRR (open) + 1 GOAT (closed).
+
+  Filter applied in loadData(): drop any row with
+  `strategy == "snapshot"` (case-insensitive). Data stays on disk
+  for audit; just hidden from the view.
+
+## RotationRRG timestamps + % change
+
+RotationRRGView.swift
+  Header now shows:
+    - "As of YYYY-MM-DD · today" (green) or " · STALE — last update
+      >24h ago" (orange)
+    - "Fetched HH:MM:SS local · prices live from yfinance" line so
+      NATRIX sees the fetch time of the iOS-side data pull.
+
+  Each sector dot on the RRG chart now shows day % change as a
+  small black-backgrounded chip below the circle:
+    - Green text when day % >= 0
+    - Red text when negative
+    - Monospace 8pt for tight fit under the 26pt dot
+
+  refresh() stamps `lastFetched = Date()` on success so the
+  header timestamp converges.
+
+# Wave 14DB — Watchlist always in Intel context
+
+## Backend
+
+NEW runtime/api/routers/watchlist.py (~110 LOC)
+  GET  /watchlist/tickers — returns {tickers, tradingview_url, updated_at}
+  POST /watchlist/tickers — replaces the list (normalizes uppercase
+                            + dedups + strips whitespace)
+  Persists to data/watchlist/tickers.json.
+
+  Module-level helper get_watchlist_tickers() consumed by:
+    runtime/awarebot/agent.py situational scorer.
+
+runtime/api/routes.py
+  Registers watchlist_router after the existing portfolio/paper/
+  polymarket/calendar/feedback set.
+
+runtime/awarebot/agent.py compute_situational_relevance
+  NEW kwarg: tickers_in_watchlist: Optional[set[str]] = None
+  When set and any ticker is mentioned in the signal text,
+  situational score += 0.45. Slightly less than journal (0.5)
+  since the watchlist is persistent intent vs journal's daily
+  intent, but still strong enough to bubble watchlist hits
+  consistently into NOW/HIGH route.
+
+runtime/awarebot/agent.py _get_situational_ctx
+  Loads watchlist tickers from disk on the same 30-min TTL as
+  the rest of situational context. Populates ctx[
+  "tickers_in_watchlist"].
+
+runtime/awarebot/agent.py score loop (line ~2185)
+  Threads tickers_in_watchlist through into the call AND, when a
+  ticker matches, stamps signal.metadata["watchlist_hit"] =
+  "<ticker>" so downstream consumers can highlight without
+  re-scanning.
+
+Live verified: POSTed 9 tickers (XRP/SLV/GLD/NVDA/GME/PLTR/MSFT/
+AAPL/GRRR) → tickers.json written with updated_at stamp.
+
+## iOS
+
+WatchlistView settings sheet gains a TextEditor for the ticker
+list (comma-separated). On Save:
+  - Normalized client-side (uppercase, dedup, strip).
+  - POSTed to /watchlist/tickers along with the URL.
+  - Mirrored into @AppStorage so it survives offline restarts.
+  - "Saved N ticker(s)" success message; "Save failed — …" on
+    error.
+
+WatchlistView.onAppear pulls the latest from the backend so
+the iPhone and iPad converge if NATRIX edited from the other.
+
+IntelNowView.IntelNowRow + IntelStreamView.IntelStreamRow
+  NEW yellow WATCH badge ("WATCH · TICKER") when
+  metadata.watchlist_hit is set. Placed first in the badge row
+  so it visually dominates regardless of route_level color.
+
+# Files modified (10)
+
+  M Sources/Views/PortfolioView.swift          (+ watchlist case + accent)
+  M Sources/Views/PaperTradingView.swift       (filter snapshot strategy)
+  M Sources/Views/Intel/RotationRRGView.swift  (header timestamps + dot % chips)
+  M Sources/Views/Intel/IntelNowView.swift     (WATCH badge)
+  M Sources/Views/Intel/IntelStreamView.swift  (WATCH badge)
+  + Sources/Views/Portfolio/WatchlistView.swift (NEW — TradingView WebView + settings)
+  + runtime/api/routers/watchlist.py            (NEW backend)
+  M runtime/api/routes.py                       (mount /watchlist router)
+  M runtime/awarebot/agent.py                   (situational watchlist boost + metadata stamp)
+
+# Deployed to 4 targets
+
+  iPhone 16e sim (pid 9296)
+  iPad Pro M5 sim (pid 9428)
+  Physical iPhone 15 Pro Max
+  Physical iPad Pro 11"
+
+# Live state
+
+  POST /watchlist/tickers seeded with NATRIX's 9 tickers.
+  AWAREBOT next scoring cycle (TTL 30 min from boot) will start
+  applying the +0.45 boost and stamping watchlist_hit metadata
+  on matching signals. From there NOW/STREAM rows render the
+  yellow WATCH badge automatically.
