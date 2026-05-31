@@ -1,0 +1,96 @@
+Wave 14DE: Executive brief uses ProfessionalMarkdownView too — all 3 modes uniform
+
+NATRIX: "ensure the executive brief gets same formatting treatment"
+
+# What changed
+
+Sources/Views/Intel/BriefIntelConsolidatedView.swift
+
+  Mode switch in `content` body:
+
+    case .morning, .debrief:
+        ProfessionalMarkdownView(markdown: currentMarkdown, accent: mode.accent)
+    case .executive:
+        ProfessionalMarkdownView(
+            markdown: composeExecutiveMarkdown(),
+            accent: mode.accent  // cyan
+        )
+
+  Previously Executive rendered a 5-card stack (stale-warning,
+  TODAY'S PRO BRIEF card, KEY SIGNALS, RISK ALERTS, SOURCE BREAKDOWN)
+  via inline @ViewBuilder. Now it composes the same content as
+  markdown then routes through the shared renderer so all three
+  modes look identical.
+
+# composeExecutiveMarkdown helper
+
+Builds .md from the /intelligence/digest payload in the same shape
+as the AM/PM .md archives:
+
+  # Executive Brief — YYYY-MM-DD
+
+  ## ⚠️ STALE  (only if brief_age_hours > 12)
+  Legacy digest last refreshed Nh ago. Today's Pro Brief substituted.
+
+  ## TODAY'S PRO BRIEF  (or HEADLINE if no fresh substitute)
+  **<headline>**
+  <portfolio narrative>
+
+  ## NIGHT WATCH
+  - status=GREEN
+  - key_findings=N
+  - recommendations=N
+
+  ## KEY SIGNALS
+  - route=HIGH · source=polymarket · title=... · score=0.72
+  - route=HIGH · source=reddit · title=... · score=0.68
+  - ... (up to 8)
+
+  ## RISK ALERTS
+  - <text>
+  - <text>
+
+  ## WORKING CONTEXT
+  - pinned=true · label=...
+  - content=...
+  (up to 10)
+
+  ## SOURCE BREAKDOWN
+  - polymarket=4
+  - reddit=3
+  - ...
+
+ProfessionalMarkdownView's block parser handles every line:
+  - ## headers get the cyan vertical-bar + rule treatment
+  - bullets get cyan dots
+  - key=value bullets get split into stacked rows
+  - long values (title=, content=) hit the Wave 14DC long-value
+    treatment (KEY caption above wrapping body)
+  - **bold** renders via AttributedString(markdown:)
+
+# Files modified (1)
+
+  M Sources/Views/Intel/BriefIntelConsolidatedView.swift
+    - .executive case now feeds composeExecutiveMarkdown() into the
+      shared ProfessionalMarkdownView
+    - NEW composeExecutiveMarkdown() builds .md from the digest
+      payload, mirroring the section ordering NATRIX expects
+    - Old executiveDigestBody + sectionCard + sigCard + proBriefCard
+      + proBriefHeadline helpers retained for compile compatibility
+      but no longer wired into the body — can be pruned in a follow-up
+
+# Deployed to 4 targets
+
+  iPhone 16e sim (pid 12823)
+  iPad Pro M5 sim (pid 12956)
+  Physical iPhone 15 Pro Max
+  Physical iPad Pro 11"
+
+All three modes (Morning · Executive · Debrief) now render through
+ProfessionalMarkdownView with their respective accent color:
+  - Morning: orange
+  - Executive: cyan
+  - Debrief: purple
+
+Open BRIEF tab → tap Executive → identical hierarchy + bullets +
+key=value rows to what AM/PM look like.
