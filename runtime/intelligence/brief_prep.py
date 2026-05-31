@@ -592,7 +592,7 @@ async def _collect_options_flow_now(brain) -> dict:
     from datetime import timezone as _tz
     from pathlib import Path as _Path
 
-    _TITLE_RE = _re.compile(
+    _TITLE_RE = _re.compile(  # noqa: N806 — compiled regex local-const, uppercase reads correctly
         r"^([A-Z][A-Z0-9.]{0,8})\s+flow alert:\s*\$?([\d,]+)\s*\(\s*(\d+)\s*contracts?\)",
         _re.IGNORECASE,
     )
@@ -1247,11 +1247,22 @@ def _lane_portfolio(pack: dict) -> dict:
 
 
 def _collect_reddit_top10(window_hours: int = 12, limit: int = 10) -> list[dict]:
-    """Wave 14AE: top Reddit signals across the whole 54-sub pool, last N hours.
+    """Wave 14AE: top Reddit signals across the whole 55-sub pool, last N hours.
 
     Reads ``data/intelligence/agent_signals.jsonl`` (read-only tail), keeps
     rows where source=="reddit" and timestamp within ``window_hours``, sorts
     by composite_score desc, returns at most ``limit`` cleaned rows.
+
+    Wave 14DG (2026-05-31): NEW subreddit allowlist filter. NATRIX:
+    "why is reddit top 10 pulling random subreddits and not top 10 out
+    of the 55 subreddits i told you to follow". The keyword scanner
+    (Wave 14CI queries: XRP / silver squeeze / Fed rate cut / ...) hits
+    Reddit's site-wide search RSS, so its results come from ANY
+    subreddit including indiegames / Layoffs / TechProfitLab. We now
+    drop any row whose subreddit isn't in watch_queries.json's
+    reddit_subreddits union — so the brief surfaces only posts from
+    the curated 55-sub list, regardless of whether they came via
+    tier scan or keyword search.
 
     Cleaning:
       - Decode HTML entities Reddit leaks (e.g. `&#32;`).
@@ -1266,6 +1277,24 @@ def _collect_reddit_top10(window_hours: int = 12, limit: int = 10) -> list[dict]
     import re as _re
     from datetime import datetime, timedelta, timezone
     from pathlib import Path as _Path
+
+    # Wave 14DG — load the curated subreddit allowlist from
+    # watch_queries.json. Tier1+Tier2+Tier3 union, lowercased for
+    # case-insensitive match. Falls back to an empty set (which would
+    # drop everything) if the file is missing — operator should fix
+    # the config.
+    allow: set[str] = set()
+    try:
+        wq_path = _Path("runtime/autonomous/watch_queries.json")
+        if wq_path.exists():
+            wq = json.loads(wq_path.read_text())
+            subs_cfg = wq.get("reddit_subreddits") or {}
+            for tier_key in ("tier1", "tier2", "tier3"):
+                for s in subs_cfg.get(tier_key) or []:
+                    if isinstance(s, str) and s:
+                        allow.add(s.lower())
+    except Exception:
+        allow = set()
 
     signals_path = _Path("data/intelligence/agent_signals.jsonl")
     if not signals_path.exists():
@@ -1323,6 +1352,16 @@ def _collect_reddit_top10(window_hours: int = 12, limit: int = 10) -> list[dict]
                     sub = after.split("/", 1)[0]
                 except Exception:
                     pass
+
+            # Wave 14DG — allowlist gate. If subreddit isn't in the
+            # curated 55-sub list, skip. Anything missing the subreddit
+            # entirely (couldn't extract from tags/URL) is also dropped
+            # since we can't verify it's in-scope.
+            if allow:
+                if not sub:
+                    continue
+                if sub.lower() not in allow:
+                    continue
 
             age_min = max(
                 0,
