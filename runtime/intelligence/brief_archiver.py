@@ -159,6 +159,98 @@ def _yaml_front_matter(envelope: dict, mode: str, brief_id: str) -> str:
     return "\n".join(lines)
 
 
+def _render_dict_as_bullet(entry: dict) -> str:
+    """Wave 14DD — flatten a single dict into a bullet that the iOS
+    professional renderer can split into key/value rows.
+
+    Returns a single string like `- type=stock · ticker=XLK · ...`.
+    Skips None / "" / empty containers.
+    """
+    parts: list[str] = []
+    for k, v in entry.items():
+        if v is None or v == "" or v == [] or v == {}:
+            continue
+        if isinstance(v, (list, dict)):
+            # Compact JSON for short nested values; long ones get
+            # rendered as a sub-block by _lane_field_to_md.
+            parts.append(f"{k}={json.dumps(v, separators=(',', ':'))}")
+        else:
+            parts.append(f"{k}={v}")
+    return "- " + " · ".join(parts)
+
+
+def _lane_field_to_md(label: str, value: Any, *, depth: int = 0) -> list[str]:
+    """Wave 14DD — recursive field renderer.
+
+    Each top-level field becomes an H3 sub-section. Nested values
+    recurse via H4 (#### depth-2) so the iOS markdown renderer can
+    style them with the next-level caption — instead of dumping
+    Python repr.
+
+    NATRIX's screenshot bug: `reddit_pulse` is `{narrative: str,
+    top10: list[dict]}`. Old code rendered `top10` as
+    `- **top10**: [{...},{...}]` — a single bullet with the repr
+    string. Now `top10` becomes its own H4 with one bullet per
+    Reddit post, each post a key=value row block.
+    """
+    out: list[str] = []
+    header_hash = "###" if depth == 0 else "####"
+    title = label.replace("_", " ").title()
+
+    if value in (None, "", [], {}):
+        return out
+
+    if isinstance(value, str):
+        out.append(f"{header_hash} {title}")
+        out.append("")
+        out.append(value)
+        out.append("")
+    elif isinstance(value, (int, float, bool)):
+        out.append(f"{header_hash} {title}")
+        out.append("")
+        out.append(str(value))
+        out.append("")
+    elif isinstance(value, list):
+        out.append(f"{header_hash} {title}")
+        out.append("")
+        for entry in value:
+            if isinstance(entry, dict):
+                out.append(_render_dict_as_bullet(entry))
+            elif isinstance(entry, (list, tuple)):
+                out.append(f"- {json.dumps(list(entry), separators=(',', ':'))}")
+            else:
+                out.append(f"- {entry}")
+        out.append("")
+    elif isinstance(value, dict):
+        out.append(f"{header_hash} {title}")
+        out.append("")
+        # Two sub-paths: simple scalar dict (render as key=value
+        # bullets), OR nested dict where some values are themselves
+        # lists/dicts (recurse with depth+1).
+        scalar_parts: list[str] = []
+        complex_keys: list[tuple[str, Any]] = []
+        for k, v in value.items():
+            if v in (None, "", [], {}):
+                continue
+            if isinstance(v, (list, dict)) and len(v) > 0:
+                complex_keys.append((k, v))
+            else:
+                scalar_parts.append(f"{k}={v}")
+        if scalar_parts:
+            out.append("- " + " · ".join(scalar_parts))
+            out.append("")
+        # Recurse complex children as H4 sub-sections
+        for k, v in complex_keys:
+            out.extend(_lane_field_to_md(k, v, depth=depth + 1))
+    else:
+        out.append(f"{header_hash} {title}")
+        out.append("")
+        out.append(str(value))
+        out.append("")
+
+    return out
+
+
 def _lane_to_md(lane_key: str, lane_data: Any) -> str:
     """Render a single lane's structured fields as a markdown section."""
     if not isinstance(lane_data, dict):
@@ -170,38 +262,13 @@ def _lane_to_md(lane_key: str, lane_data: Any) -> str:
         out.append(narrative)
         out.append("")
 
-    # Per-lane structured rendering. Keep it generic enough that
-    # adding new fields to the lane spec doesn't break the writer.
+    # Wave 14DD — defer per-field rendering to the recursive helper.
+    # Adding new fields to the lane spec (or new nested shapes like
+    # `reddit_pulse.top10`) Just Works™ without touching this loop.
     for field_key, field_val in lane_data.items():
         if field_key == "narrative":
             continue
-        if field_val in (None, "", [], {}):
-            continue
-        out.append(f"### {field_key.replace('_', ' ').title()}")
-        out.append("")
-        if isinstance(field_val, str):
-            out.append(field_val)
-        elif isinstance(field_val, list):
-            for entry in field_val:
-                if isinstance(entry, dict):
-                    # One bullet per dict; render key=value pairs
-                    parts = []
-                    for k, v in entry.items():
-                        if v is None or v == "" or v == []:
-                            continue
-                        if isinstance(v, (list, dict)):
-                            parts.append(f"{k}={json.dumps(v, separators=(',', ':'))}")
-                        else:
-                            parts.append(f"{k}={v}")
-                    out.append(f"- {' · '.join(parts)}")
-                else:
-                    out.append(f"- {entry}")
-        elif isinstance(field_val, dict):
-            for k, v in field_val.items():
-                out.append(f"- **{k}**: {v}")
-        else:
-            out.append(str(field_val))
-        out.append("")
+        out.extend(_lane_field_to_md(field_key, field_val))
     return "\n".join(out)
 
 

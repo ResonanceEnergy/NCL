@@ -1,0 +1,100 @@
+Wave 14DD: Brief .md renders nested list-of-dicts as sub-bullets (reddit_top10 fix)
+
+NATRIX screenshot: top10 rendered as
+  `top10: [{'title': '...', 'url': '...', 'subreddit': '...', ...},
+           {'title': '...', ...}, ...]`
+— a single bullet containing the Python repr of a 10-element list
+of dicts. iOS renderer can't split that into rows.
+
+# Root cause
+
+runtime/intelligence/brief_archiver.py `_lane_to_md` had a flat
+dispatch:
+  - str → emit as paragraph
+  - list[dict] → for each entry, render as `- key=v · key=v · ...`
+  - dict → for each key, emit `- **key**: value`
+  - other → str(value)
+
+The `dict` branch did `f"- **{k}**: {v}"` which is the Python repr
+of whatever v is. For `reddit_pulse = {"narrative": str, "top10":
+list[dict]}`, this produced:
+
+  - **top10**: [{'title': '...', 'url': '...', ...}, {...}, ...]
+
+i.e. a 5-line repr blob in a single bullet, no structure.
+
+# Fix
+
+Rewrote `_lane_to_md` to delegate to NEW `_lane_field_to_md`
+(recursive helper) + NEW `_render_dict_as_bullet` (the existing
+trade-idea logic extracted as a helper).
+
+`_lane_field_to_md(label, value, *, depth=0)`:
+  - str/scalar → H3 header + the value
+  - list → H3 header + one bullet per element. dict entries become
+    `key=v · key=v · ...` bullets (the iOS ProfessionalMarkdownView
+    splits these into stacked key/value rows). Lists of scalars
+    become plain `- value` bullets.
+  - dict → H3 header + scalar keys as one combined bullet, then
+    RECURSE into complex children (list/dict values) with H4
+    sub-headers (depth+1). This is the key change: instead of
+    dumping a list-of-dicts as repr, it descends into it.
+
+So `reddit_pulse` now renders:
+
+  ### Reddit Pulse
+
+  - narrative=Reddit's top themes include AI technology...
+
+  #### Top10
+
+  - title=The demo for my indie action platformer... ·
+    url=https://www.reddit.com/... ·
+    subreddit=indiegames ·
+    score=0.66 ·
+    route_level=HIGH ·
+    age_min=6
+  - title=Microsoft data suggests using AI is more expensive than... ·
+    url=https://... ·
+    ...
+
+Each Reddit post is its own bullet. iOS ProfessionalMarkdownView's
+keyValueBullet detector splits on " · " and stacks key=value rows
+(with long values like `title` going to the vstack treatment per
+Wave 14DC).
+
+# Verification
+
+Re-fired today's brief after the bounce. The new .md emits:
+
+  #### Top10
+  - title=The demo for my indie action platformer is now available... · url=https://... · subreddit=indiegames · score=0.66 · route_level=HIGH · age_min=6
+  - title=Microsoft data suggests using AI is more expensive... · ...
+
+10 separate `- ` lines instead of one Python repr blob.
+
+# Files modified (1)
+
+  M runtime/intelligence/brief_archiver.py
+    - NEW _render_dict_as_bullet helper (extracted from old inline
+      trade-idea logic)
+    - NEW _lane_field_to_md recursive helper
+    - _lane_to_md body now delegates per-field via the helper;
+      removes the flat dispatch that produced the repr blob
+
+# What NATRIX will see next
+
+Next brief render (next scheduled fire at 05:30 ET, OR the
+already-stamped 11:48 render that .md is from). REDDIT PULSE
+expands into:
+
+  ### Reddit Pulse
+  - narrative=...
+  #### Top10
+  - title=... · subreddit=... · score=... · route_level=... · age_min=...
+    (× 10 entries, each its own row)
+
+Combined with the Wave 14DC long-value layout, the `title=...`
+key will get its own row (since title is in the long-value
+whitelist) and the URL, subreddit, score, route_level, age_min
+get the inline `KEY = value` mono treatment.
