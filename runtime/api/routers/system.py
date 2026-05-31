@@ -349,6 +349,10 @@ _MANAGED_FLAGS = (
     "NCL_MEMORY_EMBED_MODEL",
     # Wave 14BM — local Ollama A/B for Brief Pro council members.
     "NCL_BRIEF_COUNCIL_LOCAL_AB",
+    # Wave 14CU — auto-trader beta-cap relaxation. Default 50% was
+    # blocking high-beta growth (NBIS hit 168% beta-adj net). 80%
+    # gives the brief's favored sector room without losing the guard.
+    "NCL_BETA_ADJ_MAX_NET_PCT",
 )
 
 

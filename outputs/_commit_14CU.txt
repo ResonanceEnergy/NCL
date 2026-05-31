@@ -1,0 +1,87 @@
+Wave 14CU: Auto-trader threshold tunes + proper options schema
+
+NATRIX-requested 4-item follow-up to Wave 14CT after the first
+paper trade landed (GRRR @ $21.02). All four shipped.
+
+# 1. R:R floor 1.5 → 1.25 (data/portfolio/auto_trader/policy.json)
+   - revision 2 → 3
+   - PLTR was rejected at R:R 1.33 last tick. Swing trades
+     hitting 1.25-1.5 zone now pass.
+   - Stocks with R:R ≥ 1.5 still preferred via scoring;
+     this is a HARD-FLOOR relaxation, not the target.
+
+# 2. Beta cap 50% → 80% (NCL_BETA_ADJ_MAX_NET_PCT env flag)
+   - Added to `_MANAGED_FLAGS` in system.py so /system/env
+     POST writes it durably to .env.flags.
+   - .env.flags appended NCL_BETA_ADJ_MAX_NET_PCT=80
+   - NBIS rejected last tick at 168% beta-adj net vs 50% cap.
+     The brief's PORTFOLIO picks lean high-beta growth
+     (NBIS / PLTR / MSFT) so 50% was a perma-block. 80%
+     keeps the guard but gives the brief's favored sector
+     room.
+
+# 3. Purge stale options (scripts/purge_stale_options_ideas.py)
+   - One-shot heuristic flagged 15 options ideas with
+     either target<entry (premium/underlying confusion),
+     stop>1.5×entry (impossible), or no R_per_share.
+   - Marked outcome="superseded" so loop's emitted filter
+     excludes them. History preserved.
+   - Backup at trade_ideas_state.pre-purge-20260530_235503.bak
+   - Examples purged: RIVN entry=2,026,182 (LLM hallucination),
+     MSFT entry=455/stop=3.75 (stop almost zero), ASTS
+     entry=110/stop=30/target=50 (asymmetric to wrong side).
+
+# 4. Proper options schema (brief_council.py + brief_archiver.py)
+   Chair prompt Rule 9 (NEW) mandates for type="options":
+     option_strike (float)        — strike price
+     option_dte (int)             — days to expiry
+     option_right ("call"|"put")
+     premium (float)              — entry premium per share ($2.50)
+     underlying_entry (float)     — current underlying STOCK price
+     underlying_target (float)    — target underlying price
+     underlying_stop (float)      — invalidation on underlying
+     max_risk = premium × 100 × contracts
+     Legacy entry/stop/target MIRROR the underlying triple.
+
+   Plus an escape hatch: "if you can't supply ALL options
+   fields with real numbers, emit it as type='stock' using
+   the underlying's price triple instead." → defeats the
+   "fake options idea" failure mode.
+
+   runtime/intelligence/brief_archiver.py re-enables options
+   registration (Wave 14CT-v2 was a hard skip). New gate:
+   only registers when ALL of underlying_entry / _stop /
+   _target / option_strike / option_dte / option_right /
+   premium are present. Otherwise skips with a precise log
+   line that lets future debug see what was missing.
+   The paper trade uses the UNDERLYING triple as
+   entry/stop/target (paper engine speaks equity-style);
+   option specifics are stashed in metadata for a future
+   broker-paper-options layer.
+
+Live verification post-bounce:
+  GET /portfolio/auto-trader/policy → min_R_R_ratio: 1.25, revision: 3
+  GET /system/env → NCL_BETA_ADJ_MAX_NET_PCT: 80
+  tracker state strategy/outcome counts:
+    goat:emitted 8 (the active pool)
+    goat:taken 1, target_hit 1, stopped_out 1
+    bravo:target_hit 1
+    options:superseded 15 (purged), options:emitted 6
+       (post-purge fires before bounce, will age out)
+    pairs_stat_arb:emitted 46 (untouched quant scanner)
+    unknown:emitted 25 (pre-14CT residue, will age out)
+
+Files modified (5):
+  M data/portfolio/auto_trader/policy.json  (R:R 1.5→1.25, rev 3)
+  M .env.flags                              (+ NCL_BETA_ADJ_MAX_NET_PCT=80)
+  M runtime/api/routers/system.py           (+ env-flag managed entry)
+  M runtime/intelligence/brief_council.py   (chair prompt + schema)
+  M runtime/intelligence/brief_archiver.py  (re-enable options w/ gate)
+  + scripts/purge_stale_options_ideas.py    (NEW, ~75 LOC, idempotent)
+
+Tomorrow 05:30 ET brief should produce the first idea pool
+under the new thresholds:
+  - PLTR-class swing trades (R:R 1.25-1.5) now pass
+  - High-beta growth (NBIS/PLTR/MSFT) clears beta gate up to 80%
+  - Options with proper schema register cleanly
+  - Stale options noise no longer crowds the heat cap

@@ -283,23 +283,35 @@ async def _register_trade_ideas(envelope: dict, mode: str, brief_id: str) -> int
         target_p = _f(idea, "target_price") or _f(idea, "target")
         idea_type = (idea.get("type") or "stock").lower()
 
-        # Wave 14CT — SKIP options for now. The brief's options ideas
-        # mix underlying-stock price with option-premium price (e.g.
-        # "$450 Call with $100 max_risk and $40 target" — target<entry
-        # means it's premium-not-underlying). Paper trade engine
-        # expects stock-style price triples. Synthesizing a fake stop
-        # from max_risk produced trades with insane R:R (MSFT option
-        # registered as entry=450/stop=350/target=40, which the engine
-        # would treat as a short position with crashing reward).
-        # Defer options until the brief gets a proper schema with
-        # strike + DTE + premium fields. Stock ideas continue normally.
+        # Wave 14CU — options registration with proper schema. The
+        # chair prompt now mandates `underlying_entry / _target / _stop`
+        # alongside `option_strike / _dte / _right / premium`. We use
+        # the underlying triple for the paper trade (the engine speaks
+        # equity-style prices), and stash the option specifics in
+        # metadata so a future broker-paper-options layer can read them.
         if idea_type == "options":
-            log.info(
-                "[brief_archiver] skipping options idea ticker=%s — "
-                "options registration deferred (brief schema ambiguous)",
-                idea.get("ticker"),
-            )
-            continue
+            ue = _f(idea, "underlying_entry")
+            us = _f(idea, "underlying_stop")
+            ut = _f(idea, "underlying_target")
+            strike = _f(idea, "option_strike")
+            dte = idea.get("option_dte")
+            right = (idea.get("option_right") or "").lower()
+            premium = _f(idea, "premium")
+            # Only register if the chair supplied a complete options schema.
+            # Anything missing → skip; the LLM gets feedback to be precise
+            # next time. Matches Wave 14CU prompt rule 9.
+            if not (ue and us and ut and strike and dte and right in ("call", "put") and premium):
+                log.info(
+                    "[brief_archiver] skipping incomplete options idea "
+                    "ticker=%s strike=%s dte=%s right=%s premium=%s "
+                    "underlying=(entry=%s stop=%s target=%s)",
+                    idea.get("ticker"), strike, dte, right, premium,
+                    ue, us, ut,
+                )
+                continue
+            # Override the stock-style prices with the underlying triple.
+            entry_p, stop_p, target_p = ue, us, ut
+            R_per_share = round(abs(ue - us), 4)
 
         # Compute R_per_share if missing: |entry - stop| is the
         # canonical per-share risk. Without this 14/20 24h chains
@@ -355,6 +367,16 @@ async def _register_trade_ideas(envelope: dict, mode: str, brief_id: str) -> int
                     "timeframe": idea.get("timeframe"),
                     "structure": idea.get("structure"),
                     "max_risk": idea.get("max_risk"),
+                    # Wave 14CU — options specifics for a future
+                    # broker-paper-options layer. Stock ideas leave
+                    # these as None.
+                    "option_strike": _f(idea, "option_strike"),
+                    "option_dte": idea.get("option_dte"),
+                    "option_right": (idea.get("option_right") or "").lower() or None,
+                    "premium": _f(idea, "premium"),
+                    "underlying_entry": _f(idea, "underlying_entry"),
+                    "underlying_stop": _f(idea, "underlying_stop"),
+                    "underlying_target": _f(idea, "underlying_target"),
                 },
             )
             registered += 1

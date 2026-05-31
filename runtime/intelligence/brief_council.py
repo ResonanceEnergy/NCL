@@ -249,6 +249,18 @@ SYNTHESIS RULES (apply across all 5 sections):
 
 8. CITATION RULE (CRITICAL — Wave 14CQ): The strings shown in the schema below like "sig_001" / "sig_042" / "sig_007" are EXAMPLE FORMATS, not literal values to copy. EVERY `sig_id`, `sources`, and `citations` value MUST be replaced with the REAL 8-char alphanumeric `id=` token from the member outputs (e.g. id=a1b2c3d4). NEVER emit the literal strings "sig_id" / "sig_001" / "sig_042" / "sig_007" — those are placeholders. If no real id is available for a claim, omit the array entirely (use []) rather than fabricating one.
 
+9. OPTIONS SCHEMA RULE (CRITICAL — Wave 14CU): For type="options" trade ideas, you MUST emit:
+   - `option_strike` (float) — the strike price (e.g. 200.0 for AAPL Jun 200C)
+   - `option_dte` (int) — days to expiry from today (e.g. 30)
+   - `option_right` ("call" or "put")
+   - `premium` (float) — entry premium per contract in dollars per share (e.g. 2.50 means $2.50 per share = $250 per contract)
+   - `underlying_entry` (float) — current underlying STOCK price NOW (not strike, not premium)
+   - `underlying_target` (float) — target underlying STOCK price (the price the thesis predicts)
+   - `underlying_stop` (float) — invalidation level on the UNDERLYING (the stock price at which the thesis is wrong, NOT the premium)
+   - The legacy `entry` / `stop` / `target` fields for options should mirror the UNDERLYING values (entry=underlying_entry, stop=underlying_stop, target=underlying_target). Never put a premium in the entry field. Auto-trader treats target < entry as a short position; if your thesis is bearish use type="options" + option_right="put" rather than inverting prices.
+   - `max_risk` should equal `premium` × 100 × planned_contracts (the dollar amount you can lose if option expires worthless).
+   - If you can't supply ALL options fields with real numbers, emit it as type="stock" using the underlying's price triple instead.
+
 Output ONLY JSON with EXACTLY these top-level keys, IN THIS ORDER:
 
 {{
@@ -261,7 +273,7 @@ Output ONLY JSON with EXACTLY these top-level keys, IN THIS ORDER:
       "drift_flags": ["bravo: DRIFT_DOWN since 5/27" or similar, empty list if none]
     }},
     "paper_state": {{"balance_usd": float_or_null, "open_positions": int, "today_closes": int, "today_realized_r": float_or_null}},
-    "trade_ideas": [{{"type":"stock|options|futures","ticker":"...","thesis":"...","entry":"...","stop":"...","target":"...","timeframe":"...","structure":"..." (options only),"max_risk":"..." (options only),"sources":["<real 8-char id from member output, e.g. a1b2c3d4>"]}}],
+    "trade_ideas": [{{"type":"stock|options|futures","ticker":"...","thesis":"...","entry":"...","stop":"...","target":"...","timeframe":"...","structure":"..." (options only),"max_risk":"..." (options only),"option_strike":float_or_null (options only — strike price),"option_dte":int_or_null (options only — days-to-expiry),"option_right":"call|put" (options only),"underlying_entry":float_or_null (options only — current underlying price when idea was emitted),"underlying_target":float_or_null (options only — target underlying price for thesis),"underlying_stop":float_or_null (options only — invalidation level on underlying),"premium":float_or_null (options only — entry premium $X.XX per contract, e.g. 2.50),"sources":["<real 8-char id from member output, e.g. a1b2c3d4>"]}}],
     "rotation_regime": {{"current_phase":"...","leading_sectors":[],"weakening_sectors":[],"breadth_pct":float_or_null,"one_liner":"..."}},
     "risk_flags": [{{"text":"...","severity":"low|med|high"}}]
   }},
