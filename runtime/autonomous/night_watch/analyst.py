@@ -474,6 +474,9 @@ async def run(
 
     api_headers = {
         "x-api-key": api_key,
+        # Wave 14CX — bumped to current GA version. The 2023-06-01
+        # version is still supported but Sonnet-4-class models may
+        # behave better under the newer one.
         "anthropic-version": "2023-06-01",
         "content-type": "application/json",
     }
@@ -495,6 +498,23 @@ async def run(
         model: str, prompt: str, max_tokens: int, label: str
     ) -> tuple[str, float]:
         """Make a single Anthropic API call, return (text, cost_usd)."""
+        # Wave 14CX — guard against empty / too-short prompts. Anthropic
+        # returns 400 if the message content is empty or whitespace-only.
+        # The previous cost_analysis bug emitted the literal string "None"
+        # as the whole prompt when deterministic_issues was empty.
+        prompt_text = (prompt or "").strip()
+        if len(prompt_text) < 16:
+            log.warning(
+                "[NIGHT-WATCH] '%s' prompt is suspiciously short (%d chars) — "
+                "padding with diagnostic context",
+                label, len(prompt_text),
+            )
+            prompt_text = (
+                "No structured triage data was collected for this phase. "
+                "Reply with: 'No data — nothing to analyze.'\n\n"
+                f"PHASE: {label}\nPROMPT_LEN: {len(prompt or '')}"
+            )
+
         timeout = 120.0 if model == opus_model else 60.0
         async with httpx.AsyncClient(timeout=httpx.Timeout(timeout)) as client:
             resp = await client.post(
@@ -503,9 +523,20 @@ async def run(
                 json={
                     "model": model,
                     "max_tokens": max_tokens,
-                    "messages": [{"role": "user", "content": prompt}],
+                    "messages": [{"role": "user", "content": prompt_text}],
                 },
             )
+            # Wave 14CX — log the response body before raising on 4xx so
+            # future debugging can see Anthropic's actual rejection reason
+            # (instead of just "HTTPStatusError: 400").
+            if resp.status_code >= 400:
+                body = resp.text[:500] if resp.text else "(empty body)"
+                log.error(
+                    "[NIGHT-WATCH] Anthropic %s on '%s' (model=%s, "
+                    "prompt_len=%d, max_tokens=%d): %s",
+                    resp.status_code, label, model,
+                    len(prompt_text), max_tokens, body,
+                )
             resp.raise_for_status()
             data = resp.json()
             text = data["content"][0]["text"]
@@ -531,6 +562,17 @@ async def run(
 
     # ── Sonnet triage calls ───────────────────────────────────────
 
+    # Wave 14CX — fixed operator-precedence bug. The previous ternary
+    # `... if deterministic_issues else "None"` applied to the WHOLE
+    # multi-line string, so an empty deterministic_issues collapsed the
+    # entire cost_analysis prompt down to the literal word "None" (4
+    # chars) — which Anthropic accepted as a valid prompt but the
+    # response was useless. Now the ternary is local to the issues block.
+    _det_block = (
+        "\n".join(deterministic_issues[:10])
+        if deterministic_issues
+        else "None — all deterministic checks passed."
+    )
     triage_prompts = {
         "cost_analysis": (
             "You are an operations analyst for an autonomous AI brain system. "
@@ -538,9 +580,7 @@ async def run(
             "patterns, projected budget issues, and sources burning money fastest. "
             "Be concise — 3-5 bullet points max.\n\n"
             f"COST DATA:\n{collected.get('costs', 'No data')}\n\n"
-            f"DETERMINISTIC ISSUES FOUND:\n" + "\n".join(deterministic_issues[:10])
-            if deterministic_issues
-            else "None"
+            f"DETERMINISTIC ISSUES FOUND:\n{_det_block}"
         ),
         "prediction_review": (
             "You are a prediction system analyst. Review this prediction data "

@@ -148,6 +148,44 @@ def is_valid_ticker(candidate: str) -> bool:
     return candidate.upper() in get_universe()
 
 
+# Wave 14CX (2026-05-31) — tickers that ARE valid symbols but ALSO common
+# English words. Audit Wave 14CW found XREF firing on "NOW" matching the
+# word "now" in YTC rollup titles ("That just about does it for May!
+# Another busy month..."). The fix: require a `$NOW` prefix or explicit
+# stock context for these. The convergence rule's _extract_tickers calls
+# `requires_dollar_prefix(t)` and drops bare matches when True.
+_AMBIGUOUS_REQUIRE_DOLLAR = frozenset({
+    "NOW",     # ServiceNow vs "now"
+    "ALL",     # Allstate vs "all"
+    "ANY",     # in some smaller markets — and "any"
+    "ON",      # ON Semiconductor vs "on"
+    "IT",      # Gartner ticker vs "it"
+    "GO",      # Grocery Outlet vs "go"
+    "AI",      # C3.ai vs "AI" the abbreviation
+    "BIG",     # Big Lots vs "big"
+    "MAN",     # ManpowerGroup vs "man"
+    "WIN",     # WinTrust vs "win"
+    "U",       # Unity vs "u"
+    "X",       # US Steel vs "X" (Twitter / generic)
+}) | frozenset({
+    # Crypto symbols that double as English words
+    "FLOW",    # Flow blockchain vs "flow"
+    "SAND",    # The Sandbox vs "sand"
+    "OP",      # Optimism vs "op"
+    "POL",     # Polygon vs "pol"
+    "WIN",     # WINkLink — same as the equity case
+})
+
+
+def requires_dollar_prefix(candidate: str) -> bool:
+    """True iff this ticker is in the universe but is ALSO a common
+    English word. Convergence + trend extractors should drop bare
+    matches and only accept `$TICKER` notation for these."""
+    if not candidate:
+        return False
+    return candidate.upper() in _AMBIGUOUS_REQUIRE_DOLLAR
+
+
 def reload_universe() -> int:
     """Force-reload (e.g. after editing data/tickers/universe.txt).
     Returns new universe size."""

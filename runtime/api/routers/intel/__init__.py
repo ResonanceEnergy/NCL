@@ -2178,6 +2178,44 @@ async def intelligence_digest(
             "generated_at": datetime.now(timezone.utc).isoformat(),
         }
 
+    # Wave 14CX — freshness check + Pro-brief fallback. Audit Wave 14CW
+    # found AGENDA serving 2-day-old digest data because the legacy
+    # latest_brief.json from the P14D pipeline isn't being rotated
+    # anymore — the Wave 14H Pro Brief writes to morning-brief-pro/
+    # instead. Check brief age; if stale, mark status=stale and surface
+    # the today's Pro Brief headline as a fresh substitute.
+    now_utc = datetime.now(timezone.utc)
+    brief_age_hours = 999.0
+    try:
+        bts = brief.timestamp
+        if isinstance(bts, str):
+            bts_dt = datetime.fromisoformat(bts.replace("Z", "+00:00"))
+        else:
+            bts_dt = bts
+        if bts_dt.tzinfo is None:
+            bts_dt = bts_dt.replace(tzinfo=timezone.utc)
+        brief_age_hours = (now_utc - bts_dt).total_seconds() / 3600.0
+    except Exception:
+        pass
+
+    fresh_pro_brief: dict = {}
+    if brief_age_hours > 12.0:
+        try:
+            _ncl_base = Path(os.getenv("NCL_BASE", str(Path.home() / "dev" / "NCL")))
+            pro_today = _ncl_base / "data" / "morning-brief-pro" / f"{now_utc.date().isoformat()}.json"
+            if pro_today.exists():
+                import json as _json
+                pro_data = _json.loads(pro_today.read_text())
+                pro_synth = pro_data.get("synthesis") or {}
+                fresh_pro_brief = {
+                    "headline": pro_synth.get("headline", ""),
+                    "lanes": pro_synth.get("lanes") or {},
+                    "generated_at": pro_data.get("generated_at"),
+                    "source": "morning_brief_pro",
+                }
+        except Exception as e:
+            log.warning("[digest] pro-brief fresh-read failed: %s", e)
+
     # Authority filter at digest boundary — same default as morning brief
     filtered_signals = _filter_signals_by_authority(brief.top_signals)
     top = sorted(filtered_signals, key=lambda s: s.importance_score(), reverse=True)[
@@ -2280,6 +2318,11 @@ async def intelligence_digest(
         "night_watch_status": nw_status,
         "source_breakdown": source_breakdown,
         "min_authority": int(os.getenv("NCL_BRIEF_MIN_AUTHORITY", "20")),
+        # Wave 14CX — freshness surface so iOS can show a "stale, see
+        # today's brief" banner when the legacy brief pool is old.
+        "brief_age_hours": round(brief_age_hours, 1),
+        "stale": brief_age_hours > 12.0,
+        "fresh_pro_brief": fresh_pro_brief or None,
     }
 
 
@@ -4096,9 +4139,13 @@ async def intel_convergence(
     # immediately stops showing historical garbage (NEED / GREAT / WILL /
     # OS / etc.) even before the old entries age out of the window.
     try:
-        from runtime.intelligence.ticker_universe import is_valid_ticker as _is_valid_ticker
+        from runtime.intelligence.ticker_universe import (
+            is_valid_ticker as _is_valid_ticker,
+            requires_dollar_prefix as _requires_dollar_prefix,
+        )
     except Exception:
         _is_valid_ticker = None
+        _requires_dollar_prefix = None  # type: ignore[assignment]
 
     promotions: list[dict] = []
     if promo_path.exists():
@@ -4119,6 +4166,16 @@ async def intel_convergence(
                     if row.get("rule") == "ticker_converge" and _is_valid_ticker is not None:
                         tkr = (row.get("ticker") or "").upper()
                         if tkr and not _is_valid_ticker(tkr):
+                            continue
+                        # Wave 14CX — also drop ambiguous-word tickers
+                        # at read time. Historical NOW / ALL / ANY / IT
+                        # promotions sit in promotions.jsonl for 24h
+                        # before aging out; this read-time filter
+                        # suppresses them immediately.
+                        if (
+                            tkr and _requires_dollar_prefix is not None
+                            and _requires_dollar_prefix(tkr)
+                        ):
                             continue
                     promotions.append(row)
         except Exception as e:

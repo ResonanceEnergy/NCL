@@ -71,15 +71,27 @@ def _extract_tickers(text: str) -> set[str]:
     if not text:
         return set()
     try:
-        from .ticker_universe import is_valid_ticker
+        from .ticker_universe import (
+            is_valid_ticker,
+            requires_dollar_prefix,
+        )
     except Exception:
         is_valid_ticker = None
-    raw = set(_TICKER_RX.findall(text))
+        requires_dollar_prefix = None  # type: ignore[assignment]
+    # Wave 14CX — match $TICKER notation explicitly so we can detect it.
+    # The legacy bare-only regex stripped the $ context, which made it
+    # impossible to gate ambiguous-word tickers (NOW/ALL/ANY/...).
+    import re as _re_now
+    full_rx = _re_now.compile(r"\$?\b([A-Z]{1,5})\b(?!\.[a-z])")
     out: set[str] = set()
-    for t in raw:
+    for m in full_rx.finditer(text):
+        t = m.group(1).upper()
+        has_dollar = m.group(0).startswith("$")
         if t in _TICKER_BLOCKLIST:
             continue
         if not (2 <= len(t) <= 5):
+            continue
+        if not has_dollar and requires_dollar_prefix is not None and requires_dollar_prefix(t):
             continue
         if is_valid_ticker is not None and not is_valid_ticker(t):
             continue
@@ -198,27 +210,28 @@ def compute_alerts(buckets: dict[tuple[str, str, str], int]) -> list[dict]:
     cutoff_7d = (now - timedelta(days=7)).strftime("%Y-%m-%dT%H")
     cutoff_30d = (now - timedelta(days=30)).strftime("%Y-%m-%dT%H")
 
-    # Wave 14CR — actual-history-span divisor. Audit B4.5: hardcoded
-    # /7.0 + /30.0 produced inflated daily averages on the 4-day history
-    # window (agent_signals.jsonl rotation ceiling = ~13d). Any ticker
-    # mentioned 3-4d ago but not in last 24h triggered `fading_100pct`
-    # → 58/98 alerts (60%) were noise. Now divides by min(window,
-    # actual_days_present), MIN 1.0 to avoid divide-by-zero.
-    earliest_hour = min(
-        (h for (_, _, h) in buckets.keys()),
-        default=now.strftime("%Y-%m-%dT%H"),
-    )
-    try:
-        earliest_dt = datetime.strptime(
-            earliest_hour + ":00:00+00:00", "%Y-%m-%dT%H:%M:%S%z"
-        )
-        days_present = max(
-            1.0, (now - earliest_dt).total_seconds() / 86400.0
-        )
-    except Exception:
-        days_present = 7.0
-    div_7d = min(7.0, days_present)
-    div_30d = min(30.0, days_present)
+    # Wave 14CR + 14CX — PER-SOURCE actual-history-span divisor.
+    # Wave 14CR computed days_present ONCE across all buckets, which
+    # produced identical ratios for any source whose history span
+    # differs from the global earliest. Audit Wave 14CW caught this:
+    # all 23 `youtube_search` alerts had ratio=4.52 because the global
+    # 4-day reddit span was being applied to youtube_search's ~1d span.
+    # Now compute earliest_hour PER SOURCE so each source uses its
+    # own data span as the divisor floor.
+    src_earliest: dict[str, str] = {}
+    for (source, _ticker, hour) in buckets.keys():
+        prev = src_earliest.get(source)
+        if prev is None or hour < prev:
+            src_earliest[source] = hour
+
+    def _src_divisors(source: str) -> tuple[float, float]:
+        h = src_earliest.get(source) or now.strftime("%Y-%m-%dT%H")
+        try:
+            ed = datetime.strptime(h + ":00:00+00:00", "%Y-%m-%dT%H:%M:%S%z")
+            dp = max(1.0, (now - ed).total_seconds() / 86400.0)
+        except Exception:
+            dp = 7.0
+        return min(7.0, dp), min(30.0, dp)
 
     # Group counts per (source, ticker) → list of (hour, count)
     by_key: dict[tuple[str, str], list[tuple[str, int]]] = defaultdict(list)
@@ -233,6 +246,8 @@ def compute_alerts(buckets: dict[tuple[str, str, str], int]) -> list[dict]:
 
         if not last_30d:
             continue
+
+        div_7d, div_30d = _src_divisors(source)
 
         cur_count = sum(last_24h)
         baseline_7d = sum(last_7d) / div_7d if last_7d else 0

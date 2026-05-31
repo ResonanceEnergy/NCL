@@ -139,11 +139,15 @@ def _extract_tickers(text: str) -> set[str]:
     if not text:
         return set()
     try:
-        from ..intelligence.ticker_universe import is_valid_ticker
+        from ..intelligence.ticker_universe import (
+            is_valid_ticker,
+            requires_dollar_prefix,
+        )
     except Exception:
         # Universe unavailable — fall back to stop-list-only (legacy
         # behavior). Loud at debug so we notice in logs.
         is_valid_ticker = None
+        requires_dollar_prefix = None  # type: ignore[assignment]
     found: set[str] = set()
     for m in _TICKER_RX.finditer(text):
         # group(1) = $TICKER (always trusted), group(2) = bare uppercase
@@ -157,6 +161,14 @@ def _extract_tickers(text: str) -> set[str]:
             continue
         if len(ticker) < 2:
             continue
+        # Wave 14CX — ambiguous tickers (NOW / ALL / ANY / ON / IT / AI /
+        # FLOW / SAND / OP / X) require `$TICKER` notation. Without the
+        # dollar prefix they're almost certainly the English word, not
+        # the symbol. Audit Wave 14CW caught XREF NOW false-positives
+        # matching "now" in YTC rollup titles.
+        if not dollar_ticker and requires_dollar_prefix is not None:
+            if requires_dollar_prefix(ticker):
+                continue
         # Bare uppercase MUST be in the universe; $TICKER bypass
         if not dollar_ticker and is_valid_ticker is not None:
             if not is_valid_ticker(ticker):

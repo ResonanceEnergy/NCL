@@ -1,0 +1,154 @@
+Wave 14CX: Audit fix batch (Reddit queries + Night Watch 400 + MOVES per-source divisor + Digest TTL + XREF NOW)
+
+NATRIX: "yes" — ship the top 5 fixes from Wave 14CW audit
+(INTEL_AUDIT_2026-05-31.md).
+
+# 1. Reddit watch queries — tradeable themes (audit fix #1)
+
+runtime/autonomous/watch_queries.json
+  reddit was 6 "AI business automation" themes pulling course/
+  bundle/affiliate spam (Glocourse Accelerator, Ultimate AI Bundle,
+  ContentMorph, Mario Castelli — 58 of 80 STREAM items were
+  promo Reddit). Replaced with the 6 trading themes that the
+  YouTube list already uses:
+    XRP / silver squeeze / Fed rate cut / options flow unusual /
+    GME short squeeze / capital rotation sectors
+
+  Wave 14CX changelog stamped in _meta. Live verified:
+    GET /focus/queries → reddit = the 6 new themes.
+
+# 2. Night Watch HTTP 400 (audit fix #2)
+
+runtime/autonomous/night_watch/analyst.py
+
+  ROOT CAUSE: Python operator-precedence bug at line 535-544.
+  The cost_analysis prompt used a ternary across the entire
+  multi-line string:
+    "...prompt...\n\n"
+    f"DETERMINISTIC ISSUES FOUND:\n" + "\n".join(deterministic_issues[:10])
+    if deterministic_issues
+    else "None"
+
+  When deterministic_issues was empty (the common case), the
+  WHOLE prompt collapsed to the literal 4-char string "None".
+  Anthropic accepted it but the response was useless.
+
+  FIX: extracted _det_block ternary local to the issues line;
+  prompt now always has the full operations-analyst context.
+
+  Plus three defensive guards:
+    - _call_anthropic enforces prompt_len >= 16 with a
+      diagnostic fallback if shorter, so we never send naked
+      "None" or whitespace.
+    - resp.text logged on every 4xx (was raise_for_status with
+      no body — future 400s show Anthropic's actual reason).
+    - anthropic-version pinned with a Wave 14CX note for future
+      bumps.
+
+# 3. MOVES per-source divisor (audit fix #3)
+
+runtime/intelligence/trend_tracker.py
+
+  ROOT CAUSE: Wave 14CR's "days_present divisor" was computed
+  ONCE across all buckets. So if Reddit has 4 days of history
+  but youtube_search has only ~1 day (Wave 14CI reset its
+  queries May 31), both got div_7d = min(7.0, 4.0) = 4.0. For
+  youtube_search this means baseline ≈ cur_count/4 → ratio
+  always ≈ 4.0. Audit Wave 14CW found all 23 youtube_search
+  alerts identical at ratio=4.52.
+
+  FIX: build src_earliest dict per source from the buckets
+  iter, then _src_divisors(source) returns the correct
+  divisor for each (source, ticker) pair.
+
+  Live verified:
+    BEFORE: 23 youtube_search alerts, 1 unique ratio (4.52)
+    AFTER:  0 youtube_search alerts (data too short to fire
+            any spiking/anomaly thresholds — correct behavior
+            for a 1-day window).
+    reddit: 16 alerts, 15 unique ratios (was identical-pair
+            cluster pre-fix).
+
+# 4. /intelligence/digest freshness (audit fix #4)
+
+runtime/api/routers/intel/__init__.py
+
+  Audit found AGENDA serving 2-day-old data (latest_brief.json
+  last rotated 2026-05-29 06:51 — the legacy P14D pipeline
+  isn't writing it anymore; the Wave 14H Pro Brief writes to
+  morning-brief-pro/ instead).
+
+  FIX: digest now computes brief_age_hours from brief.timestamp.
+  If > 12h, it also reads today's Pro Brief from
+  data/morning-brief-pro/<date>.json and surfaces it as
+  fresh_pro_brief.headline / .lanes / .generated_at. Adds two
+  new top-level fields to the response:
+    stale: bool  (true when brief_age_hours > 12)
+    fresh_pro_brief: dict | null
+    brief_age_hours: float
+
+  iOS can now show a "Showing today's Pro Brief — legacy
+  digest is N hours stale" banner when stale is true.
+
+  Live verified:
+    stale: true, brief_age_hours: 55.9 (legacy brief is ~2.3
+    days old, matches the audit finding).
+
+# 5. XREF ambiguous-word tickers (audit fix #6)
+
+runtime/intelligence/ticker_universe.py
+  NEW _AMBIGUOUS_REQUIRE_DOLLAR set + requires_dollar_prefix()
+  helper. 17 tickers that ARE valid symbols but ALSO common
+  English words:
+    Equities: NOW (ServiceNow), ALL (Allstate), ANY, ON, IT,
+              GO, AI, BIG, MAN, WIN, U, X
+    Crypto:   FLOW, SAND, OP, POL
+
+  These now require explicit `$TICKER` notation. Bare matches
+  in YTC rollup titles like "That just about does it for May!
+  Another busy month..." no longer fire NOW as a ServiceNow
+  promotion.
+
+runtime/cross_reference/__init__.py _extract_tickers
+  Calls requires_dollar_prefix() before the universe lookup.
+  Bare ambiguous tokens dropped.
+
+runtime/intelligence/trend_tracker.py _extract_tickers
+  Same rule. The trend tracker's old `_TICKER_RX.findall()`
+  pattern stripped the $ context, so I switched to
+  full_rx.finditer with $-aware match groups.
+
+runtime/api/routers/intel/__init__.py /intel/convergence
+  READ-TIME filter — promotions.jsonl carries historical
+  rows from before this wave landed. New filter drops any
+  ticker_converge with an ambiguous-word ticker immediately
+  instead of waiting for it to age out of the 24h window.
+
+  Live verified:
+    BEFORE: XREF cards = 7 (incl bogus NOW false positive)
+    AFTER:  XREF cards = 6 (NOW dropped; WTI / XLM / XRP +
+            rate_policy / geopolitical / energy_supply
+            themes remain — all real)
+
+# Files modified (6)
+
+  M runtime/autonomous/watch_queries.json
+  M runtime/autonomous/night_watch/analyst.py
+  M runtime/intelligence/trend_tracker.py
+  M runtime/api/routers/intel/__init__.py (digest + xref read filter)
+  M runtime/intelligence/ticker_universe.py
+  M runtime/cross_reference/__init__.py
+
+# Status of audit RED → improved
+
+  PREDICTIONS — STILL RED (multi-day fix, deferred)
+  NIGHT WATCH — fix landed; will verify on tonight's 02:00 ET run
+                (logging now captures Anthropic's 400 body if it
+                recurs)
+  STREAM     — Reddit queries swap removes upstream cause; the
+               next ~24h of fresh Reddit signals will flush
+               course/bundle spam from the top of STREAM
+  AGENDA     — stale flag + fresh_pro_brief substitute landed
+
+  XREF NOW false positive — FIXED
+  MOVES youtube_search divisor — FIXED
