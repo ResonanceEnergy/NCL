@@ -1,0 +1,128 @@
+Wave 14DF: Night Watch view through ProfessionalMarkdownView — no more JSON-shaped raw markdown
+
+NATRIX screenshot: Night Watch sub-tab showed
+  - NIGHT WATCH header
+  - UNKNOWN status pill
+  - Brief 2026-05-31 + TODAY tags
+  - "> RAW DIAGNOSTICS 9 sections" disclosure
+  - "Hide raw markdown" toggle link
+  - empty body
+
+Plus the "raw markdown" path dumped brief.markdownFull as
+monospace plaintext — exactly the JSON-shaped wall he was calling
+out. The structured arrays (keyFindings / recommendations /
+systemHealth / costReport) were all empty because Wave 14CX's
+Sonnet 400 fix won't take effect until tonight's 2am ET cycle.
+
+NATRIX: "nightwatch need work .. i dont want like to json i want
+to see the data formatted professionally"
+
+# Fix — mirror the 14DE Executive pattern
+
+Sources/Views/Intel/NightWatchView.swift
+
+  body now:
+    VStack(alignment: .leading, spacing: 14) {
+      header                         (unchanged — title + status pill + date tags)
+      ProfessionalMarkdownView(
+        markdown: composeNightWatchMarkdown(),
+        accent: statusColor
+      )
+      footer                         (reduced to clock-icon + "Generated Nh ago")
+    }
+
+  Deleted:
+    - rawDiagnosticsDrawer (chevron + monospace key/value dump)
+    - showRawDrawer / showFullMarkdown @State
+    - footer "View raw markdown" button + overlay ScrollView
+
+  bulletCard (still present) is no longer wired into body — kept
+  for compile compatibility, can be pruned in a follow-up.
+
+# composeNightWatchMarkdown
+
+Builds .md from the parsed brief in the same shape AM/PM/Executive
+use:
+
+  # Night Watch — YYYY-MM-DD
+
+  **Status:** GREEN | YELLOW | RED | UNKNOWN
+
+  ## KEY FINDINGS
+  - finding 1
+  - finding 2
+
+  ## RECOMMENDATIONS
+  - step=1 · action=...
+  - step=2 · action=...
+
+  ## SYSTEM HEALTH
+  - health line 1
+  - health line 2
+
+  ## COST REPORT
+  - cost line 1
+
+  ## DIAGNOSTICS
+  ### COST ANALYSIS
+  <text content of rawAppendix["cost_analysis"]>
+  ### LOG ANALYSIS
+  <text content of rawAppendix["log_analysis"]>
+  ...
+
+  ## NO DATA  (only when ALL arrays are empty)
+  Night Watch hasn't produced structured output for this brief yet.
+  The 2am ET cycle may still be in progress, OR all Sonnet triage
+  calls returned an error — check `/system/silent-failures` for
+  `night_watch_triage_failed`.
+
+The empty-state body specifically pinpoints the Wave 14CX
+diagnostic path so NATRIX (or future Claude) can verify whether
+the silent-failure counters caught the issue.
+
+Recommendations get the `step=N · action=...` key=value treatment
+so the iOS renderer stacks them in cyan monospace rows.
+
+Rawappendix sections become H3 sub-sections under "DIAGNOSTICS"
+H2 — keys upper-cased with underscores → spaces. Content preserves
+its line structure since the analyst output is already loosely
+formatted prose.
+
+# Accent color = status color
+
+  GREEN  → bright green H2 rule + cyan dots
+  YELLOW → yellow rule
+  RED    → red rule
+  UNKNOWN → gray rule (status itself is the cue)
+
+Matches the existing status pill so the page reads as one
+coherent palette.
+
+# Files modified (1)
+
+  M Sources/Views/Intel/NightWatchView.swift
+    - body → header + ProfessionalMarkdownView + footer
+    - NEW composeNightWatchMarkdown()
+    - footer reduced to clock icon + "Generated Nh ago"
+    - Deleted rawDiagnosticsDrawer + showRawDrawer/showFullMarkdown
+      state + raw-markdown ScrollView overlay
+
+# Deployed to 4 targets
+
+  iPhone 16e sim (pid 13640)
+  iPad Pro M5 sim (pid 13785)
+  Physical iPhone 15 Pro Max
+  Physical iPad Pro 11"
+
+# Full BRIEF-family parity complete
+
+  Morning   (Wave 14CY/14DC) — orange accent, .md archive renderer
+  Executive (Wave 14DE)      — cyan accent, composeExecutiveMarkdown
+  Debrief   (Wave 14CY/14DC) — purple accent, .md archive renderer
+  Night Watch (Wave 14DF)    — status accent, composeNightWatchMarkdown
+  Dashboard sheet (Wave 14DC) — accent matches mode, same renderer
+
+All five surfaces route through ProfessionalMarkdownView. No more
+raw-markdown drawers, no more Python-repr blobs, no more JSON
+walls. Open Night Watch → identical visual hierarchy to the BRIEF
+tabs.
