@@ -566,6 +566,17 @@ class AutonomousScheduler:
         except Exception as e:
             log.warning(f"[SCHEDULER] bertopic-retrain loop disabled: {e}")
 
+        # Wave 14CK — Trend tracker rollup (every 30 min).
+        try:
+            self._tasks.append(
+                asyncio.create_task(
+                    self._trend_tracker_loop(),
+                    name="ncl-trend-tracker",
+                )
+            )
+        except Exception as e:
+            log.warning(f"[SCHEDULER] trend-tracker loop disabled: {e}")
+
         # Loop 4: ChromaDB garbage collection (hourly purge of ghost embeddings)
         try:
             from ..memory.chroma_gc import _chroma_gc_loop
@@ -1280,6 +1291,9 @@ class AutonomousScheduler:
             self._task_factories["ncl-bertopic-retrain"] = lambda: _bt_retrain(self.brain)
         except Exception:
             pass
+
+        # Wave 14CK — trend tracker loop factory.
+        self._task_factories["ncl-trend-tracker"] = self._trend_tracker_loop
         if hasattr(self, "_chroma_gc_wrapper"):
             self._task_factories["ncl-chroma-gc"] = self._chroma_gc_wrapper
         if hasattr(self, "_conflict_arb_loop"):
@@ -5440,6 +5454,38 @@ class AutonomousScheduler:
                 await asyncio.sleep(300)
             except asyncio.CancelledError:
                 raise
+
+    async def _trend_tracker_loop(self) -> None:
+        """Wave 14CK — every 30 min, roll signals into hourly buckets
+        and emit threshold-cross alerts. Reads agent_signals.jsonl
+        tail-only; writes to data/trends/{buckets,alerts}-YYYY-MM-DD.
+        Zero LLM cost. Boot delay 90s so we don't fire mid-startup.
+        """
+        await self._interruptible_sleep(90)
+        while self._running:
+            if EMERGENCY_STOP_EVENT.is_set():
+                log.critical("[TREND] emergency stop — halting trend-tracker")
+                break
+            try:
+                from ..intelligence.trend_tracker import trend_once
+
+                res = await asyncio.to_thread(trend_once)
+                log.info(
+                    "[TREND] cycle: %d signals → %d buckets → %d alerts (%ss)",
+                    res.get("n_signals_with_tickers", 0),
+                    res.get("n_buckets", 0),
+                    res.get("n_alerts", 0),
+                    res.get("elapsed_s"),
+                )
+                if self._stats is not None:
+                    self._stats["last_trend_tracker_at"] = res.get("finished_at")
+                    self._stats["last_trend_tracker_result"] = {
+                        "n_buckets": res.get("n_buckets"),
+                        "n_alerts": res.get("n_alerts"),
+                    }
+            except Exception as e:
+                log.exception("[TREND] cycle failed: %s", e)
+            await self._interruptible_sleep(1800)  # 30 min
 
     async def _bm25_rebuild_loop(self) -> None:
         """LOOP 18 — BM25 keyword index maintenance for Loop-11 fusion.

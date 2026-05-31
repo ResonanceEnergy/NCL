@@ -4625,6 +4625,51 @@ Focus on what requires attention or action."""
             self._stats["signals_dropped_hollow"] += 1
             return
 
+        # Wave 14CJ — write-side dedup. Options flow + YTC rollups +
+        # Polymarket markets were writing the same fingerprint dozens of
+        # times per day because the scanners re-emit them every cycle
+        # (UW shows trailing 24h of flow, YTC scrape emits the same
+        # rollup until video drops off the window). The Signal-level
+        # fingerprint() is already tight (Wave 14CG); we just need to
+        # check it against a sliding window of recently-written prints
+        # at the boundary BEFORE writing. Window = NCL_PERSIST_DEDUP_HOURS
+        # (default 4h). Bypass with NCL_PERSIST_DEDUP_HOURS=0.
+        dedup_hours = float(os.getenv("NCL_PERSIST_DEDUP_HOURS", "4"))
+        if dedup_hours > 0:
+            try:
+                fp = signal.fingerprint()
+                now_ts = time.time()
+                # Lazy init of write-side dedup cache (separate from the
+                # ingest-side _seen_fingerprints which is scan-cycle-scoped).
+                if not hasattr(self, "_persist_dedup_cache"):
+                    self._persist_dedup_cache = {}
+                window_s = dedup_hours * 3600
+                # Prune expired
+                expired = [
+                    k for k, ts in self._persist_dedup_cache.items()
+                    if now_ts - ts > window_s
+                ]
+                for k in expired:
+                    self._persist_dedup_cache.pop(k, None)
+                if fp in self._persist_dedup_cache:
+                    self._stats.setdefault("signals_dropped_persist_dedup", 0)
+                    self._stats["signals_dropped_persist_dedup"] += 1
+                    return
+                self._persist_dedup_cache[fp] = now_ts
+                # Bound the cache so it doesn't grow unbounded — Reddit
+                # alone can produce 20+ unique fingerprints/hour with
+                # tier1 pruning, so 5000 is ~10 days of headroom.
+                if len(self._persist_dedup_cache) > 5000:
+                    # Drop oldest 20%
+                    sorted_keys = sorted(
+                        self._persist_dedup_cache.items(),
+                        key=lambda kv: kv[1],
+                    )
+                    for k, _ in sorted_keys[: len(sorted_keys) // 5]:
+                        self._persist_dedup_cache.pop(k, None)
+            except Exception as dd_err:
+                log.debug(f"[AGENT:PERSIST] dedup check failed: {dd_err}")
+
         try:
             _maybe_rotate_agent_signals(self._signals_file)
         except Exception as e:

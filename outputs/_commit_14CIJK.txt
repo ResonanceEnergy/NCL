@@ -1,0 +1,86 @@
+Waves 14CI + 14CJ + 14CK: YouTube/Reddit prune + write-dedup + trend tracker
+
+Three concrete shifts from NATRIX trial-run feedback.
+
+WAVE 14CI — YouTube SEARCH queries + Reddit subreddit prune
+  runtime/autonomous/watch_queries.json
+
+  YouTube SEARCH queries replaced. Was: AI business / crypto trading
+  / indie game dev / AI dev tools / prediction markets / AI music
+  (which surfaced TECHWITHTIM and other off-list creators). Now:
+    XRP, SLV, GLD, XRP ETF, OPTIONS FLOW, CAPITAL ROTATION
+  Aligned with the actual portfolio thesis.
+
+  Reddit subreddits pruned 55 → 10. Was tier1 (10) + tier2 (16) +
+  tier3 (29) = 55 subs producing ~95 signals/hr. Now tier1 only
+  (wallstreetbets / Superstonk / options / stocks / StockMarket /
+  Daytrading / unusual_whales / GME / Shortsqueeze / pennystocks).
+  Volume target: ~20 signals/hr from 95/hr, all trading-relevant.
+
+WAVE 14CJ — Persist-side write dedup
+  runtime/awarebot/agent.py _persist_signal
+
+  Even with the Wave 14CG fingerprint tightening, options_flow was
+  still writing the same flow alert dozens of times because each
+  scan cycle re-emits the trailing 24h. Same for YTC rollups +
+  Polymarket markets. Added a sliding-window dedup cache at the
+  write boundary:
+    - per-process dict {fingerprint: last_seen_ts}
+    - window default 4h (env NCL_PERSIST_DEDUP_HOURS)
+    - dropped writes counted in _stats.signals_dropped_persist_dedup
+    - cache bounded at 5,000 entries (LRU pruning at threshold)
+  Bypass with NCL_PERSIST_DEDUP_HOURS=0.
+
+WAVE 14CK — Time-series trend tracker (NEW PIPELINE)
+  runtime/intelligence/trend_tracker.py (new ~270 LOC)
+
+  Closes the "no trend tracking" gap NATRIX identified. Three
+  functions:
+    rollup_recent()    tail-scans agent_signals.jsonl, buckets by
+                       (source, ticker, hour) for last 30 days,
+                       writes data/trends/buckets-YYYY-MM-DD.json
+    compute_alerts()   computes 24h current vs 7d + 30d rolling
+                       baselines per (source, ticker), emits
+                       threshold alerts:
+                         spiking   ≥ 3× 7d baseline
+                         fading    ≤ 0.4× 7d baseline
+                         anomaly   |z-score vs 30d| ≥ 3
+                       Writes data/trends/alerts-YYYY-MM-DD.json
+                       sorted by |z| then ratio.
+    trend_once()       single rollup + alert pass.
+    load_today_alerts() reads the persisted alerts file.
+
+  Ticker extractor with 60-word stop-word blocklist (drops
+  I/A/AI/IT/USD/etc.) so noise tokens don't pollute the trend
+  surface.
+
+  Backend wiring:
+    GET  /intelligence/trends/today    — read persisted alerts
+    POST /intelligence/trends/refresh  — fire one-shot rollup
+    ncl-trend-tracker scheduler loop   — every 30 min, boot delay 90s
+    routes.py loops registry + last_run mapping
+    36 total scheduler loops (was 35)
+
+  Live verified: 9,560 ticker mentions → 10,128 (source, ticker,
+  hour) buckets → 273 alerts in 0.31s. Top hits include CPI, SPX,
+  XLE, GLD trend flags.
+
+Files:
+  runtime/autonomous/watch_queries.json      (14CI)
+  runtime/awarebot/agent.py                  (14CJ)
+  runtime/intelligence/trend_tracker.py      (14CK new)
+  runtime/api/routers/intel/__init__.py      (14CK endpoints)
+  runtime/autonomous/scheduler.py            (14CK loop + factory)
+  runtime/api/routes.py                      (14CK descriptor + last_run)
+
+Brain bounced, /intelligence/trends/refresh returned 200 + 273
+alerts, ncl-trend-tracker registered in /autonomous/loops.
+
+The pipeline NATRIX asked about — "how is memory tracking trends
+and using this data in future" — is now wired:
+  signals -> (source, ticker, hour) buckets
+          -> 7d/30d rolling baselines
+          -> threshold alerts (spiking / fading / anomaly)
+          -> persisted to disk
+          -> /intelligence/trends/today
+  iOS TRENDS lane consumer is the next wave (14CL).

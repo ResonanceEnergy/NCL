@@ -10,12 +10,12 @@
     "AI startup revenue streams"
   ],
   "youtube": [
-    "AI business automation 2026",
-    "crypto trading strategies algorithmic",
-    "indie game development tutorial",
-    "AI developer tools productivity",
-    "prediction markets analysis",
-    "AI music generation production"
+    "XRP",
+    "SLV",
+    "GLD",
+    "XRP ETF",
+    "OPTIONS FLOW",
+    "CAPITAL ROTATION"
   ],
   "reddit": [
     "artificial intelligence business automation",
@@ -26,7 +26,7 @@
     "AI tools developers 2026"
   ],
   "reddit_subreddits": {
-    "_comment": "Tiered subreddit network — mirrors intelligence/collectors.py",
+    "_comment": "Wave 14CI (2026-05-31) — pruned 55 → 10 (tier1 only). Volume was 95/hr because tier2+tier3 brought 45 extra mostly-noise subs. Restore by re-adding tier2/tier3 keys if needed.",
     "tier1": [
       "wallstreetbets",
       "Superstonk",
@@ -38,55 +38,6 @@
       "GME",
       "Shortsqueeze",
       "pennystocks"
-    ],
-    "tier2": [
-      "thetagang",
-      "amcstock",
-      "DeepFuckingValue",
-      "investing",
-      "ValueInvesting",
-      "swingtrading",
-      "smallstreetbets",
-      "WallStreetbetsELITE",
-      "FluentInFinance",
-      "TheRaceTo10Million",
-      "SatoshiStreetBets",
-      "CryptoCurrency",
-      "Bitcoin",
-      "RealDayTrading",
-      "DDintoGME",
-      "SqueezePlays"
-    ],
-    "tier3": [
-      "ethereum",
-      "CryptoMoonShots",
-      "economics",
-      "economy",
-      "finance",
-      "wallstreet",
-      "dividends",
-      "Bogleheads",
-      "financialindependence",
-      "algotrading",
-      "Forex",
-      "FuturesTrading",
-      "quant",
-      "SPACs",
-      "weedstocks",
-      "Biotechplays",
-      "Semiconductors",
-      "Vitards",
-      "CanadianInvestor",
-      "AusFinance",
-      "UKInvesting",
-      "Optionswheel",
-      "optionstrading",
-      "MillennialBets",
-      "FinancialPlanning",
-      "EducatedInvesting",
-      "TradingView",
-      "maxjustrisk",
-      "personalfinance"
     ]
   },
   "_meta": {
@@ -97,6 +48,10 @@
       "DUBFORGE (music production trends)",
       "STRIKE-POINT (AI infrastructure)"
     ],
-    "updated": "2026-05-17"
+    "updated": "2026-05-31",
+    "wave_14CI_changes": {
+      "youtube_queries_replaced": "XRP / SLV / GLD / XRP ETF / OPTIONS FLOW / CAPITAL ROTATION (was AI/crypto/gamedev/AI music etc.)",
+      "reddit_subreddits_pruned": "tier2 + tier3 removed — 55 → 10 subs to cut 95 signals/hr → ~20/hr"
+    }
   }
 }

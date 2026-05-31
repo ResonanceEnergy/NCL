@@ -4032,6 +4032,35 @@ async def intel_convergence(
 
 
 # ─────────────────────────────────────────────────────────────────────
+# Wave 14CK — Trend tracker (time-series rollups)
+# Pure pull-from-disk. Backed by runtime/intelligence/trend_tracker.py
+# which rolls signals into hourly buckets per (source, ticker) and
+# computes 7d/30d baselines + threshold-cross alerts.
+# ─────────────────────────────────────────────────────────────────────
+
+
+@router.get("/intelligence/trends/today")
+async def intelligence_trends_today(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Today's trend alerts — spiking / fading / anomaly tickers."""
+    from runtime.intelligence.trend_tracker import load_today_alerts
+
+    return load_today_alerts()
+
+
+@router.post("/intelligence/trends/refresh")
+async def intelligence_trends_refresh(
+    _: None = Depends(verify_strike_token_dep),
+) -> dict:
+    """Fire one trend rollup + alert pass on demand."""
+    from runtime.intelligence.trend_tracker import trend_once
+    import asyncio as _asyncio
+
+    return await _asyncio.to_thread(trend_once)
+
+
+# ─────────────────────────────────────────────────────────────────────
 # Wave 14BT — Macro snapshot (Fed RSS + CFTC COT)
 # Surfaces the free-source macro data NCL already collects via
 # free_sources.fetch_fed_speeches / fetch_fed_press_releases /

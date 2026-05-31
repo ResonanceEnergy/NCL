@@ -3412,6 +3412,14 @@ async def autonomous_loops(authorization: str = Header(default="")) -> dict:
             "enabled": True,
             "description": "Weekly per-source BERTopic retrain (Sunday 4am ET) — keeps Cross-Reference theme clusters fresh as the AWAREBOT signal stream evolves",  # noqa: E501
         },
+        # Wave 14CK (2026-05-31) — Trend tracker rollup.
+        {
+            "name": "Trend Tracker",
+            "id": "ncl-trend-tracker",
+            "interval": 1800,
+            "enabled": True,
+            "description": "Rolls signals into hourly buckets per (source, ticker), computes 7d/30d rolling baselines, emits spiking/fading/anomaly alerts when current 24h crosses thresholds.",  # noqa: E501
+        },
         {
             "name": "ChromaDB GC",
             "id": "ncl-chroma-gc",
@@ -3587,6 +3595,8 @@ async def autonomous_loops(authorization: str = Header(default="")) -> dict:
         "ncl-memory-eval": _autonomous._stats.get("last_memory_eval_at"),
         # Wave 14BK (2026-05-30)
         "ncl-bertopic-retrain": _autonomous._stats.get("last_bertopic_retrain_at"),
+        # Wave 14CK (2026-05-31)
+        "ncl-trend-tracker": _autonomous._stats.get("last_trend_tracker_at"),
         "ncl-chroma-gc": _autonomous._stats.get("last_chroma_gc"),
         "ncl-conflict-arb": _autonomous._stats.get("last_conflict_arbitration"),
         "ncl-staleness": _autonomous._stats.get("last_staleness_check"),
