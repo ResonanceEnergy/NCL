@@ -50,6 +50,16 @@ class AutoTraderState:
     # Soft counters (reset at UTC midnight)
     counters_date_utc: str = ""
 
+    # Wave 14DJ-D (2026-06-03) — per-tick kill switches (P9).
+    # Per OPTIONS_BOT_BEST_PRACTICES §5, these fire in hours not weeks.
+    # All reset at UTC midnight along with counters.
+    daily_realized_pnl_usd: float = 0.0       # running today (closes only)
+    consecutive_losses: int = 0               # streak counter
+    last_close_outcome: str = ""              # "win" | "loss" | "scratch"
+    kill_switch_pause: bool = False           # blocks new opens
+    kill_switch_reason: str = ""
+    kill_switch_at_iso: Optional[str] = None
+
     # Free-form metadata
     metadata: dict = field(default_factory=dict)
 

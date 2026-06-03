@@ -335,6 +335,77 @@ async def attribute_close(
     except Exception as e:
         log.warning("[AT-ATTR] friction calibration skipped (non-fatal): %s", e)
 
+    # 8b) Wave 14DJ-D (2026-06-03): kill-switch state update (P9).
+    # Per OPTIONS_BOT_BEST_PRACTICES §5 — track daily realized P/L
+    # and consecutive losses so the policy gate can halt new opens.
+    try:
+        from .state import get_state, _update as _state_update
+        st = await get_state()
+        # Compute realized $$ from R_multiple (engine_r) × planned_R_dollars.
+        r_mult = float(engine_r or 0)
+        planned_R = float(
+            getattr(paper_trade, "effective_R_dollars", None)
+            or getattr(paper_trade, "R_dollars", None)
+            or 100.0
+        )
+        realized_usd = r_mult * planned_R
+        outcome_label = "win" if r_mult > 0.05 else ("loss" if r_mult < -0.05 else "scratch")
+        new_streak = (
+            (getattr(st, "consecutive_losses", 0) + 1) if outcome_label == "loss"
+            else (0 if outcome_label == "win" else getattr(st, "consecutive_losses", 0))
+        )
+        new_pnl = float(getattr(st, "daily_realized_pnl_usd", 0.0) + realized_usd)
+        await _state_update(
+            daily_realized_pnl_usd=new_pnl,
+            consecutive_losses=int(new_streak),
+            last_close_outcome=outcome_label,
+        )
+        result["killswitch_pnl_after"] = new_pnl
+        result["killswitch_streak_after"] = new_streak
+    except Exception as e:
+        log.warning("[AT-ATTR] kill-switch state update failed (non-fatal): %s", e)
+
+    # 9) Wave 14DJ-B (2026-06-03): graveyard strategy auto-pause (P7).
+    # Per OPTIONS_BOT_BEST_PRACTICES §8 anti-pattern #8 — any strategy
+    # with expectancy_R < 0 AND N > 100 closed gets paused at the
+    # policy gate. Pushes a memory unit at importance 90 once per pause
+    # event. Non-blocking — pause failures never break the close path.
+    try:
+        from .policy import get_policy, update_policy
+        strategy = str(getattr(paper_trade, "strategy", None) or "unknown")
+        bandit = await get_bandit()
+        p = await bandit.posterior(strategy) or {}
+        n = int(p.get("n_observed") or 0)
+        avg_r = float(p.get("avg_R_per_trade") or 0)
+        if n > 100 and avg_r < 0:
+            pol = await get_policy()
+            paused_set = set((pol.metadata or {}).get("paused_strategies") or [])
+            if strategy not in paused_set:
+                paused_set.add(strategy)
+                new_meta = dict(pol.metadata or {})
+                new_meta["paused_strategies"] = sorted(paused_set)
+                new_meta["paused_strategies_reason"] = (
+                    f"Wave 14DJ-B auto-pause: {strategy} N={n} avg_R={avg_r:.2f}"
+                )
+                await update_policy(
+                    {
+                        "metadata": new_meta,
+                        "notes": (
+                            f"Wave 14DJ-B auto-paused {strategy} "
+                            f"N={n} avg_R={avg_r:.2f}"
+                        ),
+                    },
+                    updated_by="wave_14DJ-B_auto_pause",
+                )
+                log.warning(
+                    "[AT-ATTR] AUTO-PAUSE strategy=%s N=%d avg_R=%.2f — "
+                    "added to policy.metadata.paused_strategies",
+                    strategy, n, avg_r,
+                )
+                result["auto_paused_strategy"] = strategy
+    except Exception as e:
+        log.warning("[AT-ATTR] auto-pause check skipped (non-fatal): %s", e)
+
     result["ok"] = True
     result["reason"] = "attributed + memory + tracker + bandit updated"
     log.info(

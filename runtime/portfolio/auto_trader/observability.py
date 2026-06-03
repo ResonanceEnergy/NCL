@@ -126,6 +126,61 @@ async def record_reasoning_chain(
         if trade_idea_id in recent:
             log.debug("[AT-OBS] dedup — chain for %s already recorded", trade_idea_id)
             return recent[trade_idea_id]
+        # Wave 14DJ-E (2026-06-03) — options-specific attribution fields
+        # per OPTIONS_BOT_BEST_PRACTICES §6. These let post-mortem
+        # decompose P&L by Greek and IV bucket. All None at open; the
+        # outcome attributor fills them at close.
+        asset_type = (idea_snapshot.get("asset_type") or "").lower()
+        is_options = asset_type in {
+            "options", "option", "spread", "vertical", "condor",
+            "butterfly", "strangle", "straddle", "calendar", "diagonal",
+        }
+        ivr = (idea_snapshot.get("ivr_at_open")
+               or idea_snapshot.get("iv_rank")
+               or (idea_snapshot.get("metadata") or {}).get("ivr_at_open"))
+        try:
+            ivr_f = float(ivr) if ivr is not None else None
+        except (TypeError, ValueError):
+            ivr_f = None
+        ivr_bucket = None
+        if ivr_f is not None:
+            if ivr_f < 30: ivr_bucket = "low"
+            elif ivr_f <= 50: ivr_bucket = "mid_low"
+            elif ivr_f <= 70: ivr_bucket = "mid_high"
+            else: ivr_bucket = "high"
+        dte_raw = idea_snapshot.get("option_dte")
+        try:
+            dte_i = int(dte_raw) if dte_raw is not None else None
+        except (TypeError, ValueError):
+            dte_i = None
+        dte_bucket = None
+        if dte_i is not None:
+            if dte_i <= 7: dte_bucket = "0-7"
+            elif dte_i <= 21: dte_bucket = "8-21"
+            elif dte_i <= 45: dte_bucket = "22-45"
+            elif dte_i <= 75: dte_bucket = "46-75"
+            else: dte_bucket = "76+"
+
+        options_attribution = {
+            "is_options": is_options,
+            "iv_at_open": ivr_f,
+            "iv_rank_bucket": ivr_bucket,
+            "dte_at_open": dte_i,
+            "dte_bucket": dte_bucket,
+            "option_right": idea_snapshot.get("option_right"),
+            "option_strike": idea_snapshot.get("option_strike"),
+            "premium_at_open": idea_snapshot.get("premium"),
+            # Filled at close by outcome_attributor:
+            "iv_at_close": None,
+            "hv_during_hold": None,
+            "theta_captured_pct": None,
+            "delta_pnl": None,
+            "vega_pnl": None,
+            "theta_pnl": None,
+            "slippage_open_pct": None,
+            "slippage_close_pct": None,
+            "exit_trigger": None,  # profit_target | 21dte | stop | defended | drift_halt
+        }
         entry = {
             "ts": _now_iso(),
             "trade_idea_id": trade_idea_id,
@@ -149,6 +204,7 @@ async def record_reasoning_chain(
             "regime_context": regime_context or {},
             "effective_R_dollars": effective_R_dollars,
             "planned_qty": planned_qty,
+            "options_attribution": options_attribution,
             "metadata": metadata or {},
         }
         _ensure_dir()

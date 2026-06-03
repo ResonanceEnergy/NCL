@@ -226,9 +226,45 @@ class TradeIdeaTracker:
             nested = meta.get("sources")
             if isinstance(nested, list) and nested:
                 sources_final = list(nested)
+
+        # Wave 14DJ-A (2026-06-03) — content-based dedup.
+        # Same (strategy, ticker, source, day) within 24h window gets
+        # rejected. Fixes 423/436 GRRR brief:am duplicates today.
+        # Per OPTIONS_BOT_BEST_PRACTICES §8 anti-pattern #1.
+        today_str = _now_iso()[:10]
+        dedup_key = (
+            (strategy or "").lower(),
+            (ticker or "").upper(),
+            (source or "").lower(),
+            today_str,
+        )
         async with self._lock:
             if tid in self._ideas:
                 # Idempotent — return existing without overwriting
+                return asdict(self._ideas[tid])
+            # Walk recent ideas for content-dup
+            for existing in self._ideas.values():
+                e_iso = (existing.issued_at_iso or "")[:10]
+                if e_iso != today_str:
+                    continue
+                e_key = (
+                    (existing.strategy or "").lower(),
+                    (existing.ticker or "").upper(),
+                    (existing.source or "").lower(),
+                    e_iso,
+                )
+                if e_key == dedup_key:
+                    log.info(
+                        "[TRADE-IDEAS] dedup:same_day_resubmit dropped "
+                        "strategy=%s ticker=%s source=%s (existing=%s)",
+                        strategy, ticker, source, existing.trade_idea_id,
+                    )
+                    payload = asdict(existing)
+                    payload["_dedup_dropped"] = True
+                    return payload
+        async with self._lock:
+            # Re-check tid uniqueness (we released the lock above)
+            if tid in self._ideas:
                 return asdict(self._ideas[tid])
             idea = TradeIdea(
                 trade_idea_id=tid,

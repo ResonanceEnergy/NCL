@@ -215,13 +215,72 @@ def _chair_prompt(pack: dict, members: dict) -> str:
     (your synthesis of the lane) with the key facts the lane data surfaces.
     """
     lanes = pack.get("lanes", {})
+    # Wave 14DJ-C (2026-06-03) — regime-aware allowed strategies.
+    # Per OPTIONS_BOT_BEST_PRACTICES §4, the chair was producing 100%
+    # LONG bias. Read VIX term structure + cycle phase + breadth and
+    # derive an `allowed_strategies` constraint. Chair MUST emit at
+    # least one bearish/put idea when regime is bearish.
+    def _regime_allowed_strategies(p: dict) -> dict:
+        vix_ts = (p.get("vix_term_structure") or {})
+        shape = (vix_ts.get("shape") or "").lower()  # contango/backwardation/mixed
+        cycle = (p.get("cycle_phase") or {})
+        phase = (cycle.get("phase") or "").lower()
+        rot = (p.get("rotation_snapshot") or {})
+        breadth = rot.get("breadth_above_50sma_pct")
+        try:
+            breadth_f = float(breadth) if breadth is not None else None
+        except (TypeError, ValueError):
+            breadth_f = None
+        # Default: balanced
+        bias = "balanced"
+        reasons: list[str] = []
+        if shape == "backwardation":
+            bias = "bearish"; reasons.append("VIX term backwardation (front>back)")
+        elif shape == "contango":
+            reasons.append("VIX term contango (stable)")
+        if phase in ("late_cycle", "recession"):
+            bias = "bearish" if bias != "bullish" else "balanced"
+            reasons.append(f"cycle phase {phase}")
+        elif phase in ("early_expansion", "mid_cycle"):
+            if bias != "bearish":
+                bias = "bullish"
+            reasons.append(f"cycle phase {phase}")
+        if breadth_f is not None:
+            if breadth_f < 40:
+                bias = "bearish"; reasons.append(f"breadth low {breadth_f:.0f}%")
+            elif breadth_f > 70 and bias != "bearish":
+                bias = "bullish"; reasons.append(f"breadth high {breadth_f:.0f}%")
+        # Map bias → allowed strategy buckets
+        if bias == "bearish":
+            allowed = ["long_put", "debit_put_vertical", "bear_call_spread",
+                       "short_stock", "long_put_diagonal"]
+            required_one_of = ["long_put", "debit_put_vertical"]
+        elif bias == "bullish":
+            allowed = ["long_call", "debit_call_vertical", "bull_put_spread",
+                       "long_stock", "cash_secured_put", "covered_call"]
+            required_one_of = ["long_call", "debit_call_vertical", "long_stock"]
+        else:  # balanced
+            allowed = ["iron_condor", "iron_butterfly", "long_stock",
+                       "long_call", "long_put", "debit_vertical", "calendar"]
+            required_one_of = []
+        return {
+            "regime_bias": bias,
+            "reasons": reasons,
+            "allowed_strategies": allowed,
+            "required_one_of": required_one_of,
+        }
+
+    regime_constraint = _regime_allowed_strategies(pack)
     light_ctx = {
         "futures": pack.get("futures"),
         "vix_term_structure": pack.get("vix_term_structure"),
+        "cycle_phase": pack.get("cycle_phase"),
+        "rotation_snapshot": pack.get("rotation_snapshot"),
         "economic_calendar": pack.get("economic_calendar"),
         "earnings_today": pack.get("earnings_today"),
         "yesterday_recap": pack.get("yesterday_recap"),
         "situational_context": pack.get("situational_context"),
+        "regime_constraint": regime_constraint,
     }
     return f"""You are the CHAIR of NATRIX's daily brief council. Four specialists have submitted findings. Your job is to synthesize them into a brief with EXACTLY 5 SECTIONS IN FIXED ORDER: PORTFOLIO, INTEL, CALENDAR, JOURNAL, MEMORY.
 
@@ -247,6 +306,8 @@ SYNTHESIS RULES (apply across all 5 sections):
 6. Resolve contradictions between members. If macro is bullish but flow is bearish, call it out and lean on the one with better evidence.
 7. PORTFOLIO trade_ideas MUST contain at least 3 stock ideas AND 2 options ideas (5 total minimum). NATRIX's mandate (Wave 14AA): "i want 3 profatable looking stock ideas and 2 options ideas". Stock ideas have type="stock" with entry/stop/target/timeframe. Options ideas have type="options" with structure (e.g. "AAPL Jun 200C", "TSLA Jul 250/270 call vertical"), entry premium, max_risk, target value, timeframe (DTE). Every idea must have a SOURCES citation list.
 
+7b. REGIME-AWARE STRATEGY CONSTRAINT (CRITICAL — Wave 14DJ-C). The `regime_constraint` block in LIGHT PREP CONTEXT was computed from VIX term structure, cycle phase, and breadth. It carries `regime_bias` ∈ {{bearish, balanced, bullish}}, `allowed_strategies` (the bucket your ideas should draw from), and `required_one_of` (when bias is non-balanced, at least one trade idea MUST come from this list). When `regime_bias == "bearish"`, you MUST emit at least one put-side or short-side idea (`option_right="put"` for options, `direction="short"` for stocks). When `regime_bias == "bullish"`, you MUST emit at least one long-call or long-stock idea. Refusing to emit puts in a bearish regime is the #1 documented failure of NCL's auto-trader; do not repeat it. Every options idea MUST also carry `ivr_at_open` (float 0-100, the current IV rank of the underlying). Short-premium structures require IVR>=30; long-premium structures require IVR<=70.
+
 8. CITATION RULE (CRITICAL — Wave 14CQ): The strings shown in the schema below like "sig_001" / "sig_042" / "sig_007" are EXAMPLE FORMATS, not literal values to copy. EVERY `sig_id`, `sources`, and `citations` value MUST be replaced with the REAL 8-char alphanumeric `id=` token from the member outputs (e.g. id=a1b2c3d4). NEVER emit the literal strings "sig_id" / "sig_001" / "sig_042" / "sig_007" — those are placeholders. If no real id is available for a claim, omit the array entirely (use []) rather than fabricating one.
 
 9. OPTIONS SCHEMA RULE (CRITICAL — Wave 14CU): For type="options" trade ideas, you MUST emit:
@@ -259,6 +320,7 @@ SYNTHESIS RULES (apply across all 5 sections):
    - `underlying_stop` (float) — invalidation level on the UNDERLYING (the stock price at which the thesis is wrong, NOT the premium)
    - The legacy `entry` / `stop` / `target` fields for options should mirror the UNDERLYING values (entry=underlying_entry, stop=underlying_stop, target=underlying_target). Never put a premium in the entry field. Auto-trader treats target < entry as a short position; if your thesis is bearish use type="options" + option_right="put" rather than inverting prices.
    - `max_risk` should equal `premium` × 100 × planned_contracts (the dollar amount you can lose if option expires worthless).
+   - `ivr_at_open` (float 0-100) — IV rank of the underlying. REQUIRED for options. Use 50 as a reasonable default if specialists didn't supply it, but flag with a `ivr_estimated:true` field.
    - If you can't supply ALL options fields with real numbers, emit it as type="stock" using the underlying's price triple instead.
 
 Output ONLY JSON with EXACTLY these top-level keys, IN THIS ORDER:
@@ -273,7 +335,7 @@ Output ONLY JSON with EXACTLY these top-level keys, IN THIS ORDER:
       "drift_flags": ["bravo: DRIFT_DOWN since 5/27" or similar, empty list if none]
     }},
     "paper_state": {{"balance_usd": float_or_null, "open_positions": int, "today_closes": int, "today_realized_r": float_or_null}},
-    "trade_ideas": [{{"type":"stock|options|futures","ticker":"...","thesis":"...","entry":"...","stop":"...","target":"...","timeframe":"...","structure":"..." (options only),"max_risk":"..." (options only),"option_strike":float_or_null (options only — strike price),"option_dte":int_or_null (options only — days-to-expiry),"option_right":"call|put" (options only),"underlying_entry":float_or_null (options only — current underlying price when idea was emitted),"underlying_target":float_or_null (options only — target underlying price for thesis),"underlying_stop":float_or_null (options only — invalidation level on underlying),"premium":float_or_null (options only — entry premium $X.XX per contract, e.g. 2.50),"sources":["<real 8-char id from member output, e.g. a1b2c3d4>"]}}],
+    "trade_ideas": [{{"type":"stock|options|futures","ticker":"...","thesis":"...","entry":"...","stop":"...","target":"...","timeframe":"...","structure":"..." (options only),"max_risk":"..." (options only),"option_strike":float_or_null (options only — strike price),"option_dte":int_or_null (options only — days-to-expiry),"option_right":"call|put" (options only),"underlying_entry":float_or_null (options only — current underlying price when idea was emitted),"underlying_target":float_or_null (options only — target underlying price for thesis),"underlying_stop":float_or_null (options only — invalidation level on underlying),"premium":float_or_null (options only — entry premium $X.XX per contract, e.g. 2.50),"ivr_at_open":float_or_null (options only — IV rank 0-100 of underlying — REQUIRED for options),"sources":["<real 8-char id from member output, e.g. a1b2c3d4>"]}}],
     "rotation_regime": {{"current_phase":"...","leading_sectors":[],"weakening_sectors":[],"breadth_pct":float_or_null,"one_liner":"..."}},
     "risk_flags": [{{"text":"...","severity":"low|med|high"}}]
   }},
